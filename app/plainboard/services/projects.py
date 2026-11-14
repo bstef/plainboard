@@ -12,6 +12,7 @@ from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate
 from ..security import decrypt, encrypt
 from . import agents as agent_service
 from . import repositories as repo_service
+from . import schedules as schedule_service
 from .errors import NotFound, ServiceError
 from .util import slugify
 
@@ -41,12 +42,13 @@ async def create(session: AsyncSession, data: ProjectCreate) -> Project:
     await session.commit()
     for repo in data.repositories:
         await repo_service.create(session, project.id, repo)
-    await agent_service.create(
+    manager = await agent_service.create(
         session,
         project.id,
         AgentCreate(name="Manager", role="Project Manager", description=MANAGER_DESCRIPTION, toolset="board"),
         is_manager=True,
     )
+    await schedule_service.create_tidy(session, manager)
     return project
 
 

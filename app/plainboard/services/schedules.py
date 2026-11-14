@@ -16,6 +16,27 @@ from . import settings as settings_service
 from .errors import NotFound, ServiceError
 
 
+# Every project starts with this schedule for its manager. It is an ordinary schedule: the user
+# (or the manager) can change its prompt or interval, pause it or delete it.
+TIDY_NAME = "Tidy up"
+TIDY_CRON = "0 */4 * * *"
+TIDY_PROMPT = """\
+Routine tidy-up, so that nothing piles up that nobody needs any more. Work carefully: change only what
+is clearly outdated or redundant. When in doubt, leave it as it is. Nothing here is urgent.
+
+Look through:
+- Project notes: merge duplicates, correct outdated ones, delete obsolete ones, unpin what not everyone
+  must always know. Your own notes: forget what no longer applies.
+- Schedules: delete those that have done their job or repeat another one (not this one).
+- Tickets: move finished ones to done and archive old done ones. A ticket that looks no longer relevant
+  stays; mention it in your reply instead of deleting it.
+- Task lists of the team: delete tasks that are done elsewhere or no longer make sense.
+- Team: do not remove or change agents; if one seems no longer needed, mention it in your reply.
+
+Never delete anything the user wrote or may still need. Do not start new work, do not delegate and do
+not message teammates for this. Reply in one or two lines: what you changed, or "Nothing to tidy."."""
+
+
 def _zone(name: str) -> ZoneInfo:
     try:
         return ZoneInfo(name)
@@ -86,6 +107,12 @@ async def create(session: AsyncSession, project_id: int, data: ScheduleCreate, *
     await session.commit()
     bus.publish(project_id, "schedule.upserted", ScheduleOut.model_validate(schedule))
     return schedule
+
+
+async def create_tidy(session: AsyncSession, manager: Agent) -> Schedule:
+    """The default tidy-up schedule of a new project's manager."""
+    data = ScheduleCreate(name=TIDY_NAME, agent_id=manager.id, prompt=TIDY_PROMPT, kind="cron", cron=TIDY_CRON)
+    return await create(session, manager.project_id, data)
 
 
 async def update(session: AsyncSession, schedule: Schedule, data: ScheduleUpdate) -> Schedule:

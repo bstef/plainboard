@@ -485,8 +485,11 @@ def test_schedule_fires_once(client, project):
     wait_for(lambda: idle(client, pid))
     run = runs_of(client, pid)[0]
     assert run["trigger"] == "schedule" and run["status"] == "succeeded"
-    sched = client.get(f"/api/projects/{pid}/schedules").json()[0]
+    tidy, sched = client.get(f"/api/projects/{pid}/schedules").json()
     assert sched["enabled"] is False and sched["next_run_at"] is None
+    # Every project starts with the manager's tidy-up schedule.
+    assert (tidy["name"], tidy["cron"], tidy["agent_id"], tidy["enabled"]) == ("Tidy up", "0 */4 * * *", manager["id"], True)
+    assert tidy["next_run_at"] and "Work carefully" in tidy["prompt"]
 
 
 def test_cron_schedule_validation(client, project):
@@ -516,7 +519,7 @@ def test_manager_tools_manage_notes_schedules_agents(client, project):
     assert len(tool_msgs) == 5 and not any(m["meta"]["is_error"] for m in tool_msgs), [m["meta"] for m in tool_msgs]
     assert agents_by_slug(client, pid)["qa"]["model"] == "claude-haiku-5-5"
     assert client.get(f"/api/projects/{pid}/notes").json()[0]["title"] == "Stack"
-    assert client.get(f"/api/projects/{pid}/schedules").json()[0]["cron"] == "0 9 * * 1-5"
+    assert client.get(f"/api/projects/{pid}/schedules").json()[-1]["cron"] == "0 9 * * 1-5"
     assert client.get(f"/api/projects/{pid}/tasks").json()[0]["status"] == "review"
 
     # Pinned notes reach the agent: as a briefing update now, in the system prompt of its next session.
