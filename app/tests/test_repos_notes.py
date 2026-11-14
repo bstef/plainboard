@@ -185,3 +185,26 @@ def test_a_repository_can_have_its_own_access(client, project):
     assert own["url"] == "git@gitlab.com:acme/web.git"
     reset = client.patch(f"/api/repositories/{keyed['id']}", json={"auth": "default"}).json()
     assert (reset["auth"], reset["ssh_public_key"]) == ("default", "")
+
+
+def test_one_ssh_key_for_all_repositories(client, project):
+    pid = project["id"]
+    assert client.get("/api/settings").json()["values"]["git_ssh_public_key"] == ""
+    values = client.post("/api/settings/git-ssh-key", json={}).json()["values"]
+    assert values["git_ssh_key"] is True and values["git_ssh_public_key"].startswith("ssh-ed25519 ") and values["git_ssh_public_key"].endswith(" plainboard")
+    # The settings form sends back what it was given; that must not change the key.
+    client.put("/api/settings", json={"values": {"git_ssh_public_key": "x", "git_ssh_key": "", "max_parallel_runs": 3}})
+    assert client.get("/api/settings").json()["values"]["git_ssh_public_key"] == values["git_ssh_public_key"]
+
+    add_repo(client, pid, "git@github.com:acme/api.git")
+    dev = make_dev(client, pid)
+    chat(client, dev["id"], "SAY hi")
+    wait_for(lambda: idle(client, pid))
+    spec = runner(client).specs[-1]
+    assert spec.credentials.git_ssh_key.startswith("-----BEGIN OPENSSH PRIVATE KEY-----") and spec.workspace.repos[0].ssh_key is None
+
+    own = client.post("/api/settings/git-ssh-key", json={"private_key": spec.credentials.git_ssh_key}).json()["values"]
+    assert own["git_ssh_public_key"] == values["git_ssh_public_key"]
+    assert client.post("/api/settings/git-ssh-key", json={"private_key": "nope"}).status_code == 400
+    gone = client.delete("/api/settings/git-ssh-key").json()["values"]
+    assert gone["git_ssh_key"] is False and gone["git_ssh_public_key"] == ""

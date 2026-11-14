@@ -59,7 +59,8 @@ Open <http://localhost:8080>, then:
    left. The last 5 % of each subscription are used once all are that full; API keys only step in when
    every subscription is used up. You can pin an agent to an
    account in the team editor.
-3. Optional, **Settings → GitHub**: paste a GitHub token (fine-grained or classic). Or give single
+3. Optional, **Settings → GitHub**: paste a GitHub token (fine-grained or classic), or create one SSH
+   key for all repositories with an SSH address and add it to your account at the git host. Or give single
    repositories their own token or SSH key (deploy key) in the project dialog; that also works for
    GitLab and other git hosts.
 4. Create a project, describe what you want in the manager chat, or add tickets and move them to

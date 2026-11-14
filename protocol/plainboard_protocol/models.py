@@ -39,6 +39,7 @@ class Credentials(BaseModel):
     # Which of the runner's Codex sign-ins to use: every account has its own Codex home.
     codex_account: str = Field(default=DEFAULT_ACCOUNT, pattern=ACCOUNT_KEY_PATTERN)
     github_token: str | None = None
+    git_ssh_key: str | None = None  # private key for repositories with an SSH address and no key of their own
     git_author_name: str = "PlainBoard Agent"
     git_author_email: str = "agent@plainboard.local"
     secrets: dict[str, str] = Field(default_factory=dict)  # user-defined environment variables

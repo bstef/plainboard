@@ -20,10 +20,14 @@ class SettingDef:
     default: Any
     secret: bool = False
     env: str | None = None  # environment fallback
+    managed: bool = False  # set by its own endpoint, not through the settings form
 
 
 SETTINGS: dict[str, SettingDef] = {
     "github_token": SettingDef(None, secret=True, env="GITHUB_TOKEN"),
+    # One SSH key for every repository with an SSH address that has no key of its own.
+    "git_ssh_key": SettingDef(None, secret=True, managed=True),
+    "git_ssh_public_key": SettingDef("", managed=True),
     "git_author_name": SettingDef("PlainBoard Agent"),
     "git_author_email": SettingDef("agent@plainboard.local"),
     "default_provider": SettingDef("claude_code"),
@@ -57,11 +61,13 @@ async def get(session: AsyncSession, key: str) -> Any:
     return (await get_all(session))[key]
 
 
-async def update(session: AsyncSession, values: dict[str, Any]) -> None:
+async def update(session: AsyncSession, values: dict[str, Any], *, managed: bool = False) -> None:
     for key, value in values.items():
         definition = SETTINGS.get(key)
         if definition is None:
             raise ValueError(f"Unknown setting: {key}")
+        if definition.managed and not managed:
+            continue  # the form sends back what it was given; these have their own endpoint
         row = await session.get(Setting, key) or Setting(key=key, secret=definition.secret)
         if definition.secret:
             row.value = encrypt(value) if value else None
@@ -69,6 +75,19 @@ async def update(session: AsyncSession, values: dict[str, Any]) -> None:
             row.value = None if value is None else json.dumps(value)
         session.add(row)
     await session.commit()
+
+
+async def set_ssh_key(session: AsyncSession, private_key: str | None) -> None:
+    """Create the general SSH key pair (no key given), take the user's own key, or remove it ("")."""
+    from .repositories import new_key_pair, read_private_key
+
+    if private_key == "":
+        private, public = None, ""
+    elif private_key:
+        private, public = read_private_key(private_key, "plainboard")
+    else:
+        private, public = new_key_pair("plainboard")
+    await update(session, {"git_ssh_key": private, "git_ssh_public_key": public}, managed=True)
 
 
 async def public_view(session: AsyncSession) -> dict[str, Any]:
@@ -94,6 +113,7 @@ def credentials(
     return Credentials(
         **(account or {}),
         github_token=github_token_override or values.get("github_token"),
+        git_ssh_key=values.get("git_ssh_key"),
         git_author_name=values.get("git_author_name") or "PlainBoard Agent",
         git_author_email=values.get("git_author_email") or "agent@plainboard.local",
         secrets=secrets or {},

@@ -243,7 +243,7 @@ async def check_github(body: GitHubCheck) -> CheckResult:
         return CheckResult(ok=False, detail="No GitHub token configured")
     for repo in repos:
         try:
-            await run_cmd(["git", *config_args(repo), "ls-remote", "--heads", repo.url], cwd=None, env=env, timeout=60)
+            await run_cmd(["git", *config_args(repo, body.credentials), "ls-remote", "--heads", repo.url], cwd=None, env=env, timeout=60)
         except WorkspaceError:
             ok = False
             parts.append(f"not reachable: {repo.url}")

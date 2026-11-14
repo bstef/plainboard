@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { checks, qk, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
-import { Button, ErrorText, Field, Input, Modal, Select } from "../../components/ui";
+import { Button, ErrorText, Field, Input, Modal, Select, Textarea } from "../../components/ui";
 import { equivalentModel } from "../../lib/models";
 import { ModelSelect } from "../team/AgentEditor";
 import { AccountsEditor } from "./AccountsEditor";
@@ -152,6 +152,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             </Button>
             <CheckBadge result={githubCheck} />
           </div>
+          <SshKeyEditor publicKey={settings.data.values.git_ssh_public_key ?? ""} />
         </Section>
 
         <Section title={t("secrets.title")} description={t("secrets.globalHint")}>
@@ -205,6 +206,84 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         <ErrorText error={error} />
       </div>
     </Modal>
+  );
+}
+
+/** One SSH key for all repositories with an SSH address. Saved right away, apart from the form. */
+function SshKeyEditor({ publicKey }: { publicKey: string }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [own, setOwn] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const change = async (action: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await action();
+      setOwn("");
+      setCopied(false);
+      await qc.invalidateQueries({ queryKey: qk.settings });
+    } catch (err) {
+      setError(err);
+    }
+  };
+  const create = (privateKey?: string) => {
+    if (publicKey && !confirm(t("settings.sshKeyConfirmNew"))) return;
+    change(() => api.post("/settings/git-ssh-key", privateKey ? { private_key: privateKey } : {}));
+  };
+  const remove = () => {
+    if (confirm(t("settings.sshKeyConfirmRemove"))) change(() => api.del("/settings/git-ssh-key"));
+  };
+  const copy = async () => {
+    await navigator.clipboard.writeText(publicKey);
+    setCopied(true);
+  };
+
+  return (
+    <Field group label={t("settings.sshKey")} hint={t("settings.sshKeyHint")}>
+      <div className="space-y-2">
+        {publicKey ? (
+          <code className="block rounded-md bg-zinc-50 px-2 py-1.5 font-mono text-xs break-all ring-1 ring-zinc-200 dark:bg-zinc-800/40 dark:ring-zinc-700">{publicKey}</code>
+        ) : (
+          <p className="text-xs text-zinc-500">{t("settings.sshKeyNone")}</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {publicKey && (
+            <Button size="sm" variant="primary" onClick={copy}>
+              {copied ? t("projects.repoSshCopied") : t("projects.repoSshCopy")}
+            </Button>
+          )}
+          <Button size="sm" onClick={() => create()}>
+            {publicKey ? t("settings.sshKeyNew") : t("settings.sshKeyCreate")}
+          </Button>
+          {publicKey && (
+            <Button size="sm" variant="ghost" onClick={remove}>
+              {t("settings.sshKeyRemove")}
+            </Button>
+          )}
+        </div>
+        <details className="text-xs text-zinc-500">
+          <summary className="cursor-pointer">{t("settings.sshKeyOwn")}</summary>
+          <div className="mt-2 space-y-2">
+            <Textarea
+              rows={3}
+              className="font-mono text-xs"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={t("settings.sshKeyOwn")}
+              placeholder={t("projects.repoSshOwnPlaceholder")}
+              value={own}
+              onChange={(e) => setOwn(e.target.value)}
+            />
+            <Button size="sm" disabled={!own.trim()} onClick={() => create(own)}>
+              {t("settings.sshKeyOwnSave")}
+            </Button>
+          </div>
+        </details>
+        <ErrorText error={error} />
+      </div>
+    </Field>
   );
 }
 

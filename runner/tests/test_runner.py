@@ -510,3 +510,11 @@ async def test_a_repository_uses_its_own_access(workspaces, tmp_path, monkeypatc
         "http.https://github.com/.extraHeader": "Authorization: Basic eC1hY2Nlc3MtdG9rZW46dG9r"
     }
     assert repo_config(RepoSpec(name="web", url="https://github.com/acme/web.git")) == {}
+
+    # The general SSH key: for SSH addresses without a key of their own, and nothing else.
+    general = Credentials(git_ssh_key="GENERAL KEY")
+    ssh = repo_config(RepoSpec(name="web", url="git@github.com:acme/web.git"), general)
+    assert "IdentitiesOnly=yes" in ssh["core.sshCommand"] and repo_config(RepoSpec(name="web", url="ssh://git@host/acme/web.git"), general) == ssh
+    assert repo_config(RepoSpec(name="web", url="https://github.com/acme/web.git"), general) == {}
+    assert repo_config(RepoSpec(name="web", url=url), general) == {}
+    assert repo_config(RepoSpec(name="web", url="git@github.com:acme/web.git", ssh_key="PRIVATE KEY"), general) != ssh

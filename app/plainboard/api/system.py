@@ -63,6 +63,23 @@ async def put_settings(body: SettingsUpdate, session: Session) -> SettingsOut:
     return await get_settings(session)
 
 
+class SshKeyIn(BaseModel):
+    private_key: str | None = None  # empty: PlainBoard creates a key pair
+
+
+@router.post("/settings/git-ssh-key", response_model=SettingsOut)
+async def set_git_ssh_key(body: SshKeyIn, session: Session) -> SettingsOut:
+    """Create (or take over) the SSH key for all repositories with an SSH address. Replaces the old one."""
+    await settings_service.set_ssh_key(session, (body.private_key or "").strip() or None)
+    return await get_settings(session)
+
+
+@router.delete("/settings/git-ssh-key", response_model=SettingsOut)
+async def delete_git_ssh_key(session: Session) -> SettingsOut:
+    await settings_service.set_ssh_key(session, "")
+    return await get_settings(session)
+
+
 class GithubCheckIn(BaseModel):
     token: str | None = None
 
