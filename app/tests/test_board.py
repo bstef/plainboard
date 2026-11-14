@@ -104,7 +104,9 @@ def test_public_api_shows_only_customer_texts(client, project):
     assert client.get(url).status_code == 401
     assert client.get(url, headers={"Authorization": "Bearer nope"}).status_code == 401
 
-    key = client.post(f"/api/projects/{pid}/public-api-key").json()["key"]
+    created = client.post(f"/api/projects/{pid}/public-api-keys", json={"label": "Website"}).json()
+    key = created["key"]
+    assert key.startswith("pb_") and created["hint"] == key[-4:] and created["last_used_at"] is None
     headers = {"Authorization": f"Bearer {key}"}
     resp = client.get(url, headers=headers)
     assert resp.status_code == 200 and resp.headers["access-control-allow-origin"] == "*"
@@ -115,12 +117,20 @@ def test_public_api_shows_only_customer_texts(client, project):
     assert body["tasks"][0]["title"] == "Faster opening of books" and body["tasks"][0]["number"] == shown["number"]
     assert body["tasks"][0]["description"] == "Large books open sooner."
     assert "secret" not in resp.text and "Refactor" not in resp.text
-    assert client.get(f"/api/projects/{pid}").json()["has_public_api_key"] is True
+    # Several keys with labels: each works on its own, and none can be read again.
+    second = client.post(f"/api/projects/{pid}/public-api-keys", json={"label": "Status page"}).json()
+    listed = client.get(f"/api/projects/{pid}/public-api-keys").json()
+    assert [(k["label"], k["key"]) for k in listed] == [("Website", None), ("Status page", None)]
+    assert listed[0]["last_used_at"] and listed[1]["last_used_at"] is None
+    assert client.get(url, headers={"Authorization": f"Bearer {second['key']}"}).status_code == 200
+    assert client.patch(f"/api/public-api-keys/{second['id']}", json={"label": "Partner"}).json()["label"] == "Partner"
+    assert client.delete(f"/api/public-api-keys/{second['id']}").status_code == 204
+    assert client.get(url, headers={"Authorization": f"Bearer {second['key']}"}).status_code == 401
 
     client.patch(f"/api/tasks/{shown['id']}", json={"customer_title": ""})
     assert client.get(url, headers=headers).json()["tasks"] == []
 
-    client.delete(f"/api/projects/{pid}/public-api-key")
+    client.delete(f"/api/public-api-keys/{created['id']}")
     assert client.get(url, headers=headers).status_code == 401
 
 

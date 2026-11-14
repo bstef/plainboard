@@ -1,10 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { checks, qk, useRepositories } from "../../api/queries";
-import type { CheckResult, Project, Repository } from "../../api/types";
-import { Button, ErrorText, Field, Input, Modal, Textarea, Toggle } from "../../components/ui";
+import type { CheckResult, Project, PublicApiKey, Repository } from "../../api/types";
+import { Button, ErrorText, Field, IconButton, Input, Modal, Textarea, Toggle } from "../../components/ui";
+import { timeAgo } from "../../lib/format";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { RepositoriesEditor, type RepoDraft } from "./RepositoriesEditor";
@@ -202,50 +204,92 @@ export function ProjectDialog({
 function PublicApiKeyEditor({ project }: { project: Project }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [active, setActive] = useState(project.has_public_api_key);
-  const [key, setKey] = useState<string | null>(null);
+  const queryKey = ["public-api-keys", project.id];
+  const keys = useQuery({ queryKey, queryFn: () => api.get<PublicApiKey[]>(`/projects/${project.id}/public-api-keys`) });
+  const [label, setLabel] = useState("");
+  const [created, setCreated] = useState<PublicApiKey | null>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   const change = async (action: () => Promise<void>) => {
     setError(null);
     try {
       await action();
-      await qc.invalidateQueries({ queryKey: qk.projects });
+      await qc.invalidateQueries({ queryKey });
     } catch (err) {
       setError(err);
     }
   };
   const create = () =>
     change(async () => {
-      setKey((await api.post<{ key: string }>(`/projects/${project.id}/public-api-key`)).key);
-      setActive(true);
+      setCreated(await api.post<PublicApiKey>(`/projects/${project.id}/public-api-keys`, { label: label.trim() }));
+      setCopied(false);
+      setLabel("");
     });
-  const revoke = () =>
+  const revoke = (key: PublicApiKey) => {
+    if (!confirm(t("projects.publicApiConfirmRevoke", { name: key.label || t("projects.publicApiUnnamed") }))) return;
     change(async () => {
-      await api.del(`/projects/${project.id}/public-api-key`);
-      setKey(null);
-      setActive(false);
+      await api.del(`/public-api-keys/${key.id}`);
+      if (created?.id === key.id) setCreated(null);
     });
+  };
+  const copy = async () => {
+    if (!created?.key) return;
+    await navigator.clipboard.writeText(created.key);
+    setCopied(true);
+  };
 
   return (
     <div className="space-y-2">
-      {key ? (
-        <div className="space-y-1">
-          <p className="text-xs text-amber-600">{t("projects.publicApiCopy")}</p>
-          <Input readOnly value={key} onFocus={(e) => e.target.select()} className="font-mono" />
+      {(keys.data?.length ?? 0) > 0 && (
+        <ul className="divide-y divide-zinc-100 rounded-lg ring-1 ring-zinc-200 dark:divide-zinc-800 dark:ring-zinc-800">
+          {keys.data!.map((key) => (
+            <li key={key.id} className="flex items-center gap-2 px-3 py-2">
+              <KeyRound className="size-3.5 shrink-0 text-zinc-400" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">
+                  {key.label || t("projects.publicApiUnnamed")}
+                  {key.hint && <span className="ml-1.5 font-mono text-xs font-normal text-zinc-400">…{key.hint}</span>}
+                </div>
+                <div className="truncate text-xs text-zinc-500">
+                  {t("projects.publicApiCreated", { when: timeAgo(key.created_at) })} ·{" "}
+                  {key.last_used_at ? t("projects.publicApiUsed", { when: timeAgo(key.last_used_at) }) : t("projects.publicApiNeverUsed")}
+                </div>
+              </div>
+              <IconButton label={t("projects.publicApiRevoke")} onClick={() => revoke(key)}>
+                <Trash2 className="size-3.5" />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+      {created?.key && (
+        <div className="space-y-1 rounded-lg bg-amber-50 p-3 dark:bg-amber-950/30">
+          <p className="text-xs text-amber-700 dark:text-amber-400">{t("projects.publicApiCopy")}</p>
+          <div className="flex gap-2">
+            <Input readOnly value={created.key} onFocus={(e) => e.target.select()} className="font-mono" />
+            <Button size="md" onClick={copy}>
+              {copied ? t("projects.repoSshCopied") : t("projects.repoSshCopy")}
+            </Button>
+          </div>
         </div>
-      ) : (
-        active && <p className="text-xs text-zinc-500">{t("projects.publicApiActive")}</p>
       )}
       <div className="flex gap-2">
-        <Button size="sm" onClick={create}>
-          {active ? t("projects.publicApiRenew") : t("projects.publicApiCreate")}
+        <Input
+          value={label}
+          maxLength={200}
+          placeholder={t("projects.publicApiLabel")}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              create();
+            }
+          }}
+        />
+        <Button size="md" className="shrink-0" onClick={create}>
+          {t("projects.publicApiCreate")}
         </Button>
-        {active && (
-          <Button size="sm" variant="danger" onClick={revoke}>
-            {t("projects.publicApiRevoke")}
-          </Button>
-        )}
       </div>
       <ErrorText error={error} />
     </div>

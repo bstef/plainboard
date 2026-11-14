@@ -29,6 +29,7 @@ token that is valid only while the run lasts and only for that run's project and
 | Concept | Where | Notes |
 |---|---|---|
 | Ticket (`Task`) | `models.py`, `services/board.py` | Never assigned to agents. Statuses live in `TaskStatus`. |
+| Public API keys | `models.PublicApiKey`, `services/api_keys.py` | Several labelled keys per project for `api/public.py`. Only the hash is stored (the key is shown once); `last_used_at` is written at most hourly. |
 | Customer texts | `task.customer_title`, `task.customer_description`, `api/public.py` | Short public title and description on a ticket, mostly written by the manager. `GET /api/public/tasks` with a project key returns only tickets with a customer title, and only these texts, number, status and date. |
 | Assignment | `run_manager.delegate` | A work order for one agent, optionally linked to a ticket. |
 | Task list (`Todo`) | `services/todos.py`, `tools/todos.py`, `features/team/TodoDialog.tsx` | Planned work per team member: title and a Markdown description. The manager adds, edits, moves and deletes items; members see their own list and mark items done. Agents only see open items: titles in the turn (never the system prompt, so the cache stays valid), and within a session only when the list changed (`conversation.todos_shown`); details via `get_todo`. Done items move to the archive after 7 days and are deleted after 90 (scheduler). A list does not start a run. |

@@ -11,7 +11,6 @@ export interface Project {
   description: string;
   workspace_path: string | null;
   has_github_token: boolean;
-  has_public_api_key: boolean;
   auto_wake_manager: boolean;
   auto_archive_days: number;
   label_colors: Record<string, string>;
@@ -24,6 +23,17 @@ export interface Secret {
   name: string;
   description: string;
   updated_at: string;
+}
+
+/** A key for a project's read-only public API. `key` is only set right after creating it. */
+export interface PublicApiKey {
+  id: number;
+  project_id: number;
+  label: string;
+  hint: string;
+  created_at: string;
+  last_used_at: string | null;
+  key: string | null;
 }
 
 /** How git reaches a repository: the general GitHub token (or none), its own token, or its own SSH key. */

@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from ..schemas import PublicBoard
 from ..services import board as board_service
-from ..services import projects as project_service
+from ..services import api_keys as api_key_service
 from .deps import Session
 
 router = APIRouter(prefix="/api/public", tags=["public"])
@@ -24,7 +24,7 @@ async def preflight() -> Response:
 @router.get("/tasks", response_model=PublicBoard)
 async def public_tasks(session: Session, response: Response, authorization: str | None = Header(default=None)):
     key = (authorization or "").removeprefix("Bearer ").strip()
-    project = await project_service.by_public_api_key(session, key) if key else None
+    project = await api_key_service.project_for(session, key) if key else None
     if project is None:
         return JSONResponse({"detail": "Invalid API key"}, status_code=401, headers=CORS)
     response.headers.update({**CORS, "Cache-Control": "public, max-age=60"})

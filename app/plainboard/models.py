@@ -115,13 +115,26 @@ class Project(Timestamps, Base):
     # Maintained by the manager: installs what this project needs, so it survives container rebuilds.
     setup_script: Mapped[str] = mapped_column(Text, default="")
     github_token_enc: Mapped[str | None] = mapped_column(Text)
-    public_api_key_hash: Mapped[str | None] = mapped_column(String(64), unique=True)  # read-only access to customer notes
     auto_wake_manager: Mapped[bool] = mapped_column(Boolean, default=True)
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never
 
     agents: Mapped[list[Agent]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class PublicApiKey(Base):
+    """A key for the read-only public API of a project (customer texts of its tickets). A project
+    can have several, each with a label saying where it is used. Only the hash is stored."""
+
+    __tablename__ = "public_api_keys"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    hint: Mapped[str] = mapped_column(String(8), default="")  # last characters, to recognise the key
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Repository(Timestamps, Base):

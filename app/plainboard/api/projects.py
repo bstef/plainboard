@@ -6,8 +6,9 @@ from sqlalchemy import select
 
 from ..models import ACTIVE_RUN_STATUSES, Run
 from ..orchestration.runner_client import RunnerError
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKey
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
 from ..services import agents as agent_service
+from ..services import api_keys as api_key_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
@@ -55,15 +56,28 @@ async def check_project_github(project_id: int, session: Session, runner: Runner
     return CheckOut(ok=result.ok, detail=result.detail)
 
 
-@router.post("/projects/{project_id}/public-api-key", response_model=PublicApiKey, status_code=201)
-async def create_public_api_key(project_id: int, session: Session) -> PublicApiKey:
-    project = await project_service.get(session, project_id)
-    return PublicApiKey(key=await project_service.create_public_api_key(session, project))
+@router.get("/projects/{project_id}/public-api-keys", response_model=list[PublicApiKeyOut])
+async def list_public_api_keys(project_id: int, session: Session) -> list[PublicApiKeyOut]:
+    return [PublicApiKeyOut.model_validate(k) for k in await api_key_service.list_for_project(session, project_id)]
 
 
-@router.delete("/projects/{project_id}/public-api-key", status_code=204)
-async def revoke_public_api_key(project_id: int, session: Session) -> None:
-    await project_service.revoke_public_api_key(session, await project_service.get(session, project_id))
+@router.post("/projects/{project_id}/public-api-keys", response_model=PublicApiKeyOut, status_code=201)
+async def create_public_api_key(project_id: int, body: PublicApiKeyIn, session: Session) -> PublicApiKeyOut:
+    """The answer carries the key itself, this once."""
+    key, secret = await api_key_service.create(session, await project_service.get(session, project_id), body.label)
+    out = PublicApiKeyOut.model_validate(key)
+    out.key = secret
+    return out
+
+
+@router.patch("/public-api-keys/{key_id}", response_model=PublicApiKeyOut)
+async def rename_public_api_key(key_id: int, body: PublicApiKeyIn, session: Session) -> PublicApiKeyOut:
+    return PublicApiKeyOut.model_validate(await api_key_service.rename(session, await api_key_service.get(session, key_id), body.label))
+
+
+@router.delete("/public-api-keys/{key_id}", status_code=204)
+async def revoke_public_api_key(key_id: int, session: Session) -> None:
+    await api_key_service.delete(session, await api_key_service.get(session, key_id))
 
 
 # --- agents ---------------------------------------------------------------------------------

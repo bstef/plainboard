@@ -72,10 +72,8 @@
     "localFolderHint": "Folder inside the workspaces directory that all agents share, e.g. a bind-mounted project on your machine. Repositories are cloned into sub folders. Empty: each agent gets its own directory.",
     "githubToken": "GitHub token override (optional)",
     "publicApi": "Public API",
-    "publicApiHint": "Lets a website load tickets that have a customer title, with their customer texts and nothing else.",
-    "publicApiActive": "A key is active. Creating a new one replaces it.",
+    "publicApiHint": "Lets a website load tickets that have a customer title, with their customer texts and nothing else. Create one key per place that uses it, so you can revoke one without breaking the others.",
     "publicApiCreate": "Create key",
-    "publicApiRenew": "New key",
     "publicApiRevoke": "Revoke",
     "publicApiCopy": "Copy this key now, it is only shown once:",
     "githubTokenHint": "Uses the global token from Settings if empty.",
@@ -121,7 +119,13 @@
     "repoSshOwn": "Or use your own private key",
     "repoSshOwnPlaceholder": "-----BEGIN OPENSSH PRIVATE KEY-----  (without passphrase)",
     "repoAccessBadgeToken": "own token",
-    "repoAccessBadgeSsh": "SSH key"
+    "repoAccessBadgeSsh": "SSH key",
+    "publicApiLabel": "Label, e.g. Website or Status page",
+    "publicApiUnnamed": "Unnamed key",
+    "publicApiCreated": "Created {{when}}",
+    "publicApiUsed": "last used {{when}}",
+    "publicApiNeverUsed": "never used",
+    "publicApiConfirmRevoke": "Revoke the key \"{{name}}\"? Whatever uses it stops working."
   },
   "board": {
     "filter": "Filter tickets…",

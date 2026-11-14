@@ -91,7 +91,8 @@ only over HTTPS or on `localhost`.
 
 To show progress on a website, create a key under **Project settings → Public API**. Tickets with a
 customer title are then available, with their customer texts and nothing else: no internal titles,
-descriptions or comments.
+descriptions or comments. A project can have several keys, each with a label (e.g. one per website),
+so you can revoke one without breaking the others; the list shows when each was last used.
 
 ```bash
 curl -H "Authorization: Bearer pb_..." https://your-plainboard/api/public/tasks

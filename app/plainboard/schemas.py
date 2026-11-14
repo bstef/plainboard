@@ -155,7 +155,6 @@ class ProjectOut(ORM):
     description: str
     workspace_path: str | None
     has_github_token: bool = False
-    has_public_api_key: bool = False
     auto_wake_manager: bool
     auto_archive_days: int
     label_colors: dict[str, str] = Field(default_factory=dict)
@@ -363,8 +362,18 @@ class PublicBoard(BaseModel):
     tasks: list[PublicTask]
 
 
-class PublicApiKey(BaseModel):
-    key: str
+class PublicApiKeyIn(BaseModel):
+    label: str = Field(default="", max_length=200)
+
+
+class PublicApiKeyOut(ORM):
+    id: int
+    project_id: int
+    label: str
+    hint: str  # last characters of the key
+    created_at: UTCDateTime
+    last_used_at: UTCDateTime | None
+    key: str | None = None  # only in the answer that creates the key
 
 
 class CommentCreate(BaseModel):
