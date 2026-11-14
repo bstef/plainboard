@@ -559,6 +559,10 @@ class RunManager:
             if files:
                 meta["attachments"] = [{"id": a.id, "filename": a.filename, "content_type": a.content_type, "path": board_service.runner_path(a)} for a in files]
             message = Message(conversation_id=conv.id, role="user", kind="text", content=text, meta=meta, run_id=run.id)
+            if run.trigger == RunTrigger.CHAT:
+                # A busy agent read it when it was sent and may have reacted before this turn: the chat
+                # shows it at that time, above those replies.
+                message.created_at = run.created_at
             s.add(message)
             if run.assignment_id and (assignment := await s.get(Assignment, run.assignment_id)):
                 assignment.status = AssignmentStatus.RUNNING

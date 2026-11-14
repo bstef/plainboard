@@ -920,8 +920,16 @@ def test_a_busy_agent_reads_a_chat_message_right_away_and_answers_it_next(client
     assert waiting["status"] == "queued"  # nothing is lost if the agent never sees the notice
     runner(client).released = True
     wait_for(lambda: idle(client, pid))
-    texts = [m["content"] for m in conversation(client, dev["id"])["messages"] if m["role"] == "assistant" and m["kind"] == "text"]
+    messages = conversation(client, dev["id"])["messages"]
+    texts = [m["content"] for m in messages if m["role"] == "assistant" and m["kind"] == "text"]
     assert texts[-1] == "from the user"
+    # The chat shows the message when it was sent (the agent read it then), not when its turn began.
+    sent = next(m for m in messages if m["content"] == "SAY from the user")
+    assert sent["created_at"] == waiting["created_at"] <= waiting_started(client, pid, waiting["id"])
+
+
+def waiting_started(client, pid, run_id):
+    return next(r for r in runs_of(client, pid) if r["id"] == run_id)["started_at"]
 
 
 def test_chat_goes_before_other_waiting_turns(client, project):

@@ -47,6 +47,11 @@ export function ChatPanel({
   const running = activeRuns.find((r) => r.status === "running");
   const queued = activeRuns.filter((r) => r.status === "queued" && r.trigger === "chat");
   const messages = conversation.data?.messages ?? [];
+  // By time, not by id: a message a busy agent read right away belongs above the replies it wrote
+  // before the turn of that message started. Waiting messages sit at the time they were sent, too.
+  const timeline = [...messages.map((m) => ({ at: Date.parse(m.created_at), message: m, run: null })), ...queued.map((r) => ({ at: Date.parse(r.created_at), message: null, run: r }))]
+    .map((item, index) => ({ ...item, index }))
+    .sort((a, b) => a.at - b.at || a.index - b.index);
   // Works only until the agent's turn starts; if it just did, the refreshed list shows the message as sent.
   const deleteWaiting = (runId: number) =>
     api
@@ -162,11 +167,11 @@ export function ChatPanel({
           </div>
         )}
         {!conversation.isLoading && messages.length === 0 && !queued.length && <ChatIntro isManager={agent.is_manager} />}
-        {messages.map((m) => (
-          <MessageItem key={m.id} message={m} agent={agent} details={details} />
-        ))}
-        {queued.map((r) => (
-          <div key={r.id} className="flex items-center justify-end gap-1">
+        {timeline.map(({ message, run: r }) =>
+          message ? (
+            <MessageItem key={message.id} message={message} agent={agent} details={details} />
+          ) : r && (
+          <div key={`run-${r.id}`} className="flex items-center justify-end gap-1">
             <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id)} className="shrink-0 text-zinc-400 hover:text-red-600">
               <Trash2 className="size-4" />
             </IconButton>
@@ -180,7 +185,8 @@ export function ChatPanel({
               )}
             </div>
           </div>
-        ))}
+        ),
+        )}
         {running && streaming && (
           <div className="text-sm">
             <Markdown>{streaming}</Markdown>
