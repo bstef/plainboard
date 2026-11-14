@@ -6,7 +6,7 @@ import type { Agent, Message } from "../../api/types";
 import { AttachmentLink } from "../../components/AttachmentLink";
 import { Lightbox } from "../../components/Lightbox";
 import { Markdown, TicketText } from "../../components/Markdown";
-import { formatTokens } from "../../lib/format";
+import { chatTime, formatDateTime, formatTokens } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
 
 /** `details` shows tool activity, compression markers and full event cards; otherwise the chat
@@ -33,8 +33,19 @@ export function MessageItem({ message, agent, details }: { message: Message; age
       <span className="mt-1 size-5 shrink-0 rounded-full text-center text-[10px] leading-5 font-semibold text-white" style={{ background: agent.color }}>
         {agent.name[0]?.toUpperCase()}
       </span>
-      <Markdown className="min-w-0 flex-1 text-sm">{message.content}</Markdown>
+      <div className="min-w-0 flex-1">
+        <Markdown className="text-sm">{message.content}</Markdown>
+        <MessageTime at={message.created_at} />
+      </div>
     </div>
+  );
+}
+
+function MessageTime({ at }: { at: string }) {
+  return (
+    <time dateTime={at} title={formatDateTime(at)} className="block text-[11px] leading-none text-zinc-400 tabular-nums dark:text-zinc-500">
+      {chatTime(at)}
+    </time>
   );
 }
 
@@ -79,6 +90,7 @@ function UserMessage({ message, details }: { message: Message; details: boolean 
         <div className="flex flex-col items-end gap-1.5">
           {message.meta.attachments?.length > 0 && <MessageFiles files={message.meta.attachments} />}
           {message.content && <UserBubble text={message.content} />}
+          <MessageTime at={message.created_at} />
         </div>
       </>
     );

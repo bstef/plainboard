@@ -33,6 +33,15 @@ export function formatDateTime(iso: string | null | undefined): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** For chat messages: the time, with the date unless it is today. */
+export function chatTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = date.toDateString() === new Date().toDateString();
+  return today ? date.toLocaleTimeString(undefined, { timeStyle: "short" }) : date.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
 /** ISO (UTC) -> value for <input type="datetime-local"> in local time. */
 export function toLocalInput(iso: string | null | undefined): string {
   if (!iso) return "";
