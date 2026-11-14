@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Setting
 from ..security import decrypt, encrypt
+from .errors import ServiceError
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,8 @@ SETTINGS: dict[str, SettingDef] = {
     "default_context_limit": SettingDef(400000),
     "default_keep_recent": SettingDef(6),
     "max_parallel_runs": SettingDef(3),
+    # Up to how many parallel agents a manager may set (0: managers can't change it).
+    "manager_parallel_limit": SettingDef(6),
     "timezone": SettingDef("Europe/Berlin"),
 }
 
@@ -75,6 +78,16 @@ async def update(session: AsyncSession, values: dict[str, Any], *, managed: bool
             row.value = None if value is None else json.dumps(value)
         session.add(row)
     await session.commit()
+
+
+async def set_parallel_by_manager(session: AsyncSession, count: int) -> None:
+    """A manager changes how many agents work at once, within the range the user allows."""
+    limit = int(await get(session, "manager_parallel_limit"))
+    if limit < 1:
+        raise ServiceError("The user has not allowed managers to change this. Ask the user (Settings).")
+    if not 1 <= count <= limit:
+        raise ServiceError(f"Must be between 1 and {limit}. The user can raise that limit in Settings.")
+    await update(session, {"max_parallel_runs": count})
 
 
 async def set_ssh_key(session: AsyncSession, private_key: str | None) -> None:

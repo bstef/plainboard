@@ -989,3 +989,18 @@ def test_long_comment_threads_are_paged(client, project):
     first, second = [m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"][-2:]
     assert "(last 10 of 25; 15 older: get_comments)" in first and "note 16" in first and "note 15" not in first
     assert second.startswith("Comments 6-15 of 25 (oldest first); 5 older: offset=20:") and "note 6" in second and "note 16" not in second
+
+
+def test_manager_sets_parallel_agents_within_the_users_limit(client, project):
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], 'TOOL set_parallel_agents {"count": 5}\nTOOL set_parallel_agents {"count": 7}\nTOOL get_project')
+    wait_for(lambda: idle(client, pid))
+    results = [m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]
+    assert client.get("/api/settings").json()["values"]["max_parallel_runs"] == 5
+    assert any("between 1 and 6" in r for r in results) and any("Parallel agents: 5 (you may set 1-6" in r for r in results)
+
+    client.put("/api/settings", json={"values": {"manager_parallel_limit": 0}})
+    chat(client, manager["id"], 'TOOL set_parallel_agents {"count": 2}')
+    wait_for(lambda: idle(client, pid))
+    assert client.get("/api/settings").json()["values"]["max_parallel_runs"] == 5

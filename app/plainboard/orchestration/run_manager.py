@@ -205,6 +205,10 @@ class RunManager:
         self._wake.set()
         return run
 
+    def recheck(self) -> None:
+        """Look at the waiting turns again, e.g. after the number of parallel agents changed."""
+        self._wake.set()
+
     async def chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None = None) -> Run:
         if attachment_ids and len(await board_service.chat_attachments(s, agent.project_id, attachment_ids)) != len(set(attachment_ids)):
             raise ServiceError("Unknown attachment")

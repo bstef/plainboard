@@ -198,6 +198,9 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             <Field label={t("settings.maxParallel")} hint={t("settings.maxParallelHint")}>
               <Input type="number" min={0} max={20} value={values.max_parallel_runs ?? 3} onChange={(e) => set({ max_parallel_runs: Number(e.target.value) })} />
             </Field>
+            <Field label={t("settings.managerParallel")} hint={t("settings.managerParallelHint")}>
+              <Input type="number" min={0} max={20} value={values.manager_parallel_limit ?? 6} onChange={(e) => set({ manager_parallel_limit: Number(e.target.value) })} />
+            </Field>
             <Field label={t("settings.timezone")}>
               <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
             </Field>

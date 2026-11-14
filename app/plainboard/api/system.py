@@ -55,11 +55,12 @@ async def get_settings(session: Session) -> SettingsOut:
 
 
 @router.put("/settings", response_model=SettingsOut)
-async def put_settings(body: SettingsUpdate, session: Session) -> SettingsOut:
+async def put_settings(body: SettingsUpdate, session: Session, runs: Runs) -> SettingsOut:
     try:
         await settings_service.update(session, body.values)
     except ValueError as exc:
         raise ServiceError(str(exc)) from exc
+    runs.recheck()  # more parallel agents: waiting turns may start now
     return await get_settings(session)
 
 

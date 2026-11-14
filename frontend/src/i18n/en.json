@@ -546,7 +546,9 @@
     "sshKeyConfirmNew": "Replace the SSH key? The old public key stops working here.",
     "sshKeyConfirmRemove": "Remove the SSH key? Repositories that use it can no longer be reached.",
     "sshKeyOwn": "Or use your own private key",
-    "sshKeyOwnSave": "Use this key"
+    "sshKeyOwnSave": "Use this key",
+    "managerParallel": "Managers may set up to",
+    "managerParallelHint": "A manager can change the number of parallel agents itself, up to this value. 0: only you can change it."
   },
   "archive": {
     "title": "Archive",

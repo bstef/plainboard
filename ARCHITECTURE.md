@@ -56,7 +56,8 @@ token that is valid only while the run lasts and only for that run's project and
 ### Run lifecycle (`orchestration/run_manager.py`)
 1. `enqueue` creates a `Run(queued)`. The dispatcher starts it when the agent is idle and fewer than
    `max_parallel_runs` top-level runs are active. Nested `ask_agent` runs bypass the limit, so a run
-   that is waiting can never starve the run it waits for.
+   that is waiting can never starve the run it waits for. A manager can change `max_parallel_runs`
+   itself (`set_parallel_agents`), up to the user's `manager_parallel_limit` (0: not at all).
 2. `_prepare`: consume the inbox, store the user message, build the turn (`ContextManager.build_turn`),
    issue a run token, then assemble the `RunSpec`.
 3. `_stream`: persist assistant texts and tool calls, publish text deltas over the WebSocket, and track
