@@ -21,8 +21,11 @@ export interface RepoDraft {
   new_ssh_key: boolean;
 }
 
+// Not crypto.randomUUID: browsers only have it over HTTPS or on localhost.
+let drafts = 0;
+
 export const emptyRepo = (): RepoDraft => ({
-  key: crypto.randomUUID(),
+  key: `new-${++drafts}`,
   name: "",
   url: "",
   default_branch: "",
