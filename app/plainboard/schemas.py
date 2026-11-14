@@ -30,12 +30,19 @@ class ORM(BaseModel):
 # --- repositories ---------------------------------------------------------------------------
 
 
+RepoAuth = Literal["default", "token", "ssh"]
+
+
 class RepositoryCreate(BaseModel):
     url: str = Field(min_length=1, max_length=500)
     name: str | None = Field(default=None, max_length=100, description="Folder name; default from URL")
     default_branch: str | None = None
     description: str = ""
     agent_ids: list[int] | None = None  # explicit access for agents restricted to selected repos
+    auth: RepoAuth = "default"
+    token: str | None = None  # write-only
+    token_user: str = Field(default="", max_length=200)
+    ssh_private_key: str | None = None  # write-only; empty with auth "ssh": a key pair is created
 
 
 class RepositoryUpdate(BaseModel):
@@ -44,6 +51,11 @@ class RepositoryUpdate(BaseModel):
     default_branch: str | None = None
     description: str | None = None
     agent_ids: list[int] | None = None
+    auth: RepoAuth | None = None
+    token: str | None = None  # write-only; empty keeps the stored one
+    token_user: str | None = Field(default=None, max_length=200)
+    ssh_private_key: str | None = None  # write-only; empty keeps the stored key
+    new_ssh_key: bool = False  # replace the key pair with a new one
 
 
 class LimitForecast(BaseModel):
@@ -105,6 +117,10 @@ class RepositoryOut(ORM):
     default_branch: str | None
     description: str
     agent_ids: list[int] = Field(default_factory=list)
+    auth: RepoAuth = "default"
+    token_user: str = ""
+    has_token: bool = False
+    ssh_public_key: str = ""  # to add at the git host, e.g. as a deploy key
     created_at: UTCDateTime
 
 

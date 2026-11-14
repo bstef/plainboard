@@ -26,8 +26,9 @@ Claude login); the provider layer is ready for others such as OpenAI.
 - **Repositories (optional)**: a project can have any number of git repositories. Each agent gets
   the repositories it has access to (all, or a selection) cloned into its workspace, one folder per
   repository. The manager can add or remove repositories and change who has access. With a
-  fine-grained GitHub token, agents branch, push and open PRs with `gh`. Without git everything works
-  locally.
+  GitHub token, agents branch, push and open PRs with `gh`. A repository can also have its own access:
+  an access token (any git host, e.g. a GitLab deploy token) or an SSH key that PlainBoard creates for
+  you to add as a deploy key. Without git everything works locally.
 - **Notes stay tidy**: one note per topic (similar titles are rejected in favour of updating), list
   views show each note's age and size, pinned notes have a fixed token budget, and the manager is
   reminded to consolidate as the collection grows.
@@ -58,7 +59,9 @@ Open <http://localhost:8080>, then:
    left. The last 5 % of each subscription are used once all are that full; API keys only step in when
    every subscription is used up. You can pin an agent to an
    account in the team editor.
-3. Optional, **Settings → GitHub**: paste a fine-grained personal access token.
+3. Optional, **Settings → GitHub**: paste a GitHub token (fine-grained or classic). Or give single
+   repositories their own token or SSH key (deploy key) in the project dialog; that also works for
+   GitLab and other git hosts.
 4. Create a project, describe what you want in the manager chat, or add tickets and move them to
    **In Progress**.
 

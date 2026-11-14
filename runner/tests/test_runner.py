@@ -477,3 +477,36 @@ def test_usage_answer_becomes_limit_windows():
     (window,) = usage_windows(answer)
     assert (window.name, window.utilization, window.resets_at) == ("seven_day", 0.4, int(datetime(2026, 10, 30, 12, tzinfo=UTC).timestamp()))
     assert usage_windows(None) == []
+
+
+async def test_a_repository_uses_its_own_access(workspaces, tmp_path, monkeypatch):
+    from plainboard_protocol import RepoSpec, WorkspaceSpec
+
+    from plainboard_runner.workspace import prepare_workspace, repo_config
+
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "home")
+    url = _git_repo(tmp_path / "src" / "repo", "v1")
+    where = str(workspaces / "proj" / "dev")
+
+    async def prepare(**access):
+        path, problems = await prepare_workspace(WorkspaceSpec(path=where, repos=[RepoSpec(name="repo", url=url, **access)]), Credentials())
+        assert not problems
+        return path / "repo"
+
+    # A deploy key: the clone itself keeps the ssh command, so the agent's own git commands use it too.
+    clone = await prepare(ssh_key="PRIVATE KEY")
+    command = _git(clone, "config", "--local", "core.sshCommand")
+    (key_file,) = (tmp_path / "home" / ".plainboard" / "git-keys").iterdir()
+    assert key_file.read_text() == "PRIVATE KEY\n" and key_file.as_posix() in command and "IdentitiesOnly=yes" in command
+    assert _git(clone, "config", "--local", "plainboard.auth") == "ssh"
+    # Back to the general access: our settings are gone again.
+    clone = await prepare()
+    assert "sshcommand" not in _git(clone, "config", "--local", "--list").lower() and "plainboard.auth" not in _git(clone, "config", "--local", "--list")
+
+    # A token reaches only the repository's own host, with the user name the host expects.
+    config = repo_config(RepoSpec(name="web", url="https://gitlab.com/acme/web.git", token="tok", token_user="deploy"))
+    assert config == {"http.https://gitlab.com/.extraHeader": "Authorization: Basic ZGVwbG95OnRvaw=="}
+    assert repo_config(RepoSpec(name="web", url="https://github.com/acme/web.git", token="tok")) == {
+        "http.https://github.com/.extraHeader": "Authorization: Basic eC1hY2Nlc3MtdG9rZW46dG9r"
+    }
+    assert repo_config(RepoSpec(name="web", url="https://github.com/acme/web.git")) == {}

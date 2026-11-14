@@ -50,8 +50,8 @@ async def delete_project(project_id: int, session: Session) -> None:
 async def check_project_github(project_id: int, session: Session, runner: Runner) -> CheckOut:
     project = await project_service.get(session, project_id)
     values = await settings_service.get_all(session)
-    urls = [r.url for r in await repo_service.list_for_project(session, project_id)]
-    result = await runner.check_github(settings_service.credentials(values, project_service.github_token(project)), urls)
+    repos = repo_service.specs(await repo_service.list_for_project(session, project_id))
+    result = await runner.check_github(settings_service.credentials(values, project_service.github_token(project)), repos)
     return CheckOut(ok=result.ok, detail=result.detail)
 
 

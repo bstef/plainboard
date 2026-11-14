@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import logging
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from plainboard_protocol import Credentials, WorkspaceSpec
+from plainboard_protocol import Credentials, RepoSpec, WorkspaceSpec
 
 from .config import WORKSPACES_ROOT
 
@@ -49,6 +51,72 @@ def git_env(creds: Credentials) -> dict[str, str]:
     return env
 
 
+SSH_COMMAND = "core.sshCommand"
+AUTH_MARKER = "plainboard.auth"  # set in clones whose git config carries a repository's own access
+
+
+def _key_file(key: str) -> Path:
+    """The private key as a file only the agent user can read (ssh refuses anything else)."""
+    folder = Path.home() / ".plainboard" / "git-keys"
+    folder.mkdir(parents=True, exist_ok=True)
+    folder.chmod(0o700)
+    path = folder / hashlib.sha256(key.encode()).hexdigest()[:32]
+    if not path.exists():
+        path.touch(mode=0o600)
+        path.write_text(key.strip() + "\n")
+        path.chmod(0o600)
+    return path
+
+
+def _header_key(url: str) -> str:
+    """The token goes only to the repository's own host, never to e.g. a submodule's."""
+    parts = urlsplit(url)
+    return f"http.{parts.scheme}://{parts.netloc.rsplit('@', 1)[-1]}/.extraHeader"
+
+
+def repo_config(repo: RepoSpec) -> dict[str, str]:
+    """Git config that makes git use the repository's own access (empty: the general one)."""
+    if repo.ssh_key:
+        return {SSH_COMMAND: f"ssh -i {_key_file(repo.ssh_key).as_posix()} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"}
+    if repo.token and repo.url.startswith(("https://", "http://")):
+        basic = base64.b64encode(f"{repo.token_user or 'x-access-token'}:{repo.token}".encode()).decode()
+        return {_header_key(repo.url): f"Authorization: Basic {basic}"}
+    return {}
+
+
+def _no_secrets(text: str, repo: RepoSpec) -> str:
+    """Error texts quote the command line, which carries the token's header."""
+    for value in repo_config(repo).values():
+        text = text.replace(value, "[access]")
+    return text
+
+
+def config_args(repo: RepoSpec) -> list[str]:
+    return [arg for key, value in repo_config(repo).items() for arg in ("-c", f"{key}={value}")]
+
+
+async def _sync_auth(target: Path, repo: RepoSpec, env: dict[str, str]) -> None:
+    """Keep the clone's own git config in line with the repository's access, so the agent's git
+    commands (push, fetch) work like the runner's. Clones without our marker are left alone."""
+    wanted = repo_config(repo)
+    try:
+        marked = bool(await run_cmd(["git", "config", "--local", "--get", AUTH_MARKER], cwd=target, env=env))
+    except WorkspaceError:
+        marked = False
+    if not wanted and not marked:
+        return
+    stale = [SSH_COMMAND] + ([_header_key(repo.url)] if repo.url.startswith(("https://", "http://")) else [])
+    for key in [k for k in stale if k not in wanted] + ([] if wanted else [AUTH_MARKER]):
+        try:
+            await run_cmd(["git", "config", "--local", "--unset-all", key], cwd=target, env=env)
+        except WorkspaceError:
+            pass  # was not set
+    for key, value in wanted.items():
+        await run_cmd(["git", "config", "--local", key, value], cwd=target, env=env)
+    if wanted:
+        await run_cmd(["git", "config", "--local", AUTH_MARKER, "ssh" if repo.ssh_key else "token"], cwd=target, env=env)
+
+
 def tool_env(creds: Credentials) -> dict[str, str]:
     """Environment for the agent's own commands: the user's secrets, then git (git wins)."""
     return {**creds.secrets, **git_env(creds)}
@@ -76,11 +144,13 @@ async def run_cmd(args: list[str], cwd: Path | None, env: dict[str, str], timeou
     return text
 
 
-async def _update_clone(name: str, target: Path, env: dict[str, str], *, shared: bool) -> str | None:
+async def _update_clone(repo: RepoSpec, target: Path, env: dict[str, str], *, shared: bool) -> str | None:
     """Bring an existing clone up to date without touching local work. Returns a problem, if any."""
+    name = repo.name
     if not (target / ".git").exists():
         return None
     try:
+        await _sync_auth(target, repo, env)
         await run_cmd(["git", "fetch", "--all", "--prune"], cwd=target, env=env, timeout=FETCH_TIMEOUT_SECONDS)
     except WorkspaceError as exc:
         return f"Could not update '{name}', it may be out of date: {str(exc)[-300:]}"
@@ -125,15 +195,16 @@ async def prepare_workspace(spec: WorkspaceSpec, creds: Credentials) -> tuple[Pa
             problems.append(f"Repository name '{repo.name}' is not a valid folder name")
             continue
         if target.exists() and any(target.iterdir()):
-            if problem := await _update_clone(repo.name, target, git_env(creds), shared=spec.shared):
+            if problem := await _update_clone(repo, target, git_env(creds), shared=spec.shared):
                 problems.append(problem)
             continue
-        args = ["git", "clone"] + (["--branch", repo.branch] if repo.branch else []) + [repo.url, str(target)]
+        args = ["git", *config_args(repo), "clone"] + (["--branch", repo.branch] if repo.branch else []) + [repo.url, str(target)]
         log.info("Cloning %s into %s", repo.url, target)
         try:
             await run_cmd(args, cwd=None, env=git_env(creds))
+            await _sync_auth(target, repo, git_env(creds))
         except WorkspaceError as exc:
-            problems.append(f"Could not clone '{repo.name}' ({repo.url}): {str(exc)[-300:]}")
+            problems.append(f"Could not clone '{repo.name}' ({repo.url}): {_no_secrets(str(exc), repo)[-300:]}")
     if spec.setup_script.strip() and (problem := await _run_setup(spec.setup_script, path, tool_env(creds))):
         problems.append(problem)
     return path, problems

@@ -48,6 +48,10 @@ class RepoSpec(BaseModel):
     name: str  # folder name inside the workspace
     url: str
     branch: str | None = None
+    # The repository's own access, instead of the general GitHub token (at most one of them):
+    token: str | None = None  # HTTPS access token of any git host
+    token_user: str | None = None  # user name that goes with the token, if the host needs one
+    ssh_key: str | None = None  # private key, e.g. of a deploy key
 
 
 class WorkspaceSpec(BaseModel):

@@ -15,9 +15,25 @@ const toDraft = (r: Repository): RepoDraft => ({
   url: r.url,
   default_branch: r.default_branch ?? "",
   description: r.description,
+  auth: r.auth,
+  token: "",
+  token_user: r.token_user,
+  has_token: r.has_token,
+  ssh_private_key: "",
+  ssh_public_key: r.ssh_public_key,
+  new_ssh_key: false,
 });
 
-const toBody = (d: RepoDraft) => ({ url: d.url.trim(), name: d.name.trim() || null, default_branch: d.default_branch.trim() || null, description: d.description });
+// Secrets are write-only: an empty field keeps what is stored.
+const toBody = (d: RepoDraft) => ({
+  url: d.url.trim(),
+  name: d.name.trim() || null,
+  default_branch: d.default_branch.trim() || null,
+  description: d.description,
+  auth: d.auth,
+  ...(d.auth === "token" ? { token_user: d.token_user.trim(), ...(d.token ? { token: d.token } : {}) } : {}),
+  ...(d.auth === "ssh" && d.ssh_private_key.trim() ? { ssh_private_key: d.ssh_private_key } : {}),
+});
 
 export function ProjectDialog({
   project,
@@ -122,7 +138,7 @@ export function ProjectDialog({
             }}
             onSave={async (d) => {
               if (project) {
-                await api.patch(`/repositories/${d.key}`, toBody(d));
+                await api.patch(`/repositories/${d.key}`, { ...toBody(d), new_ssh_key: d.new_ssh_key });
                 refreshRepos();
               } else setDraftRepos((list) => list.map((x) => (x.key === d.key ? d : x)));
             }}

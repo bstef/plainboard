@@ -26,6 +26,9 @@ export interface Secret {
   updated_at: string;
 }
 
+/** How git reaches a repository: the general GitHub token (or none), its own token, or its own SSH key. */
+export type RepoAuth = "default" | "token" | "ssh";
+
 export interface Repository {
   id: number;
   project_id: number;
@@ -34,6 +37,10 @@ export interface Repository {
   default_branch: string | null;
   description: string;
   agent_ids: number[];
+  auth: RepoAuth;
+  token_user: string;
+  has_token: boolean;
+  ssh_public_key: string;
   created_at: string;
 }
 

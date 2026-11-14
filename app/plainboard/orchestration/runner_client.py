@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, RunEvent, RunSpec, parse_event
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, RepoSpec, RunEvent, RunSpec, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -113,10 +113,10 @@ class RunnerClient:
         except httpx.HTTPError as exc:
             return CheckResult(ok=False, detail=f"Runner unreachable: {exc}")
 
-    async def check_github(self, credentials: Credentials, repo_urls: list[str] | None = None) -> CheckResult:
+    async def check_github(self, credentials: Credentials, repos: list[RepoSpec] | None = None) -> CheckResult:
         try:
             resp = await self._client.post(
-                "/checks/github", json={"credentials": credentials.model_dump(mode="json"), "repo_urls": repo_urls or []}, timeout=180
+                "/checks/github", json={"credentials": credentials.model_dump(mode="json"), "repos": [r.model_dump(mode="json") for r in repos or []]}, timeout=180
             )
             return CheckResult.model_validate(resp.json())
         except httpx.HTTPError as exc:

@@ -11,14 +11,14 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, RunSpec
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, RepoSpec, RunSpec
 from pydantic import BaseModel
 
 from . import jobs
 from . import notices
 from .providers import get_provider, list_providers
 from .tool_bridge import ToolBridge
-from .workspace import WorkspaceError, git_env, prepare_workspace, run_cmd
+from .workspace import WorkspaceError, config_args, git_env, prepare_workspace, run_cmd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("plainboard.runner")
@@ -223,11 +223,13 @@ async def github_repos(credentials: Credentials) -> GitHubReposResult:
 class GitHubCheck(BaseModel):
     credentials: Credentials
     repo_urls: list[str] = []
+    repos: list[RepoSpec] = []  # with their own access (token or SSH key), if they have one
 
 
 @app.post("/checks/github", response_model=CheckResult)
 async def check_github(body: GitHubCheck) -> CheckResult:
-    """Verify the token (if any) and that every repository is reachable."""
+    """Verify the token (if any) and that every repository is reachable with the access it would get."""
+    repos = body.repos or [RepoSpec(name=url, url=url) for url in body.repo_urls]
     env = git_env(body.credentials)
     parts: list[str] = []
     ok = True
@@ -237,14 +239,14 @@ async def check_github(body: GitHubCheck) -> CheckResult:
             parts.append(f"Authenticated as {login}")
         except WorkspaceError as exc:
             return CheckResult(ok=False, detail=f"Token rejected: {str(exc)[:300]}")
-    elif not body.repo_urls:
+    elif not repos:
         return CheckResult(ok=False, detail="No GitHub token configured")
-    for url in body.repo_urls:
+    for repo in repos:
         try:
-            await run_cmd(["git", "ls-remote", "--heads", url], cwd=None, env=env, timeout=60)
+            await run_cmd(["git", *config_args(repo), "ls-remote", "--heads", repo.url], cwd=None, env=env, timeout=60)
         except WorkspaceError:
             ok = False
-            parts.append(f"not reachable: {url}")
-    if body.repo_urls and ok:
-        parts.append(f"{len(body.repo_urls)} repositor{'y' if len(body.repo_urls) == 1 else 'ies'} reachable")
+            parts.append(f"not reachable: {repo.url}")
+    if repos and ok:
+        parts.append(f"{len(repos)} repositor{'y' if len(repos) == 1 else 'ies'} reachable")
     return CheckResult(ok=ok, detail="; ".join(parts))

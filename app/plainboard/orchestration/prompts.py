@@ -185,12 +185,19 @@ def own_notes_block(notes: list[AgentNote]) -> str:
     return "## Your own notes (only you see them; change with remember/forget)\n" + "\n".join(lines)
 
 
+# Only repositories with their own access get a note; the general case is covered by GIT_GUIDE.
+REPO_ACCESS_NOTES = {
+    "ssh": " · git over its own SSH key; gh does not work here: push your branch and name it in your report",
+    "token": " · git with its own access token; if gh does not work here, push your branch and name it in your report",
+}
+
+
 def repos_block(repos: list[Repository], workspace: str) -> str:
     lines = []
     for repo in repos:
         branch = f", branch {repo.default_branch}" if repo.default_branch else ""
         about = f" — {truncate(repo.description, 140)}" if repo.description else ""
-        lines.append(f"- {repo.name}: {workspace}/{repo.name} ({repo.url}{branch}){about}")
+        lines.append(f"- {repo.name}: {workspace}/{repo.name} ({repo.url}{branch}){REPO_ACCESS_NOTES.get(repo.auth, '')}{about}")
     return "\n".join(lines)
 
 

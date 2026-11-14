@@ -149,3 +149,39 @@ def test_secrets_reach_agents_but_never_the_user(client, project):
     assert client.patch(f"/api/secrets/{secret_id}", json={"description": "errors"}).json()["description"] == "errors"
     assert client.delete(f"/api/secrets/{secret_id}").status_code == 204
     assert client.get(f"/api/projects/{pid}/secrets").json() == []
+
+
+def test_a_repository_can_have_its_own_access(client, project):
+    pid = project["id"]
+    # A deploy key: PlainBoard creates the pair, shows the public key and switches to the SSH URL.
+    keyed = add_repo(client, pid, "https://github.com/acme/api.git", auth="ssh")
+    assert keyed["url"] == "git@github.com:acme/api.git" and keyed["ssh_public_key"].startswith("ssh-ed25519 ") and keyed["ssh_public_key"].endswith(" plainboard-api")
+    # A token for any host, with the user name some hosts need.
+    tokened = add_repo(client, pid, "https://gitlab.com/acme/web.git", auth="token", token="glpat-1", token_user="deploy")
+    assert tokened["has_token"] and tokened["token_user"] == "deploy" and "glpat-1" not in json.dumps(tokened)
+    plain = add_repo(client, pid, "https://github.com/acme/docs.git")
+    assert (plain["auth"], plain["has_token"], plain["ssh_public_key"]) == ("default", False, "")
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://x/y.git", "auth": "token"}).status_code == 400
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "git@x:y.git", "name": "t", "auth": "token", "token": "a"}).status_code == 400
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "git@x:y.git", "name": "k", "auth": "ssh", "ssh_private_key": "nope"}).status_code == 400
+
+    dev = make_dev(client, pid)
+    chat(client, dev["id"], "SAY hi")
+    wait_for(lambda: idle(client, pid))
+    spec = runner(client).specs[-1]
+    repos = {r.name: r for r in spec.workspace.repos}
+    assert repos["api"].ssh_key.startswith("-----BEGIN OPENSSH PRIVATE KEY-----") and repos["api"].token is None
+    assert (repos["web"].token, repos["web"].token_user, repos["web"].ssh_key) == ("glpat-1", "deploy", None)
+    assert (repos["docs"].token, repos["docs"].ssh_key) == (None, None)
+    assert "api: /workspaces/demo-project/dev/api (git@github.com:acme/api.git) · git over its own SSH key" in spec.system_prompt
+
+    # Other edits keep the key; a new key or one's own key replaces it; "default" drops the secrets.
+    same = client.patch(f"/api/repositories/{keyed['id']}", json={"description": "API"}).json()
+    assert same["ssh_public_key"] == keyed["ssh_public_key"]
+    fresh = client.patch(f"/api/repositories/{keyed['id']}", json={"new_ssh_key": True}).json()
+    assert fresh["ssh_public_key"] not in ("", keyed["ssh_public_key"])
+    own = client.patch(f"/api/repositories/{tokened['id']}", json={"auth": "ssh", "ssh_private_key": repos["api"].ssh_key}).json()
+    assert own["ssh_public_key"].split()[1] == keyed["ssh_public_key"].split()[1] and not own["has_token"]
+    assert own["url"] == "git@gitlab.com:acme/web.git"
+    reset = client.patch(f"/api/repositories/{keyed['id']}", json={"auth": "default"}).json()
+    assert (reset["auth"], reset["ssh_public_key"]) == ("default", "")

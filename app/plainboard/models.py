@@ -135,6 +135,13 @@ class Repository(Timestamps, Base):
     url: Mapped[str] = mapped_column(String(500))
     default_branch: Mapped[str | None] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")  # what it contains (helps routing work)
+    # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
+    # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
+    auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")
+    token_user: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    token_enc: Mapped[str | None] = mapped_column(Text)
+    ssh_key_enc: Mapped[str | None] = mapped_column(Text)
+    ssh_public_key: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 agent_repositories = Table(
