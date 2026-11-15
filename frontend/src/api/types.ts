@@ -80,6 +80,7 @@ export interface Agent {
   account_id: number | null;
   status: "idle" | "queued" | "running" | "background";
   running_jobs: number;
+  job_commands: string[];
   open_todos: number;
   own_notes: number;
   context_tokens: number;

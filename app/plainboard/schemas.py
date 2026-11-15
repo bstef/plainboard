@@ -255,6 +255,7 @@ class AgentOut(ORM):
     # live state
     status: Literal["idle", "queued", "running", "background"] = "idle"
     running_jobs: int = 0
+    job_commands: list[str] = Field(default_factory=list)  # what the running jobs are (shortened)
     open_todos: int = 0
     own_notes: int = 0
     context_tokens: int = 0

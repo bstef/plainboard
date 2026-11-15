@@ -208,6 +208,7 @@ export function ChatPanel({
               ? t("chat.jobsRunning", { count: agent.running_jobs })
               : undefined
         }
+        statusTitle={activeRuns.length === 0 ? agent.job_commands.join("\n") : undefined}
         files={files}
         onFilesChange={setFiles}
       />
@@ -331,6 +332,7 @@ function Composer({
   disabled,
   className,
   status,
+  statusTitle,
   files,
   onFilesChange,
 }: {
@@ -340,6 +342,7 @@ function Composer({
   disabled: boolean;
   className?: string;
   status?: string;
+  statusTitle?: string;
   files: File[];
   onFilesChange: (files: File[]) => void;
 }) {
@@ -409,7 +412,7 @@ function Composer({
       {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
       <StoppingAgents />
       {status && (
-        <div role="status" className="mb-2 flex items-center gap-2 px-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
+        <div role="status" title={statusTitle || undefined} className="mb-2 flex items-center gap-2 px-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
           <Loader2 className="size-3.5 shrink-0 animate-spin" />
           <span className="truncate">{status}</span>
         </div>

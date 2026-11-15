@@ -222,7 +222,9 @@ async def to_out(session: AsyncSession, agents: list[Agent]) -> list[AgentOut]:
     for agent_id, run_status in rows:
         if run_status == RunStatus.RUNNING or agent_id not in status:
             status[agent_id] = "running" if run_status == RunStatus.RUNNING else "queued"
-    jobs = dict((await session.execute(select(Job.agent_id, func.count(Job.id)).where(Job.agent_id.in_(ids), Job.status == JobStatus.RUNNING).group_by(Job.agent_id))).all())
+    jobs: dict[int, list[str]] = {}
+    for agent_id, command in (await session.execute(select(Job.agent_id, Job.command).where(Job.agent_id.in_(ids), Job.status == JobStatus.RUNNING).order_by(Job.id))).all():
+        jobs.setdefault(agent_id, []).append(" ".join(command.split())[:120])
     todos = await todo_service.open_counts(session, ids)
     own_notes = await own_note_service.counts(session, ids)
     convs = {c.agent_id: c for c in (await session.scalars(select(Conversation).where(Conversation.agent_id.in_(ids)))).all()}
@@ -233,7 +235,8 @@ async def to_out(session: AsyncSession, agents: list[Agent]) -> list[AgentOut]:
         item.mcp_server_ids = [s.id for s in agent.mcp_servers]
         item.repository_ids = [r.id for r in agent.repositories]
         # Only background jobs left (a build, a preview server): not idle, but free for new work.
-        item.running_jobs = jobs.get(agent.id, 0)
+        item.job_commands = jobs.get(agent.id, [])[:10]
+        item.running_jobs = len(jobs.get(agent.id, []))
         item.status = status.get(agent.id, "background" if item.running_jobs else "idle")  # type: ignore[assignment]
         item.open_todos = todos.get(agent.id, 0)
         item.own_notes = own_notes.get(agent.id, 0)
