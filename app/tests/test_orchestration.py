@@ -145,6 +145,31 @@ def test_board_check_skips_tickets_being_worked_on_and_reaches_only_the_manager(
     assert "Board check" not in runner(client).specs[-1].prompt
 
 
+def test_manager_sees_free_capacity_only_when_there_is_work_for_it(client, project):
+    pid = project["id"]
+    make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid))
+    assert "Capacity:" not in runner(client).specs[-1].prompt  # no open ticket
+
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "todo"})
+    chat(client, manager["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid))
+    assert "Capacity: 0 of 3 parallel agents in use. Idle: Dev." in runner(client).specs[-1].prompt
+
+    client.patch("/api/settings", json={"max_parallel_runs": 0})
+    assert client.portal.call(spare, pid) == (0, [])
+
+
+async def spare(pid: int):
+    from plainboard.db import sessionmaker
+    from plainboard.services import board as board_service
+
+    async with sessionmaker()() as s:
+        return await board_service.spare_capacity(s, pid, 0, except_run_id=0)
+
+
 def test_worker_tools_are_restricted(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)

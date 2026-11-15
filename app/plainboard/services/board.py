@@ -246,6 +246,26 @@ async def idle_in_progress(session: AsyncSession, project_id: int) -> list[Task]
     return [t for t in tasks if t.id not in busy]
 
 
+async def spare_capacity(session: AsyncSession, project_id: int, limit: int, *, except_run_id: int) -> tuple[int, list[str]]:
+    """How many agents work or are about to (all projects share the limit, the asking turn doesn't count),
+    and this project's agents with nothing to do. No idle agents if no slot is free or no ticket is open."""
+    working = await session.scalar(
+        select(func.count()).select_from(Run).where(Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id)
+    )
+    if working >= limit:
+        return working, []
+    open_tickets = select(Task.id).where(
+        Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_((TaskStatus.TODO, TaskStatus.IN_PROGRESS))
+    )
+    if not await session.scalar(open_tickets.limit(1)):
+        return working, []
+    busy = select(Run.agent_id).where(Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES))
+    idle = await session.scalars(
+        select(Agent.name).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager, Agent.id.not_in(busy)).order_by(Agent.id)
+    )
+    return working, list(idle)
+
+
 async def list_tasks(
     session: AsyncSession,
     project_id: int,

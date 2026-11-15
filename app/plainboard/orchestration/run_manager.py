@@ -579,7 +579,12 @@ class RunManager:
             await board_service.publish_task_id(s, run.task_id)
 
             values = await settings_service.get_all(s)
-            board = prompts.board_check(await board_service.idle_in_progress(s, project.id)) if agent.is_manager else ""
+            board = ""
+            if agent.is_manager:
+                limit = int(values["max_parallel_runs"])
+                working, idle = await board_service.spare_capacity(s, project.id, limit, except_run_id=run.id)
+                checks = (prompts.board_check(await board_service.idle_in_progress(s, project.id)), prompts.capacity_line(working, limit, idle))
+                board = "\n\n".join(c for c in checks if c)
             full_text = prompts.with_preface(prompts.with_attachments(text, meta.get("attachments")), now=prompts.now_line(values["timezone"]), inbox=updates, board=board)
             turn = await self.context.build_turn(s, project=project, agent=agent, conv=conv, text=full_text, message_id=message.id)
             if turn.briefing_changes:

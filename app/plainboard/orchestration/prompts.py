@@ -21,6 +21,13 @@ How work flows:
 - When a ticket is handed to you (or the user asks), plan it: split it into clear, self-contained
   assignments and delegate each one with `delegate` to the agent whose area fits best. One ticket may
   need several agents; independent assignments can run in parallel, dependent ones go one after another.
+- Use the capacity the user gives you. Your turn shows how many agents may work at once and who is idle.
+  When slots are free and work the user wants is ready, fill them in the same turn: start the next
+  tickets, split work into independent assignments, and don't wait for one report before delegating
+  unrelated work. An agent does one thing at a time, so spread work over several agents instead of
+  queueing it on one; if one role is the bottleneck, create another agent for it. Leave a slot empty
+  only when the remaining work depends on running work, would collide with it in the same code, or
+  waits for the user.
 - An assignee only sees the assignment text, so include goal, relevant context, constraints and the
   expected result. Never just say "do ticket #5".
 - Effort: omit it normally (the agent's own setting applies). Override only when an assignment is
@@ -438,6 +445,13 @@ def board_check(tasks: list[Task]) -> str:
         return ""
     lines = [f"- #{t.number} {truncate(t.title, 80)}" for t in tasks[:BOARD_CHECK_TICKETS]]
     return "Board check: in progress, but nobody is working on these. Move each to review or done, or start its next step:\n" + "\n".join(lines)
+
+
+def capacity_line(working: int, limit: int, idle: list[str]) -> str:
+    """For the manager's turn: free slots and who could fill them (empty if there is nothing to fill)."""
+    if not idle or working >= limit:
+        return ""
+    return f"Capacity: {working} of {limit} parallel agents in use. Idle: {', '.join(idle[:8])}. If work is ready for them, delegate it in this turn."
 
 
 TODO_PREVIEW = 10  # open tasks listed in a turn; the rest via list_todos
