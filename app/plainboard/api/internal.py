@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from plainboard_protocol import ToolCallResult
 
+from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services.errors import ServiceError
 from .deps import Runs, Session
@@ -46,3 +47,29 @@ async def upload_attachment(
     except ServiceError as exc:
         return ToolCallResult(text=str(exc), is_error=True)
     return ToolCallResult(text=f"Attached {attachment.filename} to ticket #{task.number} (attachment id {attachment.id}).")
+
+
+@router.post("/runs/{run_id}/chat-files", response_model=ToolCallResult)
+async def send_chat_files(
+    run_id: int,
+    runs: Runs,
+    session: Session,
+    files: list[UploadFile] = File(default=[]),
+    attachment_ids: str = Form(default=""),
+    authorization: str | None = Header(default=None),
+) -> ToolCallResult:
+    """The send_files tool: existing attachments and new files from the agent's workspace, into its chat."""
+    ctx = _context(runs, run_id, authorization)
+    try:
+        ids = [int(i) for i in attachment_ids.split(",") if i.strip()]
+        shown = await board_service.project_attachments(session, ctx.project_id, ids)
+        for file in files:
+            shown.append(
+                await board_service.store_attachment(session, ctx.project_id, file.filename or "file", file.content_type or "", await file.read(), agent_id=ctx.agent_id)
+            )
+        if not shown:
+            return ToolCallResult(text="Nothing to send: give paths or attachment_ids.", is_error=True)
+        await agent_service.send_files(session, await agent_service.get(session, ctx.agent_id), shown, run_id=ctx.run_id)
+    except (ServiceError, ValueError) as exc:
+        return ToolCallResult(text=str(exc), is_error=True)
+    return ToolCallResult(text=f"Shown in the chat: {', '.join(a.filename for a in shown)}.")

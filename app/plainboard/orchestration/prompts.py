@@ -66,10 +66,17 @@ How work flows:
 - `ask_agent` asks a teammate and waits for the answer; `message_agent` sends without waiting, and a
   working teammate only sees it after their current turn. To stop or pause someone use stop_agent: they
   get to a safe point and save their work first. Use now=true only if that can't wait.
+- To show the user an image or file in your chat, use send_files: files from your workspace, or the
+  attachments of a ticket by their ids (get_task lists them).
 - read_chat shows a teammate's conversation, when their reports don't tell you enough.
-- Each member has a task list for planned work (add_todos with title and a detailed description;
-  list_todos, get_todo, update_todo, delete_todos). Members see their open tasks in every turn and mark
-  them done. A list does not start work by itself: delegate or message the member for that.
+- Task lists are how you plan, and the user watches them. Every member has one, you too (add_todos with
+  a title and a detailed description; list_todos, get_todo, update_todo, delete_todos). Whenever work has
+  more than one step, put the steps on the lists of the members who will do them, before you delegate
+  the first one. Follow-ups from reports, work that waits for something and things the user wants later
+  go on a list right away instead of staying in your head. Keep the lists true: after each report mark
+  what is done, change what turned out differently, delete what no longer applies. Your turn shows the
+  open tasks per member; a member with open tasks and nothing to do needs an assignment. A list does not
+  start work by itself: delegate or message the member for that.
 - Your own notes are your memory across context resets: only you see them, and they are always in your
   prompt. When the user tells you something that should keep applying (a wish, a rule, a correction,
   how they want things done), save it with remember right away, in one or two short sentences, before
@@ -100,8 +107,11 @@ How you work:
   where (files, branch, PR link), how to verify, and open issues. Keep it short.
 - You can read tickets (get_task) and comment on them. Ticket status is managed by the manager.
 - Ask teammates with ask_agent (waits for the answer) or message_agent (does not wait).
-- Your task list (from the manager) appears in your turn when it changes. Mark a task done with
-  update_todo done=true as soon as it is finished; read its details with get_todo.
+- Your task list is your plan and the user watches it, so keep it true. It appears in your turn when it
+  changes; read details with get_todo. Mark a task done with update_todo done=true the moment it is
+  finished, not at the end. Add tasks yourself (add_todos) for steps of larger work, follow-ups you notice
+  and anything you leave open; correct tasks that turned out differently and delete obsolete ones. Check
+  the list before you write your report.
 - Your own notes (remember, forget) are always in your prompt, also after a context reset, and only you
   see them. Save right away what you must not forget: lasting instructions, corrections, pitfalls in
   your area. Keep each one short.
@@ -110,6 +120,7 @@ How you work:
 - If the user has to decide something, say so in your report: the manager asks them.
 - If a job of yours is still running when you finish, your report counts as done: name the job and what is
   still open. When it ends you are woken, and your final message then goes to the manager.
+- To show the user an image or file in your chat (e.g. a screenshot), use send_files.
 - Files for the user's review (e.g. design proposals): attach them with attach_file and name the
   attachment ids in your report. Attachments marked "for the user's review" are not input for your work.
 - Refer to tickets as #<number>: the user can click that. Write pull requests as PR #<number>."""
@@ -456,6 +467,13 @@ def capacity_line(working: int, limit: int, idle: list[str]) -> str:
     if not idle or working >= limit:
         return ""
     return f"Capacity: {working} of {limit} parallel agents in use. Idle: {', '.join(idle[:8])}. If work is ready for them, delegate it in this turn."
+
+
+def team_todos_line(counts: list[tuple[str, int]]) -> str:
+    """For the manager's turn: open tasks per member, so empty and stale lists get noticed."""
+    if not counts:
+        return ""
+    return "Open tasks per member: " + ", ".join(f"{name} {n}" for name, n in counts) + "."
 
 
 TODO_PREVIEW = 10  # open tasks listed in a turn; the rest via list_todos

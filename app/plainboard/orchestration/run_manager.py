@@ -52,6 +52,7 @@ from ..services import mcp as mcp_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import secrets as secret_service
+from ..services import todos as todo_service
 from ..services import accounts as account_service
 from ..services import limits as limits_service
 from ..services import settings as settings_service
@@ -583,7 +584,13 @@ class RunManager:
             if agent.is_manager:
                 limit = int(values["max_parallel_runs"])
                 working, idle = await board_service.spare_capacity(s, project.id, limit, except_run_id=run.id)
-                checks = (prompts.board_check(await board_service.idle_in_progress(s, project.id)), prompts.capacity_line(working, limit, idle))
+                team = [a for a in await agent_service.list_for_project(s, project.id) if a.enabled and not a.is_manager]
+                open_todos = await todo_service.open_counts(s, [a.id for a in team])
+                checks = (
+                    prompts.board_check(await board_service.idle_in_progress(s, project.id)),
+                    prompts.capacity_line(working, limit, idle),
+                    prompts.team_todos_line([(a.name, open_todos.get(a.id, 0)) for a in team[:12]]),
+                )
                 board = "\n\n".join(c for c in checks if c)
             full_text = prompts.with_preface(prompts.with_attachments(text, meta.get("attachments")), now=prompts.now_line(values["timezone"]), inbox=updates, board=board)
             turn = await self.context.build_turn(s, project=project, agent=agent, conv=conv, text=full_text, message_id=message.id)

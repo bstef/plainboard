@@ -28,6 +28,13 @@ export function MessageItem({ message, agent, details }: { message: Message; age
       );
   }
   if (message.role === "user") return <UserMessage message={message} details={details} />;
+  if (message.kind === "files")
+    return (
+      <div className="flex flex-col items-start gap-1.5 pl-7.5">
+        <MessageFiles files={message.meta.attachments ?? []} align="start" />
+        <MessageTime at={message.created_at} />
+      </div>
+    );
   return (
     <div className="flex gap-2.5">
       <span className="mt-1 size-5 shrink-0 rounded-full text-center text-[10px] leading-5 font-semibold text-white" style={{ background: agent.color }}>
@@ -175,14 +182,14 @@ function SystemNote({ icon, label, children, action }: { icon: ReactNode; label:
   );
 }
 
-function MessageFiles({ files }: { files: { id: number; filename: string; content_type: string }[] }) {
+function MessageFiles({ files, align = "end" }: { files: { id: number; filename: string; content_type: string }[]; align?: "start" | "end" }) {
   const [viewing, setViewing] = useState<number | null>(null);
   const images = files.filter((f) => f.content_type.startsWith("image/"));
   const others = files.filter((f) => !f.content_type.startsWith("image/"));
   return (
     <>
       {images.length > 0 && (
-        <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+        <div className={clsx("flex max-w-[85%] flex-wrap gap-1.5", align === "end" ? "justify-end" : "justify-start")}>
           {images.map((f, i) => (
             <button key={f.id} onClick={() => setViewing(i)} className="overflow-hidden rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-800">
               <img src={`/api/attachments/${f.id}`} alt={f.filename} loading="lazy" className="h-40 max-w-full object-cover" />

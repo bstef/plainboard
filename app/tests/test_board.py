@@ -222,3 +222,27 @@ def test_preview_says_when_nothing_listens(client):
     client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
     resp = client.get("/preview/3000/")
     assert resp.status_code == 502 and "0.0.0.0" in resp.text
+
+
+def test_an_agent_shows_ticket_attachments_and_its_own_files_in_its_chat(client, project):
+    from conftest import agents_by_slug
+    from plainboard.orchestration.run_manager import RunContext
+
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Logo"}).json()
+    on_ticket = client.post(f"/api/tasks/{ticket['id']}/attachments", files=[("files", ("logo.png", b"png", "image/png"))]).json()[0]
+    client.app_ref.state.runs._tokens["tok"] = RunContext(run_id=1, project_id=pid, agent_id=manager["id"], token="tok")
+    auth = {"Authorization": "Bearer tok"}
+
+    sent = client.post(
+        "/api/internal/runs/1/chat-files", headers=auth, data={"attachment_ids": str(on_ticket["id"])}, files=[("files", ("shot.png", b"new", "image/png"))]
+    ).json()
+    assert not sent["is_error"] and sent["text"] == "Shown in the chat: logo.png, shot.png."
+    message = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"][-1]
+    assert (message["role"], message["kind"]) == ("assistant", "files")
+    assert [f["filename"] for f in message["meta"]["attachments"]] == ["logo.png", "shot.png"]
+    assert client.get(f"/api/attachments/{message['meta']['attachments'][1]['id']}").content == b"new"
+
+    assert client.post("/api/internal/runs/1/chat-files", headers=auth, data={"attachment_ids": "999"}).json()["is_error"]
+    assert client.post("/api/internal/runs/1/chat-files", headers=auth, data={"attachment_ids": ""}).json()["is_error"]

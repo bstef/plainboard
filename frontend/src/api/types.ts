@@ -210,7 +210,7 @@ export interface Message {
   id: number;
   conversation_id: number;
   role: "user" | "assistant" | "system";
-  kind: "text" | "tool" | "summary" | "event" | "error";
+  kind: "text" | "tool" | "summary" | "event" | "error" | "files";
   content: string;
   meta: Record<string, any>;
   run_id: number | null;

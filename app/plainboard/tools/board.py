@@ -222,6 +222,12 @@ async def add_comment(ctx: ToolContext, args: CommentArgs) -> str:
     return f"Commented on #{args.number}."
 
 
+class SendFilesArgs(BaseModel):
+    paths: list[str] = Field(default_factory=list, description="Files in your workspace (absolute or relative)")
+    attachment_ids: list[int] = Field(default_factory=list, description="Existing attachments, e.g. from a ticket")
+
+
+local_tool("send_files", "Show files to the user in your chat; images appear inline.", SendFilesArgs)
 local_tool("attach_file", "Attach a file from your workspace to a ticket (e.g. screenshot, report).", AttachFileArgs)
 
 

@@ -449,6 +449,14 @@ async def chat_attachments(session: AsyncSession, project_id: int, ids: list[int
     return list((await session.scalars(q.order_by(Attachment.id))).all())
 
 
+async def project_attachments(session: AsyncSession, project_id: int, ids: list[int]) -> list[Attachment]:
+    """Attachments of a project by id, in the given order: from tickets and from chats. Unknown ids are an error."""
+    found = {a.id: a for a in await session.scalars(select(Attachment).where(Attachment.project_id == project_id, Attachment.id.in_(ids)))}
+    if missing := [i for i in ids if i not in found]:
+        raise NotFound(f"Unknown attachment: {', '.join(map(str, missing))}")
+    return [found[i] for i in dict.fromkeys(ids)]
+
+
 async def get_attachment(session: AsyncSession, attachment_id: int) -> Attachment:
     attachment = await session.get(Attachment, attachment_id)
     if attachment is None:

@@ -5,8 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import ACTIVE_RUN_STATUSES, Agent, Conversation, Job, JobStatus, McpServer, Message, Repository, Run, RunStatus
-from ..schemas import AgentCreate, AgentOut, AgentUpdate
+from ..models import ACTIVE_RUN_STATUSES, Agent, Attachment, Conversation, Job, JobStatus, McpServer, Message, Repository, Run, RunStatus
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, MessageOut
 from . import accounts as account_service
 from . import settings as settings_service
 from . import own_notes as own_note_service
@@ -195,6 +195,18 @@ async def messages(session: AsyncSession, conv: Conversation, *, before_id: int 
     if kinds:
         q = q.where(Message.kind.in_(kinds))
     return list((await session.scalars(q.order_by(Message.id.desc()).limit(limit))).all())
+
+
+async def send_files(session: AsyncSession, agent: Agent, files: list[Attachment], *, run_id: int | None = None) -> Message:
+    """Show files in the agent's chat as a message of their own (images inline). Not part of the
+    agent's context: it knows what it sent from its tool call."""
+    conv = await conversation_for(session, agent.id)
+    meta = {"attachments": [{"id": f.id, "filename": f.filename, "content_type": f.content_type} for f in files]}
+    message = Message(conversation_id=conv.id, role="assistant", kind="files", content="", meta=meta, run_id=run_id)
+    session.add(message)
+    await session.commit()
+    bus.publish(agent.project_id, "message.created", MessageOut.model_validate(message))
+    return message
 
 
 async def to_out(session: AsyncSession, agents: list[Agent]) -> list[AgentOut]:

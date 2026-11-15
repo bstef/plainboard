@@ -518,3 +518,23 @@ async def test_a_repository_uses_its_own_access(workspaces, tmp_path, monkeypatc
     assert repo_config(RepoSpec(name="web", url="https://github.com/acme/web.git"), general) == {}
     assert repo_config(RepoSpec(name="web", url=url), general) == {}
     assert repo_config(RepoSpec(name="web", url="git@github.com:acme/web.git", ssh_key="PRIVATE KEY"), general) != ssh
+
+
+async def test_send_files_uploads_workspace_files_and_forwards_attachment_ids(tmp_path):
+    (tmp_path / "shot.png").write_bytes(b"png")
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = request.content
+        return httpx.Response(200, json={"text": "Shown in the chat: shot.png.", "is_error": False})
+
+    spec = ToolBridgeSpec(base_url="http://app", run_id="9", run_token="t", tools=[ToolDef(name="send_files", description="", input_schema={}, local=True)])
+    bridge = ToolBridge(spec, tmp_path)
+    bridge._client = httpx.AsyncClient(base_url="http://app", transport=httpx.MockTransport(handler))
+    result = await bridge.call("send_files", {"paths": ["shot.png"], "attachment_ids": [4, 5]})
+    assert not result.is_error, result.text
+    assert seen["path"] == "/api/internal/runs/9/chat-files"
+    assert b'filename="shot.png"' in seen["body"] and b"4,5" in seen["body"]
+    assert not (await bridge.call("send_files", {"attachment_ids": [4]})).is_error
+    assert (await bridge.call("send_files", {"paths": ["missing.png"]})).is_error

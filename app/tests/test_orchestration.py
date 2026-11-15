@@ -157,6 +157,7 @@ def test_manager_sees_free_capacity_only_when_there_is_work_for_it(client, proje
     chat(client, manager["id"], "SAY ok")
     wait_for(lambda: idle(client, pid))
     assert "Capacity: 0 of 3 parallel agents in use. Idle: Dev." in runner(client).specs[-1].prompt
+    assert "Open tasks per member: Dev 0." in runner(client).specs[-1].prompt
 
     client.patch("/api/settings", json={"max_parallel_runs": 0})
     assert client.portal.call(spare, pid) == (0, [])

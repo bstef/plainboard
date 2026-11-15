@@ -87,3 +87,16 @@ async def _attach_file(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallResu
     if resp.status_code >= 400:
         return ToolCallResult(text=f"Upload failed: {resp.text[:300]}", is_error=True)
     return ToolCallResult.model_validate(resp.json())
+
+
+@local_tool("send_files")
+async def _send_files(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallResult:
+    paths = [p if p.is_absolute() else bridge.workspace / p for p in (Path(str(raw)) for raw in args.get("paths") or [])]
+    if missing := [str(p) for p in paths if not p.is_file()]:
+        return ToolCallResult(text=f"File not found: {', '.join(missing)}", is_error=True)
+    ids = ",".join(str(int(i)) for i in args.get("attachment_ids") or [])
+    files = [("files", (p.name, p.read_bytes(), mimetypes.guess_type(p.name)[0] or "application/octet-stream")) for p in paths]
+    resp = await bridge._client.post(f"/api/internal/runs/{bridge.spec.run_id}/chat-files", data={"attachment_ids": ids}, files=files or None)
+    if resp.status_code >= 400:
+        return ToolCallResult(text=f"Sending failed: {resp.text[:300]}", is_error=True)
+    return ToolCallResult.model_validate(resp.json())
