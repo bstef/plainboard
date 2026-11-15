@@ -59,8 +59,10 @@ log = logging.getLogger(__name__)
 
 MCP_SERVER_NAME = "plainboard"
 BOARD_TOOLSET_BUILTINS = ["Read", "Glob", "Grep", "Bash", "Edit", "Write"]
-# Interactive tools make no sense for headless agents; they talk back via chat or the board.
-DISALLOWED_TOOLS = ["AskUserQuestion"]
+# Interactive tools make no sense for headless agents; they talk back via chat or the board. Plan mode
+# waits for an approval nobody gives. The CLI's own todo list would compete with the PlainBoard task
+# list, which is the one the user and the manager see.
+DISALLOWED_TOOLS = ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
 # One CLI message holds a whole tool result; a screenshot the agent reads easily exceeds the SDK's 1 MB default.
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 NOTICE_GRACE_SECONDS = 60

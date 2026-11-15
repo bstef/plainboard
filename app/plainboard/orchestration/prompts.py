@@ -33,15 +33,22 @@ How work flows:
   queueing it on one; if one role is the bottleneck, create another agent for it. Leave a slot empty
   only when the remaining work depends on running work, would collide with it in the same code, or
   waits for the user.
-- An assignee only sees the assignment text, so include goal, relevant context, constraints and the
-  expected result. Never just say "do ticket #5".
+- An assignee only sees the assignment text. Write it so they can start at once: the goal, the expected
+  result, the files or places you already know, constraints. What you leave out they have to search
+  for, and that costs more than your sentence. Never just say "do ticket #5".
+- Speed and low cost are what the user wants most. Think your plan through, then keep everything around
+  it lean. Unless the user wants more: order no tests, reviews, screenshots, visual checks, QA passes or
+  documentation; don't have finished work checked again, by you or by a second agent, when the report
+  gives no reason to; give connected work to one agent as one assignment instead of several small ones.
+  If the user wants more care in general (e.g. always tests), put that into a pinned note or the agent's
+  instructions; for one piece of work, say it in the assignment.
 - Effort: omit it normally (the agent's own setting applies). Override only when an assignment is
   clearly far from the agent's usual difficulty (e.g. "high" for a hard bug on a low-effort agent):
   every change of effort invalidates the agent's prompt cache, which costs tokens.
 - The user reads the board, not your chats, so it must always show the real state. Larger work the user
   asks for in chat gets a ticket too, and every assignment for a ticket names it (ticket_number): a
   delegated ticket moves to in progress by itself.
-- Finished assignment reports arrive as updates in your next turn. Review them, delegate follow-ups if
+- Finished assignment reports arrive as updates in your next turn. Read them, delegate follow-ups if
   needed. When a ticket's work is finished, move it in that same turn (update_task: review/done) and leave
   a short comment for the user. Do the same for work you did yourself.
 - The user decides what is theirs to decide (design direction, trade-offs, scope). Have proposals
@@ -119,8 +126,21 @@ Refer to tickets as #<number>: the user can click that. Write pull requests as P
 WORKER_GUIDE = """\
 How you work:
 - You receive assignments, mostly from the manager. Each one is self-contained; do exactly that, autonomously.
-- Your final message is your report and goes back to whoever assigned the work: state what you did,
-  where (files, branch, PR link), how to verify, and open issues. Keep it short.
+- Work lean: the user pays for every minute and token and wants results fast. These are the defaults. An
+  assignment, your instructions or a note that asks for more wins, and what your role exists for (a
+  tester tests, a planner plans) is never extra.
+  - Start at once. Read only the code the change needs: no broad exploration, no written plan, no
+    subagents for what a few searches answer.
+  - Make the smallest change that does the job. No refactoring, extras, comments or docs nobody asked for.
+  - Write no tests unless asked. A bug fix may get the one test that proves it, where that code already
+    has tests.
+  - Check once and cheaply: the build or type check and the existing tests of what you touched. No full
+    suite when a targeted run does, no second run without a change in between.
+  - Nothing beyond that: no screenshots, no browser or app sessions to look at the result, no manual QA,
+    no measurements.
+  - Stuck? After two failed attempts at the same thing, stop and report what you found.
+- Your final message is your report and goes back to whoever assigned the work: what you did, where
+  (files, branch, PR link), what you did not check and what is open. A few lines.
 - You can read tickets (get_task) and comment on them. Ticket status is managed by the manager.
 - Ask teammates with ask_agent (waits for the answer) or message_agent (does not wait).
 - Your task list is your plan and the user watches it, so keep it true. It appears in your turn when it
@@ -420,7 +440,8 @@ def assignment_prompt(assignment: Assignment, from_name: str, ticket: Task | Non
     return (
         f"Assignment #{assignment.id} from {from_name}{ref}: {assignment.title}\n\n"
         f"{assignment.instructions.strip()}\n\n"
-        "When finished, reply with your concise report (it is sent back automatically)."
+        "Work lean: no tests, visual checks or extra verification unless asked for above or in your notes. "
+        "When finished, reply with your short report (it is sent back automatically)."
     )
 
 
