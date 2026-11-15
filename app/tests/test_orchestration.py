@@ -146,6 +146,28 @@ def test_board_check_skips_tickets_being_worked_on_and_reaches_only_the_manager(
     assert "Board check" not in runner(client).specs[-1].prompt
 
 
+def test_review_is_only_for_what_the_user_has_to_look_at(client, project):
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Login", "status": "todo"}).json()
+    number = ticket["number"]
+    results = lambda: [m["meta"].get("result") for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]  # noqa: E731
+
+    chat(client, manager["id"], f'TOOL update_task {json.dumps({"number": number, "status": "review"})}')
+    wait_for(lambda: idle(client, pid) and results() and results()[-1])
+    assert "set user_action with what to check" in results()[-1]
+    chat(client, manager["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid))
+    assert f"In review without a note for the user: #{number}." in runner(client).specs[-1].prompt
+
+    chat(client, manager["id"], f'TOOL update_task {json.dumps({"number": number, "status": "review", "user_action": "Try the login"})}')
+    wait_for(lambda: idle(client, pid) and len(results()) == 2 and results()[-1])
+    assert "set user_action" not in results()[-1]
+    chat(client, manager["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid))
+    assert "In review without" not in runner(client).specs[-1].prompt
+
+
 def test_manager_always_sees_the_use_of_parallel_agents(client, project):
     pid = project["id"]
     make_dev(client, pid)

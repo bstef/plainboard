@@ -119,6 +119,7 @@ class Project(Timestamps, Base):
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never
+    review_days: Mapped[int] = mapped_column(Integer, default=3)  # tickets left in review move to done after this; 0 = never
 
     agents: Mapped[list[Agent]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
 

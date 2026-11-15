@@ -113,6 +113,9 @@ def ticket_line(task: Task) -> str:
     return f"#{task.number} [{task.status}{', archived' if task.archived_at else ''}] ({task.priority}) {task.title}{labels}{waiting}"
 
 
+REVIEW_HINT = " Review is only for what the user has to look at: set user_action with what to check, or move it to done."
+
+
 def numbers_text(tasks: list[Task]) -> str:
     return ", ".join(f"#{t.number}" for t in tasks)
 
@@ -180,7 +183,8 @@ async def update_task(ctx: ToolContext, args: UpdateTaskArgs) -> str:
     task = await board_service.get_task_by_number(ctx.session, ctx.project.id, args.number)
     fields = args.model_dump(exclude_unset=True, exclude={"number"})
     task, _ = await board_service.update_task(ctx.session, task, TaskUpdate(**fields))
-    return f"Updated: {ticket_line(task)}"
+    unmarked = args.status == "review" and task in await board_service.unmarked_in_review(ctx.session, ctx.project.id)
+    return f"Updated: {ticket_line(task)}" + (REVIEW_HINT if unmarked else "")
 
 
 @tool("update_tasks", "Apply the same change to many tickets at once: move, set priority, add/remove labels, archive.", UpdateTasksArgs, roles=(MANAGER,))
@@ -192,6 +196,8 @@ async def update_tasks(ctx: ToolContext, args: UpdateTasksArgs) -> str:
         ctx.session, ctx.project.id, args.numbers, TaskUpdate(**fields), add_labels=args.add_labels, remove_labels=args.remove_labels
     )
     text = f"Updated {numbers_text(tasks)}." if tasks else "Nothing updated."
+    if args.status == "review" and any(t in tasks for t in await board_service.unmarked_in_review(ctx.session, ctx.project.id)):
+        text += REVIEW_HINT.replace("move it", "move them")
     return text + (f" Not found: {', '.join(f'#{n}' for n in missing)}." if missing else "")
 
 

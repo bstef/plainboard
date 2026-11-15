@@ -30,8 +30,9 @@ Look through:
   (member_notes): only where they look long or old, delete what clearly no longer applies, never notes
   from the user.
 - Schedules: delete those that have done their job or repeat another one (not this one).
-- Tickets: move finished ones to done and archive old done ones. A ticket that looks no longer relevant
-  stays; mention it in your reply instead of deleting it.
+- Tickets: move finished ones to done, also those in review that the user does not have to look at, and
+  archive old done ones. A ticket that looks no longer relevant stays; mention it in your reply instead
+  of deleting it.
 - Task lists of the team: delete tasks that are done elsewhere or no longer make sense.
 - Background jobs of the team (list_jobs): check for each preview or dev server whether it is still
   needed. Stop it with stop_job when its work is finished or it has been running for more than a day

@@ -170,6 +170,35 @@ def test_done_tickets_are_archived_and_restored(client, project):
     assert client.portal.call(age_and_auto_archive) == 0
 
 
+def test_tickets_left_in_review_move_to_done_unless_they_wait_for_the_user(client, project):
+    from datetime import timedelta
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Task, utcnow
+    from plainboard.services import board as board_service
+    from sqlalchemy import update
+
+    pid = project["id"]
+    assert project["review_days"] == 3
+    old, marked, new = (client.post(f"/api/projects/{pid}/tasks", json={"title": t, "status": "review"}).json() for t in ("Old", "Marked", "New"))
+    client.patch(f"/api/tasks/{marked['id']}", json={"user_action": "Try the login"})
+
+    async def age_and_accept():
+        async with sessionmaker()() as s:
+            await s.execute(update(Task).where(Task.id.in_((old["id"], marked["id"]))).values(updated_at=utcnow() - timedelta(days=4)))
+            await s.commit()
+            return await board_service.accept_reviews(s)
+
+    client.patch(f"/api/projects/{pid}", json={"review_days": 0})
+    assert client.portal.call(age_and_accept) == 0
+    client.patch(f"/api/projects/{pid}", json={"review_days": 3})
+    assert client.portal.call(age_and_accept) == 1
+    detail = lambda t: client.get(f"/api/tasks/{t['id']}").json()  # noqa: E731
+    assert [detail(t)["status"] for t in (old, marked, new)] == ["done", "review", "review"]
+    comment = detail(old)["comments"][-1]
+    assert comment["author_kind"] == "system" and "3 days in review" in comment["body"]
+
+
 def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeypatch):
     import httpx
     from fastapi import FastAPI, Request

@@ -13,6 +13,7 @@ export interface Project {
   has_github_token: boolean;
   auto_wake_manager: boolean;
   auto_archive_days: number;
+  review_days: number;
   label_colors: Record<string, string>;
   created_at: string;
 }

@@ -49,8 +49,11 @@ How work flows:
   asks for in chat gets a ticket too, and every assignment for a ticket names it (ticket_number): a
   delegated ticket moves to in progress by itself.
 - Finished assignment reports arrive as updates in your next turn. Read them, delegate follow-ups if
-  needed. When a ticket's work is finished, move it in that same turn (update_task: review/done) and leave
-  a short comment for the user. Do the same for work you did yourself.
+  needed. When a ticket's work is finished, move it to done in that same turn and leave a short comment
+  for the user. Do the same for work you did yourself.
+- Review is not a second done. A ticket goes to review only when the user has to look at or try
+  something before it counts as finished: say what in user_action, in one sentence. Everything else goes
+  straight to done. A ticket left in review without that is moved to done after a few days.
 - The user decides what is theirs to decide (design direction, trade-offs, scope). Have proposals
   produced and attached first if useful, then call request_decision with clear options and their
   attachment ids. Then stop that work: the answer arrives as an update. If the user answers you in
@@ -506,7 +509,15 @@ def board_check(tasks: list[Task]) -> str:
     if not tasks:
         return ""
     lines = [f"- #{t.number} {truncate(t.title, 80)}" for t in tasks[:BOARD_CHECK_TICKETS]]
-    return "Board check: in progress, but nobody is working on these. Move each to review or done, or start its next step:\n" + "\n".join(lines)
+    return "Board check: in progress, but nobody is working on these. Move each to done (to review only if the user has to look at it), or start its next step:\n" + "\n".join(lines)
+
+
+def review_line(tasks: list[Task]) -> str:
+    """For the manager's turn: tickets in review that don't say what the user should look at."""
+    if not tasks:
+        return ""
+    numbers = ", ".join(f"#{t.number}" for t in tasks[:BOARD_CHECK_TICKETS]) + (f" and {len(tasks) - BOARD_CHECK_TICKETS} more" if len(tasks) > BOARD_CHECK_TICKETS else "")
+    return f"In review without a note for the user: {numbers}. Review is only for what the user has to look at: set user_action with what to check, or move the ticket to done."
 
 
 def capacity_line(c) -> str:

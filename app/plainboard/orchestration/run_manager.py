@@ -596,6 +596,7 @@ class RunManager:
                 todo_counts = [(a.name, *_count_and_age(open_todos.get(a.id))) for a in team[:12]]
                 checks = (
                     prompts.board_check(await board_service.idle_in_progress(s, project.id)),
+                    prompts.review_line(await board_service.unmarked_in_review(s, project.id)),
                     prompts.capacity_line(capacity),
                     prompts.team_todos_line(todo_counts),
                 )

@@ -181,6 +181,31 @@ async def auto_archive(session: AsyncSession) -> int:
     return archived
 
 
+async def unmarked_in_review(session: AsyncSession, project_id: int) -> list[Task]:
+    """Tickets in review that don't say what the user should look at: no user action, no open question."""
+    tasks = [t for t in await list_tasks(session, project_id, status=TaskStatus.REVIEW) if not t.user_action]
+    if not tasks:
+        return []
+    asked = set(await session.scalars(select(Decision.task_id).where(Decision.project_id == project_id, Decision.status == DecisionStatus.OPEN)))
+    return [t for t in tasks if t.id not in asked]
+
+
+async def accept_reviews(session: AsyncSession) -> int:
+    """Moves tickets to done that lay in review unchanged for the project's review_days. Tickets that
+    wait for the user (user action, open question) or are being worked on stay."""
+    accepted = 0
+    for project in (await session.scalars(select(Project).where(Project.review_days > 0))).all():
+        cutoff = utcnow() - timedelta(days=project.review_days)
+        working = set(await session.scalars(select(Run.task_id).where(Run.project_id == project.id, Run.status.in_(ACTIVE_RUN_STATUSES))))
+        for task in await unmarked_in_review(session, project.id):
+            if task.updated_at >= cutoff or task.id in working:
+                continue
+            await _apply_update(session, task, {"status": TaskStatus.DONE})
+            await add_comment(session, task, f"Moved to done automatically: {project.review_days} days in review without a change.", author_kind="system")
+            accepted += 1
+    return accepted
+
+
 async def finish_user_action(session: AsyncSession, task: Task, note: str = "") -> str:
     """The user did what the ticket waited for. Returns what that was."""
     action = task.user_action

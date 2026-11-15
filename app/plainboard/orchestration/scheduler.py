@@ -53,6 +53,7 @@ class Scheduler:
                     run_id = run.id
                     fired += 1
                 await schedule_service.mark_fired(s, schedule, run_id, now)
+            await board_service.accept_reviews(s)
             await board_service.auto_archive(s)
             await todo_service.purge(s)
             # Arrives with the member's next turn; nobody is woken for it.

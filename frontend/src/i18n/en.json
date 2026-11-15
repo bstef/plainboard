@@ -100,6 +100,8 @@
     "private": "Private",
     "autoArchive": "Archive done tickets after (days)",
     "autoArchiveHint": "Archived tickets leave the board but keep their history and links. 0 = never.",
+    "reviewDays": "Move tickets from review to done after (days)",
+    "reviewDaysHint": "Only tickets nobody touched in that time. Tickets with a task or question for you stay. 0 = never.",
     "repoAccess": "Access",
     "repoAccessDefault": "General (token or SSH key from Settings, or none)",
     "repoAccessToken": "Own access token",
