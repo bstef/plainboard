@@ -99,7 +99,7 @@ def test_old_own_notes_are_put_up_for_review_in_the_next_turn(client, project):
     chat(client, dev["id"], "SAY ok")
     wait_for(lambda: idle(client, pid))
     prompt = runner(client).specs[-1].prompt
-    assert prompt.count("Your own notes 1 have not changed for over 30 days") == 1  # not the new one, not the user's
+    assert prompt.count("Your own notes 1 have not changed for over 3 days") == 1  # not the new one, not the user's
 
 
 def test_manager_reads_and_edits_the_own_notes_of_members(client, project):

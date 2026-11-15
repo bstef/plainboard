@@ -14,7 +14,8 @@ from ..schemas import AgentNoteOut
 from .errors import NotFound, ServiceError
 
 BUDGET_CHARS = 3000  # all notes of one member together (~750 tokens)
-REVIEW_AFTER_DAYS = 30  # a note unchanged this long is put up for review, at most once per this period
+REVIEW_AFTER_DAYS = 3  # a note unchanged this long is put up for review
+ASK_AGAIN_DAYS = 7  # a note the member kept is put up again after this long
 
 
 async def for_agent(session: AsyncSession, agent_id: int) -> list[AgentNote]:
@@ -73,7 +74,8 @@ async def counts(session: AsyncSession, agent_ids: list[int]) -> dict[int, int]:
 async def take_due_for_review(session: AsyncSession) -> dict[int, list[AgentNote]]:
     """Old notes a member wrote itself, per member, for a reminder in its next turn. Notes from the user
     are never put up for review: only the user removes them."""
-    cutoff = utcnow() - timedelta(days=REVIEW_AFTER_DAYS)
+    now = utcnow()
+    cutoff = now - timedelta(days=REVIEW_AFTER_DAYS)
     q = (
         select(AgentNote)
         .join(Agent, Agent.id == AgentNote.agent_id)
@@ -81,12 +83,11 @@ async def take_due_for_review(session: AsyncSession) -> dict[int, list[AgentNote
             Agent.enabled,
             AgentNote.created_by_agent_id.is_not(None),
             AgentNote.updated_at < cutoff,
-            or_(AgentNote.review_asked_at.is_(None), AgentNote.review_asked_at < cutoff),
+            or_(AgentNote.review_asked_at.is_(None), AgentNote.review_asked_at < now - timedelta(days=ASK_AGAIN_DAYS)),
         )
         .order_by(AgentNote.agent_id, AgentNote.id)
     )
     due: dict[int, list[AgentNote]] = {}
-    now = utcnow()
     for note in await session.scalars(q):
         note.review_asked_at = now
         due.setdefault(note.agent_id, []).append(note)
