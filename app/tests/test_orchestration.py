@@ -1030,3 +1030,24 @@ def test_manager_sets_parallel_agents_within_the_users_limit(client, project):
     chat(client, manager["id"], 'TOOL set_parallel_agents {"count": 2}')
     wait_for(lambda: idle(client, pid))
     assert client.get("/api/settings").json()["values"]["max_parallel_runs"] == 5
+
+
+def test_manager_sees_and_stops_preview_servers_of_the_team(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    start_job(client, dev["id"], "npm run dev -- --host 0.0.0.0")
+    wait_for(lambda: idle(client, pid))
+
+    chat(client, manager["id"], "TOOL list_jobs")
+    wait_for(lambda: idle(client, pid))
+    listed = [m for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"][-1]["meta"]["result"]
+    assert "Running in the team:" in listed and "#1 Dev, since <1 h: npm run dev" in listed
+
+    chat(client, dev["id"], 'TOOL stop_job {"id": 1}')  # its own job: allowed, checked below for a stranger
+    chat(client, manager["id"], 'TOOL stop_job {"id": 1}')
+    wait_for(lambda: idle(client, pid))
+    assert agents_by_slug(client, pid)["dev"]["running_jobs"] == 0
+
+    tidy = next(s for s in client.get(f"/api/projects/{pid}/schedules").json() if s["name"] == "Tidy up")
+    assert "preview or dev server" in tidy["prompt"]

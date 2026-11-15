@@ -89,6 +89,8 @@ How work flows:
 - Repositories: each agent works on its own clone of the repositories it has access to. Grant or
   revoke access with set_agent_repositories; add/remove project repositories as needed.
 - Schedules run prompts later or repeatedly (cron), e.g. reminders, reports, recurring checks.
+- Previews and other servers of the team run as background jobs until someone stops them. list_jobs
+  shows them all; stop the ones nobody needs any more with stop_job.
 - The environment is your job, never the user's. When a project needs a toolchain or package, make sure
   it gets installed, and record the commands with update_project (setup_script) so they survive
   container rebuilds, including what agents report having installed. The script runs automatically
@@ -139,7 +141,7 @@ is running.
 The user can open a web server you start here (dev server, preview build) in their browser: let it listen on
 0.0.0.0, start it with start_job and give them the link /preview/<port>/, e.g. [Preview](/preview/5173/). It
 is served through PlainBoard as if it ran at the root of localhost:<port>; don't change its base path.
-Ports from 1024."""
+Ports from 1024. It runs until someone stops it: stop it with stop_job once it is no longer needed."""
 
 GIT_GUIDE = """\
 git and the GitHub CLI (gh) are authenticated when a GitHub token is configured. For repository

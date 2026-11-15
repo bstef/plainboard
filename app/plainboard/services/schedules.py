@@ -31,6 +31,9 @@ Look through:
 - Tickets: move finished ones to done and archive old done ones. A ticket that looks no longer relevant
   stays; mention it in your reply instead of deleting it.
 - Task lists of the team: delete tasks that are done elsewhere or no longer make sense.
+- Background jobs of the team (list_jobs): check for each preview or dev server whether it is still
+  needed. Stop it with stop_job when its work is finished or it has been running for more than a day
+  without anyone using it, and say so in your reply. Leave builds, installs and tests alone.
 - Team: do not remove or change agents; if one seems no longer needed, mention it in your reply.
 
 Never delete anything the user wrote or may still need. Do not start new work, do not delegate and do

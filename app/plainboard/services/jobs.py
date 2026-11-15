@@ -37,6 +37,18 @@ async def get_for_agent(session: AsyncSession, agent_id: int, job_id: int) -> Jo
     return job
 
 
+async def running_for_project(session: AsyncSession, project_id: int) -> list[Job]:
+    q = select(Job).where(Job.project_id == project_id, Job.status == JobStatus.RUNNING).order_by(Job.id)
+    return list((await session.scalars(q)).all())
+
+
+async def get_for_project(session: AsyncSession, project_id: int, job_id: int) -> Job:
+    job = await session.get(Job, job_id)
+    if job is None or job.project_id != project_id:
+        raise NotFound(f"No job #{job_id} in this project")
+    return job
+
+
 async def finish(session: AsyncSession, job: Job, status: JobStatus, exit_code: int | None = None) -> None:
     job.status, job.exit_code, job.finished_at = status, exit_code, utcnow()
     await session.commit()
