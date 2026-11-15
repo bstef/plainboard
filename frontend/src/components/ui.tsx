@@ -430,7 +430,7 @@ export function AgentDot({ color, status, className }: { color: string; status?:
     <span className={clsx("relative inline-flex size-2.5 shrink-0", className)}>
       {status === "running" && <span className="absolute inline-flex size-full animate-ping rounded-full opacity-60" style={{ background: color }} />}
       <span
-        className={clsx("relative inline-flex size-2.5 rounded-full", status === "queued" && "ring-2 ring-amber-400/60")}
+        className={clsx("relative inline-flex size-2.5 rounded-full", status === "queued" && "ring-2 ring-amber-400/60", status === "background" && "ring-2 ring-sky-400/60")}
         style={{ background: color }}
       />
     </span>

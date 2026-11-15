@@ -232,8 +232,9 @@ async def to_out(session: AsyncSession, agents: list[Agent]) -> list[AgentOut]:
         item = AgentOut.model_validate(agent)
         item.mcp_server_ids = [s.id for s in agent.mcp_servers]
         item.repository_ids = [r.id for r in agent.repositories]
-        item.status = status.get(agent.id, "idle")  # type: ignore[assignment]
+        # Only background jobs left (a build, a preview server): not idle, but free for new work.
         item.running_jobs = jobs.get(agent.id, 0)
+        item.status = status.get(agent.id, "background" if item.running_jobs else "idle")  # type: ignore[assignment]
         item.open_todos = todos.get(agent.id, 0)
         item.own_notes = own_notes.get(agent.id, 0)
         if conv:

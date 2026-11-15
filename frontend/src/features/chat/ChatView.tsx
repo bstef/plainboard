@@ -32,7 +32,7 @@ export function ChatView({ agentId, onSelectAgent }: { agentId: number; onSelect
                   <span
                     className={clsx(
                       "absolute -right-1 -bottom-1 size-3 rounded-full ring-2 ring-white dark:ring-zinc-950",
-                      agent.status === "running" ? "animate-pulse bg-emerald-500" : "bg-amber-400",
+                      agent.status === "running" ? "animate-pulse bg-emerald-500" : agent.status === "background" ? "bg-sky-400" : "bg-amber-400",
                     )}
                     title={t(`agentStatus.${agent.status}`)}
                   />

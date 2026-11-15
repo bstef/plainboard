@@ -251,7 +251,7 @@ class AgentOut(ORM):
     repository_ids: list[int] = Field(default_factory=list)
     account_id: int | None = None
     # live state
-    status: Literal["idle", "queued", "running"] = "idle"
+    status: Literal["idle", "queued", "running", "background"] = "idle"
     running_jobs: int = 0
     open_todos: int = 0
     own_notes: int = 0

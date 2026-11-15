@@ -77,7 +77,7 @@ export interface Agent {
   all_repos: boolean;
   repository_ids: number[];
   account_id: number | null;
-  status: "idle" | "queued" | "running";
+  status: "idle" | "queued" | "running" | "background";
   running_jobs: number;
   open_todos: number;
   own_notes: number;

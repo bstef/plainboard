@@ -255,6 +255,7 @@ class Capacity:
     busy: int  # agents with work running or waiting to start (the asking turn doesn't count)
     waiting: list[str]  # this project's agents whose work has not started yet
     idle: list[str]  # this project's agents with nothing to do
+    background: list[str]  # this project's agents with only background jobs (builds, preview servers): free for work
     open_work: bool  # tickets to do or in progress
 
     @property
@@ -278,11 +279,13 @@ async def capacity(session: AsyncSession, project_id: int, limit: int, *, except
     active = {agent_id for agent_id, _status in rows}
     started = {agent_id for agent_id, status in rows if status != "queued"}
     open_tickets = select(Task.id).where(Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_((TaskStatus.TODO, TaskStatus.IN_PROGRESS)))
+    with_jobs = set(await session.scalars(select(Job.agent_id).where(Job.project_id == project_id, Job.status == JobStatus.RUNNING)))
     return Capacity(
         limit=limit,
         busy=busy,
         waiting=[a.name for a in team if a.id in active - started],
-        idle=[a.name for a in team if a.id not in active],
+        idle=[a.name for a in team if a.id not in active and a.id not in with_jobs],
+        background=[a.name for a in team if a.id not in active and a.id in with_jobs],
         open_work=bool(await session.scalar(open_tickets.limit(1))),
     )
 

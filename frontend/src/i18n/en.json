@@ -44,7 +44,8 @@
   "agentStatus": {
     "idle": "Idle",
     "queued": "Queued",
-    "running": "Working"
+    "running": "Working",
+    "background": "Background job"
   },
   "assignment": {
     "queued": "Queued",

@@ -497,8 +497,10 @@ def capacity_line(c) -> str:
         line = f"{head}, {c.free} free."
         if c.idle:
             line += f" Idle: {', '.join(c.idle[:8])}."
-            if c.open_work:
-                line += " If work is ready for them, delegate it in this turn."
+        if c.background:
+            line += f" Only a background job running (free for work; its result wakes them): {', '.join(c.background[:8])}."
+        if (c.idle or c.background) and c.open_work:
+            line += " If work is ready for them, delegate it in this turn."
         return line
     line = f"{head}: the limit is reached."
     if c.over:

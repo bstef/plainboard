@@ -185,10 +185,10 @@ def test_capacity_line_says_when_the_limit_is_reached():
     from plainboard.orchestration.prompts import capacity_line
     from plainboard.services.board import Capacity
 
-    full = capacity_line(Capacity(limit=2, busy=3, waiting=["Ops"], idle=["QA"], open_work=True))
+    full = capacity_line(Capacity(limit=2, busy=3, waiting=["Ops"], idle=["QA"], background=[], open_work=True))
     assert full.startswith("Parallel agents: 2 of 2 working: the limit is reached. 1 more waiting for a free slot (Ops). Don't start further agents now.")
     assert "Idle" not in full
-    assert capacity_line(Capacity(limit=0, busy=0, waiting=[], idle=["QA"], open_work=True)).startswith("Parallel agents: paused by the user")
+    assert capacity_line(Capacity(limit=0, busy=0, waiting=[], idle=["QA"], background=[], open_work=True)).startswith("Parallel agents: paused by the user")
 
 
 def test_worker_tools_are_restricted(client, project):
@@ -672,6 +672,20 @@ def test_pausing_an_agent_waiting_for_a_job_gets_it_a_turn_to_stop(client, proje
 
     resp = client.post(f"/api/agents/{dev['id']}/messages", json={"text": "more work"})
     assert resp.status_code != 202  # still paused for everything else
+
+
+def test_an_agent_with_only_a_background_job_is_not_shown_as_idle(client, project):
+    from plainboard.orchestration.prompts import capacity_line
+    from plainboard.services.board import Capacity
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    start_job(client, dev["id"])
+    wait_for(lambda: idle(client, pid))
+    assert agents_by_slug(client, pid)["dev"]["status"] == "background"
+
+    line = capacity_line(Capacity(limit=3, busy=0, waiting=[], idle=["QA"], background=["Dev"], open_work=True))
+    assert "Idle: QA. Only a background job running (free for work; its result wakes them): Dev. If work is ready" in line
 
 
 def test_finished_job_is_reported_to_its_agent_and_wakes_it(client, project):
