@@ -13,20 +13,47 @@ from .registry import ToolContext, tool
 
 class StartJobArgs(BaseModel):
     command: str = Field(min_length=1, description="Shell command; runs in your workspace")
+    wait_minutes: int = Field(default=0, ge=0, le=10, description="Wait this long for its result in this turn; 0 = don't wait")
+
+
+class WaitJobArgs(BaseModel):
+    id: int
+    minutes: int = Field(default=5, ge=1, le=10)
 
 
 class StopJobArgs(BaseModel):
     id: int
 
 
+async def _wait(ctx: ToolContext, job, minutes: int) -> str:
+    await ctx.session.commit()  # don't hold a DB transaction while waiting
+    result = await ctx.runs.wait_job(job.id, minutes * 60)
+    if result:
+        return result
+    await ctx.session.refresh(job)
+    if job.status != JobStatus.RUNNING:
+        return f"Job #{job.id} has ended ({job.status}, exit code {job.exit_code}). Log: {job.log_path}"
+    return f"Job #{job.id} is still running after {minutes} min. Log: {job.log_path}. Go on with other work or end your turn: its result wakes you."
+
+
 @tool(
     "start_job",
-    "Run a slow shell command (build, install, test suite) outside your turn, so you stay available. Then finish your turn, without waiting for it (no sleep, tail or Monitor): the result arrives as an update when it ends.",
+    "Run a slow shell command (build, install, test suite) outside your turn. With wait_minutes you get its result in this turn if it ends in time; otherwise it arrives as an update when it ends.",
     StartJobArgs,
 )
 async def start_job(ctx: ToolContext, args: StartJobArgs) -> str:
     job = await ctx.runs.start_job(ctx.session, ctx.project, ctx.agent, args.command)
-    return f"Job #{job.id} started. Log: {job.log_path}. Don't wait for it: end your turn when nothing else is left, its result wakes you."
+    if args.wait_minutes:
+        return await _wait(ctx, job, args.wait_minutes)
+    return f"Job #{job.id} started. Log: {job.log_path}. Its result wakes you after your turn; to have it in this turn, use wait_job."
+
+
+@tool("wait_job", "Wait in this turn for one of your running jobs and get its result.", WaitJobArgs)
+async def wait_job(ctx: ToolContext, args: WaitJobArgs) -> str:
+    job = await job_service.get_for_agent(ctx.session, ctx.agent.id, args.id)
+    if job.status != JobStatus.RUNNING:
+        return f"Job #{job.id} has ended ({job.status}, exit code {job.exit_code}). Log: {job.log_path}"
+    return await _wait(ctx, job, args.minutes)
 
 
 def _age(job) -> str:

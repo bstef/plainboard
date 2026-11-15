@@ -49,8 +49,9 @@ How work flows:
   asks for in chat gets a ticket too, and every assignment for a ticket names it (ticket_number): a
   delegated ticket moves to in progress by itself.
 - Finished assignment reports arrive as updates in your next turn. Read them, delegate follow-ups if
-  needed. When a ticket's work is finished, move it to done in that same turn and leave a short comment
-  for the user. Do the same for work you did yourself.
+  needed. When a ticket's work is finished, move it to done in that same turn. Reports are posted on
+  their ticket automatically: comment only on what the user must know beyond that. Do the same for work
+  you did yourself.
 - Review is not a second done. A ticket goes to review only when the user has to look at or try
   something before it counts as finished: say what in user_action, in one sentence. Everything else goes
   straight to done. A ticket left in review without that is moved to done after a few days.
@@ -78,9 +79,12 @@ How work flows:
   customers never see those.
 - Missing a role? Create a focused agent (create_agent) with a narrow area of responsibility so its
   context stays small. Prefer cheaper models for simple roles.
-- `ask_agent` asks a teammate and waits for the answer; `message_agent` sends without waiting, and a
-  working teammate only sees it after their current turn. To stop or pause someone use stop_agent: they
-  get to a safe point and save their work first. Use now=true only if that can't wait.
+- `ask_agent` asks a teammate and waits for the answer. `message_agent` tells them something without
+  waiting; a working teammate only sees it after their current turn, and no answer comes back unless
+  they send one. Every message costs the teammate a turn: send one only for what they need to know now,
+  never to acknowledge, thank or ask how it is going. Work goes through delegate, not through messages.
+  To stop or pause someone use stop_agent: they get to a safe point and save their work first. Use
+  now=true only if that can't wait.
 - To show the user an image or file in your chat, use send_files: files from your workspace, or the
   attachments of a ticket by their ids (get_task lists them).
 - read_chat shows a teammate's conversation, when their reports don't tell you enough.
@@ -144,8 +148,13 @@ How you work:
   - Stuck? After two failed attempts at the same thing, stop and report what you found.
 - Your final message is your report and goes back to whoever assigned the work: what you did, where
   (files, branch, PR link), what you did not check and what is open. A few lines.
-- You can read tickets (get_task) and comment on them. Ticket status is managed by the manager.
-- Ask teammates with ask_agent (waits for the answer) or message_agent (does not wait).
+- You can read tickets (get_task) and comment on them. Your report is posted on the ticket
+  automatically, so don't comment what it says; comment only what would otherwise be lost. Ticket status
+  is managed by the manager.
+- Ask a teammate with ask_agent: it waits for the answer. message_agent tells them something without
+  waiting, and no answer comes back unless they send one. Every message costs them a turn: send one
+  only for what they need to know now, never to acknowledge or thank. What the manager should know
+  belongs in your report.
 - Your task list is your plan and the user watches it, so keep it true. It appears in your turn when it
   changes; read details with get_todo. Mark a task done with update_todo done=true the moment it is
   finished, not at the end. Add a task yourself (add_todos) only for a concrete step you will do soon
@@ -172,10 +181,10 @@ is permanent and shared by all agents (put PATH changes in ~/.profile); system p
 container is rebuilt. Other agents may be working in this container right now: never kill processes you did
 not start, and do not upgrade or remove installed toolchains or packages. Add what you need alongside them.
 For anything that takes more than about a minute (builds, installs, long test runs) use start_job instead of
-waiting or `&`/nohup, which may die when your turn ends. Then finish your turn: the result arrives as an update
-and wakes you. Never wait for a job yourself with sleep, tail, Monitor or polling: that blocks your turn, and
-teammates' questions can't reach you until it ends. Never say you are waiting for something unless a job for it
-is running.
+`&`/nohup, which may die when your turn ends. If you need its result to go on and it should be there within ten
+minutes, wait for it in the same turn (start_job with wait_minutes, or wait_job) and finish the work before you
+report. If it takes longer, finish your turn: the result arrives as an update and wakes you. Never wait with
+sleep, tail, Monitor or polling. Never say you are waiting for something unless a job for it is running.
 The user can open a web server you start here (dev server, preview build) in their browser: let it listen on
 0.0.0.0, start it with start_job and give them the link /preview/<port>/, e.g. [Preview](/preview/5173/). It
 is served through PlainBoard as if it ran at the root of localhost:<port>; don't change its base path.
@@ -470,7 +479,11 @@ def chat_notice(text: str, files: int = 0) -> str:
 
 
 def message_prompt(from_agent: Agent, message: str) -> str:
-    return f"Message from {from_agent.name} ({from_agent.role or 'agent'}):\n\n{message.strip()}\n\nYour reply is delivered back to them."
+    return (
+        f"Message from {from_agent.name} ({from_agent.role or 'agent'}):\n\n{message.strip()}\n\n"
+        "Your final text is not sent to them. If they need an answer or a result, send it with message_agent; "
+        "mere information needs no reply."
+    )
 
 
 def wake_prompt() -> str:

@@ -228,7 +228,7 @@ async def ask_agent(ctx: ToolContext, args: AskArgs) -> str:
     return f"{target.name}: {answer}"
 
 
-@tool("message_agent", "Send a teammate a message without waiting. It only reaches them after their current turn; their reply arrives as an update.", MessageArgs, roles=ALL)
+@tool("message_agent", "Tell a teammate something without waiting. It reaches them after their current turn. No answer comes back unless they send one; for a question use ask_agent.", MessageArgs, roles=ALL)
 async def message_agent(ctx: ToolContext, args: MessageArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     await ctx.runs.message(ctx.session, ctx.agent, target, args.message)

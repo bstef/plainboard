@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..config import get_config
 from ..events import bus
 from ..models import (
+    ACTIVE_RUN_STATUSES,
     Agent,
     Assignment,
     AssignmentStatus,
@@ -109,6 +110,7 @@ class RunManager:
         self._tokens: dict[str, RunContext] = {}
         self._waiters: dict[int, asyncio.Future[str]] = {}
         self._orphan_asks: set[int] = set()
+        self._job_waiters: dict[int, asyncio.Future[str]] = {}  # job id -> the turn waiting for its result
         self._waits_for: dict[int, dict[int, int]] = {}
         self._cancel_requested: set[int] = set()
         self._limits_asked = 0.0
@@ -772,9 +774,10 @@ class RunManager:
                 self._orphan_asks.discard(run.id)
                 await inbox.push(s, run.source_agent_id, f"Late answer from {agent.name}: {truncate(answer, 2000)}")
 
-        elif run.trigger == RunTrigger.MESSAGE and run.source_agent_id:
-            await inbox.push(s, run.source_agent_id, f"Reply from {agent.name}: {outcome_text}")
-            await self._maybe_wake(s, project, run.source_agent_id)
+        elif run.trigger == RunTrigger.MESSAGE and run.source_agent_id and not ok:
+            # Replies are explicit (message_agent), so a reply never costs a turn nobody needs. Only a
+            # message that was not handled is reported, with the sender's next turn.
+            await inbox.push(s, run.source_agent_id, f"Your message to {agent.name} was not handled: {run.error}")
 
         elif run.trigger == RunTrigger.ASSIGNMENT and run.assignment_id:
             assignment = await s.get(Assignment, run.assignment_id)
@@ -810,7 +813,9 @@ class RunManager:
             # e.g. a worker's job finished after its assignment was reported: nobody else reads this.
             manager = await agent_service.get_manager(s, project.id)
             await inbox.push(s, manager.id, f"Update from {agent.name}: {truncate(text, 2000)}")
-            await self._maybe_wake(s, project, manager.id)
+            in_flight = select(Run.id).where(Run.project_id == project.id, Run.trigger == RunTrigger.ASSIGNMENT, Run.status.in_(ACTIVE_RUN_STATUSES))
+            if not await s.scalar(in_flight.limit(1)):  # otherwise the next report brings it along
+                await self._maybe_wake(s, project, manager.id)
 
         await board_service.publish_task_id(s, run.task_id)
 
@@ -861,6 +866,18 @@ class RunManager:
             await job_service.finish(s, job, JobStatus.STOPPED)
         return True
 
+    async def wait_job(self, job_id: int, seconds: float) -> str | None:
+        """The job's result if it ends within the time: then it is not sent as an update as well."""
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        self._job_waiters[job_id] = future
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), seconds)
+        except TimeoutError:
+            return future.result() if future.done() else None
+        finally:
+            if self._job_waiters.get(job_id) is future:
+                del self._job_waiters[job_id]
+
     async def job_ended(self, s: AsyncSession, job: Job, state: JobState | None) -> None:
         """Record the end of a job and tell the agent that started it. ``state`` None = job lost."""
         project = await s.get(Project, job.project_id)
@@ -871,6 +888,10 @@ class RunManager:
             await job_service.finish(s, job, JobStatus.SUCCEEDED if state.exit_code == 0 else JobStatus.FAILED, state.exit_code)
             redact = secret_service.redactor(secret_service.env(await secret_service.effective(s, job.project_id)))
             text = f"{job_service.label(job)} finished with exit code {state.exit_code}. Log: {job.log_path}\nLast output:\n{redact(state.tail)}"
+        waiter = self._job_waiters.pop(job.id, None)
+        if waiter and not waiter.done():
+            waiter.set_result(text)  # its turn is still running and takes the result from here
+            return
         await inbox.push(s, job.agent_id, text)
         if project:
             await self._maybe_wake(s, project, job.agent_id)

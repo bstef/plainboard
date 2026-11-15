@@ -285,14 +285,19 @@ def test_ask_agent_returns_answer(client, project):
     assert ask_run["parent_run_id"] is not None
 
 
-def test_message_agent_reply_wakes_sender(client, project):
+def test_message_agent_costs_one_turn_and_a_reply_is_a_message_of_its_own(client, project):
     pid = project["id"]
     make_dev(client, pid)
     manager = agents_by_slug(client, pid)["manager"]
     chat(client, manager["id"], 'TOOL message_agent {"agent": "dev", "message": "SAY pong"}')
-    wait_for(lambda: any(r["trigger"] == "wake" and r["status"] == "succeeded" for r in runs_of(client, pid)))
-    wake_msg = next(m for m in conversation(client, manager["id"])["messages"] if m["meta"].get("trigger") == "wake")
-    assert wake_msg["meta"]["inbox"] == ["Reply from Dev: pong"]
+    wait_for(lambda: idle(client, pid) and any(r["trigger"] == "message" and r["status"] == "succeeded" for r in runs_of(client, pid)))
+    assert "not sent to them" in runner(client).specs[-1].prompt
+    assert [r["trigger"] for r in runs_of(client, pid)] == ["message", "chat"]  # the final text wakes nobody
+
+    reply = json.dumps({"agent": "manager", "message": "SAY got it"})
+    chat(client, manager["id"], f'TOOL message_agent {json.dumps({"agent": "dev", "message": "TOOL message_agent " + reply})}')
+    wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) == 5)
+    assert [r["trigger"] for r in runs_of(client, pid)][:3] == ["message", "message", "chat"]
 
 
 def test_compression_resets_session_and_carries_memory(client, project):
@@ -779,6 +784,25 @@ def test_agents_only_see_and_stop_their_own_jobs(client, project):
     job_tick(client)  # a job stopped on purpose is not reported
     wait_for(lambda: idle(client, pid))
     assert len(fake.specs) == before
+
+
+def test_a_turn_can_wait_for_its_job_and_is_not_woken_for_it_again(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    chat(client, dev["id"], f"TOOL start_job {json.dumps({'command': 'cargo build', 'wait_minutes': 1})}")
+    wait_for(lambda: runner(client).job_specs and agents_by_slug(client, pid)["dev"]["running_jobs"] == 1)
+    spec = runner(client).job_specs[-1]
+    waiting = lambda: bool(client.app_ref.state.runs._job_waiters)  # noqa: E731
+    wait_for(waiting)
+    runner(client).jobs[spec.id] = JobState(running=False, exit_code=0, log_path="/jobs/x.log", tail="Finished release")
+    job_tick(client)
+    wait_for(lambda: idle(client, pid))
+    (run,) = runs_of(client, pid)  # no wake-up, no update for the manager
+    assert "exit code 0" in run["result_text"] and "Finished release" in run["result_text"]
+
+    chat(client, dev["id"], 'TOOL wait_job {"id": 1}')
+    wait_for(lambda: idle(client, pid))
+    assert "has ended (succeeded, exit code 0)" in runs_of(client, pid)[0]["result_text"]
 
 
 def test_worker_wake_result_goes_to_the_manager(client, project):
