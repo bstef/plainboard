@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import accounts, auth, chat, internal, knowledge, projects, public, repositories, secrets, system, tasks, todos, ws
+from .api import accounts, auth, chat, internal, knowledge, preview, projects, public, repositories, secrets, system, tasks, todos, ws
 from .config import get_config
 from .db import dispose_engine, init_engine, sessionmaker
 from .migrate import upgrade
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
     scheduler = Scheduler(sessionmaker(), runs, config.scheduler_interval_seconds)
     job_watcher = JobWatcher(sessionmaker(), runs, config.job_watch_interval_seconds)
     app.state.runner, app.state.runs, app.state.scheduler, app.state.job_watcher = runner, runs, scheduler, job_watcher
+    app.state.preview_client = preview.new_client()
     await runs.start()
     scheduler.start()
     job_watcher.start()
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
         await scheduler.stop()
         await runs.stop()
         await runner.aclose()
+        await app.state.preview_client.aclose()
         await dispose_engine()
 
 
@@ -59,6 +61,11 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def require_login(request: Request, call_next):
         path = request.url.path
+        # First: a preview page's requests belong to the previewed server, whatever their path.
+        if redirect := preview.redirect_from_preview_page(request):
+            return redirect
+        if path.startswith("/preview/") and not auth.is_authenticated(request):
+            return PlainTextResponse("Sign in to PlainBoard first.", status_code=401)
         if path.startswith("/api/") and not path.startswith(PUBLIC_PREFIXES) and not auth.is_authenticated(request):
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return await call_next(request)
@@ -67,7 +74,7 @@ def create_app() -> FastAPI:
     async def service_error(_request: Request, exc: ServiceError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status_code)
 
-    for module in (auth, system, accounts, projects, public, repositories, secrets, tasks, todos, chat, knowledge, internal, ws):
+    for module in (auth, system, accounts, projects, public, repositories, secrets, tasks, todos, chat, knowledge, internal, ws, preview):
         app.include_router(module.router)
 
     _mount_spa(app, get_config().static_dir)

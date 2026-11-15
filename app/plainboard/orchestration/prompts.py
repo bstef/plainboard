@@ -124,7 +124,11 @@ For anything that takes more than about a minute (builds, installs, long test ru
 waiting or `&`/nohup, which may die when your turn ends. Then finish your turn: the result arrives as an update
 and wakes you. Never wait for a job yourself with sleep, tail, Monitor or polling: that blocks your turn, and
 teammates' questions can't reach you until it ends. Never say you are waiting for something unless a job for it
-is running."""
+is running.
+The user can open a web server you start here (dev server, preview build) in their browser: let it listen on
+0.0.0.0, start it with start_job and give them the link /preview/<port>/, e.g. [Preview](/preview/5173/). It
+is served through PlainBoard as if it ran at the root of localhost:<port>; don't change its base path.
+Ports from 1024."""
 
 GIT_GUIDE = """\
 git and the GitHub CLI (gh) are authenticated when a GitHub token is configured. For repository

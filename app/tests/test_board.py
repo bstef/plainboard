@@ -168,3 +168,57 @@ def test_done_tickets_are_archived_and_restored(client, project):
 
     client.patch(f"/api/projects/{pid}", json={"auto_archive_days": 0})
     assert client.portal.call(age_and_auto_archive) == 0
+
+
+def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeypatch):
+    import httpx
+    from fastapi import FastAPI, Request
+    from fastapi.responses import RedirectResponse
+
+    seen = {}
+    site = FastAPI()
+
+    @site.get("/")
+    async def home(request: Request):
+        seen.update(host=request.headers["host"], cookie=request.headers.get("cookie"), url=str(request.url))
+        return {"page": "home"}
+
+    @site.get("/old")
+    async def old():
+        return RedirectResponse("/new?x=1")
+
+    client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=site))
+    client.cookies.set("pb_session", "secret")
+    client.cookies.set("theme", "dark")
+
+    resp = client.get("/preview/5173/?q=1")
+    assert resp.json() == {"page": "home"} and resp.cookies["plainboard_preview"] == "5173"
+    # The server sees itself as localhost and never the PlainBoard login.
+    assert seen == {"host": "localhost:5173", "cookie": "theme=dark", "url": "http://localhost:5173/?q=1"}
+    assert client.get("/preview/5173/old", follow_redirects=False).headers["location"] == "/preview/5173/new?x=1"
+    assert client.get("/preview/5173", follow_redirects=False).headers["location"] == "/preview/5173/"
+
+    # A preview page that asks for a path at the root is sent back to its server, even for /api.
+    from_page = {"referer": "http://testserver/preview/5173/"}
+    assert client.get("/api/items?x=1", headers=from_page, follow_redirects=False).headers["location"] == "/preview/5173/api/items?x=1"
+    assert client.get("/api/health", headers={"referer": "http://elsewhere/preview/5173/"}).status_code == 200
+
+    assert client.get("/preview/8090/").status_code == 404  # the runner's own API
+    assert client.get("/preview/80/").status_code == 404
+
+    from plainboard import config
+
+    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
+    config.get_config.cache_clear()
+    assert client.get("/preview/5173/").status_code == 401
+
+
+def test_preview_says_when_nothing_listens(client):
+    import httpx
+
+    def refuse(request):
+        raise httpx.ConnectError("refused")
+
+    client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+    resp = client.get("/preview/3000/")
+    assert resp.status_code == 502 and "0.0.0.0" in resp.text

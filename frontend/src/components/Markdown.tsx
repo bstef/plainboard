@@ -26,15 +26,38 @@ function ticketParts(text: string): (string | number)[] {
   return parts;
 }
 
+// A preview link written as plain text: "/preview/5173/" or "/preview/5173/docs". Not inside URLs.
+const PREVIEW_REF = /(?<![\w/.:-])\/preview\/\d+\/[^\s<>"')\]]*/g;
+
+const previewNode = (url: string): MdNode => ({ type: "link", url, children: [{ type: "text", value: url }] });
+
+/** Splits text into plain text and links to previews and tickets. */
+function linkedNodes(text: string): MdNode[] {
+  const nodes: MdNode[] = [];
+  const plain = (part: string) => {
+    for (const piece of ticketParts(part)) nodes.push(typeof piece === "number" ? ticketNode(piece) : { type: "text", value: piece });
+  };
+  let last = 0;
+  for (const match of text.matchAll(PREVIEW_REF)) {
+    const url = match[0].replace(/[.,;:!?]+$/, ""); // the sentence's punctuation
+    if (match.index > last) plain(text.slice(last, match.index));
+    nodes.push(previewNode(url));
+    last = match.index + url.length;
+  }
+  if (last < text.length) plain(text.slice(last));
+  return nodes;
+}
+
 const ticketNode = (number: number): MdNode => ({ type: "link", url: `#ticket-${number}`, children: [{ type: "text", value: `#${number}` }] });
 
-/** Remark plugin: turns #12 (also `#12`) into a link, except in other code and in existing links. */
+/** Remark plugin: turns #12 (also `#12`) and preview paths into links, except in other code and in existing links. */
 function linkTickets() {
   const walk = (node: MdNode) => {
     node.children = node.children?.flatMap((child) => {
-      if (child.type === "text") return ticketParts(child.value ?? "").map((part) => (typeof part === "number" ? ticketNode(part) : { type: "text", value: part }));
+      if (child.type === "text") return linkedNodes(child.value ?? "");
       const code = child.type === "inlineCode" && child.value?.match(/^#(\d+)$/);
       if (code) return [ticketNode(Number(code[1]))];
+      if (child.type === "inlineCode" && /^\/preview\/\d+\/\S*$/.test(child.value ?? "")) return [previewNode(child.value ?? "")];
       if (child.type !== "link" && child.type !== "linkReference") walk(child);
       return [child];
     });

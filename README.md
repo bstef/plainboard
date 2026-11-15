@@ -88,6 +88,13 @@ it may use (branches + pull requests, no conflicts between parallel agents). To 
 set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD`, ideally behind a reverse proxy with TLS. Browsers offer to install PlainBoard as an app
 only over HTTPS or on `localhost`.
 
+### Preview
+
+Web servers that agents start (dev servers, preview builds) open through PlainBoard at
+`/preview/<port>/`, e.g. <http://localhost:8080/preview/5173/>: no ports to publish, and behind the
+PlainBoard password. Agents post the link in the chat. The server has to listen on `0.0.0.0`. A preview
+runs on PlainBoard's own address, so only preview code you trust like your agents.
+
 ### Public API
 
 To show progress on a website, create a key under **Project settings → Public API**. Tickets with a
