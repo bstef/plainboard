@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 
 from ..models import Assignment, Run, TaskStatus
@@ -89,6 +89,13 @@ async def user_action_done(task_id: int, body: UserActionDone, session: Session,
 @router.get("/projects/{project_id}/stats", response_model=StatsOut)
 async def stats(project_id: int, session: Session, days: int = Query(default=30, ge=1, le=365)) -> StatsOut:
     return await stats_service.overview(session, project_id, days)
+
+
+@router.get("/projects/{project_id}/work-report")
+async def work_report(project_id: int, session: Session, days: int = Query(default=14, ge=1, le=365)) -> JSONResponse:
+    """A file to hand to whoever looks for overhead: numbers and tool names, no texts."""
+    report = await stats_service.work_report(session, project_id, days)
+    return JSONResponse(report, headers={"Content-Disposition": f'attachment; filename="plainboard-report-{project_id}.json"'})
 
 
 @router.get("/tasks/{task_id}/runs", response_model=list[RunOut])

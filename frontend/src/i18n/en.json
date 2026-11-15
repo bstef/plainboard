@@ -143,6 +143,8 @@
     "title": "Statistics",
     "subtitle": "What happened in this project. Days are in UTC.",
     "lastDays": "{{count}} days",
+    "report": "Download report",
+    "reportHint": "A file with where turns, time and cost went, per agent and ticket. Numbers and tool names only, no texts.",
     "ticketsDone": "Tickets finished",
     "ticketsCreated": "Tickets created",
     "openTickets": "Open tickets now",

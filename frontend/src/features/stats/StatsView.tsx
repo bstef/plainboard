@@ -38,6 +38,14 @@ export function StatsView() {
             <h1 className="text-lg font-semibold">{t("stats.title")}</h1>
             <p className="text-sm text-zinc-500">{t("stats.subtitle")}</p>
           </div>
+          <a
+            href={`/api/projects/${project.id}/work-report?days=${range}`}
+            download
+            title={t("stats.reportHint")}
+            className="ml-auto rounded-md px-2.5 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            {t("stats.report")}
+          </a>
           <div className="flex gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800">
             {RANGES.map((days) => (
               <button

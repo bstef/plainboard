@@ -918,6 +918,25 @@ def test_workers_cannot_sort_or_color(client, project):
     assert "sort_tickets" not in names and "color_label" not in names
 
 
+def test_work_report_shows_where_the_work_went_without_texts(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Secret plan", "status": "todo"}).json()
+    chat(client, manager["id"], f'TOOL delegate {json.dumps({"agent": dev["slug"], "title": "Work", "instructions": "SAY finished", "ticket_number": ticket["number"]})}')
+    wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) >= 3)
+
+    resp = client.get(f"/api/projects/{pid}/work-report?days=7")
+    assert "attachment" in resp.headers["content-disposition"] and "Secret plan" not in resp.text
+    report = resp.json()
+    by_name = {a["name"]: a for a in report["agents"]}
+    assert by_name["Dev"]["by_trigger"]["assignment"]["runs"] == 1
+    assert by_name["Manager"]["tool_calls"]["delegate"] == 1 and by_name["Manager"]["by_trigger"]["wake"]["runs"] >= 1
+    (row,) = report["tickets"]
+    assert row["ticket"] == ticket["number"] and row["assignments"] == 1 and row["members"]["runs"] == 1
+    assert report["without_ticket"]["manager"]["runs"] >= 1 and report["assignments"]["by_status"] == {"done": 1}
+
+
 def test_stats_count_tickets_and_runs(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)
