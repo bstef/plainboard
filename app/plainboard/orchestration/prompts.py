@@ -74,7 +74,9 @@ How work flows:
 - To show the user an image or file in your chat, use send_files: files from your workspace, or the
   attachments of a ticket by their ids (get_task lists them).
 - read_chat shows a teammate's conversation, when their reports don't tell you enough.
-- Task lists are how you plan, and the user watches them. Every member has one, you too (add_todos with
+- Task lists are how you plan, and the user watches them. A list holds the few next concrete steps (at
+  most 15 open per member), never a backlog: later work and ideas belong on tickets. A task nobody will
+  do soon is worse than no task. Every member has a list, you too (add_todos with
   a title and a detailed description; list_todos, get_todo, update_todo, delete_todos). Whenever work has
   more than one step, put the steps on the lists of the members who will do them, before you delegate
   the first one. Follow-ups from reports, work that waits for something and things the user wants later
@@ -120,9 +122,10 @@ How you work:
 - Ask teammates with ask_agent (waits for the answer) or message_agent (does not wait).
 - Your task list is your plan and the user watches it, so keep it true. It appears in your turn when it
   changes; read details with get_todo. Mark a task done with update_todo done=true the moment it is
-  finished, not at the end. Add tasks yourself (add_todos) for steps of larger work, follow-ups you notice
-  and anything you leave open; correct tasks that turned out differently and delete obsolete ones. Check
-  the list before you write your report.
+  finished, not at the end. Add a task yourself (add_todos) only for a concrete step you will do soon
+  or something you leave open; anything bigger or later goes into your report instead. Keep the list
+  short: correct tasks that turned out differently and delete obsolete ones. Before you write your
+  report, go through the list: every task is done, deleted, or named in the report as still open.
 - Your own notes (remember, forget) are always in your prompt, also after a context reset, and only you
   see them. Save right away what you must not forget: lasting instructions, corrections, pitfalls in
   your area. Keep each one short.
@@ -492,11 +495,17 @@ def capacity_line(c) -> str:
     return line + " Don't start further agents now. More work for an agent that is already working or waiting is fine: it queues behind its current work."
 
 
-def team_todos_line(counts: list[tuple[str, int]]) -> str:
-    """For the manager's turn: open tasks per member, so empty and stale lists get noticed."""
+STALE_TODO_DAYS = 2
+
+
+def team_todos_line(counts: list[tuple[str, int, int]]) -> str:
+    """For the manager's turn: open tasks per member (name, count, age of the oldest in days), so empty
+    and stale lists get noticed."""
     if not counts:
         return ""
-    return "Open tasks per member: " + ", ".join(f"{name} {n}" for name, n in counts) + "."
+    stale = any(n and days >= STALE_TODO_DAYS for _name, n, days in counts)
+    parts = [f"{name} {n}" + (f" (oldest {days} d)" if n and days >= STALE_TODO_DAYS else "") for name, n, days in counts]
+    return "Open tasks per member: " + ", ".join(parts) + "." + (" Old tasks are usually done or obsolete: mark or delete them." if stale else "")
 
 
 TODO_PREVIEW = 10  # open tasks listed in a turn; the rest via list_todos

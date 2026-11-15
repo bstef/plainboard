@@ -171,7 +171,7 @@ def test_manager_is_told_when_delegating_reaches_the_limit(client, project):
 
     order = lambda agent: "TOOL delegate " + json.dumps({"agent": agent["slug"], "title": "Work", "instructions": "SAY done"})
     chat(client, manager["id"], chr(10).join(order(a) for a in (dev, qa, ops)))
-    wait_for(lambda: len([m for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]) == 3)
+    wait_for(lambda: len([m for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool" and "result" in m["meta"]]) == 3)
     results = [m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]
     assert "It starts after dev's current work (1 of 2 parallel agents in use)." in results[0]
     assert "2 of 2 parallel agents in use. That is the limit" in results[1]

@@ -81,6 +81,13 @@ class RunContext:
     account_key: str | None = None  # the provider account the run uses (its limit reports belong to it)
 
 
+def _count_and_age(stats: tuple[int, datetime | None] | None) -> tuple[int, int]:
+    """Open tasks and the age of the oldest in days."""
+    if not stats or not stats[1]:
+        return (stats[0] if stats else 0), 0
+    return stats[0], (utcnow() - stats[1]).days
+
+
 @dataclass
 class Outcome:
     result: ResultEvent | None = None
@@ -585,11 +592,12 @@ class RunManager:
                 limit = int(values["max_parallel_runs"])
                 capacity = await board_service.capacity(s, project.id, limit, except_run_id=run.id)
                 team = [a for a in await agent_service.list_for_project(s, project.id) if a.enabled and not a.is_manager]
-                open_todos = await todo_service.open_counts(s, [a.id for a in team])
+                open_todos = await todo_service.open_stats(s, [a.id for a in team])
+                todo_counts = [(a.name, *_count_and_age(open_todos.get(a.id))) for a in team[:12]]
                 checks = (
                     prompts.board_check(await board_service.idle_in_progress(s, project.id)),
                     prompts.capacity_line(capacity),
-                    prompts.team_todos_line([(a.name, open_todos.get(a.id, 0)) for a in team[:12]]),
+                    prompts.team_todos_line(todo_counts),
                 )
                 board = "\n\n".join(c for c in checks if c)
             full_text = prompts.with_preface(prompts.with_attachments(text, meta.get("attachments")), now=prompts.now_line(values["timezone"]), inbox=updates, board=board)
@@ -787,7 +795,9 @@ class RunManager:
                 ref = f", ticket #{ticket.number}" if ticket else ""
                 recipient = assignment.created_by_agent_id or (await agent_service.get_manager(s, project.id)).id
                 if recipient != agent.id:
-                    await inbox.push(s, recipient, f'Assignment #{assignment.id} "{assignment.title}" ({agent.name}{ref}) {assignment.status}: {outcome_text}')
+                    still_open = (await todo_service.open_stats(s, [agent.id])).get(agent.id, (0, None))[0]
+                    todos_note = f" [{agent.name} still has {still_open} open task(s) on its list: check that they are still right.]" if still_open else ""
+                    await inbox.push(s, recipient, f'Assignment #{assignment.id} "{assignment.title}" ({agent.name}{ref}) {assignment.status}: {outcome_text}{todos_note}')
                     await self._maybe_wake(s, project, recipient)
 
         elif run.trigger == RunTrigger.TICKET and not ok and run.task_id:

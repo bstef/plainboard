@@ -16,6 +16,7 @@ from ..schemas import TodoCreate, TodoOut, TodoState, TodoUpdate
 from .errors import NotFound, ServiceError
 
 ARCHIVE_AFTER_DAYS = 7
+MAX_OPEN = 15  # per member, for tasks agents add: a list holds the next steps, not a backlog
 DELETE_AFTER_DAYS = 90
 
 
@@ -36,6 +37,13 @@ def _publish(todo: Todo) -> None:
 
 
 async def create(session: AsyncSession, agent: Agent, items: list[TodoCreate], *, by_agent_id: int | None = None) -> list[Todo]:
+    if by_agent_id is not None:  # the user may add what they like
+        open_now = (await open_stats(session, [agent.id])).get(agent.id, (0, None))[0]
+        if open_now + len(items) > MAX_OPEN:
+            raise ServiceError(
+                f"{agent.name} has {open_now} open tasks; a list holds at most {MAX_OPEN}. Finish or delete tasks first. "
+                "A task list is for the next concrete steps: later work and ideas belong on tickets."
+            )
     todos = [Todo(project_id=agent.project_id, agent_id=agent.id, created_by_agent_id=by_agent_id, **item.model_dump()) for item in items]
     session.add_all(todos)
     await session.commit()
@@ -99,6 +107,14 @@ async def open_counts(session: AsyncSession, agent_ids: list[int]) -> dict[int, 
         return {}
     q = select(Todo.agent_id, func.count()).where(Todo.agent_id.in_(agent_ids), Todo.done_at.is_(None)).group_by(Todo.agent_id)
     return dict((await session.execute(q)).all())
+
+
+async def open_stats(session: AsyncSession, agent_ids: list[int]) -> dict[int, tuple[int, datetime | None]]:
+    """Open tasks per member and when the oldest of them was added."""
+    if not agent_ids:
+        return {}
+    q = select(Todo.agent_id, func.count(), func.min(Todo.created_at)).where(Todo.agent_id.in_(agent_ids), Todo.done_at.is_(None)).group_by(Todo.agent_id)
+    return {agent_id: (count, oldest) for agent_id, count, oldest in (await session.execute(q)).all()}
 
 
 async def purge(session: AsyncSession) -> int:

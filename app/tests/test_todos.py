@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from conftest import agents_by_slug, idle, wait_for
@@ -94,3 +95,25 @@ def test_done_tasks_move_to_the_archive_and_are_deleted(client, project):
 
     reopened = client.patch(f"/api/todos/{ids[0]}", json={"done": False}).json()
     assert reopened["done_at"] is None and states("open") == ["T0"]
+
+
+def test_agents_cannot_pile_up_tasks_and_the_manager_sees_old_ones(client, project):
+    from plainboard.orchestration.prompts import team_todos_line
+
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    dev = make_dev(client, pid)
+    many = json.dumps([{"title": f"Step {i}"} for i in range(15)])
+    chat(client, manager["id"], f'TOOL add_todos {{"agent": "dev", "todos": {many}}}\nTOOL add_todos {{"agent": "dev", "todos": [{{"title": "One more"}}]}}')
+    wait_for(lambda: idle(client, pid))
+    added, refused = tool_results(client, manager["id"])[-2:]
+    assert added.startswith("Added 1, 2,") and "Dev has 15 open tasks; a list holds at most 15" in refused
+    # The user is not limited.
+    assert client.post(f"/api/agents/{dev['id']}/todos", json={"title": "From the user"}).status_code == 201
+
+    # A report tells the manager about tasks that are still open.
+    chat(client, manager["id"], 'TOOL delegate {"agent": "dev", "title": "Work", "instructions": "SAY finished"}')
+    wait_for(lambda: idle(client, pid) and any("Dev still has 16 open task(s)" in spec.prompt for spec in runner(client).specs))
+
+    assert team_todos_line([("Dev", 4, 3), ("QA", 0, 0)]) == "Open tasks per member: Dev 4 (oldest 3 d), QA 0. Old tasks are usually done or obsolete: mark or delete them."
+    assert team_todos_line([("Dev", 4, 0)]) == "Open tasks per member: Dev 4."
