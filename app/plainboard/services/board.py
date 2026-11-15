@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -246,24 +247,44 @@ async def idle_in_progress(session: AsyncSession, project_id: int) -> list[Task]
     return [t for t in tasks if t.id not in busy]
 
 
-async def spare_capacity(session: AsyncSession, project_id: int, limit: int, *, except_run_id: int) -> tuple[int, list[str]]:
-    """How many agents work or are about to (all projects share the limit, the asking turn doesn't count),
-    and this project's agents with nothing to do. No idle agents if no slot is free or no ticket is open."""
-    working = await session.scalar(
-        select(func.count()).select_from(Run).where(Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id)
+@dataclass
+class Capacity:
+    """Use of the parallel agents the user allows. All projects share the limit."""
+
+    limit: int
+    busy: int  # agents with work running or waiting to start (the asking turn doesn't count)
+    waiting: list[str]  # this project's agents whose work has not started yet
+    idle: list[str]  # this project's agents with nothing to do
+    open_work: bool  # tickets to do or in progress
+
+    @property
+    def working(self) -> int:
+        return min(self.busy, self.limit)
+
+    @property
+    def free(self) -> int:
+        return max(self.limit - self.busy, 0)
+
+    @property
+    def over(self) -> int:
+        return max(self.busy - self.limit, 0)
+
+
+async def capacity(session: AsyncSession, project_id: int, limit: int, *, except_run_id: int) -> Capacity:
+    top_level = (Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id)
+    busy = await session.scalar(select(func.count(Run.agent_id.distinct())).where(*top_level)) or 0
+    team = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager).order_by(Agent.id)))
+    rows = (await session.execute(select(Run.agent_id, Run.status).where(Run.project_id == project_id, *top_level))).all()
+    active = {agent_id for agent_id, _status in rows}
+    started = {agent_id for agent_id, status in rows if status != "queued"}
+    open_tickets = select(Task.id).where(Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_((TaskStatus.TODO, TaskStatus.IN_PROGRESS)))
+    return Capacity(
+        limit=limit,
+        busy=busy,
+        waiting=[a.name for a in team if a.id in active - started],
+        idle=[a.name for a in team if a.id not in active],
+        open_work=bool(await session.scalar(open_tickets.limit(1))),
     )
-    if working >= limit:
-        return working, []
-    open_tickets = select(Task.id).where(
-        Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_((TaskStatus.TODO, TaskStatus.IN_PROGRESS))
-    )
-    if not await session.scalar(open_tickets.limit(1)):
-        return working, []
-    busy = select(Run.agent_id).where(Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES))
-    idle = await session.scalars(
-        select(Agent.name).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager, Agent.id.not_in(busy)).order_by(Agent.id)
-    )
-    return working, list(idle)
 
 
 async def list_tasks(

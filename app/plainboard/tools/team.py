@@ -8,11 +8,12 @@ from plainboard_protocol import ProviderInfo
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from ..models import Agent, Assignment, Run, Task
+from ..models import ACTIVE_RUN_STATUSES, Agent, Assignment, Run, Task
 from ..schemas import AgentCreate, AgentUpdate, ToolsetName
 from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import repositories as repo_service
+from ..services import settings as settings_service
 from ..services.errors import NotFound
 from ..orchestration.context import render_message
 from ..orchestration.runner_client import RunnerError
@@ -172,9 +173,19 @@ async def delete_agent(ctx: ToolContext, args: AgentRef) -> str:
 async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     task = await board_service.get_task_by_number(ctx.session, ctx.project.id, args.ticket_number) if args.ticket_number else None
+    was_busy = bool(await ctx.session.scalar(select(Run.id).where(Run.agent_id == target.id, Run.status.in_(ACTIVE_RUN_STATUSES)).limit(1)))
     assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort)
     effort = f" (effort {args.effort})" if args.effort else ""
-    return f"Assignment #{assignment.id} queued for {target.slug}{effort}."
+    limit = int(await settings_service.get(ctx.session, "max_parallel_runs"))
+    capacity = await board_service.capacity(ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id)
+    use = f"{capacity.working} of {limit} parallel agents in use"
+    if was_busy:
+        state = f"It starts after {target.slug}'s current work ({use})."
+    elif capacity.over:
+        state = f"{target.slug} has to wait for a free slot: {use}. Don't start further agents until one finishes."
+    else:
+        state = f"{use[0].upper()}{use[1:]}." + ("" if capacity.free else " That is the limit: don't start further agents until one finishes.")
+    return f"Assignment #{assignment.id} queued for {target.slug}{effort}. {state}"
 
 
 @tool("list_assignments", "List work orders, optionally by ticket, agent or status.", ListAssignmentsArgs)

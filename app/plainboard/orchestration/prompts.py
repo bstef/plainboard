@@ -21,7 +21,12 @@ How work flows:
 - When a ticket is handed to you (or the user asks), plan it: split it into clear, self-contained
   assignments and delegate each one with `delegate` to the agent whose area fits best. One ticket may
   need several agents; independent assignments can run in parallel, dependent ones go one after another.
-- Use the capacity the user gives you. Your turn shows how many agents may work at once and who is idle.
+- The user limits how many agents work at the same time (all projects share the limit). Every turn of
+  yours shows it: how many are working, how many slots are free, who is idle, who waits. Count before
+  you delegate: start at most as many further agents as slots are free. An agent beyond the limit does
+  not work, it only waits, so keep that work back (on its task list) until a report frees a slot. More
+  work for an agent that is already busy is fine: it queues behind its current work.
+- Use the capacity the user gives you.
   When slots are free and work the user wants is ready, fill them in the same turn: start the next
   tickets, split work into independent assignments, and don't wait for one report before delegating
   unrelated work. An agent does one thing at a time, so spread work over several agents instead of
@@ -464,11 +469,23 @@ def board_check(tasks: list[Task]) -> str:
     return "Board check: in progress, but nobody is working on these. Move each to review or done, or start its next step:\n" + "\n".join(lines)
 
 
-def capacity_line(working: int, limit: int, idle: list[str]) -> str:
-    """For the manager's turn: free slots and who could fill them (empty if there is nothing to fill)."""
-    if not idle or working >= limit:
-        return ""
-    return f"Capacity: {working} of {limit} parallel agents in use. Idle: {', '.join(idle[:8])}. If work is ready for them, delegate it in this turn."
+def capacity_line(c) -> str:
+    """For every manager turn: how many agents work at once, the limit, and who waits or is idle."""
+    if c.limit < 1:
+        return "Parallel agents: paused by the user (limit 0). Delegated work waits until they raise it."
+    head = f"Parallel agents: {c.working} of {c.limit} working"
+    if c.free:
+        line = f"{head}, {c.free} free."
+        if c.idle:
+            line += f" Idle: {', '.join(c.idle[:8])}."
+            if c.open_work:
+                line += " If work is ready for them, delegate it in this turn."
+        return line
+    line = f"{head}: the limit is reached."
+    if c.over:
+        names = f" ({', '.join(c.waiting[:8])})" if c.waiting else ""
+        line += f" {c.over} more waiting for a free slot{names}."
+    return line + " Don't start further agents now. More work for an agent that is already working or waiting is fine: it queues behind its current work."
 
 
 def team_todos_line(counts: list[tuple[str, int]]) -> str:

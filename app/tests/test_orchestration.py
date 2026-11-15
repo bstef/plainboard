@@ -145,30 +145,50 @@ def test_board_check_skips_tickets_being_worked_on_and_reaches_only_the_manager(
     assert "Board check" not in runner(client).specs[-1].prompt
 
 
-def test_manager_sees_free_capacity_only_when_there_is_work_for_it(client, project):
+def test_manager_always_sees_the_use_of_parallel_agents(client, project):
     pid = project["id"]
     make_dev(client, pid)
     manager = agents_by_slug(client, pid)["manager"]
     chat(client, manager["id"], "SAY ok")
     wait_for(lambda: idle(client, pid))
-    assert "Capacity:" not in runner(client).specs[-1].prompt  # no open ticket
+    prompt = runner(client).specs[-1].prompt
+    assert "Parallel agents: 0 of 3 working, 3 free. Idle: Dev." in prompt and "delegate it in this turn" not in prompt  # no open ticket
 
     client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "todo"})
     chat(client, manager["id"], "SAY ok")
     wait_for(lambda: idle(client, pid))
-    assert "Capacity: 0 of 3 parallel agents in use. Idle: Dev." in runner(client).specs[-1].prompt
+    assert "Parallel agents: 0 of 3 working, 3 free. Idle: Dev. If work is ready for them, delegate it in this turn." in runner(client).specs[-1].prompt
     assert "Open tasks per member: Dev 0." in runner(client).specs[-1].prompt
 
-    client.patch("/api/settings", json={"max_parallel_runs": 0})
-    assert client.portal.call(spare, pid) == (0, [])
+
+def test_manager_is_told_when_delegating_reaches_the_limit(client, project):
+    pid = project["id"]
+    dev, qa, ops = make_dev(client, pid), make_dev(client, pid, name="QA"), make_dev(client, pid, name="Ops")
+    manager = agents_by_slug(client, pid)["manager"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 2}})
+    chat(client, dev["id"], "HOLD")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+
+    order = lambda agent: "TOOL delegate " + json.dumps({"agent": agent["slug"], "title": "Work", "instructions": "SAY done"})
+    chat(client, manager["id"], chr(10).join(order(a) for a in (dev, qa, ops)))
+    wait_for(lambda: len([m for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]) == 3)
+    results = [m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]
+    assert "It starts after dev's current work (1 of 2 parallel agents in use)." in results[0]
+    assert "2 of 2 parallel agents in use. That is the limit" in results[1]
+    assert "ops has to wait for a free slot: 2 of 2 parallel agents in use." in results[2]
+
+    runner(client).released = True
+    wait_for(lambda: idle(client, pid))
 
 
-async def spare(pid: int):
-    from plainboard.db import sessionmaker
-    from plainboard.services import board as board_service
+def test_capacity_line_says_when_the_limit_is_reached():
+    from plainboard.orchestration.prompts import capacity_line
+    from plainboard.services.board import Capacity
 
-    async with sessionmaker()() as s:
-        return await board_service.spare_capacity(s, pid, 0, except_run_id=0)
+    full = capacity_line(Capacity(limit=2, busy=3, waiting=["Ops"], idle=["QA"], open_work=True))
+    assert full.startswith("Parallel agents: 2 of 2 working: the limit is reached. 1 more waiting for a free slot (Ops). Don't start further agents now.")
+    assert "Idle" not in full
+    assert capacity_line(Capacity(limit=0, busy=0, waiting=[], idle=["QA"], open_work=True)).startswith("Parallel agents: paused by the user")
 
 
 def test_worker_tools_are_restricted(client, project):
