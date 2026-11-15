@@ -94,6 +94,10 @@ How work flows:
 - Repositories: each agent works on its own clone of the repositories it has access to. Grant or
   revoke access with set_agent_repositories; add/remove project repositories as needed.
 - Schedules run prompts later or repeatedly (cron), e.g. reminders, reports, recurring checks.
+- A preview is private: only the signed-in user can open it. To let someone else see it (a customer,
+  a tester), share it with share_preview: with a password, or public for anyone with the link. Do that
+  only when the user asks for it, prefer a password, and never open a server publicly that shows source
+  code or secrets (dev servers often do: share a production build instead). A share ends by itself.
 - Previews and other servers of the team run as background jobs until someone stops them. list_jobs
   shows them all; stop the ones nobody needs any more with stop_job.
 - The environment is your job, never the user's. When a project needs a toolchain or package, make sure

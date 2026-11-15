@@ -246,3 +246,51 @@ def test_an_agent_shows_ticket_attachments_and_its_own_files_in_its_chat(client,
 
     assert client.post("/api/internal/runs/1/chat-files", headers=auth, data={"attachment_ids": "999"}).json()["is_error"]
     assert client.post("/api/internal/runs/1/chat-files", headers=auth, data={"attachment_ids": ""}).json()["is_error"]
+
+
+def test_a_preview_is_private_until_it_is_shared_with_a_password_or_publicly(client, project, monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+
+    from plainboard import config
+    from plainboard.db import sessionmaker
+    from plainboard.services import preview as preview_service
+
+    site = FastAPI()
+
+    @site.get("/")
+    async def home():
+        return {"page": "home"}
+
+    client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=site))
+    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
+    config.get_config.cache_clear()
+
+    def share(access, **kwargs):
+        async def call():
+            async with sessionmaker()() as s:
+                return (await preview_service.share(s, project["id"], 5173, access, **kwargs))[1]
+
+        return client.portal.call(call)
+
+    assert client.get("/preview/5173/").status_code == 401  # private: only the signed-in user
+
+    share("public")
+    assert client.get("/preview/5173/").json() == {"page": "home"}
+    assert client.get("/preview/5174/").status_code == 401  # other ports stay private
+
+    generated = share("password")
+    locked = client.get("/preview/5173/")
+    assert locked.status_code == 401 and "Protected preview" in locked.text
+    assert client.post("/api/public/preview/5173/unlock", data={"password": "wrong-one"}, follow_redirects=False).status_code == 401
+    opened = client.post("/api/public/preview/5173/unlock", data={"password": generated}, follow_redirects=False)
+    assert opened.status_code == 303 and opened.headers["location"] == "/preview/5173/"
+    assert client.get("/preview/5173/").json() == {"page": "home"}
+
+    share("password", password="another-one")  # a new password locks earlier visitors out
+    assert client.get("/preview/5173/").status_code == 401
+    share("private")
+    assert client.post("/api/public/preview/5173/unlock", data={"password": "another-one"}, follow_redirects=False).status_code == 401
+
+    assert client.post("/api/auth/login", json={"password": "pw"}).status_code == 200
+    assert client.get("/preview/5173/").json() == {"page": "home"}

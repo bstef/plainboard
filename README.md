@@ -92,7 +92,8 @@ only over HTTPS or on `localhost`.
 
 Web servers that agents start (dev servers, preview builds) open through PlainBoard at
 `/preview/<port>/`, e.g. <http://localhost:8080/preview/5173/>: no ports to publish, and behind the
-PlainBoard password. Agents post the link in the chat. The server has to listen on `0.0.0.0`. A preview
+PlainBoard password. Agents post the link in the chat. A preview is private; ask the manager to share one
+with a password or publicly for a few days, e.g. for a customer. The server has to listen on `0.0.0.0`. A preview
 runs on PlainBoard's own address, so only preview code you trust like your agents.
 
 ### Public API

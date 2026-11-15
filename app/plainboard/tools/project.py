@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from ..schemas import ProjectUpdate
+from ..services import preview as preview_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
@@ -25,8 +28,10 @@ async def get_project(ctx: ToolContext, _args) -> str:
     values = await settings_service.get_all(ctx.session)
     limit = int(values["manager_parallel_limit"])
     parallel = f"{values['max_parallel_runs']} ({f'you may set 1-{limit}' if limit >= 1 else 'only the user can change it'}; all projects share it)"
+    shares = await preview_service.shares_for_project(ctx.session, p.id)
+    shared = "; ".join(f"{s.port} {s.access} until {s.expires_at:%Y-%m-%d}" for s in shares) or "none (all private)"
     return (
-        f"Name: {p.name}\nRepositories: {repos}\nWorkspace: {workspace}\nParallel agents: {parallel}\n"
+        f"Name: {p.name}\nRepositories: {repos}\nWorkspace: {workspace}\nParallel agents: {parallel}\nShared previews: {shared}\n"
         f"Auto-wake manager: {p.auto_wake_manager}\nDescription:\n{p.description or '-'}\nSetup script:\n{p.setup_script or '-'}"
     )
 
@@ -51,3 +56,24 @@ async def set_parallel_agents(ctx: ToolContext, args: ParallelArgs) -> str:
     await settings_service.set_parallel_by_manager(ctx.session, args.count)
     ctx.runs.recheck()
     return f"Up to {args.count} agents now work at the same time."
+
+
+class SharePreviewArgs(BaseModel):
+    port: int
+    access: Literal["private", "password", "public"] = Field(description="private: only the signed-in user (default for every preview). password: anyone with link and password. public: anyone with the link")
+    password: str | None = Field(default=None, min_length=6, max_length=100, description="For access=password; omit to get one generated")
+    days: int = Field(default=7, ge=1, le=30, description="After that it is private again")
+
+
+@tool("share_preview", "Let people without a PlainBoard login open /preview/<port>/, or make it private again. Current shares: get_project.", SharePreviewArgs, roles=(MANAGER,))
+async def share_preview(ctx: ToolContext, args: SharePreviewArgs) -> str:
+    row, generated = await preview_service.share(
+        ctx.session, ctx.project.id, args.port, args.access, password=args.password, days=args.days, agent_id=ctx.agent.id
+    )
+    link = f"/preview/{args.port}/"
+    if row is None:
+        return f"{link} is private again."
+    if row.access == "public":
+        return f"{link} is open to anyone with the link for {args.days} days."
+    secret = f"the password {generated}" if generated else "the password you set"
+    return f"{link} opens with {secret} for {args.days} days. Give the user the link and the password."

@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import accounts, auth, chat, internal, knowledge, preview, projects, public, repositories, secrets, system, tasks, todos, ws
@@ -64,8 +64,6 @@ def create_app() -> FastAPI:
         # First: a preview page's requests belong to the previewed server, whatever their path.
         if redirect := preview.redirect_from_preview_page(request):
             return redirect
-        if path.startswith("/preview/") and not auth.is_authenticated(request):
-            return PlainTextResponse("Sign in to PlainBoard first.", status_code=401)
         if path.startswith("/api/") and not path.startswith(PUBLIC_PREFIXES) and not auth.is_authenticated(request):
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return await call_next(request)

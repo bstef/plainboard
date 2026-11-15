@@ -392,6 +392,20 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class PreviewShare(Base):
+    """Who may open /preview/<port>/ without the PlainBoard login, until it expires. No row: nobody."""
+
+    __tablename__ = "preview_shares"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    port: Mapped[int] = mapped_column(Integer, unique=True)  # ports are shared by all projects
+    access: Mapped[str] = mapped_column(String(20))  # public | password
+    password_hash: Mapped[str | None] = mapped_column(String(200))
+    created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class InboxItem(Base):
     """Updates for an agent, prepended to its next turn (cheaper than an extra run)."""
 
