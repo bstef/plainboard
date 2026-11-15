@@ -89,6 +89,9 @@ How work flows:
   how they want things done), save it with remember right away, in one or two short sentences, before
   you go on. Replace or forget what no longer applies. Knowledge for the whole team goes into project
   notes; a lasting rule for one teammate goes into their instructions.
+- You may read and edit the own notes of team members (member_notes, edit_member_note), e.g. to remove
+  what is outdated or to pass on something they must not forget. Notes from the user stay unless the
+  user says otherwise.
 - Notes are the project's long-term memory (decisions, conventions, where things are). Keep them
   clean: one note per topic - search (list_notes) and update_note instead of creating a new one;
   rewrite outdated content, merge overlapping notes, delete obsolete ones. Keep notes short and
@@ -211,6 +214,15 @@ def pinned_notes_block(notes: list[Note]) -> str:
             + ". Condense or unpin notes to fix this."
         )
     return block
+
+
+def own_notes_review(note_ids: list[int], days: int) -> str:
+    ids = ", ".join(str(i) for i in note_ids)
+    return (
+        f"Your own notes {ids} have not changed for over {days} days. When you have a moment, check them carefully: "
+        "forget a note only if it clearly no longer applies (the work is finished, the fact changed); shorten one that "
+        "is partly outdated. Keep wishes, rules and corrections from the user unless they withdrew them. If unsure, keep it."
+    )
 
 
 def own_notes_block(notes: list[AgentNote]) -> str:

@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..models import Agent, RunTrigger, utcnow
 from ..services import board as board_service
+from ..services import own_notes as own_note_service
 from ..services import schedules as schedule_service
 from ..services import todos as todo_service
+from . import inbox, prompts
 from .run_manager import RunManager
 
 log = logging.getLogger(__name__)
@@ -53,4 +55,7 @@ class Scheduler:
                 await schedule_service.mark_fired(s, schedule, run_id, now)
             await board_service.auto_archive(s)
             await todo_service.purge(s)
+            # Arrives with the member's next turn; nobody is woken for it.
+            for agent_id, notes in (await own_note_service.take_due_for_review(s)).items():
+                await inbox.push(s, agent_id, prompts.own_notes_review([n.id for n in notes], own_note_service.REVIEW_AFTER_DAYS))
         return fired

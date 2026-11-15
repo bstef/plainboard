@@ -97,6 +97,48 @@ async def forget(ctx: ToolContext, args: ForgetArgs) -> str:
     return f"Deleted {len(notes)} own note(s)."
 
 
+class MemberNotesArgs(BaseModel):
+    agent: str = Field(description="slug, name or id")
+
+
+class EditMemberNoteArgs(BaseModel):
+    agent: str = Field(description="slug, name or id")
+    text: str | None = Field(default=None, max_length=500, description="New note, or the new text of note_id")
+    note_id: int | None = None
+    delete: bool = Field(default=False, description="Delete note_id")
+
+
+@tool("member_notes", "Read a team member's own notes.", MemberNotesArgs, roles=(MANAGER,))
+async def member_notes(ctx: ToolContext, args: MemberNotesArgs) -> str:
+    member = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
+    notes = await own_note_service.for_agent(ctx.session, member.id)
+    if not notes:
+        return f"{member.name} has no own notes."
+    names = {a.id: a.name for a in await agent_service.list_for_project(ctx.session, ctx.project.id)}
+    lines = [
+        f"- [{n.id}] by {names.get(n.created_by_agent_id, '?') if n.created_by_agent_id else 'the user'}, {(utcnow() - n.updated_at).days}d old: {n.text.strip()}"
+        for n in notes
+    ]
+    return f"Own notes of {member.name} ({own_note_service.used(notes)}/{own_note_service.BUDGET_CHARS} chars):\n" + "\n".join(lines)
+
+
+@tool("edit_member_note", "Add, change or delete a team member's own note. They see it in their next turn.", EditMemberNoteArgs, roles=(MANAGER,))
+async def edit_member_note(ctx: ToolContext, args: EditMemberNoteArgs) -> str:
+    member = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
+    if member.id == ctx.agent.id:
+        raise ToolError("For your own notes use remember and forget.")
+    note = await own_note_service.get(ctx.session, args.note_id, member.id) if args.note_id else None
+    if args.delete:
+        if note is None:
+            raise ToolError("Give the note_id to delete.")
+        await own_note_service.delete(ctx.session, [note])
+        return f"Deleted note {note.id} of {member.name}."
+    if not args.text:
+        raise ToolError("Give the text of the note.")
+    note = await own_note_service.save(ctx.session, member, args.text, note=note, by_agent_id=ctx.agent.id)
+    return f"Saved note {note.id} for {member.name}."
+
+
 @tool("list_notes","List project notes (id, title, age, size). Use get_note to read one.", ListNotesArgs)
 async def list_notes(ctx: ToolContext, args: ListNotesArgs) -> str:
     notes = await note_service.list_for_project(ctx.session, ctx.project.id, args.query)

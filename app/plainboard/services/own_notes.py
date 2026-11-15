@@ -3,15 +3,18 @@ resets and compression; a fixed budget for all notes of a member keeps that prom
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from datetime import timedelta
+
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, AgentNote
+from ..models import Agent, AgentNote, utcnow
 from ..schemas import AgentNoteOut
 from .errors import NotFound, ServiceError
 
 BUDGET_CHARS = 3000  # all notes of one member together (~750 tokens)
+REVIEW_AFTER_DAYS = 30  # a note unchanged this long is put up for review, at most once per this period
 
 
 async def for_agent(session: AsyncSession, agent_id: int) -> list[AgentNote]:
@@ -65,3 +68,28 @@ async def counts(session: AsyncSession, agent_ids: list[int]) -> dict[int, int]:
         return {}
     q = select(AgentNote.agent_id, func.count()).where(AgentNote.agent_id.in_(agent_ids)).group_by(AgentNote.agent_id)
     return dict((await session.execute(q)).all())
+
+
+async def take_due_for_review(session: AsyncSession) -> dict[int, list[AgentNote]]:
+    """Old notes a member wrote itself, per member, for a reminder in its next turn. Notes from the user
+    are never put up for review: only the user removes them."""
+    cutoff = utcnow() - timedelta(days=REVIEW_AFTER_DAYS)
+    q = (
+        select(AgentNote)
+        .join(Agent, Agent.id == AgentNote.agent_id)
+        .where(
+            Agent.enabled,
+            AgentNote.created_by_agent_id.is_not(None),
+            AgentNote.updated_at < cutoff,
+            or_(AgentNote.review_asked_at.is_(None), AgentNote.review_asked_at < cutoff),
+        )
+        .order_by(AgentNote.agent_id, AgentNote.id)
+    )
+    due: dict[int, list[AgentNote]] = {}
+    now = utcnow()
+    for note in await session.scalars(q):
+        note.review_asked_at = now
+        due.setdefault(note.agent_id, []).append(note)
+    if due:
+        await session.commit()
+    return due

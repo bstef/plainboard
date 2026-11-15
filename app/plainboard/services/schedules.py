@@ -26,7 +26,9 @@ is clearly outdated or redundant. When in doubt, leave it as it is. Nothing here
 
 Look through:
 - Project notes: merge duplicates, correct outdated ones, delete obsolete ones, unpin what not everyone
-  must always know. Your own notes: forget what no longer applies.
+  must always know. Your own notes: forget what no longer applies. Own notes of team members
+  (member_notes): only where they look long or old, delete what clearly no longer applies, never notes
+  from the user.
 - Schedules: delete those that have done their job or repeat another one (not this one).
 - Tickets: move finished ones to done and archive old done ones. A ticket that looks no longer relevant
   stays; mention it in your reply instead of deleting it.

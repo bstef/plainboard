@@ -440,6 +440,7 @@ class AgentNote(Timestamps, Base):
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     text: Mapped[str] = mapped_column(Text)
     created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))  # None = the user
+    review_asked_at: Mapped[datetime | None] = mapped_column(DateTime)  # last time its member was asked to check it
 
 
 class Todo(Timestamps, Base):

@@ -70,3 +70,66 @@ def test_own_notes_are_private_and_limited(client, project):
     note_id = client.get(f"/api/agents/{dev['id']}/notes").json()[0]["id"]
     assert client.patch(f"/api/agent-notes/{note_id}", json={"text": "short"}).json()["text"] == "short"
     assert client.delete(f"/api/agent-notes/{note_id}").status_code == 204
+
+
+def test_old_own_notes_are_put_up_for_review_in_the_next_turn(client, project):
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import AgentNote, utcnow
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    chat(client, dev["id"], 'TOOL remember {"text": "Old fact"}\nTOOL remember {"text": "New fact"}')
+    wait_for(lambda: idle(client, pid))
+    client.post(f"/api/agents/{dev['id']}/notes", json={"text": "From the user"})
+
+    async def age_notes():
+        async with sessionmaker()() as s:
+            await s.execute(update(AgentNote).where(AgentNote.id.in_([1, 3])).values(updated_at=utcnow() - timedelta(days=40)))
+            await s.commit()
+
+    client.portal.call(age_notes)
+    client.portal.call(client.app_ref.state.scheduler.tick)
+    client.portal.call(client.app_ref.state.scheduler.tick)  # asked once, not again
+    assert idle(client, pid)  # nobody is woken for it
+
+    chat(client, dev["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid))
+    prompt = runner(client).specs[-1].prompt
+    assert prompt.count("Your own notes 1 have not changed for over 30 days") == 1  # not the new one, not the user's
+
+
+def test_manager_reads_and_edits_the_own_notes_of_members(client, project):
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    dev = make_dev(client, pid)
+    chat(client, dev["id"], 'TOOL remember {"text": "Old fact"}')
+    wait_for(lambda: idle(client, pid))
+    client.post(f"/api/agents/{dev['id']}/notes", json={"text": "From the user"})
+
+    chat(
+        client,
+        manager["id"],
+        'TOOL member_notes {"agent": "dev"}\n'
+        'TOOL edit_member_note {"agent": "dev", "note_id": 1, "delete": true}\n'
+        'TOOL edit_member_note {"agent": "dev", "text": "Run tests in Docker"}\n'
+        'TOOL edit_member_note {"agent": "manager", "text": "x"}',
+    )
+    wait_for(lambda: idle(client, pid))
+    listed, deleted, added, own = tool_results(client, manager["id"])[-4:]
+    assert "[1] by Dev, 0d old: Old fact" in listed and "[2] by the user, 0d old: From the user" in listed
+    assert deleted == "Deleted note 1 of Dev." and added == "Saved note 3 for Dev."
+    assert "remember and forget" in own
+
+    chat(client, dev["id"], "SAY ok")  # the member sees the change in its next turn
+    wait_for(lambda: idle(client, pid))
+    prompt = runner(client).specs[-1].prompt
+    assert prompt.startswith("[Briefing update]") and "- [3] Run tests in Docker" in prompt and "Old fact" not in prompt
+
+    chat(client, dev["id"], 'TOOL member_notes {"agent": "manager"}')  # members can't
+    wait_for(lambda: idle(client, pid))
+    assert "not available" in tool_results(client, dev["id"])[-1]
+
