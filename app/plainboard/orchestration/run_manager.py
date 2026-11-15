@@ -560,7 +560,7 @@ class RunManager:
 
             updates = await inbox.consume(s, agent.id)
             files = await board_service.chat_attachments(s, project.id, run.attachment_ids) if run.attachment_ids else []
-            text = run.input_text or ("" if files else prompts.wake_prompt())
+            text = run.input_text or ("" if files else prompts.wake_prompt(agent.is_manager))
             meta: dict = {"trigger": run.trigger}
             if run.task_id:
                 meta["task_id"] = run.task_id
@@ -809,7 +809,7 @@ class RunManager:
             if ticket:
                 await board_service.add_comment(s, ticket, f"Manager could not process the ticket: {run.error}", author_kind="system")
 
-        elif run.trigger == RunTrigger.WAKE and ok and text and not agent.is_manager:
+        elif run.trigger == RunTrigger.WAKE and ok and text and not agent.is_manager and not text.strip().lower().startswith(prompts.NOTHING_TO_REPORT.lower()):
             # e.g. a worker's job finished after its assignment was reported: nobody else reads this.
             manager = await agent_service.get_manager(s, project.id)
             await inbox.push(s, manager.id, f"Update from {agent.name}: {truncate(text, 2000)}")

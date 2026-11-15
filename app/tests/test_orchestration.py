@@ -817,6 +817,19 @@ def test_worker_wake_result_goes_to_the_manager(client, project):
     assert "delegate" in {t.name for t in runner(client).specs[-1].bridge.tools}
 
 
+def test_worker_wake_with_nothing_to_report_does_not_reach_the_manager(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    start_job(client, dev["id"])
+    wait_for(lambda: idle(client, pid))
+    spec = runner(client).job_specs[-1]
+    runner(client).jobs[spec.id] = JobState(running=False, exit_code=0, log_path="/jobs/x.log", tail="SAY Nothing to report.")
+    job_tick(client)
+    wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) == 2)
+    assert "reply only" in runner(client).specs[-1].prompt
+    assert [r["trigger"] for r in runs_of(client, pid)] == ["wake", "chat"]  # the manager is not woken
+
+
 def test_session_cost_totals_are_not_counted_twice(client, project, monkeypatch):
     manager = agents_by_slug(client, project["id"])["manager"]
     totals = iter([0.10, 0.25])

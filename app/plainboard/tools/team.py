@@ -137,11 +137,13 @@ async def get_agent(ctx: ToolContext, args: AgentRef) -> str:
     return out.model_dump_json(exclude={"project_id", "color"}, indent=1)
 
 
-@tool("create_agent", "Add a specialised agent to the team.", CreateAgentArgs, roles=(MANAGER,))
+@tool("create_agent", "Add an agent for an area of the product nobody covers yet.", CreateAgentArgs, roles=(MANAGER,))
 async def create_agent(ctx: ToolContext, args: CreateAgentArgs) -> str:
     agent = await agent_service.create(ctx.session, ctx.project.id, AgentCreate(**args.model_dump(exclude={"repositories"})), catalog=await _catalog(ctx, args.provider))
     access = await apply_repo_access(ctx, agent, args.repositories) if args.repositories is not None else "all repositories"
-    return f"Created agent {agent.slug} ({agent.model}; {access})."
+    members = len([a for a in await agent_service.list_for_project(ctx.session, ctx.project.id) if not a.is_manager])
+    crowded = " Each member starts without context and adds handovers: keep the team to those whose area nobody else covers." if members > 4 else ""
+    return f"Created agent {agent.slug} ({agent.model}; {access}). The team now has {members} members.{crowded}"
 
 
 @tool("update_agent", "Change an agent's configuration (model, role, instructions, enabled ...).", UpdateAgentArgs, roles=(MANAGER,))
@@ -232,7 +234,7 @@ async def ask_agent(ctx: ToolContext, args: AskArgs) -> str:
 async def message_agent(ctx: ToolContext, args: MessageArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     await ctx.runs.message(ctx.session, ctx.agent, target, args.message)
-    return f"Message sent to {target.slug}."
+    return f"Message sent to {target.slug}. No answer comes back unless they send one" + ("; for work use delegate." if ctx.agent.is_manager else ".")
 
 
 @tool("stop_agent", "Stop or pause a teammate. They finish to a safe point, save their work and report to you. Queued work is dropped.", StopAgentArgs, roles=(MANAGER,))
