@@ -66,6 +66,13 @@ class DecisionStatus(StrEnum):
     WITHDRAWN = "withdrawn"
 
 
+class PullRequestStatus(StrEnum):
+    OPEN = "open"  # PlainBoard is watching it
+    MERGED = "merged"
+    CLOSED = "closed"  # closed without a merge
+    STUCK = "stuck"  # handed to the manager: checks keep failing or it cannot be merged
+
+
 class JobStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -188,7 +195,7 @@ class Agent(Timestamps, Base):
     model: Mapped[str] = mapped_column(String(100))
     effort: Mapped[str | None] = mapped_column(String(20))
     toolset: Mapped[str] = mapped_column(String(20), default="full")
-    context_limit_tokens: Mapped[int] = mapped_column(Integer, default=400000)
+    context_limit_tokens: Mapped[int] = mapped_column(Integer, default=120000)
     keep_recent_messages: Mapped[int] = mapped_column(Integer, default=6)
     summary_model: Mapped[str] = mapped_column(String(100), default="claude-haiku-5-5")
     max_turns: Mapped[int | None] = mapped_column(Integer)
@@ -301,6 +308,34 @@ class Assignment(Timestamps, Base):
     result: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[int | None] = mapped_column(Integer)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Set when PlainBoard itself ordered this work: fixing the failed checks or conflicts of that pull request.
+    pull_request_id: Mapped[int | None] = mapped_column(Integer, index=True)
+
+
+class PullRequest(Timestamps, Base):
+    """A pull request an agent handed to PlainBoard (merge_when_green). PlainBoard watches its checks
+    without an agent turn, merges it when they pass and gives failures back to the author."""
+
+    __tablename__ = "pull_requests"
+    __table_args__ = (UniqueConstraint("repository_id", "number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"))
+    number: Mapped[int] = mapped_column(Integer)
+    url: Mapped[str] = mapped_column(String(500), default="")
+    title: Mapped[str] = mapped_column(String(300), default="")
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))  # the author
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
+    merge: Mapped[bool] = mapped_column(Boolean, default=True)  # False: only watch and report
+    status: Mapped[str] = mapped_column(String(20), default=PullRequestStatus.OPEN, index=True)
+    checks: Mapped[str] = mapped_column(String(20), default="pending")  # pending | passed | failed
+    head_sha: Mapped[str] = mapped_column(String(64), default="")
+    handled_sha: Mapped[str] = mapped_column(String(64), default="")  # the head whose result was already passed on
+    failures: Mapped[int] = mapped_column(Integer, default=0)  # rounds of checks that failed
+    rounds: Mapped[int] = mapped_column(Integer, default=0)  # rounds of checks that finished
+    check_seconds: Mapped[int] = mapped_column(Integer, default=0)  # time those rounds took together
+    round_started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 # --- conversations & runs -------------------------------------------------------------------
@@ -325,6 +360,9 @@ class Conversation(Base):
     # The task list as last sent in this session: it is only sent again when it changed.
     todos_shown: Mapped[str | None] = mapped_column(Text)
     account_key: Mapped[str | None] = mapped_column(String(40))  # the provider account of the last run
+    # What the current session is about (e.g. "task:12"). A member's assignment for something else
+    # starts a new session: context is per piece of work, not per agent.
+    session_topic: Mapped[str | None] = mapped_column(String(40))
     summary: Mapped[str | None] = mapped_column(Text)
     summary_until_message_id: Mapped[int] = mapped_column(Integer, default=0)
     compressions: Mapped[int] = mapped_column(Integer, default=0)
@@ -371,6 +409,8 @@ class Run(Base):
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     num_turns: Mapped[int] = mapped_column(Integer, default=0)
     context_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    job_wait_seconds: Mapped[int] = mapped_column(Integer, default=0)  # part of the turn spent waiting for jobs
+    account_key: Mapped[str | None] = mapped_column(String(40))  # the provider account it ran on (the prompt cache is per account)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -384,6 +424,9 @@ class Job(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
+    # The assignment that waits for this job's result and stays open until it ends. None: a server
+    # or a job started outside an assignment.
+    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id", ondelete="SET NULL"), index=True)
     runner_id: Mapped[str] = mapped_column(String(32), unique=True)
     command: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default=JobStatus.RUNNING, index=True)

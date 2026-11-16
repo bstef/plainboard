@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Literal
 
 from plainboard_protocol import ProviderInfo
@@ -63,6 +64,7 @@ class DelegateArgs(BaseModel):
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
         default=None, description="Reasoning effort for this assignment only; omit to use the agent's setting"
     )
+    parallel: bool = Field(default=False, description="Only if the ticket already has open work and this is another, independent part of it")
 
 
 class ListAssignmentsArgs(BaseModel):
@@ -168,13 +170,25 @@ async def delete_agent(ctx: ToolContext, args: AgentRef) -> str:
 
 @tool(
     "delegate",
-    "Give an agent a clear work order (runs asynchronously). The report comes back to you as an update.",
+    "Give a member a complete work order (runs asynchronously). One report comes back as an update when it is finished.",
     DelegateArgs,
     roles=(MANAGER,),
 )
 async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     task = await board_service.get_task_by_number(ctx.session, ctx.project.id, args.ticket_number) if args.ticket_number else None
+    # The manager's memory is not the record of what is ordered: the database is. Without this, work
+    # gets ordered twice after a long turn or a compressed context.
+    if task and not args.parallel and (open_work := await board_service.open_assignments(ctx.session, task.id)):
+        names = await board_service.agent_names(ctx.session, ctx.project.id)
+        listed = "; ".join(f'#{a.id} "{truncate(a.title, 60)}" with {names.get(a.agent_id, "?")} ({a.status})' for a in open_work[:5])
+        raise ToolError(
+            f"Ticket #{task.number} already has open work: {listed}. Its report comes by itself; a second assignment would do the work twice. "
+            "If this is another, independent part of the ticket, repeat the call with parallel=true and say in the instructions what the other part covers."
+        )
+    same = select(Assignment).where(Assignment.agent_id == target.id, Assignment.title == args.title, Assignment.status.in_(board_service.OPEN_ASSIGNMENT_STATUSES))
+    if not args.parallel and (twin := await ctx.session.scalar(same.limit(1))):
+        raise ToolError(f"{target.slug} already has the open assignment #{twin.id} with this title ({twin.status}). Its report comes by itself.")
     was_busy = bool(await ctx.session.scalar(select(Run.id).where(Run.agent_id == target.id, Run.status.in_(ACTIVE_RUN_STATUSES)).limit(1)))
     assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort)
     effort = f" (effort {args.effort})" if args.effort else ""
@@ -217,7 +231,7 @@ async def cancel_assignment(ctx: ToolContext, args: AssignmentRef) -> str:
     assignment = await ctx.session.get(Assignment, args.assignment_id)
     if assignment is None or assignment.project_id != ctx.project.id:
         raise NotFound(f"Assignment #{args.assignment_id} not found")
-    if assignment.run_id and await ctx.runs.cancel_run(assignment.run_id):
+    if await ctx.runs.cancel_assignment(ctx.session, assignment):
         return f"Cancelling assignment #{assignment.id}."
     return f"Assignment #{assignment.id} is not active ({assignment.status})."
 
@@ -226,11 +240,14 @@ async def cancel_assignment(ctx: ToolContext, args: AssignmentRef) -> str:
 async def ask_agent(ctx: ToolContext, args: AskArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     await ctx.session.commit()  # don't hold a DB transaction while waiting
+    started = time.monotonic()
     answer = await ctx.runs.ask(ctx.run, ctx.agent, target, args.question)
-    return f"{target.name}: {answer}"
+    waited = time.monotonic() - started
+    # A question is a wait like any other: say what it cost.
+    return target.name + (f" (after {round(waited / 60)} min)" if waited >= 90 else "") + f": {answer}"
 
 
-@tool("message_agent", "Tell a teammate something without waiting. It reaches them after their current turn. No answer comes back unless they send one; for a question use ask_agent.", MessageArgs, roles=ALL)
+@tool("message_agent", "Tell a teammate something without waiting. It reaches them with their next turn. No answer comes back unless they send one; for a question use ask_agent.", MessageArgs, roles=ALL)
 async def message_agent(ctx: ToolContext, args: MessageArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     await ctx.runs.message(ctx.session, ctx.agent, target, args.message)

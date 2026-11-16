@@ -19,7 +19,7 @@ from .errors import NotFound, ServiceError
 # Every project starts with this schedule for its manager. It is an ordinary schedule: the user
 # (or the manager) can change its prompt or interval, pause it or delete it.
 TIDY_NAME = "Tidy up"
-TIDY_CRON = "0 */4 * * *"
+TIDY_CRON = "0 4 * * *"  # once a day: every run re-reads the manager's context
 TIDY_PROMPT = """\
 Routine tidy-up, so that nothing piles up that nobody needs any more. Work carefully: change only what
 is clearly outdated or redundant. When in doubt, leave it as it is. Nothing here is urgent.
@@ -38,6 +38,8 @@ Look through:
   needed. Stop it with stop_job when its work is finished or it has been running for more than a day
   without anyone using it, and say so in your reply. Leave builds, installs and tests alone.
 - Team: do not remove or change agents; if one seems no longer needed, mention it in your reply.
+- Waiting time (time_report): if one command or the checks of pull requests make up most of the
+  team's waiting and no ticket for it exists, create one to make that faster or needed less often.
 
 Never delete anything the user wrote or may still need. Do not start new work, do not delegate and do
 not message teammates for this. Reply in one or two lines: what you changed, or "Nothing to tidy."."""

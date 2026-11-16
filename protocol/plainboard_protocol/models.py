@@ -160,6 +160,29 @@ class JobState(BaseModel):
     tail: str = ""  # end of the output, once the job has finished
 
 
+class PullRequestRef(BaseModel):
+    """A pull request on GitHub, with the access to look at it."""
+
+    credentials: Credentials
+    repo: str = Field(pattern=r"^[\w.-]+/[\w.-]+$")  # owner/name
+    number: int = Field(ge=1)
+
+
+class PullRequestCheck(BaseModel):
+    name: str
+    state: Literal["pass", "fail", "pending"]
+    link: str = ""
+
+
+class PullRequestState(BaseModel):
+    state: Literal["open", "merged", "closed"]
+    mergeable: Literal["yes", "conflict", "unknown"] = "unknown"
+    head_sha: str = ""
+    url: str = ""
+    title: str = ""
+    checks: list[PullRequestCheck] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Run events (runner -> app), streamed as NDJSON
 # ---------------------------------------------------------------------------

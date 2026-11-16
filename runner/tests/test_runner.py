@@ -538,3 +538,77 @@ async def test_send_files_uploads_workspace_files_and_forwards_attachment_ids(tm
     assert b'filename="shot.png"' in seen["body"] and b"4,5" in seen["body"]
     assert not (await bridge.call("send_files", {"attachment_ids": [4]})).is_error
     assert (await bridge.call("send_files", {"paths": ["missing.png"]})).is_error
+
+
+def test_claude_asks_for_the_long_cache_lifetime():
+    # Turns of an agent are often more than five minutes apart; the short lifetime would rewrite the whole context each time.
+    for creds in (Credentials(claude_auth_mode="api_key", anthropic_api_key="key"), Credentials(claude_auth_mode="oauth_token", claude_oauth_token="tok")):
+        assert auth_env(creds)["ENABLE_PROMPT_CACHING_1H"] == "1"
+
+
+async def test_a_slow_tool_call_is_told_how_long_it_took(monkeypatch):
+    from plainboard_runner.providers import claude_code
+    from plainboard_runner.providers.claude_code import ToolTimer, notice_hook
+
+    clock = [1000.0]
+    monkeypatch.setattr(claude_code.time, "monotonic", lambda: clock[0])
+    timer = ToolTimer()
+    hook = notice_hook("r11", timer)
+    await timer.start({"tool_name": "Bash"}, "t1", None)
+    clock[0] += 30
+    assert await hook({"tool_name": "Bash"}, "t1", None) == {}  # a quick call says nothing
+    await timer.start({"tool_name": "Bash"}, "t2", None)
+    clock[0] += 720
+    output = (await hook({"tool_name": "Bash"}, "t2", None))["hookSpecificOutput"]
+    assert "That call took 12 min" in output["additionalContext"]
+    await timer.start({"tool_name": "mcp__plainboard__wait_job"}, "t3", None)
+    clock[0] += 720
+    assert await hook({"tool_name": "mcp__plainboard__wait_job"}, "t3", None) == {}  # it says so itself
+
+
+def test_pull_request_state_is_read_from_githubs_roll_up():
+    from plainboard_runner.github import parse_state
+
+    state = parse_state(
+        {
+            "state": "OPEN",
+            "mergeable": "MERGEABLE",
+            "headRefOid": "abc",
+            "url": "https://github.com/acme/api/pull/7",
+            "title": "Add it",
+            "statusCheckRollup": [
+                {"__typename": "CheckRun", "name": "test", "workflowName": "ci", "status": "COMPLETED", "conclusion": "FAILURE", "detailsUrl": "l1"},
+                {"__typename": "CheckRun", "name": "test", "workflowName": "ci", "status": "IN_PROGRESS", "conclusion": "", "detailsUrl": "l2"},  # re-run: the last one counts
+                {"__typename": "CheckRun", "name": "lint", "workflowName": "ci", "status": "COMPLETED", "conclusion": "SKIPPED"},
+                {"__typename": "StatusContext", "context": "deploy/preview", "state": "ERROR", "targetUrl": "l3"},
+            ],
+        }
+    )
+    assert (state.state, state.mergeable, state.head_sha, state.title) == ("open", "yes", "abc", "Add it")
+    assert [(c.name, c.state, c.link) for c in state.checks] == [("ci / test", "pending", "l2"), ("ci / lint", "pass", ""), ("deploy/preview", "fail", "l3")]
+    assert parse_state({"state": "MERGED", "mergeable": "UNKNOWN"}).state == "merged"
+    assert parse_state({"state": "OPEN", "mergeable": "CONFLICTING"}).mergeable == "conflict"
+
+
+async def test_merge_tries_the_methods_a_repository_allows(monkeypatch):
+    from plainboard_runner import github
+
+    calls = []
+
+    async def fake_run(args, cwd, env, timeout=600):
+        calls.append(next(a for a in args if a in ("--squash", "--merge", "--rebase")))
+        if "--squash" in args:
+            raise WorkspaceError("gh pr failed: Squash merges are not allowed on this repository")
+        return ""
+
+    monkeypatch.setattr(github, "run_cmd", fake_run)
+    result = await github.merge(Credentials(github_token="t"), "acme/api", 7)
+    assert result.ok and result.detail == "merge" and calls == ["--squash", "--merge"]
+
+    async def conflict(args, cwd, env, timeout=600):
+        calls.append("x")
+        raise WorkspaceError("gh pr failed: Pull request is not mergeable")
+
+    monkeypatch.setattr(github, "run_cmd", conflict)
+    result = await github.merge(Credentials(github_token="t"), "acme/api", 7)
+    assert not result.ok and "not mergeable" in result.detail and calls[2:] == ["x"]  # another method would fail the same way

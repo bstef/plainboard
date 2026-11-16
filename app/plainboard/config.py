@@ -19,6 +19,7 @@ class Config(BaseSettings):
     max_upload_mb: int = 50
     scheduler_interval_seconds: float = 20.0
     job_watch_interval_seconds: float = 10.0
+    pr_watch_interval_seconds: float = 30.0  # how often watched pull requests are looked at
     # Workspaces as seen by the runner container.
     workspaces_root: str = "/workspaces"
     runner_uploads_dir: str = "/uploads"

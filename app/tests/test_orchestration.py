@@ -38,8 +38,8 @@ def test_chat_run_persists_messages_and_usage(client, project):
     assert conv["provider_session_id"] and conv["context_tokens"] == 1000
     spec = runner(client).specs[-1]
     assert spec.toolset == "board" and "delegate" in {t.name for t in spec.bridge.tools}
-    assert "full shell access" in spec.system_prompt and "Do small things yourself" in spec.system_prompt
-    assert "order no tests, reviews, screenshots" in spec.system_prompt
+    assert "full shell access" in spec.system_prompt and "Small things you do yourself" in spec.system_prompt
+    assert "order no tests, screenshots" in spec.system_prompt and "Time here is the opposite" in spec.system_prompt
     assert spec.workspace.shared is False
     assert "Current time:" in spec.prompt
 
@@ -175,12 +175,13 @@ def test_manager_always_sees_the_use_of_parallel_agents(client, project):
     chat(client, manager["id"], "SAY ok")
     wait_for(lambda: idle(client, pid))
     prompt = runner(client).specs[-1].prompt
-    assert "Parallel agents: 0 of 3 working, 3 free. Idle: Dev." in prompt and "delegate it in this turn" not in prompt  # no open ticket
+    assert "Parallel members: 0 of 3 working, 3 free. Idle: Dev." in prompt and "delegate it in this turn" not in prompt  # no open ticket
+    assert "In flight: nothing." in prompt
 
     client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "todo"})
     chat(client, manager["id"], "SAY ok")
     wait_for(lambda: idle(client, pid))
-    assert "Parallel agents: 0 of 3 working, 3 free. Idle: Dev. If work is ready for them, delegate it in this turn." in runner(client).specs[-1].prompt
+    assert "Parallel members: 0 of 3 working, 3 free. Idle: Dev. If work is ready for them, delegate it in this turn." in runner(client).specs[-1].prompt
     assert "Open tasks per member: Dev 0." in runner(client).specs[-1].prompt
 
 
@@ -208,10 +209,10 @@ def test_capacity_line_says_when_the_limit_is_reached():
     from plainboard.orchestration.prompts import capacity_line
     from plainboard.services.board import Capacity
 
-    full = capacity_line(Capacity(limit=2, busy=3, waiting=["Ops"], idle=["QA"], background=[], open_work=True))
-    assert full.startswith("Parallel agents: 2 of 2 working: the limit is reached. 1 more waiting for a free slot (Ops). Don't start further agents now.")
+    full = capacity_line(Capacity(limit=2, busy=3, waiting=["Ops"], idle=["QA"], open_work=True))
+    assert full.startswith("Parallel members: 2 of 2 working: the limit is reached. 1 more waiting for a free slot (Ops). Don't start further members now.")
     assert "Idle" not in full
-    assert capacity_line(Capacity(limit=0, busy=0, waiting=[], idle=["QA"], background=[], open_work=True)).startswith("Parallel agents: paused by the user")
+    assert capacity_line(Capacity(limit=0, busy=0, waiting=[], idle=["QA"], open_work=True)).startswith("Parallel members: paused by the user")
 
 
 def test_worker_tools_are_restricted(client, project):
@@ -285,19 +286,22 @@ def test_ask_agent_returns_answer(client, project):
     assert ask_run["parent_run_id"] is not None
 
 
-def test_message_agent_costs_one_turn_and_a_reply_is_a_message_of_its_own(client, project):
+def test_messages_reach_a_teammate_with_its_next_turn_and_share_it(client, project):
     pid = project["id"]
-    make_dev(client, pid)
+    dev = make_dev(client, pid)
     manager = agents_by_slug(client, pid)["manager"]
-    chat(client, manager["id"], 'TOOL message_agent {"agent": "dev", "message": "SAY pong"}')
-    wait_for(lambda: idle(client, pid) and any(r["trigger"] == "message" and r["status"] == "succeeded" for r in runs_of(client, pid)))
-    assert "not sent to them" in runner(client).specs[-1].prompt
-    assert [r["trigger"] for r in runs_of(client, pid)] == ["message", "chat"]  # the final text wakes nobody
-
-    reply = json.dumps({"agent": "manager", "message": "SAY got it"})
-    chat(client, manager["id"], f'TOOL message_agent {json.dumps({"agent": "dev", "message": "TOOL message_agent " + reply})}')
-    wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) == 5)
-    assert [r["trigger"] for r in runs_of(client, pid)][:3] == ["message", "message", "chat"]
+    chat(client, dev["id"], "HOLD")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    both = [json.dumps({"agent": "dev", "message": text}) for text in ("first", "second")]
+    chat(client, manager["id"], chr(10).join(f"TOOL message_agent {args}" for args in both))
+    wait_for(lambda: any(r["agent_id"] == manager["id"] and r["status"] == "succeeded" for r in runs_of(client, pid)))
+    runner(client).released = True
+    wait_for(lambda: idle(client, pid) and any(r["trigger"] == "wake" and r["status"] == "succeeded" for r in runs_of(client, pid)))
+    # One turn for both messages, and its final text wakes nobody.
+    assert sorted(r["trigger"] for r in runs_of(client, pid)) == ["chat", "chat", "wake"]
+    prompt = runner(client).specs[-1].prompt
+    assert "Message from Manager (Project Manager): first" in prompt and "Message from Manager (Project Manager): second" in prompt
+    assert "reaches nobody" in prompt
 
 
 def test_compression_resets_session_and_carries_memory(client, project):
@@ -307,7 +311,7 @@ def test_compression_resets_session_and_carries_memory(client, project):
     wait_for(lambda: idle(client, pid))
     assert conversation(client, dev["id"])["session_base_tokens"] == 1000
     chat(client, dev["id"], "SAY grown\nCONTEXT 9000")  # same session grew by 8000
-    wait_for(lambda: idle(client, pid))
+    wait_for(lambda: idle(client, pid) and conversation(client, dev["id"])["compressions"] == 1)  # it compresses after the run has ended
     conv = conversation(client, dev["id"])
     assert conv["compressions"] == 1 and conv["provider_session_id"] is None
     assert conv["messages"][-1]["kind"] == "summary" and conv["messages"][-1]["content"] == "SUMMARY #1"
@@ -562,7 +566,7 @@ def test_schedule_fires_once(client, project):
     tidy, sched = client.get(f"/api/projects/{pid}/schedules").json()
     assert sched["enabled"] is False and sched["next_run_at"] is None
     # Every project starts with the manager's tidy-up schedule.
-    assert (tidy["name"], tidy["cron"], tidy["agent_id"], tidy["enabled"]) == ("Tidy up", "0 */4 * * *", manager["id"], True)
+    assert (tidy["name"], tidy["cron"], tidy["agent_id"], tidy["enabled"]) == ("Tidy up", "0 4 * * *", manager["id"], True)
     assert tidy["next_run_at"] and "Work carefully" in tidy["prompt"]
 
 
@@ -712,8 +716,9 @@ def test_an_agent_with_only_a_background_job_is_not_shown_as_idle(client, projec
     wait_for(lambda: idle(client, pid))
     assert agents_by_slug(client, pid)["dev"]["status"] == "background"
 
-    line = capacity_line(Capacity(limit=3, busy=0, waiting=[], idle=["QA"], background=["Dev"], open_work=True))
-    assert "Idle: QA. Only a background job running (free for work; its result wakes them): Dev. If work is ready" in line
+    # A job outside an assignment (e.g. a server) keeps nobody from new work.
+    line = capacity_line(Capacity(limit=3, busy=0, waiting=[], idle=["QA", "Dev"], open_work=True))
+    assert "Idle: QA, Dev. If work is ready" in line
 
 
 def test_finished_job_is_reported_to_its_agent_and_wakes_it(client, project):
@@ -805,7 +810,7 @@ def test_a_turn_can_wait_for_its_job_and_is_not_woken_for_it_again(client, proje
     assert "has ended (succeeded, exit code 0)" in runs_of(client, pid)[0]["result_text"]
 
 
-def test_worker_wake_result_goes_to_the_manager(client, project):
+def test_a_members_turn_outside_an_assignment_reaches_nobody(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)
     start_job(client, dev["id"])
@@ -813,20 +818,9 @@ def test_worker_wake_result_goes_to_the_manager(client, project):
     spec = runner(client).job_specs[-1]
     runner(client).jobs[spec.id] = JobState(running=False, exit_code=0, log_path="/jobs/x.log", tail="SAY Build is green")
     job_tick(client)
-    wait_for(lambda: idle(client, pid) and "Update from Dev" in runner(client).specs[-1].prompt)
-    assert "delegate" in {t.name for t in runner(client).specs[-1].bridge.tools}
-
-
-def test_worker_wake_with_nothing_to_report_does_not_reach_the_manager(client, project):
-    pid = project["id"]
-    dev = make_dev(client, pid)
-    start_job(client, dev["id"])
-    wait_for(lambda: idle(client, pid))
-    spec = runner(client).job_specs[-1]
-    runner(client).jobs[spec.id] = JobState(running=False, exit_code=0, log_path="/jobs/x.log", tail="SAY Nothing to report.")
-    job_tick(client)
     wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) == 2)
-    assert "reply only" in runner(client).specs[-1].prompt
+    prompt = runner(client).specs[-1].prompt
+    assert "exit code 0 after" in prompt and "reaches nobody" in prompt  # the job's duration is said: an agent has no clock
     assert [r["trigger"] for r in runs_of(client, pid)] == ["wake", "chat"]  # the manager is not woken
 
 
@@ -864,15 +858,19 @@ def test_disabling_an_agent_cancels_its_waiting_work(client, project):
 def test_manager_pauses_a_teammate_and_drops_its_queue(client, project):
     pid = project["id"]
     client.put("/api/settings", json={"values": {"max_parallel_runs": 1}})
-    dev = make_dev(client, pid)
+    dev, ops = make_dev(client, pid), make_dev(client, pid, name="Ops")
     manager = agents_by_slug(client, pid)["manager"]
-    # The manager's own run takes the only slot, so the message to Dev stays queued.
+    # Ops takes the only slot, so Dev's turn for the message stays queued. The manager needs no slot.
+    chat(client, ops["id"], "HOLD")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
     chat(client, manager["id"], 'TOOL message_agent {"agent": "dev", "message": "hi"}\nTOOL stop_agent {"agent": "dev"}\nTOOL stop_agent {"agent": "manager"}')
-    wait_for(lambda: idle(client, pid))
+    wait_for(lambda: any(r["agent_id"] == manager["id"] and r["status"] == "succeeded" for r in runs_of(client, pid)))
     assert [r["status"] for r in runs_of(client, pid, agent_id=dev["id"])] == ["cancelled"]
     assert agents_by_slug(client, pid)["dev"]["enabled"] is False
     tools = [m for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]
     assert tools[2]["meta"]["is_error"] is True
+    runner(client).released = True
+    wait_for(lambda: idle(client, pid))
 
 
 def test_working_teammate_is_told_to_wrap_up_not_aborted(client, project):
@@ -972,6 +970,11 @@ def test_work_report_shows_where_the_work_went_without_texts(client, project):
     (row,) = report["tickets"]
     assert row["ticket"] == ticket["number"] and row["assignments"] == 1 and row["members"]["runs"] == 1
     assert report["without_ticket"]["manager"]["runs"] >= 1 and report["assignments"]["by_status"] == {"done": 1}
+    # Per day and per account, to compare before and after a change; work against waiting.
+    (today,) = [d for d in report["per_day"] if d["runs"]]
+    assert today["by_trigger"]["assignment"] == 1 and {"cache_read_tokens", "cache_creation_tokens", "turns", "job_wait_seconds"} <= set(today)
+    assert sum(a["runs"] for a in report["accounts"]) == today["runs"] and all("sign_in" in a for a in report["accounts"])
+    assert report["time"]["assignments_finished"] == 1 and report["time"]["slow_commands"] == []
 
 
 def test_stats_count_tickets_and_runs(client, project):

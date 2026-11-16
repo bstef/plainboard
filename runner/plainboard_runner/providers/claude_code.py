@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import logging
+import time
 from datetime import datetime
 from collections.abc import AsyncIterator
 from typing import Any
@@ -67,6 +68,10 @@ DISALLOWED_TOOLS = ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "TodoWri
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 NOTICE_GRACE_SECONDS = 60
 NOTICE_CHECK_SECONDS = 5
+# A tool call that takes this long gets its duration added to its result: the agent has no clock.
+SLOW_TOOL_SECONDS = 120
+# These PlainBoard tools already say how long they waited.
+TIMED_TOOLS = ("start_job", "wait_job", "ask_agent")
 
 MODELS = [
     ModelInfo(id="claude-opus-5-5", label="Claude Opus 5.5", tier="large"),
@@ -81,7 +86,10 @@ RETIRED_WINDOWS = {"five_hour"}
 
 
 def auth_env(creds: Credentials) -> dict[str, str]:
-    env = {"DISABLE_AUTOUPDATER": "1", "CLAUDE_AGENT_SDK_CLIENT_APP": "plainboard/0.1"}
+    # Turns of one agent are often more than five minutes apart (a job, a teammate, a free slot). With
+    # the short cache lifetime, the default with an API key, each of them would write the whole context
+    # to the cache again instead of reading it.
+    env = {"DISABLE_AUTOUPDATER": "1", "CLAUDE_AGENT_SDK_CLIENT_APP": "plainboard/0.1", "ENABLE_PROMPT_CACHING_1H": "1"}
     if creds.claude_auth_mode == "oauth_token":
         if not creds.claude_oauth_token:
             raise RuntimeError("Claude OAuth token is not configured (Settings → Claude).")
@@ -140,13 +148,40 @@ def build_mcp_server(bridge: ToolBridge):
     return create_sdk_mcp_server(name=MCP_SERVER_NAME, version="1.0.0", tools=tools)
 
 
-def notice_hook(run_id: str):
-    """Hands messages for the running turn to the agent after its current tool call."""
+class ToolTimer:
+    """Measures tool calls, so that a slow one can tell the agent how long it took."""
 
-    async def hook(hook_input: Any, _tool_use_id: str | None, _context: Any) -> dict[str, Any]:
+    def __init__(self) -> None:
+        self.started: dict[str, float] = {}
+
+    async def start(self, hook_input: Any, tool_use_id: str | None, _context: Any) -> dict[str, Any]:
+        if tool_use_id and not hook_input.get("agent_id"):
+            self.started[tool_use_id] = time.monotonic()
+        return {}
+
+    def note(self, hook_input: Any, tool_use_id: str | None) -> str | None:
+        start = self.started.pop(tool_use_id or "", None)
+        if start is None or str(hook_input.get("tool_name", "")).endswith(TIMED_TOOLS):
+            return None
+        seconds = time.monotonic() - start
+        if seconds < SLOW_TOOL_SECONDS:
+            return None
+        return (
+            f"[PlainBoard] That call took {round(seconds / 60)} min, far longer than writing the change. "
+            "Before the next slow call, put in everything that belongs to it and check with something faster first."
+        )
+
+
+def notice_hook(run_id: str, timer: ToolTimer | None = None):
+    """Hands messages for the running turn to the agent after its current tool call, and says how
+    long a slow call took."""
+
+    async def hook(hook_input: Any, tool_use_id: str | None, _context: Any) -> dict[str, Any]:
         if hook_input.get("agent_id"):  # a sub-agent's tool call: the message is for the agent itself
             return {}
         pending = notices.drain(run_id)
+        if timer and (took := timer.note(hook_input, tool_use_id)):
+            pending.append(took)
         if not pending:
             return {}
         return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "\n\n".join(pending)}}
@@ -300,6 +335,7 @@ class ClaudeCodeProvider(Provider):
         env = {**tool_env(spec.credentials), **auth_env(spec.credentials), **spec.env}
         mcp_servers: dict[str, Any] = {s.name: external_mcp_config(s) for s in spec.mcp_servers if s.name != MCP_SERVER_NAME}
         mcp_servers[MCP_SERVER_NAME] = build_mcp_server(bridge)
+        timer = ToolTimer()
         allowed = [f"mcp__{MCP_SERVER_NAME}__{t.name}" for t in bridge.tools] + [f"mcp__{name}" for name in mcp_servers if name != MCP_SERVER_NAME]
         common: dict[str, Any] = dict(
             model=spec.model,
@@ -314,7 +350,7 @@ class ClaudeCodeProvider(Provider):
             include_partial_messages=True,
             max_buffer_size=MAX_MESSAGE_BYTES,
             stderr=stderr_tail.append,
-            hooks={"PostToolUse": [HookMatcher(hooks=[notice_hook(spec.run_id)])]},
+            hooks={"PreToolUse": [HookMatcher(hooks=[timer.start])], "PostToolUse": [HookMatcher(hooks=[notice_hook(spec.run_id, timer)])]},
         )
         if spec.effort:
             common["effort"] = spec.effort

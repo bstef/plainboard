@@ -16,6 +16,7 @@ from .migrate import upgrade
 from .orchestration.run_manager import RunManager
 from .orchestration.runner_client import RunnerClient
 from .orchestration.job_watcher import JobWatcher
+from .orchestration.pr_watcher import PullRequestWatcher
 from .orchestration.scheduler import Scheduler
 from .security import init_security
 from .services.errors import ServiceError
@@ -38,15 +39,19 @@ async def lifespan(app: FastAPI):
     runs = RunManager(sessionmaker(), runner)
     scheduler = Scheduler(sessionmaker(), runs, config.scheduler_interval_seconds)
     job_watcher = JobWatcher(sessionmaker(), runs, config.job_watch_interval_seconds)
+    pr_watcher = PullRequestWatcher(sessionmaker(), runs, config.pr_watch_interval_seconds)
     app.state.runner, app.state.runs, app.state.scheduler, app.state.job_watcher = runner, runs, scheduler, job_watcher
+    app.state.pr_watcher = pr_watcher
     app.state.preview_client = preview.new_client()
     await runs.start()
     scheduler.start()
     job_watcher.start()
+    pr_watcher.start()
     log.info("PlainBoard ready (auth %s)", "on" if config.password else "off")
     try:
         yield
     finally:
+        await pr_watcher.stop()
         await job_watcher.stop()
         await scheduler.stop()
         await runs.stop()

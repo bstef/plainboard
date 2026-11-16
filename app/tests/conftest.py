@@ -19,6 +19,7 @@ from plainboard_protocol import (
     JobState,
     ModelInfo,
     ProviderInfo,
+    PullRequestState,
     ResultEvent,
     RunEvent,
     RunSpec,
@@ -48,6 +49,9 @@ class FakeRunner:
         self.job_specs: list[JobSpec] = []
         self.reachable = True
         self.released = False
+        self.pulls: dict[tuple[str, int], PullRequestState] = {}  # what GitHub would say
+        self.merged: list[tuple[str, int]] = []
+        self.merge_error = ""
 
     async def stream_run(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
         self.specs.append(spec)
@@ -111,6 +115,18 @@ class FakeRunner:
         job = self.jobs.get(runner_id)
         return bool(job and job.running)
 
+    async def pull_request(self, credentials, repo: str, number: int) -> PullRequestState:
+        if (repo, number) not in self.pulls:
+            raise RunnerError("no such pull request")
+        return self.pulls[(repo, number)]
+
+    async def merge_pull_request(self, credentials, repo: str, number: int) -> CheckResult:
+        if self.merge_error:
+            return CheckResult(ok=False, detail=self.merge_error)
+        self.merged.append((repo, number))
+        self.pulls[(repo, number)] = self.pulls[(repo, number)].model_copy(update={"state": "merged"})
+        return CheckResult(ok=True, detail="squash")
+
     async def providers(self) -> list[ProviderInfo]:
         return [
             ProviderInfo(
@@ -148,6 +164,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_STATIC_DIR", str(tmp_path / "static"))
     monkeypatch.setenv("PLAINBOARD_SCHEDULER_INTERVAL_SECONDS", "3600")
     monkeypatch.setenv("PLAINBOARD_JOB_WATCH_INTERVAL_SECONDS", "3600")
+    monkeypatch.setenv("PLAINBOARD_PR_WATCH_INTERVAL_SECONDS", "3600")
     for var in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "PLAINBOARD_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
     from plainboard import config, main

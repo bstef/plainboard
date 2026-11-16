@@ -13,8 +13,8 @@ from .util import truncate
 RECENT_JOBS = 10
 
 
-async def add(session: AsyncSession, project_id: int, agent_id: int, runner_id: str, command: str, log_path: str) -> Job:
-    job = Job(project_id=project_id, agent_id=agent_id, runner_id=runner_id, command=command, log_path=log_path)
+async def add(session: AsyncSession, project_id: int, agent_id: int, runner_id: str, command: str, log_path: str, assignment_id: int | None = None) -> Job:
+    job = Job(project_id=project_id, agent_id=agent_id, runner_id=runner_id, command=command, log_path=log_path, assignment_id=assignment_id)
     session.add(job)
     await session.commit()
     await agent_service.publish_by_id(session, agent_id)
@@ -23,6 +23,12 @@ async def add(session: AsyncSession, project_id: int, agent_id: int, runner_id: 
 
 async def running(session: AsyncSession) -> list[Job]:
     return list((await session.scalars(select(Job).where(Job.status == JobStatus.RUNNING).order_by(Job.id))).all())
+
+
+async def running_for_assignment(session: AsyncSession, assignment_id: int) -> list[Job]:
+    """The jobs an assignment still waits for."""
+    q = select(Job).where(Job.assignment_id == assignment_id, Job.status == JobStatus.RUNNING).order_by(Job.id)
+    return list((await session.scalars(q)).all())
 
 
 async def recent_for_agent(session: AsyncSession, agent_id: int) -> list[Job]:

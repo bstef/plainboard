@@ -24,7 +24,10 @@ from ..models import (
     Job,
     JobStatus,
     Project,
+    PullRequest,
+    PullRequestStatus,
     Run,
+    RunStatus,
     Task,
     TaskStatus,
     TaskTransition,
@@ -32,6 +35,8 @@ from ..models import (
 )
 from ..schemas import AssignmentOut, AttachmentOut, CommentOut, DecisionOut, PublicBoard, PublicTask, TaskCreate, TaskDetail, TaskOut, TaskUpdate
 from .errors import NotFound, ServiceError
+from .timing import duration
+from .util import truncate
 
 OPEN_ASSIGNMENT_STATUSES = (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)
 
@@ -262,25 +267,24 @@ async def idle_in_progress(session: AsyncSession, project_id: int) -> list[Task]
     tasks = [t for t in await list_tasks(session, project_id, status=TaskStatus.IN_PROGRESS) if not t.user_action]
     if not tasks:
         return []
-    with_job = select(Job.agent_id).where(Job.project_id == project_id, Job.status == JobStatus.RUNNING)
     busy = {
         *await session.scalars(select(Run.task_id).where(Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES))),
         *await session.scalars(select(Decision.task_id).where(Decision.project_id == project_id, Decision.status == DecisionStatus.OPEN)),
-        # A job outlives its assignment's report and still belongs to that work.
-        *await session.scalars(select(Assignment.task_id).where(Assignment.project_id == project_id, Assignment.agent_id.in_(with_job))),
+        # An assignment stays open while it waits for its jobs, a pull request while its checks run.
+        *await session.scalars(select(Assignment.task_id).where(Assignment.project_id == project_id, Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES))),
+        *await session.scalars(select(PullRequest.task_id).where(PullRequest.project_id == project_id, PullRequest.status == PullRequestStatus.OPEN)),
     }
     return [t for t in tasks if t.id not in busy]
 
 
 @dataclass
 class Capacity:
-    """Use of the parallel agents the user allows. All projects share the limit."""
+    """Use of the parallel agents the user allows. All projects share the limit; managers don't count."""
 
     limit: int
-    busy: int  # agents with work running or waiting to start (the asking turn doesn't count)
-    waiting: list[str]  # this project's agents whose work has not started yet
-    idle: list[str]  # this project's agents with nothing to do
-    background: list[str]  # this project's agents with only background jobs (builds, preview servers): free for work
+    busy: int  # members with a turn running or waiting to start (not one that only waits for its own job)
+    waiting: list[str]  # this project's members whose turn has not started yet
+    idle: list[str]  # this project's members with nothing to do: no turn and no open assignment
     open_work: bool  # tickets to do or in progress
 
     @property
@@ -297,22 +301,80 @@ class Capacity:
 
 
 async def capacity(session: AsyncSession, project_id: int, limit: int, *, except_run_id: int) -> Capacity:
-    top_level = (Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id)
-    busy = await session.scalar(select(func.count(Run.agent_id.distinct())).where(*top_level)) or 0
+    members = select(Agent.id).where(~Agent.is_manager)
+    top_level = (Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id, Run.agent_id.in_(members))
+    rows = (await session.execute(select(Run.agent_id, Run.status, Run.project_id).where(*top_level))).all()
+    running = {agent_id for agent_id, status, _project in rows if status == RunStatus.RUNNING}
+    open_assignment = set(await session.scalars(select(Assignment.agent_id).where(Assignment.status == AssignmentStatus.RUNNING)))
+    # A member that waits for its own job takes no slot, and its next assignment waits for that job, not for a slot.
+    queued = {agent_id for agent_id, status, _project in rows if status == RunStatus.QUEUED and (agent_id in running or agent_id not in open_assignment)}
     team = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager).order_by(Agent.id)))
-    rows = (await session.execute(select(Run.agent_id, Run.status).where(Run.project_id == project_id, *top_level))).all()
-    active = {agent_id for agent_id, _status in rows}
-    started = {agent_id for agent_id, status in rows if status != "queued"}
+    active = {agent_id for agent_id, _status, project in rows if project == project_id}
     open_tickets = select(Task.id).where(Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_((TaskStatus.TODO, TaskStatus.IN_PROGRESS)))
-    with_jobs = set(await session.scalars(select(Job.agent_id).where(Job.project_id == project_id, Job.status == JobStatus.RUNNING)))
     return Capacity(
         limit=limit,
-        busy=busy,
-        waiting=[a.name for a in team if a.id in active - started],
-        idle=[a.name for a in team if a.id not in active and a.id not in with_jobs],
-        background=[a.name for a in team if a.id not in active and a.id in with_jobs],
+        busy=len(running | queued),
+        waiting=[a.name for a in team if a.id in queued - running],
+        idle=[a.name for a in team if a.id not in active and a.id not in open_assignment],
         open_work=bool(await session.scalar(open_tickets.limit(1))),
     )
+
+
+IN_FLIGHT_LINES = 12
+LONG_JOB_SECONDS = 2 * 3600  # an assignment waiting this long for one job may be stuck: its agent takes no other work meanwhile
+
+
+async def in_flight(session: AsyncSession, project_id: int, now: datetime | None = None) -> tuple[list[str], int]:
+    """Open assignments and watched pull requests, one line each, and how many more there are. The
+    manager gets this on every turn: what is already ordered comes from here, not from its memory."""
+    now = now or utcnow()
+    names = await agent_names(session, project_id)
+    assignments = list(await session.scalars(select(Assignment).where(Assignment.project_id == project_id, Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES)).order_by(Assignment.id)))
+    pulls = list(await session.scalars(select(PullRequest).where(PullRequest.project_id == project_id, PullRequest.status == PullRequestStatus.OPEN).order_by(PullRequest.id)))
+    task_ids = {x.task_id for x in (*assignments, *pulls) if x.task_id}
+    numbers = dict((await session.execute(select(Task.id, Task.number).where(Task.id.in_(task_ids)))).all()) if task_ids else {}
+    ids = [a.id for a in assignments]
+    turns: dict[int, str] = {}
+    jobs: dict[int, datetime] = {}
+    if ids:
+        for assignment_id, status in (await session.execute(select(Run.assignment_id, Run.status).where(Run.assignment_id.in_(ids), Run.status.in_(ACTIVE_RUN_STATUSES)))).all():
+            if status == RunStatus.RUNNING or assignment_id not in turns:
+                turns[assignment_id] = status
+        started = select(Job.assignment_id, func.min(Job.created_at)).where(Job.assignment_id.in_(ids), Job.status == JobStatus.RUNNING).group_by(Job.assignment_id)
+        jobs = dict((await session.execute(started)).all())
+    fixing = {a.pull_request_id for a in assignments if a.pull_request_id}
+
+    def age(since: datetime) -> str:
+        return duration((now - since).total_seconds())
+
+    lines = []
+    for a in assignments:
+        if turns.get(a.id) == RunStatus.RUNNING:
+            state = "working"
+        elif a.status == AssignmentStatus.QUEUED:
+            state = "not started yet"
+        elif a.id in jobs:
+            long = (now - jobs[a.id]).total_seconds() >= LONG_JOB_SECONDS
+            state = f"waiting for its own job ({age(jobs[a.id])}" + ("; if it hangs: stop_job)" if long else ")")
+        else:
+            state = "continues with its next turn"
+        ticket = f" for #{numbers[a.task_id]}" if a.task_id in numbers else ""
+        lines.append(f'- Assignment #{a.id}{ticket}, {names.get(a.agent_id, "?")}: "{truncate(a.title, 70)}" · {state}, ordered {age(a.created_at)} ago')
+    for pr in pulls:
+        ticket = f" for #{numbers[pr.task_id]}" if pr.task_id in numbers else ""
+        if pr.id in fixing:
+            state = "checks failed, its author is fixing it"
+        elif pr.checks == "pending":
+            state = f"checks running ({age(pr.round_started_at)})"
+        else:
+            state = f"checks {pr.checks}"
+        lines.append(f'- PR #{pr.number}{ticket}, {names.get(pr.agent_id or 0, "?")}: {state}; PlainBoard watches it' + (" and merges it when they pass" if pr.merge else ""))
+    return lines[:IN_FLIGHT_LINES], max(len(lines) - IN_FLIGHT_LINES, 0)
+
+
+async def open_assignments(session: AsyncSession, task_id: int) -> list[Assignment]:
+    q = select(Assignment).where(Assignment.task_id == task_id, Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES)).order_by(Assignment.id)
+    return list((await session.scalars(q)).all())
 
 
 async def list_tasks(

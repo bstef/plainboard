@@ -11,9 +11,10 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, RepoSpec, RunSpec
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec
 from pydantic import BaseModel
 
+from . import github
 from . import jobs
 from . import notices
 from .providers import get_provider, list_providers
@@ -218,6 +219,20 @@ async def github_repos(credentials: Credentials) -> GitHubReposResult:
         return GitHubReposResult(ok=False, detail=str(exc)[:400])
     repos = [GitHubRepo.model_validate_json(line) for line in out.splitlines() if line.strip()]
     return GitHubReposResult(ok=True, repos=repos)
+
+
+@app.post("/github/pull-request", response_model=PullRequestState)
+async def github_pull_request(ref: PullRequestRef) -> PullRequestState:
+    """State and checks of a pull request, for the app's watcher."""
+    try:
+        return await github.pull_request(ref.credentials, ref.repo, ref.number)
+    except (WorkspaceError, ValueError) as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
+
+
+@app.post("/github/pull-request/merge", response_model=CheckResult)
+async def github_merge(ref: PullRequestRef) -> CheckResult:
+    return await github.merge(ref.credentials, ref.repo, ref.number)
 
 
 class GitHubCheck(BaseModel):

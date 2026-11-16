@@ -10,8 +10,9 @@ from statistics import median
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Agent, Assignment, AssignmentStatus, Conversation, Message, Run, RunStatus, Task, TaskStatus, TaskTransition, utcnow
+from ..models import Account, Agent, Assignment, AssignmentStatus, Conversation, Message, Run, RunStatus, Task, TaskStatus, TaskTransition, utcnow
 from ..schemas import StatsAgent, StatsDay, StatsOut
+from . import timing
 
 
 async def overview(session: AsyncSession, project_id: int, days: int = 30, now: datetime | None = None) -> StatsOut:
@@ -90,7 +91,7 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
     is_manager = {a.id: a.is_manager for a in agents}
 
     def totals() -> dict:
-        return {"runs": 0, "failed": 0, "turns": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.0, "busy_seconds": 0, "wait_seconds": 0}
+        return {"runs": 0, "failed": 0, "turns": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.0, "busy_seconds": 0, "wait_seconds": 0, "job_wait_seconds": 0}
 
     def add(item: dict, run: Run) -> None:
         item["runs"] += 1
@@ -101,12 +102,20 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
         item["cost_usd"] = round(item["cost_usd"] + run.cost_usd, 4)
         item["busy_seconds"] += _seconds(run.started_at, run.finished_at)
         item["wait_seconds"] += _seconds(run.created_at, run.started_at)
+        item["job_wait_seconds"] += run.job_wait_seconds  # part of busy_seconds spent waiting for a job in the turn
 
     by_trigger: dict[tuple[int, str], dict] = defaultdict(totals)
     by_ticket: dict[int, dict] = defaultdict(lambda: {"manager": totals(), "members": totals()})
+    # Per day and per account, so that a change of the system can be compared before and after.
+    by_day: dict[str, dict] = defaultdict(lambda: {**totals(), "by_trigger": Counter()})
+    by_account: dict[str | None, dict] = defaultdict(totals)
     no_ticket = {"manager": totals(), "members": totals()}
     for run in await session.scalars(select(Run).where(Run.project_id == project_id, Run.created_at >= since)):
         add(by_trigger[(run.agent_id, run.trigger)], run)
+        add(by_account[run.account_key], run)
+        day = by_day[run.created_at.date().isoformat()]
+        add(day, run)
+        day["by_trigger"][run.trigger] += 1
         side = "manager" if is_manager.get(run.agent_id) else "members"
         add((by_ticket[run.task_id] if run.task_id else no_ticket)[side], run)
 
@@ -156,6 +165,8 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
     tickets.sort(key=lambda t: t["manager"]["cost_usd"] + t["members"]["cost_usd"], reverse=True)
 
     overview_days = (await overview(session, project_id, days)).days
+    accounts = {a.key: a for a in await session.scalars(select(Account))}
+    time = await timing.overview(session, project_id, days * 24)
     return {
         "generated_at": utcnow().isoformat() + "Z",
         "days": days,
@@ -181,5 +192,28 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
         "tickets_left_out": max(len(tickets) - REPORT_TICKETS, 0),
         "without_ticket": no_ticket,
         "assignments": {"by_status": dict(statuses), **lengths},
-        "per_day": [{"date": d.date, "tickets_created": d.tickets_created, "tickets_done": d.tickets_done, "runs": d.runs, "cost_usd": round(d.cost_usd, 2)} for d in overview_days],
+        # Work against waiting: what the team's time went into. Commands by their first two words only.
+        "time": {
+            "work_seconds": time.work,
+            "waiting_seconds": time.waiting,
+            "queued_seconds": time.queued,
+            "assignments_finished": time.finished,
+            "assignment_median_seconds": time.median_total,
+            "assignment_median_work_seconds": time.median_work,
+            "slow_commands": [{"command": " ".join(c.command.split()[:2]), "runs": c.runs, "median_seconds": c.median, "total_seconds": c.total} for c in time.commands[:15]],
+            "repeated_slow_runs": len(time.loops),
+            "pull_request_rounds": time.check_rounds,
+            "pull_request_rounds_failed": time.check_failed,
+            "pull_request_round_seconds": time.check_median,
+        },
+        "per_day": [
+            {"date": d.date, "tickets_created": d.tickets_created, "tickets_done": d.tickets_done, "runs": d.runs, "cost_usd": round(d.cost_usd, 2)}
+            | ({k: v for k, v in by_day[d.date].items() if k not in ("runs", "cost_usd", "by_trigger")} | {"by_trigger": dict(by_day[d.date]["by_trigger"])} if d.date in by_day else {})
+            for d in overview_days
+        ],
+        # Runs from before this was recorded have no account.
+        "accounts": [
+            {"label": accounts[key].label if key in accounts else "unknown", "provider": accounts[key].provider if key in accounts else None, "sign_in": accounts[key].auth_mode if key in accounts else None, **item}
+            for key, item in by_account.items()
+        ],
     }

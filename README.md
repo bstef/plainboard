@@ -13,14 +13,20 @@ Claude login); the provider layer is ready for others such as OpenAI.
 - **Your decisions**: the manager can ask you on a ticket, e.g. to choose between two design
   proposals with screenshots. Pick an option with one click, answer in your own words, or discuss it
   in chat. The ticket shows a badge until you have decided.
-- **Manager chat**: the manager reads tickets, splits them into self-contained assignments for one or
-  more agents, reviews the reports, and moves the tickets. It also manages agents, notes, schedules
-  and MCP servers.
+- **Manager chat**: the manager reads tickets, gives each one to a member as one complete assignment,
+  reads the reports, and moves the tickets. It also manages agents, notes, schedules and MCP servers.
+- **Built for how LLMs work, not how companies do**: an agent writes code in minutes and loses hours
+  waiting, so PlainBoard cuts the waits. One member owns a change from the first line to the merge.
+  Nobody waits for CI: a member hands its pull request over (`merge_when_green`), PlainBoard watches
+  the checks without any model, merges when they pass and gives all failures back at once. Time is
+  measured and shown to the agents where they decide (how long a command took, work against waiting
+  per assignment), because a model has no clock.
 - **Team per project**: each agent has a role, a narrow area of responsibility, its own model,
   effort level and capabilities. Agents can ask each other (`ask_agent`) or message each other
   (`message_agent`).
-- **Endless chats with few tokens**: every agent compresses its own context once it exceeds a
-  configurable limit, using a cheap model (Claude Haiku 5.5 by default). See *Token efficiency*.
+- **Small contexts**: every turn re-reads its whole context, so a member starts each ticket with a
+  fresh one, and any agent compresses its context once it exceeds a configurable limit, using a cheap
+  model (Claude Haiku 5.5 by default). See *Token efficiency*.
 - **Notes** (shared knowledge; pinned notes are in every prompt), **schedules** (one-off or cron),
   **MCP servers** (stdio/http/sse; for all or selected agents).
 - **Repositories (optional)**: a project can have any number of git repositories. Each agent gets
@@ -126,24 +132,32 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
 - Tickets are **never assigned to agents directly**. Handing a ticket to the manager (button or drag to
   *In Progress*) lets it plan the work and create **assignments**: clear, self-contained work orders for
   one or more agents.
-- Assignment reports go back to the manager's inbox and appear as ticket comments. The manager is
-  woken up once per batch of reports (turn off per project with *auto-wake*), reviews them, delegates
-  follow-ups and moves the ticket to *Review* / *Done*.
+- An assignment is one piece of work with one report: it stays open while a job the member started
+  for it is running, and the report is sent when it is really finished, with the time it took (work
+  against waiting). Reports go to the manager's inbox and appear as ticket comments. The manager is
+  woken up once per batch of reports (turn off per project with *auto-wake*), starts what comes next
+  and moves the ticket to *Done* (*Review* only if you have to look at something).
+- Pull requests on GitHub that a member hands over are watched and merged by PlainBoard itself; after
+  three failed rounds of checks the manager decides how to go on.
 - You can chat with any agent directly; the full-page **Chat** view lists all conversations.
 
 ## Token efficiency
 
-- **Specialised agents**: each agent only carries the context of its own area.
-- **Session reuse**: turns resume the Claude Code session, so prompt caching applies.
+- **Context per piece of work**: a member starts every ticket with a fresh context (system prompt,
+  assignment, its notes) instead of carrying its whole history into every turn.
+- **Session reuse**: within a piece of work, turns resume the Claude Code session, so prompt caching
+  applies. Claude runs ask for the one-hour cache, because turns are often minutes apart.
 - **Compression**: when an agent's context exceeds *Compress at (tokens)*, older messages are
   summarised with the *summary model*. The session restarts with system prompt + summary + the last
   *N* messages verbatim. Chats can grow without limit; the UI always shows the full history. The
-  limit must be below the model's context window (default: 400,000); otherwise Claude Code compacts
-  first, using its own threshold.
+  limit must be below the model's context window (default: 120,000); otherwise Claude Code compacts
+  first, using its own threshold. A lower limit makes every turn cheaper and faster.
 - **Coordinator toolset** for the manager: a short custom prompt instead of the full Claude Code
   prompt, plus board tools and a shell for small tasks that would cost more to delegate.
-- **Inbox instead of extra runs**: updates are prepended to an agent's next turn; manager wake-ups
-  are coalesced.
+- **Inbox instead of extra runs**: reports, job results and messages between agents are prepended to
+  an agent's next turn; wake-ups are coalesced. Waiting for CI costs no turn at all.
+- **The work report** (Statistics, download) shows where turns, tokens and time went, per day,
+  trigger and account: the numbers to tune a team with.
 - Compact tool schemas and results, effort per agent, titles-only note listings, pinned notes only
   when needed.
 

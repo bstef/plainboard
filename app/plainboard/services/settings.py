@@ -36,7 +36,7 @@ SETTINGS: dict[str, SettingDef] = {
     "default_worker_model": SettingDef("claude-sonnet-5-5"),
     "default_summary_model": SettingDef("claude-haiku-5-5"),
     "default_effort": SettingDef("medium"),
-    "default_context_limit": SettingDef(400000),
+    "default_context_limit": SettingDef(120000),
     "default_keep_recent": SettingDef(6),
     "max_parallel_runs": SettingDef(3),
     # Up to how many parallel agents a manager may set (0: managers can't change it).

@@ -1,9 +1,11 @@
 """Context management: session reuse, compression with a cheap model, fresh-session bootstrapping.
 
-Each agent has one endless conversation. Turns resume the provider session (prompt caching, full
-tool history). When the measured context exceeds the agent's limit, older messages are summarized
-with the agent's summary model; the provider session is dropped and the next turn starts fresh with
-system prompt + summary + the last few messages verbatim.
+Every turn re-reads its whole context, so the context is kept as small as the work allows. A member's
+context belongs to a piece of work: an assignment for another ticket starts a new session without the
+earlier conversation (``new_topic``). Within a piece of work, and for the manager, turns resume the
+provider session (prompt caching, full tool history). When the measured context exceeds the agent's
+limit, older messages are summarized with the agent's summary model; the provider session is dropped
+and the next turn starts fresh with system prompt + summary + the last few messages verbatim.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 
 from plainboard_protocol import CompletionSpec
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
@@ -147,6 +149,24 @@ class ContextManager:
         conv.todos_shown = todos
         await session.commit()
         return Turn(conv.system_prompt, prompts.fresh_session_prompt(recent, f"{todos}\n\n{text}" if todos else text), None)
+
+    @staticmethod
+    async def new_topic(session: AsyncSession, conv: Conversation, topic: str, *, before_id: int) -> Message | None:
+        """Start a member's next piece of work with a fresh context: nothing is summarized, the earlier
+        conversation is simply not carried along. What must outlive it is in the member's own notes, the
+        project notes, the ticket and the repository. Returns the marker for the chat, if there was a
+        session to end."""
+        marker = None
+        if conv.provider_session_id or conv.summary:
+            marker = Message(conversation_id=conv.id, role="system", kind="summary", content="", meta={"tokens_before": conv.context_tokens, "fresh": True})
+            session.add(marker)
+            conv.compressions += 1
+        last = await session.scalar(select(func.max(Message.id)).where(Message.conversation_id == conv.id, Message.id < before_id))
+        conv.provider_session_id, conv.summary, conv.context_tokens = None, None, 0
+        conv.summary_until_message_id = max(conv.summary_until_message_id, last or 0)
+        conv.session_topic = topic
+        await session.commit()
+        return marker
 
     async def maybe_compress(self, session: AsyncSession, agent: Agent, conv: Conversation) -> bool:
         if not should_compress(conv.context_tokens, conv.session_base_tokens, agent.context_limit_tokens):

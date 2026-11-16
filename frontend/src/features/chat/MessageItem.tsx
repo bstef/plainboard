@@ -278,7 +278,7 @@ function ToolLine({ message }: { message: Message }) {
 function SummaryDivider({ message }: { message: Message }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const label = message.meta.provider ? "chat.compactedByProvider" : "chat.compressed";
+  const label = message.meta.fresh ? "chat.freshContext" : message.meta.provider ? "chat.compactedByProvider" : "chat.compressed";
   return (
     <div className="py-1">
       <button onClick={() => setOpen(!open)} disabled={!message.content} className="flex w-full items-center gap-2 text-[11px] text-zinc-400 enabled:hover:text-zinc-600 dark:enabled:hover:text-zinc-300">
