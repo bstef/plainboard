@@ -43,6 +43,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   return (
     <button
       ref={ref}
+      data-part="button"
+      data-variant={variant}
       className={clsx(
         "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-sm whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-60",
         size === "sm" ? "h-7 px-2.5 touch:h-11" : "h-8 px-3 touch:h-11",
@@ -78,14 +80,14 @@ const fieldBase =
   "w-full rounded-sm bg-transparent px-2.5 text-fg ring-1 ring-inset ring-line-2 placeholder:text-fg-3 focus:outline-none focus:ring-2 focus:ring-fg disabled:opacity-60";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
-  return <input ref={ref} className={clsx(fieldBase, "h-8 touch:h-11", className)} {...rest} />;
+  return <input ref={ref} data-part="field" className={clsx(fieldBase, "h-8 touch:h-11", className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
   { className, ...rest },
   ref,
 ) {
-  return <textarea ref={ref} className={clsx(fieldBase, "scroll-thin py-1.5 leading-relaxed", className)} {...rest} />;
+  return <textarea ref={ref} data-part="field" className={clsx(fieldBase, "scroll-thin py-1.5 leading-relaxed", className)} {...rest} />;
 });
 
 const LIST_GUTTER = 8;
@@ -246,6 +248,7 @@ export function Select({
         onClick={() => (open ? setOpen(false) : show())}
         onKeyDown={onKeyDown}
         onBlur={() => setOpen(false)}
+        data-part={trigger ? undefined : "field"}
         className={clsx(
           trigger
             ? "block w-full cursor-pointer rounded-sm text-left"
@@ -273,6 +276,7 @@ export function Select({
               e.stopPropagation();
             }}
             onClick={(e) => e.stopPropagation()}
+            data-part="menu"
             className="scroll-thin fixed z-[60] overflow-y-auto rounded-sm bg-bg p-1 text-fg shadow-lg ring-1 ring-line-2"
           >
             {options.map((option, index) => (
@@ -333,6 +337,7 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
       <button
         type="button"
         role="switch"
+        data-part="toggle"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={clsx(
@@ -373,6 +378,7 @@ export function Modal({
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/55 sm:overflow-y-auto sm:p-4 sm:pt-[6vh]" onMouseDown={onClose}>
       <div
         role="dialog"
+        data-part="modal"
         aria-modal="true"
         className={clsx(
           "flex h-full w-full flex-col bg-bg shadow-lg sm:h-auto sm:max-h-[88vh] sm:rounded-sm sm:ring-1 sm:ring-line-2",
@@ -381,7 +387,7 @@ export function Modal({
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="mx-4 flex items-center justify-between gap-3 border-b-2 border-fg py-2.5 sm:mx-5">
+        <div data-part="modal-head" className="mx-4 flex items-center justify-between gap-3 rule-b py-2.5 sm:mx-5">
           <div className="min-w-0 flex-1 font-extrabold">{title}</div>
           <IconButton label="Close" onClick={onClose}>
             <X className="size-4" />
@@ -403,7 +409,7 @@ export function Badge({ children, tone = "zinc", className }: { children: ReactN
     red: "text-fg-2 ring-line-2",
     sky: "text-fg-2 ring-line-2",
   };
-  return <span className={clsx("inline-flex items-center gap-1 rounded-sm px-1.5 whitespace-nowrap ring-1 ring-inset", tones[tone], className)}>{children}</span>;
+  return <span data-part="badge" data-tone={tone} className={clsx("inline-flex items-center gap-1 rounded-sm px-1.5 whitespace-nowrap ring-1 ring-inset", tones[tone], className)}>{children}</span>;
 }
 
 export function Spinner({ className }: { className?: string }) {
@@ -422,7 +428,7 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
 
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
-  return <p className="text-you-fg">{error instanceof Error ? error.message : String(error)}</p>;
+  return <p data-part="error" className="text-you-fg">{error instanceof Error ? error.message : String(error)}</p>;
 }
 
 /** State mark of an agent in a fixed cell: filled = working, hollow = queued or a background job,
@@ -436,6 +442,7 @@ export function AgentSquare({ agent, className }: { agent: { name: string; color
   return (
     <span
       title={agent.name}
+      data-part="agent"
       className={clsx("inline-flex size-[18px] shrink-0 items-center justify-center rounded-sm text-[11.5px] leading-none font-extrabold text-white", className)}
       style={{ background: agent.color }}
     >
@@ -447,7 +454,7 @@ export function AgentSquare({ agent, className }: { agent: { name: string; color
 /** The bar every view starts with: 48px high, title at the left, actions at the right. */
 export function PageHead({ title, children }: { title: ReactNode; children?: ReactNode }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
+    <header data-part="page-head" className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
       <h1 className="min-w-0 truncate font-extrabold">{title}</h1>
       <div className="flex-1" />
       {children}

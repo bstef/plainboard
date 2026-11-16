@@ -177,9 +177,27 @@ The UI picks up models from `/api/meta`. If the provider has no server-side sess
 **Add a ticket status.** Extend `TaskStatus` (backend), `Status` in `schemas.py`, `STATUSES` in
 `frontend/src/features/board/Board.tsx`, and the `taskStatus` texts in `en.json`.
 
-**Add a theme.** A theme is one block of colour tokens in `frontend/src/index.css` (`[data-theme="…"]`).
-Copy a block, name it, and list it in `THEMES` in `frontend/src/lib/theme.ts`. Components use only the
-semantic colours (`bg-bg`, `text-fg-2`, `border-line`, …), never a palette colour; `DESIGN.md` has the rules.
+**Add a design or a theme.** The look has two levels, both chosen in the browser (`lib/theme.ts`,
+`features/layout/LookDialog.tsx`) and set on `<html>`: `data-design` and `data-theme`.
+
+- A **design** is a look: its type, corners, shadows, and how the parts are drawn. Fahrplan, the
+  default, is `frontend/src/index.css`. Every other design is one stylesheet in
+  `frontend/src/designs/` (`classic.css` is the example to copy), imported in `main.tsx` and listed in
+  `DESIGNS` in `lib/theme.ts` and in the pre-paint script of `index.html`. It is not layered, so it
+  wins over the utility classes of the components. A design has three means, in this order of
+  preference: tokens (`--font-sans`, `--radius-*`, `--shadow-lg`, `--font-weight-*` and its
+  colours), the semantic classes (`.plate`, `.caps`, `.mk-*`, `.rule-b`, `.rule-t`, `.sq-hue`,
+  `.prose-chat`), and the named parts (`data-part`: `side`, `topbar`, `tabs`, `main`, `panel`,
+  `page-head`, `board`, `column`, `column-head`, `column-body`, `ticket`, `new-ticket`, `tag`, `facts`,
+  `you`, `you-plate`, `agent`, `button`, `field`, `toggle`, `badge`, `modal`, `modal-head`, `menu`,
+  `msg`, `msg-head`, `note`, `composer`, `error`; some carry state such as `data-for-you`,
+  `data-role`, `data-status`, `data-variant`, `data-tone`, `data-priority`, `data-hue`).
+- A **theme** is one block of colour tokens of a design (`[data-theme="…"]`); each design has a dark
+  and a light one.
+
+Components never branch on the design or the theme: no `dark:` variant, no palette colour, only the
+semantic colours (`bg-bg`, `text-fg-2`, `border-line`, …). A new part of the interface that a design
+should be able to draw differently gets a `data-part` name. `DESIGN.md` has the rules of Fahrplan.
 
 **Add a UI language.** Copy `frontend/src/i18n/en.json` to `<code>.json` and register it in `i18n/index.ts`.
 

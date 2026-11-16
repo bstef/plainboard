@@ -62,7 +62,7 @@ export function ProjectSwitcher({
         )}
       </button>
       {open && (
-        <div role="menu" className="absolute top-full left-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
+        <div role="menu" data-part="menu" className="absolute top-full left-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
           {projects.map((p) => (
             <button
               key={p.id}

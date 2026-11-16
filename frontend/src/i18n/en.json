@@ -24,8 +24,24 @@
     "settings": "Settings",
     "togglePanel": "Toggle chat panel",
     "more": "More",
-    "theme": "Switch theme",
+    "theme": "Design and theme",
     "views": "Views"
+  },
+  "look": {
+    "title": "Design and theme",
+    "design": {
+      "label": "Design",
+      "fahrplan": "Fahrplan",
+      "fahrplanHint": "Ruled rows and one type size, like a timetable.",
+      "classic": "Classic",
+      "classicHint": "Cards, rounded corners and an indigo accent."
+    },
+    "appearance": {
+      "label": "Light or dark",
+      "system": "As the system",
+      "light": "Light",
+      "dark": "Dark"
+    }
   },
   "status": {
     "runnerDown": "Runner not reachable",

@@ -163,7 +163,7 @@ export function ChatPanel({
           message ? (
             <MessageItem key={message.id} message={message} agent={agent} details={details} />
           ) : r && (
-          <div key={`run-${r.id}`} className={clsx(CHAT_ROW, "bg-sunk")}>
+          <div key={`run-${r.id}`} data-part="msg" data-role="user" className={clsx(CHAT_ROW, "bg-sunk")}>
             <Head name={t("chat.you")}>
               <span className="mk mk-plan self-center" />
               <span className="min-w-0 flex-1 truncate text-fg-3">{t("chat.waiting", { name: agent.name })}</span>
@@ -182,7 +182,7 @@ export function ChatPanel({
         ),
         )}
         {running && streaming && (
-          <div className={CHAT_ROW}>
+          <div data-part="msg" data-role="agent" className={CHAT_ROW}>
             <Head name={agent.name} />
             <Markdown>{streaming}</Markdown>
           </div>
@@ -263,7 +263,7 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
         <MoreHorizontal className="size-4" />
       </IconButton>
       {open && (
-        <div className="absolute top-full right-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
+        <div data-part="menu" className="absolute top-full right-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
           <MenuItem label={t("chat.compressNow")} hint={t("chat.compressHint")} busy={busy === "compress"} disabled={disabled} onClick={() => action("compress")} />
           <MenuItem label={t("chat.resetSession")} hint={t("chat.resetHint")} busy={busy === "reset-session"} disabled={disabled} onClick={() => action("reset-session")} />
           <div className="border-t border-line px-2 py-1.5 text-fg-3">{t("chat.context", { context })} · {t("chat.totalCost", { cost: formatCost(cost) })}</div>
@@ -430,7 +430,7 @@ function Composer({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-1 rounded-sm p-1 ring-1 ring-line-2 ring-inset focus-within:ring-2 focus-within:ring-fg">
+      <div data-part="composer" className="flex items-end gap-1 rounded-sm p-1 ring-1 ring-line-2 ring-inset focus-within:ring-2 focus-within:ring-fg">
         <input
           ref={picker}
           type="file"

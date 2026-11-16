@@ -1,51 +1,89 @@
 import { useEffect, useSyncExternalStore } from "react";
 
-/** Named themes: each is one block of tokens in index.css. The first dark and the first light one
- * are what "follow the system" picks. */
-export const THEMES = [
-  { id: "carbon", dark: true, color: "#161614" },
-  { id: "stone", dark: false, color: "#f1f0ea" },
+/** A design is a look: its type, corners, surfaces and how the parts are drawn. Fahrplan lives in
+ * index.css, every other design is one stylesheet in src/designs. Each design has a dark and a
+ * light theme (a block of colour tokens); `color` is the browser's toolbar colour for it and
+ * `accent` the colour of its strong element, for the preview in the picker.
+ * To add a design: write its stylesheet, import it in main.tsx, list it here and name it in
+ * i18n (`look.design.<id>`). */
+export const DESIGNS = [
+  { id: "fahrplan", dark: { theme: "carbon", color: "#161614", accent: "#ecebe3" }, light: { theme: "stone", color: "#f1f0ea", accent: "#1b1a17" } },
+  { id: "classic", dark: { theme: "classic-dark", color: "#18181b", accent: "#5b54ea" }, light: { theme: "classic-light", color: "#ffffff", accent: "#4f46e5" } },
 ] as const;
-export type ThemeId = (typeof THEMES)[number]["id"];
+export type DesignId = (typeof DESIGNS)[number]["id"];
 
-const KEY = "plainboard.theme";
+/** Light, dark, or whatever the system says. */
+export const APPEARANCES = ["system", "light", "dark"] as const;
+export type Appearance = (typeof APPEARANCES)[number];
+
+export interface Look {
+  design: DesignId;
+  appearance: Appearance;
+  /** What the appearance comes down to right now. */
+  dark: boolean;
+}
+
+const DESIGN_KEY = "plainboard.design";
+const APPEARANCE_KEY = "plainboard.appearance";
+const LEGACY_THEME_KEY = "plainboard.theme"; // "carbon" | "stone", from before designs existed
 const listeners = new Set<() => void>();
 const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)");
 
-function stored(): ThemeId | null {
-  const value = localStorage.getItem(KEY);
-  return THEMES.some((t) => t.id === value) ? (value as ThemeId) : null;
+function storedDesign(): DesignId {
+  const value = localStorage.getItem(DESIGN_KEY);
+  return DESIGNS.some((d) => d.id === value) ? (value as DesignId) : DESIGNS[0].id;
 }
 
-/** The theme in use: the chosen one, else the one matching the system. */
-export function currentTheme(): ThemeId {
-  return stored() ?? THEMES.find((t) => t.dark === systemDark().matches)!.id;
+function storedAppearance(): Appearance {
+  const value = localStorage.getItem(APPEARANCE_KEY);
+  if (APPEARANCES.includes(value as Appearance)) return value as Appearance;
+  const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+  return legacy === "carbon" ? "dark" : legacy === "stone" ? "light" : "system";
+}
+
+let look: Look = read();
+
+function read(): Look {
+  const appearance = storedAppearance();
+  return { design: storedDesign(), appearance, dark: appearance === "system" ? systemDark().matches : appearance === "dark" };
 }
 
 function apply() {
-  const theme = THEMES.find((t) => t.id === currentTheme())!;
-  document.documentElement.dataset.theme = theme.id;
+  look = read();
+  const design = DESIGNS.find((d) => d.id === look.design)!;
+  const theme = look.dark ? design.dark : design.light;
+  const root = document.documentElement;
+  root.dataset.design = design.id;
+  root.dataset.theme = theme.theme;
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.color);
   listeners.forEach((notify) => notify());
 }
 
-export function setTheme(id: ThemeId) {
-  localStorage.setItem(KEY, id);
+export function setDesign(id: DesignId) {
+  localStorage.setItem(DESIGN_KEY, id);
   apply();
 }
 
-/** Current theme plus a setter; follows the system until the user picks one. */
-export function useTheme() {
-  const theme = useSyncExternalStore((onChange) => {
-    listeners.add(onChange);
-    return () => listeners.delete(onChange);
-  }, currentTheme);
+export function setAppearance(appearance: Appearance) {
+  localStorage.setItem(APPEARANCE_KEY, appearance);
+  apply();
+}
+
+/** The look in use; changes when the user picks another or the system switches between light and dark. */
+export function useLook(): Look {
+  const current = useSyncExternalStore(
+    (onChange) => {
+      listeners.add(onChange);
+      return () => listeners.delete(onChange);
+    },
+    () => look,
+  );
   useEffect(() => {
     const mql = systemDark();
     mql.addEventListener("change", apply);
     return () => mql.removeEventListener("change", apply);
   }, []);
-  return [theme, setTheme] as const;
+  return current;
 }
 
 apply();

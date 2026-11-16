@@ -23,7 +23,7 @@ export function MessageItem({ message, agent, details }: { message: Message; age
       return details ? <SummaryDivider message={message} /> : null;
     case "error":
       return (
-        <div className={clsx(CHAT_ROW, "flex items-start gap-2 bg-you-bg text-you-fg")}>
+        <div data-part="msg" data-role="error" className={clsx(CHAT_ROW, "flex items-start gap-2 bg-you-bg text-you-fg")}>
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <span className="min-w-0 break-words whitespace-pre-wrap">
             <TicketText text={message.content} />
@@ -34,13 +34,13 @@ export function MessageItem({ message, agent, details }: { message: Message; age
   if (message.role === "user") return <UserMessage message={message} details={details} />;
   if (message.kind === "files")
     return (
-      <div className={CHAT_ROW}>
+      <div data-part="msg" data-role="agent" className={CHAT_ROW}>
         <Head name={agent.name} at={message.created_at} />
         <MessageFiles files={message.meta.attachments ?? []} />
       </div>
     );
   return (
-    <div className={CHAT_ROW}>
+    <div data-part="msg" data-role="agent" className={CHAT_ROW}>
       <Head name={agent.name} at={message.created_at} />
       <Markdown>{message.content}</Markdown>
     </div>
@@ -50,7 +50,7 @@ export function MessageItem({ message, agent, details }: { message: Message; age
 /** Who wrote the row, and when: name at the left, time in a fixed place at the right. */
 export function Head({ name, at, children }: { name: string; at?: string; children?: ReactNode }) {
   return (
-    <div className="mb-0.5 flex items-baseline gap-2">
+    <div data-part="msg-head" className="mb-0.5 flex items-baseline gap-2">
       <b className="min-w-0 truncate font-semibold">{name}</b>
       {children}
       {at && <MessageTime at={at} />}
@@ -100,7 +100,7 @@ function UserMessage({ message, details }: { message: Message; details: boolean 
       <>
         {briefingNote}
         {updates}
-        <div className={clsx(CHAT_ROW, "bg-sunk")}>
+        <div data-part="msg" data-role="user" className={clsx(CHAT_ROW, "bg-sunk")}>
           <Head name={t("chat.you")} at={message.created_at} />
           {message.meta.attachments?.length > 0 && <MessageFiles files={message.meta.attachments} />}
           {message.content && <UserText text={message.content} />}
@@ -172,7 +172,7 @@ function Note({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border-b border-line">
+    <div data-part="note" className="border-b border-line">
       <div className="flex items-center gap-2 px-4 py-2 text-fg-2">
         <button type="button" onClick={() => children && setOpen(!open)} aria-expanded={children ? open : undefined} className="flex min-w-0 flex-1 items-center gap-2 text-left hover:text-fg">
           {chevron && <ChevronRight className={clsx("size-4 shrink-0 text-fg-3 transition-transform", open && "rotate-90")} />}
@@ -236,7 +236,7 @@ function ToolLine({ message }: { message: Message }) {
   const { name, input, result, is_error } = message.meta as { name?: string; input?: string; result?: string; is_error?: boolean };
   const pending = result === undefined;
   return (
-    <div className="border-b border-line">
+    <div data-part="note" className="border-b border-line">
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-fg-3 hover:bg-sunk">
         <Wrench className={clsx("size-4 shrink-0", is_error ? "text-fg" : pending && "animate-pulse text-fg")} />
         <span className={clsx("shrink-0 font-mono text-[0.9em]", is_error ? "font-semibold text-fg line-through decoration-fg-3" : "text-fg-2")}>{toolLabel(name ?? message.content)}</span>
@@ -257,7 +257,7 @@ function SummaryDivider({ message }: { message: Message }) {
   const [open, setOpen] = useState(false);
   const label = message.meta.fresh ? "chat.freshContext" : message.meta.provider ? "chat.compactedByProvider" : "chat.compressed";
   return (
-    <div className="border-b-2 border-fg">
+    <div className="rule-b">
       <button type="button" onClick={() => setOpen(!open)} disabled={!message.content} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-2 text-left text-fg-2 enabled:hover:text-fg">
         <Archive className="size-4 shrink-0 text-fg-3" />
         {t(label, { tokens: formatTokens(message.meta.tokens_before ?? 0) })}

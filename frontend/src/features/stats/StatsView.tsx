@@ -54,7 +54,7 @@ export function StatsView() {
           </div>
         ) : (
           <div className="space-y-7">
-            <div className="grid grid-cols-2 gap-x-6 border-t-2 border-fg md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-x-6 rule-t md:grid-cols-4">
               <Tile label={t("stats.ticketsDone")} value={count(sum(data.days, (d) => d.tickets_done))} />
               <Tile label={t("stats.ticketsCreated")} value={count(sum(data.days, (d) => d.tickets_created))} />
               <Tile label={t("stats.openTickets")} value={count(data.open_tickets)} />
@@ -78,7 +78,7 @@ export function StatsView() {
               <BarChart title={t("stats.costChart")} days={data.days} format={money} series={[{ label: t("stats.cost"), color: "bg-fg", pick: (d) => d.cost_usd }]} />
             </div>
             <section>
-              <h2 className="caps border-b-2 border-fg pb-1.5">{t("stats.agents")}</h2>
+              <h2 className="caps rule-b pb-1.5">{t("stats.agents")}</h2>
               {data.agents.length === 0 ? (
                 <p className="text-fg-3">{t("stats.noAgents")}</p>
               ) : (
@@ -152,7 +152,7 @@ function BarChart({ title, days, series, format }: { title: string; days: StatsD
 
   return (
     <figure className="min-w-0">
-      <figcaption className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b-2 border-fg pb-1.5">
+      <figcaption className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rule-b pb-1.5">
         <span className="caps">{title}</span>
         {series.length > 1 && (
           <span className="flex flex-wrap gap-3 text-fg-3">

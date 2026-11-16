@@ -86,7 +86,7 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
         {account && <span className="max-w-24 truncate">{account.label}</span>}
       </button>
       {open && (
-        <div className="absolute right-0 bottom-full z-20 mb-2 w-64 max-w-[calc(100vw-1.5rem)] space-y-3 rounded-sm bg-bg p-3 shadow-lg ring-1 ring-line-2">
+        <div data-part="menu" className="absolute right-0 bottom-full z-20 mb-2 w-64 max-w-[calc(100vw-1.5rem)] space-y-3 rounded-sm bg-bg p-3 shadow-lg ring-1 ring-line-2">
           {account && <p className="font-semibold">{account.label}</p>}
           {windows.map((window) => (
             <LimitRow key={window.name} window={window} forecast={forecasts.find((f) => f.name === window.name)} />

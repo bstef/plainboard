@@ -37,7 +37,7 @@ and PlainBoard lands the finished work.
   compressed with a cheap model.
 - **Notes, schedules, MCP servers, git repositories.** All optional; without git everything works
   locally.
-- **Desktop and phone, dark and light.** Installable as an app.
+- **Desktop and phone, two designs, dark and light.** Installable as an app.
 
 <table>
   <tr>
@@ -126,7 +126,7 @@ Everything is optional. Copy `.env.example` to `.env` for the settings below.
 | Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard password |
 | Show progress on your website | Create a key under **Project settings → Public API** |
 | Use several subscriptions | Add more accounts under Settings; agents move to the one with the most room |
-| Add your own theme | One block of colour tokens, see [DESIGN.md](DESIGN.md) |
+| Change the look | The palette button: two designs, each light and dark. Your own is one stylesheet, see [ARCHITECTURE.md](ARCHITECTURE.md) |
 
 The [guide](docs/guide.md) has the details for each of these.
 

@@ -34,8 +34,12 @@
   --color-ok: var(--ok);
 }
 
-/* A theme is one block of tokens. To add one: copy a block, name it, list it in lib/theme.ts.
-   Components never branch on the theme: there is no `dark:` variant, only these tokens. */
+/* This file is Fahrplan, the default design. Other designs are one stylesheet each in ./designs:
+   they bring their own themes and say how the named parts look (see designs/classic.css).
+
+   A theme is one block of tokens. To add one: copy a block, name it, list it in lib/theme.ts.
+   Components never branch on the theme or the design: there is no `dark:` variant, only these
+   tokens, the semantic classes below, and `data-part` names on the parts. */
 :root,
 [data-theme="carbon"] {
   color-scheme: dark;
@@ -124,6 +128,13 @@
     text-transform: uppercase;
     letter-spacing: 0.045em;
     font-weight: 600;
+  }
+  /* Rank by rule: the heavy line under a head, or over a block that starts a list. */
+  .rule-b {
+    border-bottom: 2px solid var(--fg);
+  }
+  .rule-t {
+    border-top: 2px solid var(--fg);
   }
   /* Reversed plate: the one strong element of a group (primary button, current view). */
   .plate {

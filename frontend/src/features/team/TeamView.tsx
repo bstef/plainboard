@@ -33,7 +33,7 @@ export function TeamView() {
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
       <div className="max-w-5xl px-4 pt-3 pb-6">
         <p className="mb-4 text-fg-2">{t("team.subtitle")}</p>
-        <div className="border-t-2 border-fg">
+        <div className="rule-t">
           {agents.map((agent) => (
             <article
               key={agent.id}

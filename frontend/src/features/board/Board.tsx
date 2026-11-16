@@ -131,7 +131,7 @@ export function Board() {
       {archiveOpen && <ArchiveDialog onClose={() => setArchiveOpen(false)} />}
       {empty && adding === null && <p className="mx-4 mb-3 max-w-prose text-fg-2">{t("board.hint")}</p>}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
-        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t border-line md:grid md:auto-cols-[minmax(172px,1fr)] md:grid-flow-col md:grid-rows-[minmax(0,1fr)] md:overflow-x-auto md:overflow-y-hidden md:border-t md:border-line">
+        <div data-part="board" className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t border-line md:grid md:auto-cols-[minmax(172px,1fr)] md:grid-flow-col md:grid-rows-[minmax(0,1fr)] md:overflow-x-auto md:overflow-y-hidden md:border-t md:border-line">
           {STATUSES.map((status) => (
             <Column
               key={status}
@@ -179,9 +179,9 @@ function Column({
   };
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col md:border-r md:border-line md:last:border-r-0">
+    <section data-part="column" data-status={status} className="flex min-h-0 min-w-0 flex-col md:border-r md:border-line md:last:border-r-0">
       {/* Title (folds on phones), then fixed cells from the right: add, count; archive sits before them. */}
-      <header className="sticky top-0 z-10 flex h-11 shrink-0 items-center border-b-2 border-fg bg-bg pr-1 pl-4 md:static md:mx-2.5 md:h-[38px] md:px-0 md:touch:h-11">
+      <header data-part="column-head" className="sticky top-0 z-10 flex h-11 shrink-0 items-center rule-b bg-bg pr-1 pl-4 md:static md:mx-2.5 md:h-[38px] md:px-0 md:touch:h-11">
         {foldable ? (
           <button type="button" onClick={onToggle} aria-expanded={!folded} className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left">
             <h2 className="caps truncate">{t(`taskStatus.${status}`)}</h2>
@@ -201,7 +201,7 @@ function Column({
         </IconButton>
       </header>
       {!folded && (
-        <div ref={setNodeRef} className={clsx("min-h-6 md:scroll-thin md:min-h-0 md:flex-1 md:overflow-y-auto", isOver && "bg-sunk")}>
+        <div ref={setNodeRef} data-part="column-body" data-over={isOver || undefined} className={clsx("min-h-6 md:scroll-thin md:min-h-0 md:flex-1 md:overflow-y-auto", isOver && "bg-sunk")}>
           {adding && <NewTicket status={status} onDone={() => setAdding(false)} />}
           <SortableContext items={tasks.map((x) => taskKey(x.id))} strategy={verticalListSortingStrategy}>
             {tasks.map((task) => (
@@ -240,7 +240,7 @@ function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void 
   };
 
   return (
-    <div className="border-b border-line bg-sunk px-4 py-2.5 ring-2 ring-fg ring-inset md:px-2.5">
+    <div data-part="new-ticket" className="border-b border-line bg-sunk px-4 py-2.5 ring-2 ring-fg ring-inset md:px-2.5">
       <textarea
         autoFocus
         rows={2}

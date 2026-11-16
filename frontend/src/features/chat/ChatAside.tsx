@@ -84,7 +84,7 @@ export function ChatAside({ agent }: { agent: Agent }) {
 function Section({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
   return (
     <section className="shrink-0 pb-5">
-      <h2 className="caps mx-2.5 flex h-12 items-center border-b-2 border-fg">
+      <h2 className="caps mx-2.5 flex h-12 items-center rule-b">
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {count !== undefined && count > 0 && <span className="font-normal text-fg-3">{count}</span>}
       </h2>

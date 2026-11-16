@@ -4,7 +4,9 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "@fontsource-variable/sofia-sans-semi-condensed";
 import "./i18n";
+import "@fontsource-variable/inter";
 import "./index.css";
+import "./designs/classic.css";
 import "./lib/theme";
 
 const queryClient = new QueryClient({

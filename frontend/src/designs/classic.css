@@ -1,0 +1,461 @@
+/* Classic: the look PlainBoard had before Fahrplan. Neutral greys, an indigo accent, rounded cards
+   on tinted columns, soft shadows, chat bubbles, Inter. It runs on the same components as every
+   design: this file only says how the parts look.
+
+   A design is one file like this one (see ../lib/theme.ts for the list):
+   1. tokens of the design: type, corners, shadows (on [data-design]);
+   2. its themes: one block of colours per theme (on [data-theme]);
+   3. how the parts look: the semantic classes (.plate, .caps, .mk) and the [data-part] hooks.
+   Nothing in here is layered, so it wins over the utility classes of the components. */
+
+/* 1. Tokens of the design ------------------------------------------------------------------- */
+
+[data-design="classic"] {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --font-weight-extrabold: 600;
+  --shadow-lg: 0 12px 32px -10px rgb(0 0 0 / 0.22), 0 2px 6px -2px rgb(0 0 0 / 0.1);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+/* 2. Themes ----------------------------------------------------------------------------------- */
+
+[data-theme="classic-light"] {
+  color-scheme: light;
+  --page: #fafafa;
+  --bg: #ffffff;
+  --sunk: #f4f4f5;
+  --line: #e4e4e7;
+  --line-2: #d4d4d8;
+  --fg: #18181b;
+  --fg-2: #52525b;
+  --fg-3: #71717a;
+  /* What waits for the user is amber here, as it was. */
+  --you: #f59e0b;
+  --you-fg: #b45309;
+  --on-you: #451a03;
+  --ok: #059669;
+  --sq-l: 0.56;
+  --sq-c: 0.15;
+  --accent: #4f46e5;
+  --accent-hover: #6366f1;
+  --accent-fg: #4338ca;
+  --accent-soft: #eef2ff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --card: #ffffff;
+  --column: #f1f1f3;
+  --tag-l: 0.95;
+  --tag-c: 0.045;
+  --tag-fg-l: 0.42;
+  --tag-fg-c: 0.13;
+}
+[data-theme="classic-dark"] {
+  color-scheme: dark;
+  --page: #09090b;
+  --bg: #18181b;
+  --sunk: #27272a;
+  --line: #2e2e33;
+  --line-2: #3f3f46;
+  --fg: #f4f4f5;
+  --fg-2: #b4b4bd;
+  --fg-3: #8f8f99;
+  --you: #f59e0b;
+  --you-fg: #fbbf24;
+  --on-you: #451a03;
+  --ok: #34d399;
+  --sq-l: 0.74;
+  --sq-c: 0.12;
+  --accent: #5b54ea;
+  --accent-hover: #6f69f0;
+  --accent-fg: #a5b4fc;
+  --accent-soft: #25235a;
+  --danger: #f87171;
+  --danger-soft: #3b1414;
+  --card: #232327;
+  --column: #131316;
+  --tag-l: 0.32;
+  --tag-c: 0.06;
+  --tag-fg-l: 0.88;
+  --tag-fg-c: 0.07;
+}
+
+/* 3. The parts -------------------------------------------------------------------------------- */
+
+[data-design="classic"] body {
+  background: var(--page);
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: normal;
+}
+@media (max-width: 639px), (pointer: coarse) {
+  [data-design="classic"] body {
+    font-size: 16px;
+  }
+}
+[data-design="classic"] ::selection {
+  background: var(--accent);
+  color: #fff;
+}
+[data-design="classic"] :focus-visible {
+  outline-color: var(--accent);
+}
+[data-design="classic"] time,
+[data-design="classic"] [data-part="facts"] {
+  font-size: 0.86em;
+}
+
+/* Rank by weight and a slightly smaller size instead of capitals. */
+[data-design="classic"] .caps {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.93em;
+  font-weight: 600;
+}
+/* The strong element of a group is filled with the accent. */
+[data-design="classic"] .plate {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+[data-design="classic"] button.plate:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+[data-design="classic"] button.plate:disabled {
+  background: var(--line);
+  color: var(--fg-3);
+}
+/* The ring that marks the chosen one of several options is the accent. */
+[data-design="classic"] .ring-fg {
+  --tw-ring-color: var(--accent);
+}
+/* Heads are set off by a hairline, not a heavy rule. */
+[data-design="classic"] .rule-b {
+  border-bottom: 1px solid var(--line);
+}
+[data-design="classic"] .rule-t {
+  border-top: 1px solid var(--line);
+}
+
+/* State marks are dots in colour: working pulses in the accent. */
+[data-design="classic"] .mk-run {
+  background: var(--accent-hover);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-hover) 60%, transparent);
+  animation: classic-pulse 1.8s ease-out infinite;
+}
+[data-design="classic"] .mk-plan {
+  border-color: var(--accent-hover);
+}
+[data-design="classic"] .mk-you {
+  border-radius: 50%;
+  transform: none;
+}
+@keyframes classic-pulse {
+  70%,
+  100% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-design="classic"] .mk-run {
+    animation: none;
+  }
+}
+
+/* Surfaces: white panels on a tinted page. */
+[data-design="classic"] [data-part="side"],
+[data-design="classic"] [data-part="panel"],
+[data-design="classic"] [data-part="tabs"],
+[data-design="classic"] [data-part="topbar"],
+[data-design="classic"] [data-part="page-head"] {
+  background: var(--bg);
+}
+[data-design="classic"] [data-part="side"] nav [aria-current],
+[data-design="classic"] [data-part="tabs"] [aria-current] {
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  font-weight: 500;
+}
+[data-design="classic"] [data-part="tabs"] [aria-current] {
+  background: none;
+}
+[data-design="classic"] [data-part="tabs"] [aria-current]::before {
+  background: var(--accent);
+}
+[data-design="classic"] [data-part="you"] {
+  border-radius: var(--radius-sm);
+}
+[data-design="classic"] [data-part="you-plate"] {
+  background: color-mix(in oklab, var(--you) 26%, var(--card));
+  color: var(--fg);
+  border-radius: var(--radius-xs);
+  font-size: 0.86em;
+}
+[data-design="classic"] [data-part="agent"] {
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Buttons, fields, switches. */
+[data-design="classic"] [data-part="button"][data-variant="secondary"],
+[data-design="classic"] [data-part="button"][data-variant="danger"] {
+  background: var(--card);
+  box-shadow:
+    inset 0 0 0 1px var(--line-2),
+    var(--shadow-card);
+  color: var(--fg);
+}
+[data-design="classic"] [data-part="button"][data-variant="secondary"]:hover:not(:disabled) {
+  background: var(--sunk);
+}
+[data-design="classic"] [data-part="button"][data-variant="danger"] {
+  color: var(--danger);
+}
+[data-design="classic"] [data-part="button"][data-variant="danger"]:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+[data-design="classic"] [data-part="field"],
+[data-design="classic"] [data-part="composer"] {
+  background: var(--bg);
+  --tw-ring-color: var(--line-2);
+}
+[data-design="classic"] [data-part="field"]:focus,
+[data-design="classic"] [data-part="field"]:focus-visible,
+[data-design="classic"] [data-part="field"][aria-expanded="true"],
+[data-design="classic"] [data-part="composer"]:focus-within {
+  --tw-ring-color: var(--accent);
+}
+[data-design="classic"] [data-part="composer"] {
+  border-radius: var(--radius-xl);
+  padding: 6px;
+}
+[data-design="classic"] [data-part="toggle"],
+[data-design="classic"] [data-part="toggle"] > span {
+  border-radius: 9999px;
+}
+[data-design="classic"] [data-part="toggle"][aria-checked="true"] {
+  background: var(--accent);
+  --tw-ring-color: var(--accent);
+}
+[data-design="classic"] [data-part="toggle"][aria-checked="true"] > span {
+  background: #fff;
+}
+[data-design="classic"] [data-part="error"] {
+  color: var(--danger);
+}
+
+/* Badges and tags are tinted pills. */
+[data-design="classic"] [data-part="badge"],
+[data-design="classic"] [data-part="tag"] {
+  box-shadow: none;
+  background: var(--sunk);
+  color: var(--fg-2);
+  border-radius: var(--radius-xs);
+  font-size: 0.82em;
+  font-weight: 500;
+}
+[data-design="classic"] [data-part="badge"][data-tone="indigo"] {
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+}
+[data-design="classic"] [data-part="badge"][data-tone="green"] {
+  background: color-mix(in oklab, var(--ok) 14%, var(--bg));
+  color: var(--ok);
+}
+[data-design="classic"] [data-part="badge"][data-tone="amber"] {
+  background: color-mix(in oklab, var(--you) 18%, var(--bg));
+  color: var(--you-fg);
+}
+[data-design="classic"] [data-part="badge"][data-tone="red"] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+/* A label with a colour is tinted in it; the square is not needed then. */
+[data-design="classic"] [data-part="tag"][data-hue] {
+  background: oklch(var(--tag-l) var(--tag-c) var(--h));
+  color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--h));
+}
+[data-design="classic"] [data-part="tag"][data-hue] .sq-hue {
+  display: none;
+}
+[data-design="classic"] [data-part="tag"][data-priority] {
+  background: none;
+  padding-inline: 0 4px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+[data-design="classic"] [data-part="tag"][data-priority="low"] {
+  color: var(--fg-3);
+}
+[data-design="classic"] [data-part="tag"][data-priority="high"] {
+  color: var(--you-fg);
+}
+[data-design="classic"] [data-part="tag"][data-priority="urgent"] {
+  color: var(--danger);
+}
+
+/* The board: columns are tinted panels, tickets are cards. */
+[data-design="classic"] [data-part="board"] {
+  border-top: 0;
+  padding: 4px 8px 8px;
+}
+[data-design="classic"] [data-part="column"] {
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: var(--column);
+  margin-bottom: 8px;
+}
+[data-design="classic"] [data-part="column-head"] {
+  border-bottom: 0;
+  background: var(--column);
+  border-radius: var(--radius-xl);
+  margin-inline: 0;
+  padding-inline: 14px 6px;
+}
+[data-design="classic"] [data-part="column-head"] h2::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #a1a1aa;
+}
+[data-design="classic"] [data-status="todo"] > [data-part="column-head"] h2::before {
+  background: #0ea5e9;
+}
+[data-design="classic"] [data-status="in_progress"] > [data-part="column-head"] h2::before {
+  background: #6366f1;
+}
+[data-design="classic"] [data-status="review"] > [data-part="column-head"] h2::before {
+  background: #f59e0b;
+}
+[data-design="classic"] [data-status="done"] > [data-part="column-head"] h2::before {
+  background: #10b981;
+}
+[data-design="classic"] [data-part="column-body"] {
+  padding: 0 8px;
+  border-radius: var(--radius-xl);
+}
+[data-design="classic"] [data-part="column-body"][data-over] {
+  background: color-mix(in oklab, var(--accent) 8%, var(--column));
+}
+[data-design="classic"] [data-part="ticket"],
+[data-design="classic"] [data-part="new-ticket"] {
+  margin-bottom: 8px;
+  padding: 10px 12px 10px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--shadow-card);
+}
+[data-design="classic"] [data-part="ticket"]:hover {
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--line-2),
+    var(--shadow-card);
+}
+[data-design="classic"] [data-part="ticket"][data-for-you] {
+  background: var(--you-bg);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--you) 75%, var(--card));
+}
+[data-design="classic"] [data-part="ticket"][data-overlay] {
+  rotate: 1deg;
+  box-shadow:
+    0 0 0 1px var(--accent-hover),
+    var(--shadow-lg);
+}
+[data-design="classic"] [data-part="new-ticket"] {
+  box-shadow: 0 0 0 2px var(--accent-hover);
+}
+@media (min-width: 768px) {
+  [data-design="classic"] [data-part="board"] {
+    gap: 8px;
+    padding: 4px 12px 12px;
+    grid-auto-columns: minmax(160px, 1fr);
+  }
+  [data-design="classic"] [data-part="column"] {
+    margin-bottom: 0;
+  }
+}
+
+/* Dialogs and menus lift off the page. */
+[data-design="classic"] [data-part="modal"] {
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+}
+[data-design="classic"] [data-part="modal-head"] {
+  border-bottom: 1px solid var(--line);
+  margin-inline: 0;
+  padding: 12px 20px;
+  font-size: 1.08em;
+}
+[data-design="classic"] [data-part="menu"] {
+  border-radius: var(--radius-md);
+  --tw-ring-color: var(--line);
+}
+@media (max-width: 639px) {
+  [data-design="classic"] [data-part="modal"] {
+    border-radius: 0;
+  }
+  [data-design="classic"] [data-part="modal-head"] {
+    padding-inline: 16px;
+  }
+}
+
+/* The chat: what you wrote is a bubble at the right, an agent's answer is plain text under its
+   name, events are small notes. No rules between them. */
+[data-design="classic"] [data-part="msg"] {
+  border-bottom: 0;
+  padding-block: 6px;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  max-width: min(85%, 46rem);
+  margin: 8px 16px 8px auto;
+  padding: 8px 14px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--accent);
+  color: #fff;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] {
+  order: 1;
+  margin: 2px 0 0;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] b {
+  display: none;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] time {
+  color: rgb(255 255 255 / 0.75);
+}
+[data-design="classic"] [data-part="msg"][data-role="error"] {
+  margin: 8px 16px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+[data-design="classic"] [data-part="note"] {
+  border-bottom: 0;
+  font-size: 0.9em;
+}
+[data-design="classic"] .prose-chat :where(h1, h2, h3, h4) {
+  font-weight: 600;
+}
+[data-design="classic"] .prose-chat :where(pre) {
+  border-radius: var(--radius-md);
+}
+[data-design="classic"] .prose-chat :where(a) {
+  color: var(--accent-fg);
+  text-decoration-color: color-mix(in oklab, var(--accent-fg) 40%, transparent);
+}

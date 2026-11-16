@@ -26,11 +26,11 @@ export const priorityStyle: Record<Priority, string> = {
 const labelHues: Record<string, number> = { red: 25, orange: 50, amber: 80, green: 150, teal: 190, blue: 250, indigo: 275, purple: 305, pink: 350 };
 
 /** A label: its name, led by a small square in its colour if it has one. */
-export function Label({ colors, label, className }: { colors: Record<string, string>; label: string; className?: string }) {
+export function Label({ colors, label, className, tag }: { colors: Record<string, string>; label: string; className?: string; tag?: boolean }) {
   const hue = labelHues[colors[label]];
   return (
-    <span className={clsx("inline-flex min-w-0 items-center gap-1.5", className)}>
-      {hue !== undefined && <span className="sq-hue size-[7px] shrink-0 rounded-[1px]" style={{ "--h": hue } as CSSProperties} />}
+    <span data-part={tag ? "tag" : undefined} data-hue={hue} style={hue === undefined ? undefined : ({ "--h": hue } as CSSProperties)} className={clsx("inline-flex min-w-0 items-center gap-1.5", className)}>
+      {hue !== undefined && <span className="sq-hue size-[7px] shrink-0 rounded-[1px]" />}
       <span className="truncate">{label}</span>
     </span>
   );
@@ -63,6 +63,9 @@ export function TaskCard({ task, overlay, done }: { task: Task; overlay?: boolea
       style={{ transform: CSS.Translate.toString(transform), transition }}
       {...attributes}
       {...listeners}
+      data-part="ticket"
+      data-for-you={forYou || undefined}
+      data-overlay={overlay || undefined}
       onClick={() => !overlay && openTask(task.id)}
       className={clsx(
         "grid cursor-pointer grid-cols-[9px_minmax(0,1fr)] gap-x-2 border-b border-line px-4 py-3 select-none md:px-2.5 md:py-2.5",
@@ -90,12 +93,12 @@ export function TaskCard({ task, overlay, done }: { task: Task; overlay?: boolea
         )}
         {(hasTags || hasCounts || active) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {task.priority !== "medium" && <span className={clsx(TAG, priorityStyle[task.priority])}>{t(`priority.${task.priority}`)}</span>}
+            {task.priority !== "medium" && <span data-part="tag" data-priority={task.priority} className={clsx(TAG, priorityStyle[task.priority])}>{t(`priority.${task.priority}`)}</span>}
             {task.labels.map((label) => (
-              <Label key={label} colors={project.label_colors} label={label} className={clsx(TAG, "text-fg-2 ring-line")} />
+              <Label key={label} tag colors={project.label_colors} label={label} className={clsx(TAG, "text-fg-2 ring-line")} />
             ))}
             {(hasCounts || active) && (
-              <span className="ml-auto inline-flex min-h-5 max-w-full flex-wrap items-center justify-end gap-x-2.5 gap-y-1 pl-1.5 whitespace-nowrap text-fg-3">
+              <span data-part="facts" className="ml-auto inline-flex min-h-5 max-w-full flex-wrap items-center justify-end gap-x-2.5 gap-y-1 pl-1.5 whitespace-nowrap text-fg-3">
                 {task.comment_count > 0 && (
                   <span className="inline-flex items-center gap-1" title={t("ticket.comments")}>
                     <MessageSquare className="size-3.5" />
@@ -132,5 +135,5 @@ export function TaskCard({ task, overlay, done }: { task: Task; overlay?: boolea
 
 /** Reversed vermilion plate that names what waits for the user. */
 export function ForYouPlate({ children }: { children: ReactNode }) {
-  return <b className="caps mr-1.5 inline-block rounded-sm bg-you px-1.5 font-extrabold whitespace-nowrap text-on-you">{children}</b>;
+  return <b data-part="you-plate" className="caps mr-1.5 inline-block rounded-sm bg-you px-1.5 font-extrabold whitespace-nowrap text-on-you">{children}</b>;
 }

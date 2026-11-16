@@ -11,11 +11,19 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>PlainBoard</title>
     <script>
-      // Before first paint, so the page never flashes in the wrong theme (see src/lib/theme.ts).
+      // Before first paint, so the page never flashes in the wrong look (see src/lib/theme.ts,
+      // which holds the list of designs; keep the theme names here in step with it).
       (function () {
-        var t = localStorage.getItem("plainboard.theme");
-        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "carbon" : "stone";
-        document.documentElement.dataset.theme = t;
+        var themes = { fahrplan: ["carbon", "stone"], classic: ["classic-dark", "classic-light"] };
+        var design = localStorage.getItem("plainboard.design");
+        if (!themes[design]) design = "fahrplan";
+        var mode = localStorage.getItem("plainboard.appearance");
+        if (mode !== "dark" && mode !== "light") {
+          var legacy = localStorage.getItem("plainboard.theme");
+          mode = mode !== "system" && legacy === "carbon" ? "dark" : mode !== "system" && legacy === "stone" ? "light" : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.design = design;
+        document.documentElement.dataset.theme = themes[design][mode === "dark" ? 0 : 1];
       })();
     </script>
   </head>

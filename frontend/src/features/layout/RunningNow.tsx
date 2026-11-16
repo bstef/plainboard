@@ -48,7 +48,7 @@ export function RunningNow({ variant }: { variant: "table" | "strip" }) {
   }
   return (
     <section className="flex min-h-0 flex-col px-3.5">
-      <h2 className="caps shrink-0 border-b-2 border-fg pb-1.5">{t("shell.runningNow")}</h2>
+      <h2 className="caps shrink-0 rule-b pb-1.5">{t("shell.runningNow")}</h2>
       <div className="scroll-thin min-h-0 overflow-y-auto">
         {rows.map(({ agent, ticket, time }) => {
           const idle = agent.status === "idle";

@@ -33,6 +33,7 @@ export function ForYou({ variant = "plate" }: { variant?: "plate" | "side" | "ra
         aria-haspopup="menu"
         aria-expanded={open}
         title={t("chat.openQuestions")}
+        data-part="you"
         onClick={() => setOpen(!open)}
         className={clsx(
           "caps inline-flex h-8 items-center gap-2 rounded-sm bg-you font-extrabold whitespace-nowrap text-on-you touch:h-11",
@@ -43,7 +44,7 @@ export function ForYou({ variant = "plate" }: { variant?: "plate" | "side" | "ra
         {variant === "rail" ? tasks.length : t("shell.forYou", { n: tasks.length })}
       </button>
       {open && (
-        <div role="menu" className={clsx("absolute top-full z-40 mt-1 w-72 max-w-[calc(100vw-1.5rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2", variant === "plate" ? "right-0" : "left-0")}>
+        <div role="menu" data-part="menu" className={clsx("absolute top-full z-40 mt-1 w-72 max-w-[calc(100vw-1.5rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2", variant === "plate" ? "right-0" : "left-0")}>
           {tasks.map((task) => (
             <button
               key={task.id}

@@ -21,7 +21,7 @@ export function ChatView({ agentId, onSelectAgent }: { agentId: number; onSelect
     <div className="flex h-full">
       {isDesktop && (
         <aside className="flex w-56 shrink-0 flex-col border-r border-line 2xl:w-60">
-          <h2 className="caps mx-2.5 flex h-12 shrink-0 items-center border-b-2 border-fg">{t("chat.conversations")}</h2>
+          <h2 className="caps mx-2.5 flex h-12 shrink-0 items-center rule-b">{t("chat.conversations")}</h2>
           <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
             {agents.map((agent) => (
               <button

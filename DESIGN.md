@@ -88,6 +88,7 @@ The board is a timetable: fixed columns, ruled rows, one type size. It shows who
 
 **Key Characteristics:**
 - Two named themes, `carbon` (dark) and `stone` (light), each one block of tokens.
+- This document describes Fahrplan, the default design. PlainBoard can carry other designs next to it (`frontend/src/designs/`, at present Classic: cards, rounded corners, an indigo accent, Inter); they restyle the same components and are not bound by the rules below.
 - One type size. Rank comes from weight, case, reversal and rule.
 - Hairline rules instead of cards. Flat surfaces, 2px corners.
 - Vermilion means "this waits for you". Green only confirms.
@@ -173,7 +174,8 @@ One corner: every `rounded-*` resolves to 2px. Fields and secondary buttons are 
 - **Do** build lists as ruled rows: `border-b border-line`, hover `bg-sunk`.
 - **Do** reuse `ui.tsx`, `.caps`, `.plate` and `.mk*` before writing new classes.
 - **Do** add touch sizes with `touch:`.
-- **Do** add a theme like this: copy a token block in `index.css` and name it `[data-theme="<id>"]`, and list it in `THEMES` in `lib/theme.ts` with its `dark` flag and browser bar colour. There is no `dark:` variant: components only use the tokens.
+- **Do** add a theme like this: copy a token block in `index.css` and name it `[data-theme="<id>"]`, and list it in `DESIGNS` in `lib/theme.ts` with its browser bar colour. There is no `dark:` variant: components only use the tokens.
+- **Do** give a new part of the interface a `data-part` name, so that other designs can draw it their way (see "Add a design or a theme" in `ARCHITECTURE.md`).
 
 ### Don't:
 - **Don't** use palette colours or hex values in components.

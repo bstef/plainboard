@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { AlertTriangle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, Moon, NotebookPen, PanelRight, Plug, Settings, Sun, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
@@ -7,13 +7,13 @@ import { useAccounts, useAgents, useMeta, useProjects } from "../../api/queries"
 import type { Project } from "../../api/types";
 import { Button, EmptyState, IconButton, Spinner } from "../../components/ui";
 import { useIsDesktop, useMediaQuery, useStored } from "../../lib/hooks";
-import { THEMES, useTheme } from "../../lib/theme";
 import { Logo } from "../auth/Login";
 import { Board } from "../board/Board";
 import { ForYou } from "../board/ForYou";
 import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
 import { ChatView } from "../chat/ChatView";
+import { LookDialog } from "./LookDialog";
 import { NotesView } from "../notes/NotesView";
 import { ProjectDialog } from "../projects/ProjectDialog";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
@@ -76,7 +76,7 @@ export function Shell() {
           <header className="flex h-12 shrink-0 items-center gap-2 px-4">
             <Brand />
             <div className="flex-1" />
-            <ThemeButton />
+            <LookButton />
             <IconButton label={t("nav.settings")} onClick={() => setSettingsOpen(true)}>
               <Settings className="size-4" />
             </IconButton>
@@ -111,15 +111,17 @@ function Brand({ wide = true }: { wide?: boolean }) {
   );
 }
 
-/** Steps through the themes; follows the system until first used. */
-function ThemeButton({ className }: { className?: string }) {
+/** Opens the choice of design and of light or dark. */
+function LookButton({ className }: { className?: string }) {
   const { t } = useTranslation();
-  const [theme, setTheme] = useTheme();
-  const index = THEMES.findIndex((x) => x.id === theme);
+  const [open, setOpen] = useState(false);
   return (
-    <IconButton label={t("nav.theme")} className={className} onClick={() => setTheme(THEMES[(index + 1) % THEMES.length].id)}>
-      {THEMES[index]?.dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-    </IconButton>
+    <>
+      <IconButton label={t("nav.theme")} className={className} onClick={() => setOpen(true)}>
+        <Palette className="size-4" />
+      </IconButton>
+      <LookDialog open={open} onClose={() => setOpen(false)} />
+    </>
   );
 }
 
@@ -224,7 +226,7 @@ function ProjectWorkspace({
     <ShellContext.Provider value={api}>
       <div className="flex h-full">
         {isDesktop && (
-          <aside className={clsx("flex shrink-0 flex-col border-r border-line", wide ? "w-46" : "w-[50px]")}>
+          <aside data-part="side" className={clsx("flex shrink-0 flex-col border-r border-line", wide ? "w-46" : "w-[50px]")}>
             <div className={clsx("flex h-12 shrink-0 items-center", wide ? "px-3.5" : "justify-center")}>
               <Brand wide={wide} />
             </div>
@@ -261,7 +263,7 @@ function ProjectWorkspace({
               <div className="flex-1" />
             )}
             <div className={clsx("flex shrink-0 gap-0.5 p-2", wide ? "items-center justify-end" : "flex-col items-center")}>
-              <ThemeButton />
+              <LookButton />
               <IconButton label={t("nav.settings")} onClick={onSettings}>
                 <Settings className="size-4" />
               </IconButton>
@@ -276,7 +278,7 @@ function ProjectWorkspace({
 
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDesktop && (
-            <header className="shrink-0 px-2 pt-[env(safe-area-inset-top)]">
+            <header data-part="topbar" className="shrink-0 px-2 pt-[env(safe-area-inset-top)]">
               <div className="flex h-13 items-center gap-2">
                 {switcher("bar")}
                 <div className="flex-1" />
@@ -288,7 +290,7 @@ function ProjectWorkspace({
           {!isDesktop && view === "board" && <RunningNow variant="strip" />}
 
           <div className="flex min-h-0 flex-1">
-            <main className="min-w-0 flex-1 overflow-hidden">
+            <main data-part="main" className="min-w-0 flex-1 overflow-hidden">
               {view === "board" && <Board />}
               {view === "chat" && activeChatId !== null && <ChatView agentId={activeChatId} onSelectAgent={setChatAgentId} />}
               {view === "team" && <TeamView />}
@@ -302,7 +304,7 @@ function ProjectWorkspace({
                 <div role="separator" aria-orientation="vertical" onPointerDown={startResize} className="group relative w-px shrink-0 cursor-col-resize bg-line">
                   <span className="absolute inset-y-0 -left-1.5 z-10 w-3 group-hover:bg-fg/15" />
                 </div>
-                <aside style={{ width }} className="flex shrink-0 flex-col">
+                <aside data-part="panel" style={{ width }} className="flex shrink-0 flex-col">
                   <ChatPanel agentId={activeChatId!} onSelectAgent={setChatAgentId} onClose={() => setPanelOpen(false)} onExpand={() => setView("chat")} />
                 </aside>
               </>
@@ -321,8 +323,7 @@ function ProjectWorkspace({
 function PhoneTabs({ view, setView, onSettings }: { view: View; setView: (v: View) => void; onSettings: () => void }) {
   const { t } = useTranslation();
   const [more, setMore] = useState(false);
-  const [theme, setTheme] = useTheme();
-  const themeIndex = THEMES.findIndex((x) => x.id === theme);
+  const [lookOpen, setLookOpen] = useState(false);
   const tabs = VIEWS.slice(0, PHONE_TABS);
   const rest = VIEWS.slice(PHONE_TABS);
   const tab = (active: boolean) =>
@@ -342,7 +343,7 @@ function PhoneTabs({ view, setView, onSettings }: { view: View; setView: (v: Vie
         <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setMore(false)}>
           <div
             role="menu"
-            className="absolute inset-x-0 bottom-[calc(58px+env(safe-area-inset-bottom))] border-t-2 border-fg bg-bg p-2"
+            className="absolute inset-x-0 bottom-[calc(58px+env(safe-area-inset-bottom))] rule-t bg-bg p-2"
             onClick={(e) => e.stopPropagation()}
           >
             {rest.map((v) => (
@@ -364,14 +365,23 @@ function PhoneTabs({ view, setView, onSettings }: { view: View; setView: (v: Vie
               <Settings className="size-5 shrink-0" />
               {t("nav.settings")}
             </button>
-            <button type="button" role="menuitem" className={item} onClick={() => setTheme(THEMES[(themeIndex + 1) % THEMES.length].id)}>
-              {THEMES[themeIndex]?.dark ? <Sun className="size-5 shrink-0" /> : <Moon className="size-5 shrink-0" />}
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setMore(false);
+                setLookOpen(true);
+              }}
+            >
+              <Palette className="size-5 shrink-0" />
               {t("nav.theme")}
             </button>
           </div>
         </div>
       )}
-      <nav aria-label={t("nav.views")} className="relative z-40 flex shrink-0 border-t border-line-2 bg-bg pb-[env(safe-area-inset-bottom)]">
+      <LookDialog open={lookOpen} onClose={() => setLookOpen(false)} />
+      <nav data-part="tabs" aria-label={t("nav.views")} className="relative z-40 flex shrink-0 border-t border-line-2 bg-bg pb-[env(safe-area-inset-bottom)]">
         {tabs.map((v) => (
           <button key={v.id} type="button" onClick={() => go(v.id)} aria-current={view === v.id && !more ? "page" : undefined} className={tab(view === v.id && !more)}>
             {v.icon("size-5")}

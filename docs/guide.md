@@ -157,5 +157,8 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   header shows agent activity (tool calls, compressions, context gauge, full event cards).
 - **Responsive**: desktop with a sidebar, a resizable chat panel or a full-page chat; phones get a
   bottom navigation, the board's statuses stacked and foldable, and full-screen dialogs.
-- **Themes**: dark (Carbon) and light (Stone), following your system until you switch. A theme is one
-  block of colour tokens, so adding your own is a few lines (see [DESIGN.md](../DESIGN.md)).
+- **Designs and themes**: the palette button opens the choice. A design is the look: *Fahrplan*
+  (ruled rows, one type size) or *Classic* (cards, rounded corners, an indigo accent). Each comes
+  light and dark, following your system until you choose. The choice is kept per browser. A design
+  is one stylesheet and a theme one block of colour tokens, so adding your own is a small change
+  (see "Add a design or a theme" in [ARCHITECTURE.md](../ARCHITECTURE.md)).
