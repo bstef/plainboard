@@ -97,7 +97,7 @@ The board is a timetable: fixed columns, ruled rows, one type size. It shows who
 Warm neutrals at hue 95 with one signal colour. Values per theme are in the frontmatter (`carbon-*`, `stone-*`). In code the tokens are `--bg` and so on, exposed as Tailwind colours `bg`, `sunk`, `line`, `line-2`, `fg`, `fg-2`, `fg-3`, `you`, `you-fg`, `on-you`, `you-bg`, `ok`.
 
 ### Primary
-- **Vermilion** (`you`): fill of the "for you" plate and the diamond mark. `you-fg` is vermilion as text or icon, `on-you` is text on a vermilion fill, `you-bg` is the tint behind a row that waits (`color-mix(in oklab, var(--you) 11%, var(--bg))`, derived for every theme).
+- **Vermilion** (`you`): fill of the "for you" plate and the diamond mark. `you-fg` is vermilion as text or icon, `on-you` is text on a vermilion fill, `you-bg` is the tint behind a row that waits (`color-mix(in oklab, var(--you) 11%, var(--bg))`, derived for every theme). Outside the interface it is also the colour of the app's mark: favicon, app icon and the logo in the README are the three bars in `on-you` on a vermilion tile (`#ff6d3d`), the "for you" plate as a sign. Inside the interface the bars stay in the text colour, so the mark never competes with what waits.
 
 ### Secondary
 - **Confirm green** (`ok`): the done check, an answered decision, a passed test, a finished stop.
