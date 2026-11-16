@@ -188,7 +188,8 @@ def pid_of(client) -> int:
 
 
 def last_update(fake: FakeRunner) -> str:
-    return [s.prompt for s in fake.specs if s.toolset == "board"][-1]
+    """The manager's latest turn ("" before its first one)."""
+    return next((s.prompt for s in reversed(fake.specs) if s.toolset == "board"), "")
 
 
 def test_finished_branches_are_checked_together_and_one_check_run_lands_them_all(client, project):
@@ -393,9 +394,10 @@ def test_a_ticket_stays_in_flight_until_its_branch_has_landed(client, project):
     fake.branches["feat-a"] = "a1"
     order = delegate("dev", "Add it", "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "feat-a"}), ticket_number=1)
     chat(client, manager_of(client, pid)["id"], order)
-    wait_for(lambda: idle(client, pid) and assignments(client, pid) and assignments(client, pid)[0]["status"] == "done")
+    # The manager's turn for the report lists the branch as in flight, so the ticket is not one nothing happens on.
+    wait_for(lambda: "Branch feat-a for #1, Dev: goes on the next train" in last_update(fake))
     wait_for(lambda: idle(client, pid))
-    assert "Branch feat-a for #1, Dev: goes on the next train" in last_update(fake) and "Board check" not in last_update(fake)
+    assert "Board check" not in last_update(fake)
     land_tick(client)
     finish_check(client, fake)
     assert "Landed on main in api: feat-a (Dev, ticket #1)" in last_update(fake)
