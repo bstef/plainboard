@@ -159,7 +159,7 @@ One corner: every `rounded-*` resolves to 2px. Fields and secondary buttons are 
 - **For you** (`ForYou`): the vermilion plate with the count of waiting tickets. On desktop it sits at the top of the sidebar, on phones in the top bar; it lists the tickets behind it.
 - **Chat context column** (`ChatAside`): from 1280px the full-page chat shows, at its right, the waiting tickets as a list, the agent's assignments (for the manager: what it handed out) and the plan limits.
 - **Fields** (`Input`, `Textarea`, `Select`, `Field`, `Toggle`): transparent with an outline. `Select` replaces the native element so the list matches the theme.
-- **Ticket row** (`TaskCard`): mark, number and title, then what waits for the user, then one line of labels and counts with a fixed cell at its right for who works on it and for how long. A row that waits gets the `you-bg` tint and a vermilion plate (`ForYouPlate`).
+- **Ticket row** (`TaskCard`): three zones that never mix. The title with its number. What waits for the user. Then the tags at the left (priority first: low muted, high outlined in the text colour, urgent as a plate; each label an outlined 20px mark, led by a colour square only if the label has a colour) and the facts at the right as one group in a fixed order: comments, files, public, who works on it, for how long. The facts drop to their own line, still at the right, when the tags fill theirs.
 - **Running now** (`RunningNow`): grid with fixed columns: mark, agent, ticket, time.
 - **Chat** (`MessageItem`, `CHAT_ROW`): every entry is a ruled row with name left and time right. The user's rows are `sunk`. There are no bubbles.
 - **Dialog** (`Modal`): full screen below 640px. Title at 800 on a 2px `fg` rule.
