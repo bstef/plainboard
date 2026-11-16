@@ -574,8 +574,7 @@ def ask_prompt(from_agent: Agent, question: str) -> str:
 def ask_notice(from_agent: Agent, question: str) -> str:
     return (
         f"[PlainBoard] {from_agent.name} is waiting for your answer to: {truncate(question.strip(), 500)}\n"
-        "It is queued as your next turn, so answer it there. Finish your current step, then end your turn at the next "
-        "safe point. If you are only waiting for a job, stop waiting: its result wakes you."
+        "It is queued as your next turn, so answer it there. Finish your current step, then end your turn at the next safe point."
     )
 
 

@@ -2,9 +2,12 @@
 
 Rules:
 - One run per agent at a time; runs of different members execute in parallel up to
-  ``max_parallel_runs``. Managers don't count: their turns are short, and the team waits for them.
+  ``max_parallel_runs``. The limit is about members only: a manager's turn starts as soon as the
+  manager is free, also at limit 0, because the user and the team wait for it.
   Nested runs (an agent waiting on ``ask_agent``) bypass the limit so a waiting agent can never
   starve the run it waits for.
+- A wait inside a turn (``wait_job``, ``ask_agent``) never holds back an answer: it ends when the
+  user writes to the agent, and a wait for a job also when a teammate asks it something.
 - ``ask_agent`` blocks the caller; a wait-for graph between agents rejects cycles (deadlocks).
 - An assignment is one piece of work with one report. It stays open while a job started for it is
   running: the job's result continues it in a later turn, and only the turn after which nothing of
@@ -63,7 +66,7 @@ from ..services import todos as todo_service
 from ..services import accounts as account_service
 from ..services import limits as limits_service
 from ..services import settings as settings_service
-from ..services.errors import NotFound, ServiceError
+from ..services.errors import NotFound, ServiceError, WaitEnded
 from ..services.util import truncate
 from ..tools import registry
 from . import inbox, prompts
@@ -121,6 +124,8 @@ class RunManager:
         self._waiters: dict[int, asyncio.Future[str]] = {}
         self._orphan_asks: set[int] = set()
         self._job_waiters: dict[int, asyncio.Future[str]] = {}  # job id -> the turn waiting for its result
+        # run id -> what its turn waits for right now ("job" or "ask"), each with the way to end that wait
+        self._turn_waits: dict[int, list[tuple[str, asyncio.Future[str]]]] = {}
         self._waits_for: dict[int, dict[int, int]] = {}
         self._cancel_requested: set[int] = set()
         self._limits_asked = 0.0
@@ -245,7 +250,32 @@ class RunManager:
         busy_run = await s.scalar(select(Run.id).where(Run.agent_id == agent.id, Run.status == RunStatus.RUNNING).limit(1))
         if busy_run and (text.strip() or attachment_ids):
             await self.runner.notify_run(busy_run, prompts.chat_notice(text, len(attachment_ids or [])))
+            self._end_waits(busy_run, "the user wrote to you")  # no wait is worth more than the user
         return run
+
+    async def _wait_in_turn(self, run_id: int | None, kind: str, future: asyncio.Future[str], seconds: float) -> str:
+        """Wait in a turn for a result. Raises TimeoutError, or WaitEnded when someone needs the agent now.
+        Either way the future is left alone: what the turn waited for goes on."""
+        ended: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        waits = self._turn_waits.setdefault(run_id, []) if run_id is not None else []
+        waits.append((kind, ended))
+        try:
+            await asyncio.wait({future, ended}, timeout=seconds, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            waits.remove((kind, ended))
+            if not waits:
+                self._turn_waits.pop(run_id, None)
+        if future.done():
+            return future.result()
+        if ended.done():
+            raise WaitEnded(ended.result())
+        raise TimeoutError
+
+    def _end_waits(self, run_id: int, reason: str, *, asks: bool = True) -> None:
+        """End what the run's turn is waiting for, so that its agent gets to the message it was just sent."""
+        for kind, ended in self._turn_waits.get(run_id, ()):
+            if (asks or kind == "job") and not ended.done():
+                ended.set_result(reason)
 
     async def _join_waiting_chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None) -> Run | None:
         """Add a message to the agent's chat run that has not started yet, so it answers everything at once."""
@@ -412,14 +442,18 @@ class RunManager:
             )
         if busy_run:
             await self.runner.notify_run(busy_run, prompts.ask_notice(caller, question))
+            self._end_waits(busy_run, f"{caller.name} is waiting for your answer", asks=False)  # a job's result comes by itself
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._waiters[run.id] = future
         self._add_wait(caller.id, target.id)
         try:
-            return await asyncio.wait_for(asyncio.shield(future), ASK_BUSY_TIMEOUT_SECONDS if busy_run else ASK_TIMEOUT_SECONDS)
-        except TimeoutError:
+            return await self._wait_in_turn(ctx.run_id, "ask", future, ASK_BUSY_TIMEOUT_SECONDS if busy_run else ASK_TIMEOUT_SECONDS)
+        except (TimeoutError, WaitEnded) as exc:
+            # Nobody waits any more: the answer becomes an update.
+            self._waiters.pop(run.id, None)
             self._orphan_asks.add(run.id)
-            return f"{target.name} has not answered yet. The answer will reach you as an update in a later turn."
+            why = f"Stopped waiting for {target.name}: {exc}." if isinstance(exc, WaitEnded) else f"{target.name} has not answered yet."
+            return f"{why} The answer will reach you as an update in a later turn."
         finally:
             self._remove_wait(caller.id, target.id)
 
@@ -553,7 +587,7 @@ class RunManager:
     async def _dispatch_once(self) -> None:
         async with self._sm() as s:
             configured = await settings_service.get(s, "max_parallel_runs")
-            max_parallel = 3 if configured is None else int(configured)  # 0 pauses new top-level runs
+            max_parallel = 3 if configured is None else int(configured)  # 0 pauses the members
             queued = (await s.scalars(select(Run).where(Run.status == RunStatus.QUEUED).order_by(Run.id))).all()
             managers = set(await s.scalars(select(Agent.id).where(Agent.is_manager))) if queued else set()
             # An agent finishes its open assignment before it starts another one.
@@ -579,11 +613,13 @@ class RunManager:
         for run_id, agent_id, nested, manager in candidates:
             if agent_id in self._busy_agents or run_id in self._running:
                 continue
-            limited = len(self._running) - len(self._unlimited)
-            if not nested and (max_parallel < 1 or (not manager and limited >= max_parallel)):
+            # The limit is about members. A manager's turn never waits for a slot, not even at limit 0:
+            # the user gets an answer, and the members' reports get read.
+            unlimited = nested or manager
+            if not unlimited and len(self._running) - len(self._unlimited) >= max_parallel:
                 continue
             self._busy_agents.add(agent_id)
-            if nested or manager:
+            if unlimited:
                 self._unlimited.add(run_id)
             self._running[run_id] = asyncio.create_task(self._execute(run_id, agent_id), name=f"run-{run_id}")
 
@@ -892,6 +928,7 @@ class RunManager:
             elif run.id in self._orphan_asks and run.source_agent_id:
                 self._orphan_asks.discard(run.id)
                 await inbox.push(s, run.source_agent_id, f"Late answer from {agent.name}: {truncate(answer, 2000)}")
+                await self._maybe_wake(s, project, run.source_agent_id)
 
         elif run.assignment_id and run.trigger in (RunTrigger.ASSIGNMENT, RunTrigger.WAKE):
             assignment = await s.get(Assignment, run.assignment_id)
@@ -1000,14 +1037,15 @@ class RunManager:
         return True
 
     async def wait_job(self, job_id: int, seconds: float, run_id: int | None = None) -> str | None:
-        """The job's result if it ends within the time: then it is not sent as an update as well."""
+        """The job's result if it ends within the time: then it is not sent as an update as well.
+        Raises WaitEnded when someone needs the agent before that."""
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._job_waiters[job_id] = future
         started = time.monotonic()
         try:
-            return await asyncio.wait_for(asyncio.shield(future), seconds)
+            return await self._wait_in_turn(run_id, "job", future, seconds)
         except TimeoutError:
-            return future.result() if future.done() else None
+            return None
         finally:
             if run_id is not None:  # waiting is not work: the assignment's time is split accordingly
                 self._job_waits[run_id] = self._job_waits.get(run_id, 0.0) + time.monotonic() - started

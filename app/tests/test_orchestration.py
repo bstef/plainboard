@@ -372,8 +372,7 @@ def test_system_prompt_frozen_per_session(client, project):
 
     # After compression the new session gets a fresh system prompt with everything current.
     chat(client, dev["id"], "SAY four\nCONTEXT 9000")
-    wait_for(lambda: idle(client, pid))
-    assert conversation(client, dev["id"])["compressions"] == 1
+    wait_for(lambda: idle(client, pid) and conversation(client, dev["id"])["compressions"] == 1)  # it follows the turn
     chat(client, dev["id"], "SAY five")
     wait_for(lambda: idle(client, pid))
     spec = runner(client).specs[-1]
@@ -543,8 +542,8 @@ def test_decision_rejects_foreign_attachments_and_workers(client, project):
 def test_queued_run_can_be_cancelled(client, project):
     pid = project["id"]
     client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
-    manager = agents_by_slug(client, pid)["manager"]
-    run = chat(client, manager["id"], "SAY never")
+    dev = make_dev(client, pid)
+    run = chat(client, dev["id"], "SAY never")
     assert client.post(f"/api/runs/{run['id']}/cancel").json() == {"cancelled": True}
     assert runs_of(client, pid)[0]["status"] == "cancelled"
 
@@ -1048,6 +1047,9 @@ def test_asking_a_busy_teammate_notifies_it_and_does_not_block_for_long(client, 
     runner(client).released = True
     wait_for(lambda: idle(client, pid))
     assert any(r["trigger"] == "ask" and r["status"] == "succeeded" for r in runs_of(client, pid, agent_id=dev["id"]))
+    # Nobody waited any more, so the answer comes as an update.
+    wait_for(lambda: any("Late answer from Dev: the answer" in s.prompt for s in runner(client).specs))
+    wait_for(lambda: idle(client, pid))
 
 
 def test_a_busy_agent_reads_a_chat_message_right_away_and_answers_it_next(client, project):
@@ -1080,22 +1082,68 @@ def test_chat_goes_before_other_waiting_turns(client, project):
 
     pid = project["id"]
     client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
-    manager = agents_by_slug(client, pid)["manager"]
+    dev = make_dev(client, pid)
 
     async def wake() -> None:
         async with sessionmaker()() as s:
-            await inbox.push(s, manager["id"], "Job 1 finished")
-            await client.app_ref.state.runs.request_wake(s, manager["id"])
+            await inbox.push(s, dev["id"], "Job 1 finished")
+            await client.app_ref.state.runs.request_wake(s, dev["id"])
 
     client.portal.call(wake)
-    chat(client, manager["id"], "SAY hello")
+    chat(client, dev["id"], "SAY hello")
     client.put("/api/settings", json={"values": {"max_parallel_runs": 3}})
     client.app_ref.state.runs._wake.set()
     wait_for(lambda: idle(client, pid))
     # The chat turn took the update with it, and the wake-up that had nothing left to do is gone.
-    runs = runs_of(client, pid, agent_id=manager["id"])
+    runs = runs_of(client, pid, agent_id=dev["id"])
     assert [(r["trigger"], r["status"]) for r in runs] == [("chat", "succeeded")]
     assert "Job 1 finished" in runner(client).specs[-1].prompt
+
+
+def test_the_manager_answers_while_the_members_are_paused(client, project):
+    pid = project["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, dev["id"], "SAY never")
+    chat(client, manager["id"], 'TOOL delegate {"agent": "dev", "title": "Work", "instructions": "SAY done"}')
+    wait_for(lambda: not runs_of(client, pid, agent_id=manager["id"], active=True))
+    (run,) = runs_of(client, pid, agent_id=manager["id"])
+    # The limit is about the members: the manager's turn ran, and it was told why its assignment waits.
+    assert run["status"] == "succeeded" and "Members are paused by the user (limit 0)" in run["result_text"]
+    assert {r["status"] for r in runs_of(client, pid, agent_id=dev["id"])} == {"queued"}
+
+
+def test_the_users_message_ends_a_wait_for_a_job(client, project):
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], f"TOOL start_job {json.dumps({'command': 'make all', 'wait_minutes': 5})}")
+    wait_for(lambda: bool(client.app_ref.state.runs._job_waiters))
+    chat(client, manager["id"], "SAY hello")
+    wait_for(lambda: idle(client, pid))
+    answer, waited = runs_of(client, pid, agent_id=manager["id"])
+    # The turn did not sit out the five minutes: the user got the answer, and the job goes on.
+    assert "Stopped waiting for job #1: the user wrote to you." in waited["result_text"]
+    assert answer["result_text"] == "hello"
+    assert agents_by_slug(client, pid)["manager"]["running_jobs"] == 1 and not client.app_ref.state.runs._job_waiters
+
+
+def test_the_users_message_ends_a_wait_for_an_answer_which_arrives_later(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, dev["id"], "HOLD")
+    wait_for(lambda: runs_of(client, pid, agent_id=dev["id"])[0]["status"] == "running")
+    chat(client, manager["id"], 'TOOL ask_agent {"agent": "dev", "question": "SAY forty-two"}')
+    wait_for(lambda: bool(client.app_ref.state.runs._turn_waits))
+    chat(client, manager["id"], "SAY hello")
+    wait_for(lambda: len([r for r in runs_of(client, pid, agent_id=manager["id"]) if r["status"] == "succeeded"]) == 2)
+    asked = runs_of(client, pid, agent_id=manager["id"])[-1]
+    assert "Stopped waiting for Dev: the user wrote to you." in asked["result_text"]
+    runner(client).released = True
+    # The answer is not lost: it wakes the manager as an update.
+    wait_for(lambda: any("Late answer from Dev: forty-two" in s.prompt for s in runner(client).specs))
+    wait_for(lambda: idle(client, pid))
 
 
 def test_agents_on_another_provider_get_its_models(client, project):

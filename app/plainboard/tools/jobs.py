@@ -8,6 +8,7 @@ from ..models import JobStatus, utcnow
 from ..services import agents as agent_service
 from ..services import jobs as job_service
 from ..services import timing as timing_service
+from ..services.errors import WaitEnded
 from ..services.util import truncate
 from .registry import ToolContext, ToolError, tool
 
@@ -30,7 +31,10 @@ class StopJobArgs(BaseModel):
 
 async def _wait(ctx: ToolContext, job, minutes: int) -> str:
     await ctx.session.commit()  # don't hold a DB transaction while waiting
-    result = await ctx.runs.wait_job(job.id, minutes * 60, ctx.run.run_id)
+    try:
+        result = await ctx.runs.wait_job(job.id, minutes * 60, ctx.run.run_id)
+    except WaitEnded as exc:
+        return f"Stopped waiting for job #{job.id}: {exc}. The job keeps running and its result reaches you as an update."
     if result:
         return result
     await ctx.session.refresh(job)
