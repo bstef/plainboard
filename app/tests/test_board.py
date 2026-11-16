@@ -202,7 +202,7 @@ def test_tickets_left_in_review_move_to_done_unless_they_wait_for_the_user(clien
 def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeypatch):
     import httpx
     from fastapi import FastAPI, Request
-    from fastapi.responses import RedirectResponse
+    from fastapi.responses import JSONResponse, RedirectResponse
 
     seen = {}
     site = FastAPI()
@@ -215,6 +215,20 @@ def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeyp
     @site.get("/old")
     async def old():
         return RedirectResponse("/new?x=1")
+
+    @site.get("/preview-base/5173/about")
+    async def based():
+        return {"page": "based"}
+
+    @site.get("/login")
+    async def login():
+        out = JSONResponse({"page": "login"}, headers={"Referrer-Policy": "no-referrer", "Strict-Transport-Security": "max-age=600", "Clear-Site-Data": '"cookies"'})
+        out.raw_headers += [
+            (b"set-cookie", b"sid=1; Domain=localhost; Path=/; HttpOnly; Secure"),
+            (b"set-cookie", b"theme=dark; SameSite=None; Secure"),
+            (b"set-cookie", b"pb_session=taken"),
+        ]
+        return out
 
     client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=site))
     client.cookies.set("pb_session", "secret")
@@ -231,6 +245,27 @@ def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeyp
     from_page = {"referer": "http://testserver/preview/5173/"}
     assert client.get("/api/items?x=1", headers=from_page, follow_redirects=False).headers["location"] == "/preview/5173/api/items?x=1"
     assert client.get("/api/health", headers={"referer": "http://elsewhere/preview/5173/"}).status_code == 200
+
+    # Without a Referer (the page hides it), a part of a page goes to the last opened preview, unless
+    # it is PlainBoard's own: its API, its files, a page.
+    part = {"sec-fetch-site": "same-origin", "sec-fetch-dest": "script"}
+    assert client.get("/static/app.js", headers=part, follow_redirects=False).headers["location"] == "/preview/5173/static/app.js"
+    assert client.get("/static/app.js", headers=part | {"referer": "http://testserver/"}, follow_redirects=False).status_code == 307
+    assert client.get("/api/health", headers=part).status_code == 200
+    assert client.get("/static/app.js", headers={"sec-fetch-site": "same-origin", "sec-fetch-dest": "document"}, follow_redirects=False).status_code != 307
+    assert client.get("/static/app.js", headers=part | {"referer": "http://testserver/some/page"}, follow_redirects=False).status_code != 307
+
+    # A server that was told its base path gets the path as it is.
+    assert client.get("/preview-base/5173/about?x=1").json() == {"page": "based"}
+    assert client.get("/preview-base/5173", follow_redirects=False).headers["location"] == "/preview-base/5173/"
+    assert client.get("/data.json", headers={"referer": "http://testserver/preview-base/5173/about"}, follow_redirects=False).headers["location"] == "/preview/5173/data.json"
+
+    # What the server sends for localhost is made to fit PlainBoard's address, and must not act on PlainBoard itself.
+    headers = client.get("/preview/5173/login").headers
+    cookies = headers.get_list("set-cookie")
+    assert "sid=1; Path=/; HttpOnly" in cookies and "theme=dark; SameSite=Lax" in cookies
+    assert not any(c.startswith("pb_session") for c in cookies)
+    assert headers["referrer-policy"] == "same-origin" and "strict-transport-security" not in headers and "clear-site-data" not in headers
 
     assert client.get("/preview/8090/").status_code == 404  # the runner's own API
     assert client.get("/preview/80/").status_code == 404

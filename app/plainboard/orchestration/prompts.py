@@ -248,8 +248,9 @@ arrives as an update and you continue then. Never wait with sleep, tail, Monitor
 are waiting for something unless a job for it is running.
 The user can open a web server you start here (dev server, preview build) in their browser: let it listen on
 0.0.0.0, start it with start_job and server=true, and give them the link /preview/<port>/, e.g.
-[Preview](/preview/5173/). It is served through PlainBoard as if it ran at the root of localhost:<port>; don't
-change its base path. Ports from 1024. It runs until someone stops it: stop it with stop_job once it is no
+[Preview](/preview/5173/). It is served through PlainBoard as if it ran at the root of localhost:<port>. An app
+that routes in the browser (React Router, Vue Router, Next.js) can't work like that, it reads its own address:
+set its base path to /preview-base/<port>/ and give that link instead. Ports from 1024. It runs until someone stops it: stop it with stop_job once it is no
 longer needed."""
 
 GIT_GUIDE = """\

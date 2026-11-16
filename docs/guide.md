@@ -73,6 +73,15 @@ one with a password or publicly for a few days, e.g. for a customer. The server 
 `0.0.0.0`. A preview runs on PlainBoard's own address, so only preview code you trust like your
 agents.
 
+The server believes it runs at the root of `localhost:<port>`, and PlainBoard repairs what goes
+wrong because of the `/preview/<port>/` path: links and requests to the root, redirects, cookies,
+WebSockets. One thing can't be repaired from outside: an app that routes in the browser (React
+Router, Vue Router, Next.js) reads its own address and finds no page for `/preview/5173/`. Such an
+app has to know its base path: the agent sets it to `/preview-base/<port>/` (e.g. `vite --base`,
+`basePath` in Next.js) and gives you that link; agents are told to. Still shared between PlainBoard
+and all previews is the browser's storage, and with two previews open at once a WebSocket to the root
+goes to the one opened last.
+
 ## Public API
 
 To show progress on a website, create a key under **Project settings → Public API**. Tickets with a
