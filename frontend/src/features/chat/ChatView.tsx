@@ -49,7 +49,7 @@ export function ChatView({ agentId, onSelectAgent }: { agentId: number; onSelect
         </aside>
       )}
       <section className="flex min-w-0 flex-1 flex-col">
-        <ChatPanel agentId={agentId} onSelectAgent={onSelectAgent} variant="page" limits={!aside} />
+        <ChatPanel agentId={agentId} onSelectAgent={onSelectAgent} variant="page" />
       </section>
       {aside && agent && <ChatAside agent={agent} />}
     </div>

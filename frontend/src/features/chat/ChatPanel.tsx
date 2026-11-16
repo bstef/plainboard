@@ -23,15 +23,12 @@ export function ChatPanel({
   onClose,
   onExpand,
   variant = "panel",
-  limits = true,
 }: {
   agentId: number;
   onSelectAgent: (id: number) => void;
   onClose?: () => void;
   onExpand?: () => void;
   variant?: "panel" | "page";
-  /** Show the compact plan limits under the composer (off where they are listed next to the chat). */
-  limits?: boolean;
 }) {
   const { t } = useTranslation();
   const { project, agents, agentById } = useShell();
@@ -208,7 +205,6 @@ export function ChatPanel({
         }
         statusTitle={activeRuns.length === 0 ? agent.job_commands.join("\n") : undefined}
         runningSince={running ? (running.started_at ?? running.created_at) : undefined}
-        limits={limits}
         files={files}
         onFilesChange={setFiles}
       />
@@ -341,7 +337,6 @@ function Composer({
   status,
   statusTitle,
   runningSince,
-  limits,
   files,
   onFilesChange,
 }: {
@@ -353,7 +348,6 @@ function Composer({
   status?: string;
   statusTitle?: string;
   runningSince?: string;
-  limits: boolean;
   files: File[];
   onFilesChange: (files: File[]) => void;
 }) {
@@ -476,16 +470,12 @@ function Composer({
           <ArrowUp className="size-4" />
         </button>
       </div>
-      {(runningId || limits) && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-          {runningId && <p className="min-w-0 flex-1 basis-48 text-fg-3">{t("chat.queueHint")}</p>}
-          {limits && (
-            <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2">
-              <LimitsRing />
-            </div>
-          )}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        {runningId && <p className="min-w-0 flex-1 basis-48 text-fg-3">{t("chat.queueHint")}</p>}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2">
+          <LimitsRing />
         </div>
-      )}
+      </div>
       </div>
     </div>
   );
