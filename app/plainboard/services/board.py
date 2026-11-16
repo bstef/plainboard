@@ -36,6 +36,7 @@ from ..models import (
     utcnow,
 )
 from ..schemas import AssignmentOut, AttachmentOut, CommentOut, DecisionOut, PublicBoard, PublicTask, TaskCreate, TaskDetail, TaskOut, TaskUpdate
+from . import flow_log
 from .errors import NotFound, ServiceError
 from .timing import duration
 from .util import truncate
@@ -651,6 +652,7 @@ async def split_hint(session: AsyncSession, task: Task) -> str:
     count = await session.scalar(ordered) or 0
     if count < SPLIT_AFTER or (count - SPLIT_AFTER) % SPLIT_AGAIN:
         return ""
+    await flow_log.record(session, task.project_id, "ticket.split_hint", task_id=task.id, assignments=count)
     return (
         f" Ticket #{task.number} has {count} assignments now, more than one ticket should carry: nobody can follow it any more. "
         "If work remains after this one, split it into smaller tickets (create_tasks), each with one result, and finish this ticket instead of ordering more on it."

@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..models import Agent, Assignment, AssignmentStatus, Landing, LandingStatus, Project, Repository, Task, Train, TrainStatus, utcnow
 from ..services import agents as agent_service
 from ..services import board as board_service
+from ..services import flow_log
 from ..services import landings as landing_service
 from ..services import projects as project_service
 from ..services import secrets as secret_service
@@ -202,6 +203,7 @@ class LandingWatcher:
             return True
         train.status = TrainStatus.BLOCKED
         await s.commit()
+        await flow_log.record(s, r.project.id, "train.blocked", train_id=train.id, detail=truncate(merged.detail, 1000))
         branches = ", ".join(m.branch for m in members)
         await self._tell_manager(
             s, r,
@@ -222,6 +224,7 @@ class LandingWatcher:
         for member in members:
             member.status, member.train_id = LandingStatus.WAITING, None
         await s.commit()
+        await flow_log.record(s, r.project.id, "train.aborted", train_id=train.id, branches=[m.branch for m in members])
 
     async def _landed(self, s: AsyncSession, r: Repo, train: Train, members: list[Landing], now: datetime) -> None:
         if train.finished_at is None:
@@ -230,6 +233,7 @@ class LandingWatcher:
         for member in members:
             member.status, member.merged_at, member.group_no = LandingStatus.MERGED, now, None
         await s.commit()
+        await flow_log.record(s, r.project.id, "train.landed", train_id=train.id, branches=[m.branch for m in members], check_seconds=train.check_seconds)
         one_run = f"one check run of {timing_service.duration(train.check_seconds)} for {len(members)} branch{'es' if len(members) != 1 else ''}"
         for member in members:
             if ticket := await self._ticket(s, member):
@@ -242,6 +246,7 @@ class LandingWatcher:
         for member in members:
             member.status, member.train_id, member.group_no = LandingStatus.STUCK, None, None
         await s.commit()
+        await flow_log.record(s, r.project.id, "train.stuck", train_id=train.id, branches=[m.branch for m in members], what=what)
         branches = "; ".join([await self._label(s, m) for m in members])
         await self._tell_manager(s, r, f"Not landed in {r.repo.name}: {branches} {what}. PlainBoard has stopped for these branches; fix the cause, then hand them over again with merge_when_green.")
 
@@ -250,6 +255,10 @@ class LandingWatcher:
         them pass together, and they are checked again as a group."""
         train.status = TrainStatus.FAILED
         await s.commit()
+        await flow_log.record(
+            s, r.project.id, "train.failed", train_id=train.id, branches=[m.branch for m in members], landing_ids=[m.id for m in members],
+            repaired_group=train.group_no is not None, check_seconds=train.check_seconds, summary=summary, evidence=truncate(evidence, 4000),
+        )  # fmt: skip
         if len(members) == 1:
             instructions = prompts.repair_instructions(members[0].branch, evidence, members[0].failures + 1, landing_service.MAX_FAILED_ROUNDS)
             await self._back(s, r, members[0], f"did not pass on its own ({summary})", f"Repair branch {members[0].branch}", instructions)
@@ -264,6 +273,7 @@ class LandingWatcher:
             for member in members:
                 member.status, member.train_id, member.group_no = LandingStatus.STUCK, None, None
             await s.commit()
+            await flow_log.record(s, r.project.id, "train.given_up", train_id=train.id, rounds=rounds, nobody_available=fixer is None)
             why = f"{rounds} times now" if fixer else "and none of their authors is available"
             await self._tell_manager(
                 s, r,
@@ -276,7 +286,8 @@ class LandingWatcher:
             member.status, member.group_no = LandingStatus.BACK, group  # train_id stays: it names the repair they wait for
         await s.commit()
         instructions = prompts.train_repair_instructions(r.repo.name, train.base, labels, evidence, rounds, landing_service.MAX_FAILED_ROUNDS)
-        await self._runs.delegate(s, None, fixer, f"Make {len(members)} branches of {r.repo.name} pass together", instructions, None, train_id=train.id)
+        repair = await self._runs.delegate(s, None, fixer, f"Make {len(members)} branches of {r.repo.name} pass together", instructions, None, train_id=train.id)
+        await flow_log.record(s, r.project.id, "train.repair_ordered", train_id=train.id, agent_id=fixer.id, assignment_id=repair.id, rounds=rounds, branches=len(members))
 
     @staticmethod
     async def _fixer(s: AsyncSession, members: list[Landing]) -> Agent | None:
@@ -361,6 +372,11 @@ class LandingWatcher:
         if not on_train:
             await s.delete(train)
         await s.commit()
+        await flow_log.record(
+            s, r.project.id, "train.departed" if on_train else "train.empty", train_id=train.id if on_train else None, branches=[p.branch for p in on_train],
+            ready=len(waiting), repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
+            missing=list(result.missing), unchanged=list(result.unchanged),
+        )  # fmt: skip
 
         # What could not go on the train.
         for branch in result.landed:
@@ -378,6 +394,7 @@ class LandingWatcher:
             landing = by_branch[branch]
             landing.status, landing.group_no = LandingStatus.STUCK, None
             await s.commit()
+            await flow_log.record(s, r.project.id, "landing.stuck", landing_id=landing.id, task_id=landing.task_id, branch=branch, why=why)
             await self._tell_manager(s, r, f"Not landed in {r.repo.name}: {await self._label(s, landing)} {why}. Read the report on its ticket and decide how to go on; merge_when_green puts it on a train again.")
 
     async def _unrepaired(self, s: AsyncSession, r: Repo, pick: list[Landing]) -> bool:
@@ -392,6 +409,7 @@ class LandingWatcher:
         for landing in pick:
             landing.status, landing.train_id, landing.group_no = LandingStatus.STUCK, None, None
         await s.commit()
+        await flow_log.record(s, r.project.id, "train.unrepaired", train_id=failed.id, branches=[p.branch for p in pick])
         branches = "; ".join([await label(s, p) for p in pick])
         await self._tell_manager(
             s, r,
@@ -452,6 +470,7 @@ async def give_back(
     if landing.failures >= landing_service.MAX_FAILED_ROUNDS or author is None or not author.enabled:
         landing.status = LandingStatus.STUCK
         await s.commit()
+        await flow_log.record(s, project.id, "landing.stuck", landing_id=landing.id, task_id=landing.task_id, branch=landing.branch, why=what, failures=landing.failures)
         why = f"{landing.failures} times now" if author and author.enabled else "and its author is not available"
         await tell_manager(
             s, runs, project,
@@ -461,6 +480,7 @@ async def give_back(
         return False
     landing.status = LandingStatus.BACK
     await s.commit()
+    await flow_log.record(s, project.id, "landing.back", landing_id=landing.id, task_id=landing.task_id, agent_id=author.id, branch=landing.branch, why=what, failures=landing.failures)
     if not await open_repair(s, landing):  # the repair is an assignment on the ticket: no comment says it again
         await runs.delegate(s, None, author, title, instructions, ticket, landing_id=landing.id)
     return True

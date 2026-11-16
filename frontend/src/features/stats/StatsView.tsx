@@ -39,14 +39,24 @@ export function StatsView() {
       <div className="max-w-5xl px-4 pt-3 pb-6">
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <p className="text-fg-2">{t("stats.subtitle")}</p>
-          <a
-            href={`/api/projects/${project.id}/work-report?days=${range}`}
-            download
-            title={t("stats.reportHint")}
-            className="text-fg-2 underline decoration-line-2 underline-offset-[3px] hover:text-fg hover:decoration-current"
-          >
-            {t("stats.report")}
-          </a>
+          <span className="flex flex-wrap gap-x-4 gap-y-1">
+            <a
+              href={`/api/projects/${project.id}/work-report?days=${range}`}
+              download
+              title={t("stats.reportHint")}
+              className="text-fg-2 underline decoration-line-2 underline-offset-[3px] hover:text-fg hover:decoration-current"
+            >
+              {t("stats.report")}
+            </a>
+            <a
+              href={`/api/projects/${project.id}/work-log?days=${range}`}
+              download
+              title={t("stats.logHint")}
+              className="text-fg-2 underline decoration-line-2 underline-offset-[3px] hover:text-fg hover:decoration-current"
+            >
+              {t("stats.log")}
+            </a>
+          </span>
         </div>
         {!data ? (
           <div className="flex justify-center py-12">

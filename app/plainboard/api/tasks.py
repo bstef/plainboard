@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Query, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select
 
 from ..models import Assignment, Run, TaskStatus
@@ -22,7 +22,9 @@ from ..schemas import (
 )
 from ..services import board as board_service
 from ..services import decisions as decision_service
+from ..services import projects as project_service
 from ..services import stats as stats_service
+from ..services import trace as trace_service
 from ..services.errors import NotFound, ServiceError
 from .deps import Runs, Session
 
@@ -96,6 +98,14 @@ async def work_report(project_id: int, session: Session, days: int = Query(defau
     """A file to hand to whoever looks for overhead: numbers and tool names, no texts."""
     report = await stats_service.work_report(session, project_id, days)
     return JSONResponse(report, headers={"Content-Disposition": f'attachment; filename="plainboard-report-{project_id}.json"'})
+
+
+@router.get("/projects/{project_id}/work-log")
+async def work_log(project_id: int, session: Session, days: int = Query(default=7, ge=1, le=365)) -> StreamingResponse:
+    """Everything of the period as it happened, with all texts (gzip'ed JSON lines): to see why a flow costs what it costs."""
+    await project_service.get(session, project_id)
+    headers = {"Content-Disposition": f'attachment; filename="plainboard-log-{project_id}.jsonl.gz"'}
+    return StreamingResponse(trace_service.stream(project_id, days), media_type="application/gzip", headers=headers)
 
 
 @router.get("/tasks/{task_id}/runs", response_model=list[RunOut])

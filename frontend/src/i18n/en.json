@@ -190,6 +190,8 @@
     "lastDays": "{{count}} days",
     "report": "Download report",
     "reportHint": "A file with where turns, time and cost went, per agent and ticket. Numbers and tool names only, no texts.",
+    "log": "Download full log",
+    "logHint": "Everything of this period as it happened: every turn with its prompt and answer, every tool call with input and result, assignments, updates, jobs and landing. It contains your project's texts and code, but no passwords or tokens: give it only to someone you would show the project.",
     "ticketsDone": "Tickets finished",
     "ticketsCreated": "Tickets created",
     "openTickets": "Open tickets now",

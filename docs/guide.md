@@ -175,6 +175,10 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   prompt, plus board tools and a shell for small tasks that would cost more to delegate.
 - **Inbox instead of extra runs**: reports, job results and messages between agents are prepended to
   an agent's next turn; wake-ups are coalesced. Waiting for CI costs no turn at all.
+- **The full log** (Statistics, download) is everything of the chosen period as it happened: every
+  turn with what it was given and what it answered, every tool call, assignments, updates, jobs,
+  landing and what PlainBoard decided by itself. It holds your project's texts and code (no
+  passwords or tokens), so give it only to someone you would show the project.
 - **The work report** (Statistics, download) shows where turns, tokens and time went, per day,
   trigger and account: the numbers to tune a team with.
 - Compact tool schemas and results, effort per agent, titles-only note listings, pinned notes only

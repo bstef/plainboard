@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ..models import Assignment, JobStatus, LandingStatus, Repository, Run
 from ..orchestration import prompts
 from ..orchestration.runner_client import RunnerError
+from ..services import flow_log
 from ..services import landings as landing_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
@@ -61,6 +62,12 @@ async def _quick_check(ctx: ToolContext, repo: Repository, branch: str, head: st
         await ctx.runs.stop_job(ctx.session, job, settle=False)
         raise ToolError(f"Not handed over: the quick check was stopped ({exc}). Hand the branch over again afterwards.") from exc
     await ctx.session.refresh(job)
+    if job.status == JobStatus.RUNNING or job.exit_code != 0:
+        why = "too_slow" if job.status == JobStatus.RUNNING else "not_as_pushed" if job.exit_code == NOT_AS_PUSHED else "failed"
+        await flow_log.record(
+            ctx.session, ctx.project.id, "landing.quick_check_failed", agent_id=ctx.agent.id, run_id=ctx.run.run_id, assignment_id=ctx.run.assignment_id,
+            repository=repo.name, branch=branch, head=head, job_id=job.id, why=why,
+        )  # fmt: skip
     if job.status == JobStatus.RUNNING:
         await ctx.runs.stop_job(ctx.session, job, settle=False)
         return f" The quick check of {repo.name} did not end within {QUICK_CHECK_SECONDS // 60} min and was skipped: say so in your report, it is not quick."
@@ -106,6 +113,10 @@ async def merge_when_green(ctx: ToolContext, args: MergeWhenGreenArgs) -> str:
     quick = await _quick_check(ctx, repo, branch, head) if repo.quick_check_command.strip() and not ctx.agent.is_manager else ""
     landing = await landing_service.hand_over(ctx.session, repo, branch, head, agent_id=ctx.agent.id, task_id=task_id, fresh_start=ctx.agent.is_manager)
     timing_service.forget_cache()
+    await flow_log.record(
+        ctx.session, ctx.project.id, "landing.handed_over", landing_id=landing.id, agent_id=ctx.agent.id, run_id=ctx.run.run_id, assignment_id=ctx.run.assignment_id,
+        task_id=task_id, repository=repo.name, branch=branch, head=head, status=str(landing.status), quick_check=quick.strip(), again=before is not None,
+    )  # fmt: skip
     if landing.status == LandingStatus.TRAIN:
         return f"Branch {branch} is being checked already. Commits pushed since then are not part of that check: hand the branch over again when it has landed."
     if landing.status == LandingStatus.BACK:
@@ -138,6 +149,7 @@ async def return_branch(ctx: ToolContext, args: ReturnBranchArgs) -> str:
         ctx.session, ctx.runs, repo, ctx.project, landing, f"was taken off a failed train by {ctx.agent.name}", f"Repair branch {branch}", instructions, counts=False
     )
     timing_service.forget_cache()
+    await flow_log.record(ctx.session, ctx.project.id, "landing.returned", landing_id=landing.id, agent_id=ctx.agent.id, run_id=ctx.run.run_id, branch=branch, reason=args.reason, to_author=went_back)
     where = "is back with its author" if went_back else "went to the manager"
     return f"Branch {branch} {where}. The others go on without it: none of them may contain it or need it."
 

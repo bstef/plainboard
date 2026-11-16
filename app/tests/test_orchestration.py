@@ -1016,6 +1016,49 @@ def test_work_report_shows_where_the_work_went_without_texts(client, project):
     assert report["time"]["assignments_finished"] == 1 and report["time"]["slow_commands"] == []
 
 
+def test_the_full_log_holds_what_happened_with_its_texts_but_no_credentials(client, project):
+    import gzip
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    assert client.patch(f"/api/projects/{pid}", json={"github_token": "ghp_secret"}).status_code == 200
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://user:pw@example.com/acme/api.git"}).status_code == 201
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Secret plan", "status": "todo"}).json()
+    work = 'TOOL add_comment {"number": 1, "body": "said twice"}\nSAY finished on feat-a'
+    chat(client, manager["id"], f'TOOL delegate {json.dumps({"agent": dev["slug"], "title": "Work", "instructions": work, "ticket_number": ticket["number"]})}')
+    wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) >= 3)
+
+    resp = client.get(f"/api/projects/{pid}/work-log?days=7")
+    assert resp.status_code == 200 and resp.headers["content-disposition"].endswith('.jsonl.gz"')
+    rows = [json.loads(line) for line in gzip.decompress(resp.content).splitlines()]
+    assert rows[0]["type"] == "export" and rows[0]["days"] == 7 and rows[1]["type"] == "project"
+    by_type: dict[str, list[dict]] = {}
+    for row in rows:
+        by_type.setdefault(row["type"], []).append(row)
+    assert {"agent", "conversation", "repository", "ticket", "ticket_move", "assignment", "run", "message", "update"} <= set(by_type)
+    # The texts, as they were: what was ordered, what each turn was given and answered, every tool call.
+    assert by_type["ticket"][0]["title"] == "Secret plan"
+    (assignment,) = by_type["assignment"]
+    assert assignment["instructions"] == work and assignment["result"].endswith("finished on feat-a") and assignment["created_at"].endswith("Z")
+    turn = next(r for r in by_type["run"] if r["trigger"] == "assignment")
+    assert "Assignment #1 from Manager" in turn["input_text"] and turn["assignment_id"] == assignment["id"]
+    refused = next(m for m in by_type["message"] if m["kind"] == "tool" and m["content"] == "add_comment")
+    assert refused["agent_id"] == dev["id"] and refused["meta"]["is_error"] and json.loads(refused["meta"]["input"])["body"] == "said twice"
+    assert any('"Work"' in u["text"] and u["consumed_at"] for u in by_type["update"])  # the report as the manager got it
+    assert any(c["system_prompt"] for c in by_type["conversation"])
+    # No credentials, in whatever column they are.
+    text = gzip.decompress(resp.content).decode()
+    assert "ghp_secret" not in text and "user:pw" not in text and "https://[login]@example.com/acme/api.git" in text
+    assert not any(key.endswith(("_enc", "_hash")) for row in rows for key in row)
+    assert client.get("/api/projects/9999/work-log").status_code == 404
+
+    # The numbers-only report counts the refused call, and the comments by who wrote them.
+    report = client.get(f"/api/projects/{pid}/work-report?days=7").json()
+    assert {a["name"]: a["tool_errors"] for a in report["agents"]} == {"Manager": {}, "Dev": {"add_comment": 1}}
+    assert report["tickets"][0]["comments"] == {} and report["updates"]["count"] >= 1
+
+
 def test_stats_count_tickets_and_runs(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)

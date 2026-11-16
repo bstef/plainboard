@@ -10,7 +10,7 @@ from statistics import median
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Account, Agent, Assignment, AssignmentStatus, Conversation, Message, Run, RunStatus, Task, TaskStatus, TaskTransition, utcnow
+from ..models import Account, Agent, Assignment, AssignmentStatus, Comment, Conversation, FlowEvent, InboxItem, Message, Run, RunStatus, Task, TaskStatus, TaskTransition, Train, utcnow
 from ..schemas import StatsAgent, StatsDay, StatsOut
 from . import timing
 
@@ -122,6 +122,7 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
     # Tool calls per agent; for shell calls also the program, to tell building from git and testing.
     tools: dict[int, Counter] = defaultdict(Counter)
     shell: dict[int, Counter] = defaultdict(Counter)
+    refused: dict[int, Counter] = defaultdict(Counter)  # calls that came back as an error: each one is a step for nothing
     calls = await session.execute(
         select(Conversation.agent_id, Message.content, Message.meta)
         .join(Conversation, Conversation.id == Message.conversation_id)
@@ -129,6 +130,8 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
     )
     for agent_id, name, meta in calls:
         tools[agent_id][name] += 1
+        if (meta or {}).get("is_error"):
+            refused[agent_id][name] += 1
         if name == "Bash" and (found := SHELL_COMMAND.search(str((meta or {}).get("input", "")))):
             shell[agent_id][found.group(2).rsplit("/", 1)[-1]] += 1
 
@@ -147,6 +150,20 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
     for t in await session.scalars(select(TaskTransition).where(TaskTransition.project_id == project_id, TaskTransition.at >= since).order_by(TaskTransition.at, TaskTransition.id)):
         moves[t.task_number].append(t.status)
 
+    # Comments by who wrote them (reports are no comments: many of them on a ticket are noise).
+    comments: dict[int, dict[str, int]] = defaultdict(dict)
+    written = select(Comment.task_id, Comment.author_kind, func.count()).join(Task, Task.id == Comment.task_id).where(Task.project_id == project_id, Comment.created_at >= since)
+    for task_id, kind, count in await session.execute(written.group_by(Comment.task_id, Comment.author_kind)):
+        comments[task_id][kind] = count
+    # Updates: how many agents got, and how long one lay there before a turn read it.
+    read_after = [
+        _seconds(created, consumed)
+        for created, consumed in await session.execute(select(InboxItem.created_at, InboxItem.consumed_at).where(InboxItem.agent_id.in_(list(is_manager)), InboxItem.created_at >= since))
+        if consumed
+    ]
+    events = dict((await session.execute(select(FlowEvent.kind, func.count()).where(FlowEvent.project_id == project_id, FlowEvent.at >= since).group_by(FlowEvent.kind))).all())
+    trains = list(await session.scalars(select(Train).where(Train.project_id == project_id, Train.created_at >= since).order_by(Train.id.desc()).limit(REPORT_TICKETS)))
+
     tickets = []
     for task_id, sides in by_ticket.items():
         task = numbers.get(task_id)
@@ -158,6 +175,7 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
                 "moves": moves.get(task.number, []) if task else [],
                 "assignments": len(work),
                 "assigned_agents": len({a.agent_id for a in work}),
+                "comments": comments.get(task_id, {}),
                 "manager": sides["manager"],
                 "members": sides["members"],
             }
@@ -184,6 +202,7 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
                 "instruction_chars": len(a.instructions),
                 "by_trigger": {trigger: item for (agent_id, trigger), item in by_trigger.items() if agent_id == a.id},
                 "tool_calls": dict(tools[a.id].most_common()),
+                "tool_errors": dict(refused[a.id].most_common()),
                 "shell_programs": dict(shell[a.id].most_common(40)),
             }
             for a in agents
@@ -192,6 +211,13 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
         "tickets_left_out": max(len(tickets) - REPORT_TICKETS, 0),
         "without_ticket": no_ticket,
         "assignments": {"by_status": dict(statuses), **lengths},
+        "updates": {"count": len(read_after), "median_seconds_until_read": int(median(read_after)) if read_after else 0},
+        # What PlainBoard did by itself (services/flow_log.py), and every check run for landing, newest first.
+        "flow_events": events,
+        "trains": [
+            {"id": t.id, "status": t.status, "mode": t.mode, "branches": t.size, "repaired_group": t.group_no is not None, "check_seconds": t.check_seconds, "started_at": t.created_at.isoformat() + "Z"}
+            for t in trains
+        ],
         # Work against waiting: what the team's time went into. Commands by their first two words only.
         "time": {
             "work_seconds": time.work,

@@ -1,6 +1,7 @@
 """How work flows: one piece of work per assignment, with its own context, one report and its time
 measured; pull requests watched and merged without any agent's turn."""
 
+import gzip
 import json
 from datetime import timedelta
 
@@ -41,6 +42,12 @@ def tool_results(client, agent_id: int) -> list[str]:
 
 def job_tick(client) -> None:
     client.portal.call(client.app_ref.state.job_watcher.tick)
+
+
+def flow_events(client, pid: int) -> list[dict]:
+    """What PlainBoard wrote down about its own decisions, as the full log gives it."""
+    lines = gzip.decompress(client.get(f"/api/projects/{pid}/work-log?days=1").content).splitlines()
+    return [row for row in map(json.loads, lines) if row["type"] == "flow_event"]
 
 
 # --- one assignment, one report -------------------------------------------------------------
@@ -319,6 +326,20 @@ def test_a_failed_train_goes_to_one_member_who_makes_its_branches_pass_together(
     finish_check(client, fake)
     assert len(fake.check_specs) == 3 and len(fake.land_specs) == 2  # five branches, one failure: three check runs
 
+    # The course of it is written down, not only where it ended: that is what the flow is improved with.
+    events = flow_events(client, pid)
+    assert [e["kind"] for e in events if e["kind"].startswith("train.")] == [
+        "train.departed", "train.failed", "train.repair_ordered", "train.departed", "train.landed", "train.departed", "train.landed",
+    ]  # fmt: skip
+    failed = next(e for e in events if e["kind"] == "train.failed")
+    assert failed["data"]["branches"] == ["feat-a", "feat-b", "feat-c", "feat-d"] and "FAILED test_login" in failed["data"]["evidence"]
+    ordered = next(e for e in events if e["kind"] == "train.repair_ordered")
+    assert ordered["assignment_id"] == repair["id"] and ordered["agent_id"] == repair["agent_id"] and ordered["train_id"] == failed["train_id"]
+    assert sum(e["kind"] == "landing.handed_over" for e in events) == 5
+    report = client.get(f"/api/projects/{pid}/work-report?days=1").json()
+    assert report["flow_events"]["train.failed"] == 1 and [t["status"] for t in report["trains"]] == ["landed", "landed", "failed"]
+    assert [(t["branches"], t["repaired_group"]) for t in report["trains"]] == [(1, False), (4, True), (4, False)]
+
 
 def test_a_branch_that_needs_more_is_given_back_and_the_others_land_without_it(client, project):
     pid = project["id"]
@@ -498,6 +519,8 @@ def test_the_quick_check_runs_at_hand_over_and_a_failure_never_reaches_a_train(c
     assert "is with PlainBoard now. The quick check passed." in result
     land_tick(client)
     assert [t.members for t in fake.train_specs] == [["feat-a"]]
+    events = [(e["kind"], e["data"].get("why") or e["data"].get("quick_check")) for e in flow_events(client, pid) if e["kind"].startswith("landing.")]
+    assert events == [("landing.quick_check_failed", "failed"), ("landing.quick_check_failed", "not_as_pushed"), ("landing.handed_over", "The quick check passed.")]
 
     # The manager hands over what others wrote: a decision, not a check.
     jobs = len(fake.job_specs)

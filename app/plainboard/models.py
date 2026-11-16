@@ -379,6 +379,25 @@ class Train(Timestamps, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class FlowEvent(Base):
+    """Something PlainBoard did by itself, as it happened (services/flow_log.py). The tables above
+    keep the latest state; this keeps the course, for the work log. Nothing reads it at run time."""
+
+    __tablename__ = "flow_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    kind: Mapped[str] = mapped_column(String(40))  # e.g. train.failed, landing.back, wait.ended
+    # What it is about. Plain numbers, no foreign keys: the log outlives what it describes.
+    agent_id: Mapped[int | None] = mapped_column(Integer)
+    run_id: Mapped[int | None] = mapped_column(Integer)
+    assignment_id: Mapped[int | None] = mapped_column(Integer)
+    task_id: Mapped[int | None] = mapped_column(Integer)
+    landing_id: Mapped[int | None] = mapped_column(Integer)
+    train_id: Mapped[int | None] = mapped_column(Integer)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
 # --- conversations & runs -------------------------------------------------------------------
 
 

@@ -56,6 +56,7 @@ from ..schemas import AssignmentOut, MessageOut, RunOut, TaskUpdate
 from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import decisions as decision_service
+from ..services import flow_log
 from ..services import jobs as job_service
 from ..services import mcp as mcp_service
 from ..services import projects as project_service
@@ -169,6 +170,10 @@ class RunManager:
             await s.commit()
             for run in interrupted:
                 try:
+                    await flow_log.record(
+                        s, run.project_id, "run.interrupted", agent_id=run.agent_id, run_id=run.id, assignment_id=run.assignment_id, task_id=run.task_id,
+                        trigger=str(run.trigger), resumed=run.id in resumed,
+                    )  # fmt: skip
                     if run.id in resumed:
                         await inbox.push(s, run.agent_id, prompts.RESTART_NOTE)
                         await self._settle(s, run.agent_id)
@@ -261,7 +266,8 @@ class RunManager:
         busy_run = await s.scalar(select(Run.id).where(Run.agent_id == agent.id, Run.status == RunStatus.RUNNING).limit(1))
         if busy_run and (text.strip() or attachment_ids):
             await self.runner.notify_run(busy_run, prompts.chat_notice(text, len(attachment_ids or [])))
-            self._end_waits(busy_run, "the user wrote to you")  # no wait is worth more than the user
+            if ended := self._end_waits(busy_run, "the user wrote to you"):  # no wait is worth more than the user
+                await flow_log.record(s, agent.project_id, "wait.ended", agent_id=agent.id, run_id=busy_run, waits=ended, by="user")
         return run
 
     async def _wait_in_turn(self, run_id: int | None, kind: str, future: asyncio.Future[str], seconds: float) -> str:
@@ -282,11 +288,15 @@ class RunManager:
             raise WaitEnded(ended.result())
         raise TimeoutError
 
-    def _end_waits(self, run_id: int, reason: str, *, asks: bool = True) -> None:
-        """End what the run's turn is waiting for, so that its agent gets to the message it was just sent."""
+    def _end_waits(self, run_id: int, reason: str, *, asks: bool = True) -> list[str]:
+        """End what the run's turn is waiting for, so that its agent gets to the message it was just sent.
+        Returns what was ended (job, ask)."""
+        done = []
         for kind, ended in self._turn_waits.get(run_id, ()):
             if (asks or kind == "job") and not ended.done():
                 ended.set_result(reason)
+                done.append(kind)
+        return done
 
     async def _join_waiting_chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None) -> Run | None:
         """Add a message to the agent's chat run that has not started yet, so it answers everything at once."""
@@ -455,7 +465,9 @@ class RunManager:
             )
         if busy_run:
             await self.runner.notify_run(busy_run, prompts.ask_notice(caller, question))
-            self._end_waits(busy_run, f"{caller.name} is waiting for your answer", asks=False)  # a job's result comes by itself
+            if ended := self._end_waits(busy_run, f"{caller.name} is waiting for your answer", asks=False):  # a job's result comes by itself
+                async with self._sm() as s:
+                    await flow_log.record(s, target.project_id, "wait.ended", agent_id=target.id, run_id=busy_run, waits=ended, by=caller.name)
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._waiters[run.id] = future
         self._add_wait(caller.id, target.id)
@@ -533,11 +545,14 @@ class RunManager:
         if not running and (jobs := [job for job in await job_service.running(s) if job.agent_id == agent.id]):
             await self.enqueue(s, agent, RunTrigger.WAKE, prompts.wind_down_jobs_prompt(reason, [job_service.label(job) for job in jobs]), stopping=True)
             running = True
+        await flow_log.record(s, agent.project_id, "agent.wound_down", agent_id=agent.id, paused=not agent.enabled, turns=len(rows), still_running=running, reason=reason)
         return running
 
     async def resume(self, s: AsyncSession, agent: Agent) -> None:
         """An agent was enabled again: what it had open when it was paused goes on by itself."""
-        if await self._held_assignment(s, agent.id):
+        held = await self._held_assignment(s, agent.id)
+        await flow_log.record(s, agent.project_id, "agent.resumed", agent_id=agent.id, assignment_id=held.id if held else None)
+        if held:
             await inbox.push(s, agent.id, prompts.RESUME_NOTE)
             await self._settle(s, agent.id)
         self._wake.set()  # assignments that waited in the queue
