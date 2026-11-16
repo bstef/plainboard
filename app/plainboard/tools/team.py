@@ -151,6 +151,7 @@ async def create_agent(ctx: ToolContext, args: CreateAgentArgs) -> str:
 @tool("update_agent", "Change an agent's configuration (model, role, instructions, enabled ...).", UpdateAgentArgs, roles=(MANAGER,))
 async def update_agent(ctx: ToolContext, args: UpdateAgentArgs) -> str:
     agent = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
+    was_enabled = agent.enabled
     agent = await agent_service.update(
         ctx.session, agent, AgentUpdate(**args.model_dump(exclude_unset=True, exclude={"agent", "repositories"})), await _catalog(ctx, args.provider)
     )
@@ -158,6 +159,9 @@ async def update_agent(ctx: ToolContext, args: UpdateAgentArgs) -> str:
         await apply_repo_access(ctx, agent, args.repositories)
     if args.enabled is False and agent.id != ctx.agent.id:
         await ctx.runs.wind_down(ctx.session, agent)
+    elif args.enabled and not was_enabled:
+        await ctx.runs.resume(ctx.session, agent)
+        return f"Updated agent {agent.slug}. Its open assignments go on by themselves: don't delegate them again."
     return f"Updated agent {agent.slug}."
 
 
@@ -256,7 +260,12 @@ async def message_agent(ctx: ToolContext, args: MessageArgs) -> str:
     return f"Message sent to {target.slug}. No answer comes back unless they send one" + ("; for work use delegate." if ctx.agent.is_manager else ".")
 
 
-@tool("stop_agent", "Stop or pause a teammate. They finish to a safe point, save their work and report to you. Queued work is dropped.", StopAgentArgs, roles=(MANAGER,))
+@tool(
+    "stop_agent",
+    "Stop or pause a teammate. They finish to a safe point and save their work. Stop: they report to you and queued work is dropped. Pause: their assignments stay open and go on when enabled again.",
+    StopAgentArgs,
+    roles=(MANAGER,),
+)
 async def stop_agent(ctx: ToolContext, args: StopAgentArgs) -> str:
     target = await agent_service.resolve(ctx.session, ctx.project.id, args.agent)
     if target.id == ctx.agent.id:
@@ -268,7 +277,9 @@ async def stop_agent(ctx: ToolContext, args: StopAgentArgs) -> str:
         stopped = await ctx.runs.stop_agent(ctx.session, target)
         return f"Aborted {stopped} run(s) and job(s) of {target.slug}.{paused}"
     if await ctx.runs.wind_down(ctx.session, target, args.reason):
-        return f"{target.slug} was told to wrap up after its current step; its report comes as an update.{paused}"
+        if args.pause:
+            return f"{target.slug} was told to wrap up after its current step. Paused until enabled again: its assignments stay open and go on by themselves then."
+        return f"{target.slug} was told to wrap up after its current step; its report comes as an update."
     return f"{target.slug} is not working.{paused}"
 
 

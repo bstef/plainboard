@@ -79,6 +79,8 @@ MAX_ASK_DEPTH = 3
 ASK_TIMEOUT_SECONDS = 900
 ASK_BUSY_TIMEOUT_SECONDS = 120  # the teammate is in a turn of unknown length, so don't block the asker for long
 CANCEL_GRACE_SECONDS = 15
+RESTARTED = "Interrupted by a restart"
+MAX_RESTART_RESUMES = 3  # an assignment cut off this often by restarts goes to the manager instead of on
 
 
 @dataclass
@@ -151,21 +153,32 @@ class RunManager:
         async with self._sm() as s:
             now = utcnow()
             interrupted = list((await s.scalars(select(Run).where(Run.status == RunStatus.RUNNING))).all())
+            resumed: set[int] = set()
             for run in interrupted:
-                run.status, run.error, run.finished_at = RunStatus.FAILED, "Interrupted by a restart", now
+                run.status, run.error, run.finished_at = RunStatus.FAILED, RESTARTED, now
                 if run.assignment_id and (a := await s.get(Assignment, run.assignment_id)):
-                    a.status, a.result, a.finished_at = AssignmentStatus.FAILED, "Interrupted by a restart", now
+                    # A restart is not a failure of the work: the assignment stays open and its agent
+                    # goes on in the same session. Only one that keeps being cut off goes to the manager.
+                    cut_off = await s.scalar(select(func.count()).select_from(Run).where(Run.assignment_id == a.id, Run.error == RESTARTED, Run.id != run.id)) or 0
+                    if a.status == AssignmentStatus.RUNNING and cut_off + 1 < MAX_RESTART_RESUMES:
+                        resumed.add(run.id)
+                    else:
+                        a.status, a.result, a.finished_at = AssignmentStatus.FAILED, RESTARTED, now
             for run in (await s.scalars(select(Run).where(Run.status == RunStatus.QUEUED, Run.trigger == RunTrigger.ASK))).all():
                 run.status, run.error, run.finished_at = RunStatus.CANCELLED, "Asking agent is gone (restart)", now
             await s.commit()
             for run in interrupted:
                 try:
-                    await self._report_interrupted(s, run)
+                    if run.id in resumed:
+                        await inbox.push(s, run.agent_id, prompts.RESTART_NOTE)
+                        await self._settle(s, run.agent_id)
+                    else:
+                        await self._report_interrupted(s, run)
                 except Exception:  # a failed report must not keep the app from starting
                     log.exception("Could not report interrupted run %s", run.id)
 
     async def _report_interrupted(self, s: AsyncSession, run: Run) -> None:
-        """Nothing retries an interrupted run (it may be half done): tell whoever can decide."""
+        """An interrupted turn outside an open assignment is not retried (it may be half done): tell whoever can decide."""
         agent = await s.get(Agent, run.agent_id)
         project = await s.get(Project, run.project_id)
         if agent is None or project is None:
@@ -344,6 +357,7 @@ class RunManager:
         task: Task | None,
         effort: str | None = None,
         landing_id: int | None = None,
+        train_id: int | None = None,
     ) -> Assignment:
         if task is not None and task.project_id != target.project_id:
             raise ServiceError("Ticket belongs to another project")
@@ -358,10 +372,11 @@ class RunManager:
             instructions=instructions,
             effort=effort,
             landing_id=landing_id,
+            train_id=train_id,
         )
         s.add(assignment)
         await s.commit()
-        from_name = caller.name if caller else "PlainBoard" if landing_id else "the user"
+        from_name = caller.name if caller else "PlainBoard" if landing_id or train_id else "the user"
         run = await self.enqueue(
             s,
             target,
@@ -503,12 +518,14 @@ class RunManager:
     async def wind_down(self, s: AsyncSession, agent: Agent, reason: str = "") -> bool:
         """Let an agent finish safely: drop what it has not started and tell its running turn to wrap up.
         An agent that only has background jobs left gets a turn for that, even if it is paused.
+        A paused (disabled) agent keeps its assignments: they go on when it is enabled again (``resume``).
         Returns whether the agent is still wrapping up."""
-        rows = (await s.execute(select(Run.id, Run.status).where(Run.agent_id == agent.id, Run.status.in_((RunStatus.QUEUED, RunStatus.RUNNING))))).all()
+        rows = (await s.execute(select(Run.id, Run.status, Run.assignment_id).where(Run.agent_id == agent.id, Run.status.in_((RunStatus.QUEUED, RunStatus.RUNNING))))).all()
         running = False
-        for run_id, status in rows:
+        for run_id, status, assignment_id in rows:
             if status == RunStatus.QUEUED:
-                await self.cancel_run(run_id)
+                if agent.enabled or assignment_id is None:
+                    await self.cancel_run(run_id)
             elif await self.runner.notify_run(run_id, prompts.wind_down_notice(reason), urgent=True):
                 running = True
                 run = await s.get(Run, run_id)
@@ -519,6 +536,13 @@ class RunManager:
             await self.enqueue(s, agent, RunTrigger.WAKE, prompts.wind_down_jobs_prompt(reason, [job_service.label(job) for job in jobs]), stopping=True)
             running = True
         return running
+
+    async def resume(self, s: AsyncSession, agent: Agent) -> None:
+        """An agent was enabled again: what it had open when it was paused goes on by itself."""
+        if await self._held_assignment(s, agent.id):
+            await inbox.push(s, agent.id, prompts.RESUME_NOTE)
+            await self._settle(s, agent.id)
+        self._wake.set()  # assignments that waited in the queue
 
     async def stop_agent(self, s: AsyncSession, agent: Agent) -> int:
         """Stop everything an agent is doing or about to do, at once: runs and background jobs."""
@@ -590,9 +614,12 @@ class RunManager:
             max_parallel = 3 if configured is None else int(configured)  # 0 pauses the members
             queued = (await s.scalars(select(Run).where(Run.status == RunStatus.QUEUED).order_by(Run.id))).all()
             managers = set(await s.scalars(select(Agent.id).where(Agent.is_manager))) if queued else set()
+            # A paused agent keeps its assignments in the queue; only its turn to wrap up still runs.
+            paused = set(await s.scalars(select(Agent.id).where(~Agent.enabled))) if queued else set()
             # An agent finishes its open assignment before it starts another one.
             occupied = set(await s.scalars(select(Assignment.agent_id).where(Assignment.status == AssignmentStatus.RUNNING))) if queued else set()
-            fixes = set(await s.scalars(select(Assignment.id).where(Assignment.status == AssignmentStatus.QUEUED, Assignment.landing_id.is_not(None)))) if queued else set()
+            repairs = Assignment.landing_id.is_not(None) | Assignment.train_id.is_not(None)
+            fixes = set(await s.scalars(select(Assignment.id).where(Assignment.status == AssignmentStatus.QUEUED, repairs))) if queued else set()
 
             def order(run: Run) -> tuple[int, int]:
                 """Someone waiting for an answer goes first, then what the user wrote, then work that
@@ -608,7 +635,7 @@ class RunManager:
             candidates = [
                 (r.id, r.agent_id, r.parent_run_id is not None, r.agent_id in managers)
                 for r in sorted(queued, key=order)
-                if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied)
+                if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied) and not (r.agent_id in paused and r.assignment_id and not r.stop_requested_at)
             ]
         for run_id, agent_id, nested, manager in candidates:
             if agent_id in self._busy_agents or run_id in self._running:
@@ -958,6 +985,10 @@ class RunManager:
         if ok and project.auto_wake_manager and await self._waits_for_job(s, assignment):
             bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
             return
+        if ok and run.stop_requested_at and not agent.enabled:
+            # Paused, not finished: the assignment stays open and goes on when the agent is enabled again.
+            bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
+            return
         assignment.status = {
             RunStatus.SUCCEEDED: AssignmentStatus.DONE,
             RunStatus.CANCELLED: AssignmentStatus.CANCELLED,
@@ -974,8 +1005,8 @@ class RunManager:
                 await board_service.add_comment(s, ticket, f"**Assignment #{assignment.id}: {assignment.title}**\n\n{text}\n\n_{took}_", author_kind="agent", agent_id=agent.id)
             else:
                 await board_service.add_comment(s, ticket, f"Assignment #{assignment.id} ({agent.name}) {assignment.status}: {run.error}", author_kind="system")
-        if ok and assignment.landing_id:
-            return  # repair of a branch for landing: PlainBoard puts it on the next train, nobody has to read this
+        if ok and (assignment.landing_id or assignment.train_id):
+            return  # repair for landing: PlainBoard puts the branches on the next train, nobody has to read this
         ref = f", ticket #{ticket.number}" if ticket else ""
         recipient = assignment.created_by_agent_id or (await agent_service.get_manager(s, project.id)).id
         if recipient != agent.id:

@@ -13,6 +13,7 @@ export interface RepoDraft {
   default_branch: string;
   description: string;
   check_command: string;
+  quick_check_command: string;
   auth: RepoAuth;
   token: string; // write-only: empty keeps the stored one
   token_user: string;
@@ -32,6 +33,7 @@ export const emptyRepo = (): RepoDraft => ({
   default_branch: "",
   description: "",
   check_command: "",
+  quick_check_command: "",
   auth: "default",
   token: "",
   token_user: "",
@@ -211,6 +213,8 @@ export function RepositoriesEditor({
           <Input placeholder={t("projects.repoDescriptionPlaceholder")} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
           <Input placeholder={t("projects.repoCheckPlaceholder")} value={editing.check_command} onChange={(e) => setEditing({ ...editing, check_command: e.target.value })} className="font-mono" />
           <p className="text-fg-3">{t("projects.repoCheckHint")}</p>
+          <Input placeholder={t("projects.repoQuickCheckPlaceholder")} value={editing.quick_check_command} onChange={(e) => setEditing({ ...editing, quick_check_command: e.target.value })} className="font-mono" />
+          <p className="text-fg-3">{t("projects.repoQuickCheckHint")}</p>
           <AccessFields draft={editing} onChange={(patch) => setEditing({ ...editing, ...patch })} />
           <div className="flex gap-2">
             <Button size="sm" variant="primary" onClick={submit} disabled={!editing.url.trim()}>

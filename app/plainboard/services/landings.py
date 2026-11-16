@@ -77,7 +77,9 @@ async def hand_over(session: AsyncSession, repo: Repository, branch: str, head_s
         landing.failures, landing.failed_sha = 0, ""
     landing.agent_id, landing.head_sha, landing.title = agent_id, head_sha, branch[:300]
     landing.task_id = task_id or landing.task_id
-    if landing.status != LandingStatus.TRAIN:  # on a train already: its result decides
+    # On a train already: its result decides. Being repaired: it goes on when the repair is finished,
+    # together with the branches it failed with.
+    if landing.status not in (LandingStatus.TRAIN, LandingStatus.BACK):
         landing.status, landing.train_id, landing.group_no = LandingStatus.WAITING, None, None
     await session.commit()
     return landing
@@ -99,9 +101,9 @@ async def active_for_project(session: AsyncSession, project_id: int) -> list[Lan
 
 
 async def next_group(session: AsyncSession, repository_id: int) -> int:
-    """An even number above every group used so far: the two halves of a failed train get it and the next one."""
+    """A number above every group used so far, for the branches of a train that failed together."""
     used = [
         await session.scalar(select(func.max(Landing.group_no)).where(Landing.repository_id == repository_id)) or 0,
         await session.scalar(select(func.max(Train.group_no)).where(Train.repository_id == repository_id)) or 0,
     ]
-    return (max(used) // 2 + 1) * 2
+    return max(used) + 1

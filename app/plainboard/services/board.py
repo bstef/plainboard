@@ -340,6 +340,7 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
     ids = [a.id for a in assignments]
     turns: dict[int, str] = {}
     jobs: dict[int, datetime] = {}
+    paused = set(await session.scalars(select(Agent.id).where(Agent.project_id == project_id, ~Agent.enabled))) if ids else set()
     if ids:
         for assignment_id, status in (await session.execute(select(Run.assignment_id, Run.status).where(Run.assignment_id.in_(ids), Run.status.in_(ACTIVE_RUN_STATUSES)))).all():
             if status == RunStatus.RUNNING or assignment_id not in turns:
@@ -354,6 +355,8 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
     for a in assignments:
         if turns.get(a.id) == RunStatus.RUNNING:
             state = "working"
+        elif a.agent_id in paused:
+            state = "paused with its agent; it goes on by itself when the agent is enabled again"
         elif a.status == AssignmentStatus.QUEUED:
             state = "not started yet"
         elif a.id in jobs:
@@ -367,7 +370,7 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
         ticket = f" for #{numbers[landing.task_id]}" if landing.task_id in numbers else ""
         train = trains.get(landing.train_id or 0)
         if landing.status == LandingStatus.BACK:
-            state = "did not pass the checks, its author is repairing it"
+            state = "did not pass the checks, it is being repaired"
         elif landing.status == LandingStatus.TRAIN and train and train.status == TrainStatus.BLOCKED:
             state = f"passed its checks, waits for pull request #{train.number} to be merged by hand"
         elif landing.status == LandingStatus.TRAIN and train:

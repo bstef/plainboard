@@ -113,7 +113,8 @@ flowchart LR
 - **One agent owns a change** from the first line to handing it over, and reports once, when it is
   really finished.
 - **Waiting is not agent work.** Check runs, merges and polling are done by PlainBoard without a
-  model. If a train fails, it is cut in halves until the branch that breaks it is found.
+  model. A quick check (format, lint) runs the moment a branch is handed over; if a train still
+  fails, one agent makes its branches pass together. Work goes on by itself after a restart.
 
 ## Configure
 

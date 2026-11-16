@@ -10,10 +10,13 @@ agent pushes its branch and hands it over (merge_when_green). On a timer, withou
   of check runs follows the clock, not the number of changes. A train waits a moment for further
   branches before it leaves.
 - A train that passes lands: all its branches are on the base branch.
-- A train that fails is cut in halves, each checked on its own, until the branch that breaks the
-  checks is found. Only that one goes back to its author, as one assignment. If both halves of a
-  train fail, the cause is rarely a branch (a broken base branch, a flaky check): landing stops for
-  those branches and the manager is told, instead of more check runs.
+- A train that fails costs no further check run to find out why. One agent gets its branches and
+  the failures as one assignment and makes them pass together; a branch that needs more than a
+  small fix it gives back to its author (return_branch), so the others land without it. The
+  repaired branches are then checked again as a group. Searching for one guilty branch by checking
+  halves does not work here: several branches fail at once, each for its own reason, and some only
+  pass together. Meanwhile the next train leaves with what is new.
+- After a few failed rounds the manager decides.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from plainboard_protocol import Credentials, PullRequestState, RepoSpec, TrainCheckSpec, TrainLandSpec, TrainSpec
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..models import Agent, Assignment, AssignmentStatus, Landing, LandingStatus, Project, Repository, Task, Train, TrainStatus, utcnow
@@ -243,57 +246,53 @@ class LandingWatcher:
         await self._tell_manager(s, r, f"Not landed in {r.repo.name}: {branches} {what}. PlainBoard has stopped for these branches; fix the cause, then hand them over again with merge_when_green.")
 
     async def _failed(self, s: AsyncSession, r: Repo, train: Train, members: list[Landing], summary: str, evidence: str) -> None:
-        """The train did not pass. One branch on it: that is the one. Several: check the halves."""
+        """The train did not pass. One branch on it: its author repairs it. Several: one agent makes
+        them pass together, and they are checked again as a group."""
         train.status = TrainStatus.FAILED
         await s.commit()
         if len(members) == 1:
             instructions = prompts.repair_instructions(members[0].branch, evidence, members[0].failures + 1, landing_service.MAX_FAILED_ROUNDS)
             await self._back(s, r, members[0], f"did not pass on its own ({summary})", f"Repair branch {members[0].branch}", instructions)
             return
-        other_half = select(Train.id).where(Train.repository_id == r.repo.id, Train.group_no == (train.group_no or 0) ^ 1, Train.status == TrainStatus.FAILED)
-        if train.group_no is not None and await s.scalar(other_half.limit(1)):
-            # Both halves of a failed train failed: more check runs would not find one guilty branch.
-            rest = list(await s.scalars(select(Landing).where(Landing.repository_id == r.repo.id, Landing.status == LandingStatus.WAITING, Landing.group_no.is_not(None))))
-            paused = [*members, *rest]
-            for landing in paused:
-                landing.status, landing.train_id, landing.group_no = LandingStatus.STUCK, None, None
+        for member in members:
+            member.failures += 1
+            member.failed_sha = member.head_sha
+        rounds = max(m.failures for m in members)
+        fixer = await self._fixer(s, members)
+        labels = [await label(s, m) for m in members]
+        if rounds >= landing_service.MAX_FAILED_ROUNDS or fixer is None:
+            for member in members:
+                member.status, member.train_id, member.group_no = LandingStatus.STUCK, None, None
             await s.commit()
-            branches = "; ".join([await self._label(s, m) for m in paused])
+            why = f"{rounds} times now" if fixer else "and none of their authors is available"
             await self._tell_manager(
                 s, r,
-                f"Landing in {r.repo.name} has stopped: a train failed ({summary}), and so did both of its halves. That points to {train.base} itself or a "
-                f"check that fails at random, not to one branch. Not landed: {branches}. Getting that cause fixed is the most valuable work now; "
-                "then hand the branches over again with merge_when_green.",
+                f"Not landed in {r.repo.name}: {'; '.join(labels)} did not pass together ({summary}), {why}. PlainBoard has stopped for these branches. "
+                "Decide how to go on (another approach, the failing check itself, the user); merge_when_green puts a branch on a train again.",
             )
             return
         group = await landing_service.next_group(s, r.repo.id)
-        half = (len(members) + 1) // 2
-        for index, member in enumerate(members):
-            member.status, member.train_id, member.group_no = LandingStatus.WAITING, None, group + (index >= half)
+        for member in members:
+            member.status, member.group_no = LandingStatus.BACK, group  # train_id stays: it names the repair they wait for
         await s.commit()
+        instructions = prompts.train_repair_instructions(r.repo.name, train.base, labels, evidence, rounds, landing_service.MAX_FAILED_ROUNDS)
+        await self._runs.delegate(s, None, fixer, f"Make {len(members)} branches of {r.repo.name} pass together", instructions, None, train_id=train.id)
+
+    @staticmethod
+    async def _fixer(s: AsyncSession, members: list[Landing]) -> Agent | None:
+        """Who repairs a failed train: the author of most of its branches who is available."""
+        counts: dict[int, int] = {}
+        for member in members:
+            if member.agent_id:
+                counts[member.agent_id] = counts.get(member.agent_id, 0) + 1
+        for agent_id in sorted(counts, key=lambda a: -counts[a]):
+            agent = await s.get(Agent, agent_id)
+            if agent and agent.enabled:
+                return agent
+        return None
 
     async def _back(self, s: AsyncSession, r: Repo, landing: Landing, what: str, title: str, instructions: str) -> None:
-        """Give a branch back to its author as one assignment; after a few rounds the manager decides."""
-        landing.failures += 1
-        landing.failed_sha, landing.train_id, landing.group_no = landing.head_sha, None, None
-        author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
-        ticket = await self._ticket(s, landing)
-        if landing.failures >= landing_service.MAX_FAILED_ROUNDS or author is None or not author.enabled:
-            landing.status = LandingStatus.STUCK
-            await s.commit()
-            why = f"{landing.failures} times now" if author and author.enabled else "and its author is not available"
-            await self._tell_manager(
-                s, r,
-                f"Not landed in {r.repo.name}: {await self._label(s, landing)} {what}, {why}. PlainBoard has stopped for this branch. "
-                "Decide how to go on (another approach, the failing check itself, the user); merge_when_green puts it on a train again.",
-            )
-            return
-        landing.status = LandingStatus.BACK
-        await s.commit()
-        if ticket:
-            await board_service.add_comment(s, ticket, f"Branch {landing.branch} {what}. Back to {author.name}.", author_kind="system")
-        if not await self._open_repair(s, landing):
-            await self._runs.delegate(s, None, author, title, instructions, ticket, landing_id=landing.id)
+        await give_back(s, self._runs, r.repo, r.project, landing, what, title, instructions)
 
     # ------------------------------------------------------------------ the next train
 
@@ -301,7 +300,7 @@ class LandingWatcher:
         """Assemble the next train from what is ready, and start its check."""
         ready = select(Landing).where(Landing.repository_id == r.repo.id)
         for landing in list(await s.scalars(ready.where(Landing.status == LandingStatus.BACK))):
-            if not await self._open_repair(s, landing):  # repaired: it goes on the next train by itself
+            if not await open_repair(s, landing):  # repaired: it goes on the next train by itself
                 landing.status = LandingStatus.WAITING
         await s.commit()
         waiting = list(await s.scalars(ready.where(Landing.status == LandingStatus.WAITING).order_by(Landing.id)))
@@ -311,12 +310,14 @@ class LandingWatcher:
             if not landing.branch:
                 landing.status = LandingStatus.CLOSED
         waiting = [w for w in waiting if w.branch]
-        # While a failed train is being narrowed down, its halves go first, one at a time.
+        # Branches that were repaired together go first and on their own: what fails then is theirs.
         groups = {w.group_no for w in waiting if w.group_no is not None}
         group = min(groups) if groups else None
         pick = [w for w in waiting if w.group_no == group][: landing_service.MAX_TRAIN]
         await s.commit()
         if not pick:
+            return
+        if group is not None and await self._unrepaired(s, r, pick):
             return
         if group is None and self.linger > 0 and (now - min(p.updated_at for p in pick)).total_seconds() < self.linger:
             return  # more branches may be about to get ready: a fuller train means fewer check runs
@@ -341,7 +342,8 @@ class LandingWatcher:
             base=r.repo.default_branch or None,
             branch=f"plainboard/train-{train.id}",
             members=[p.branch for p in pick],
-            skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha},
+            # A group failed together: a branch of it that needed no change still belongs on the train.
+            skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha} if group is None else {},
             github=r.slug if r.mode == landing_service.GITHUB else None,
             title="Land " + truncate(", ".join(p.branch for p in pick), 200),
             body=body,
@@ -378,25 +380,89 @@ class LandingWatcher:
             await s.commit()
             await self._tell_manager(s, r, f"Not landed in {r.repo.name}: {await self._label(s, landing)} {why}. Read the report on its ticket and decide how to go on; merge_when_green puts it on a train again.")
 
-    # ------------------------------------------------------------------ helpers
+    async def _unrepaired(self, s: AsyncSession, r: Repo, pick: list[Landing]) -> bool:
+        """Whether a group comes back from its repair exactly as it failed: the same branches, none
+        of them changed. Checking that again would fail again, so the manager decides."""
+        failed = await s.get(Train, pick[0].train_id) if pick[0].train_id else None
+        if failed is None or failed.size != len(pick):
+            return False  # a branch was taken off: the others may pass without it
+        for landing in pick:
+            if await self._runs.runner.branch_head(r.credentials, r.remote, landing.branch) != landing.failed_sha:
+                return False
+        for landing in pick:
+            landing.status, landing.train_id, landing.group_no = LandingStatus.STUCK, None, None
+        await s.commit()
+        branches = "; ".join([await label(s, p) for p in pick])
+        await self._tell_manager(
+            s, r,
+            f"Not landed in {r.repo.name}: {branches} did not pass together, and their repair changed none of them. PlainBoard has stopped for these "
+            "branches. Read the repair's report (list_assignments): if the cause is outside the branches (a check that fails at random, a broken "
+            f"{failed.base}), get that fixed; merge_when_green puts a branch on a train again.",
+        )
+        return True
 
-    @staticmethod
-    async def _open_repair(s: AsyncSession, landing: Landing) -> bool:
-        q = select(Assignment.id).where(Assignment.landing_id == landing.id, Assignment.status.in_((AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)))
-        return bool(await s.scalar(q.limit(1)))
+    # ------------------------------------------------------------------ helpers
 
     @staticmethod
     async def _ticket(s: AsyncSession, landing: Landing) -> Task | None:
         return await s.get(Task, landing.task_id) if landing.task_id else None
 
     async def _label(self, s: AsyncSession, landing: Landing) -> str:
-        author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
-        ticket = await self._ticket(s, landing)
-        about = ", ".join(part for part in (author.name if author else "", f"ticket #{ticket.number}" if ticket else "") if part)
-        return landing.branch + (f" ({about})" if about else "")
+        return await label(s, landing)
 
     async def _tell_manager(self, s: AsyncSession, r: Repo, text: str) -> None:
-        manager = await agent_service.get_manager(s, r.project.id)
-        await inbox.push(s, manager.id, text)
-        if r.project.auto_wake_manager:
-            await self._runs.request_wake(s, manager.id)
+        await tell_manager(s, self._runs, r.project, text)
+
+
+async def open_repair(s: AsyncSession, landing: Landing) -> bool:
+    """Whether someone is repairing this branch right now: on its own, or with the train it failed on."""
+    mine = Assignment.landing_id == landing.id
+    if landing.train_id is not None:
+        mine = or_(mine, Assignment.train_id == landing.train_id)
+    q = select(Assignment.id).where(mine, Assignment.status.in_((AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)))
+    return bool(await s.scalar(q.limit(1)))
+
+
+async def label(s: AsyncSession, landing: Landing) -> str:
+    author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
+    ticket = await s.get(Task, landing.task_id) if landing.task_id else None
+    about = ", ".join(part for part in (author.name if author else "", f"ticket #{ticket.number}" if ticket else "") if part)
+    return landing.branch + (f" ({about})" if about else "")
+
+
+async def tell_manager(s: AsyncSession, runs: RunManager, project: Project, text: str) -> None:
+    manager = await agent_service.get_manager(s, project.id)
+    await inbox.push(s, manager.id, text)
+    if project.auto_wake_manager:
+        await runs.request_wake(s, manager.id)
+
+
+async def give_back(
+    s: AsyncSession, runs: RunManager, repo: Repository, project: Project, landing: Landing, what: str, title: str, instructions: str, *, counts: bool = True
+) -> bool:
+    """Give a branch back to its author as one assignment; after a few rounds the manager decides.
+    False if it went to the manager. ``counts``: this is a failed round of its own (not one that was
+    counted with its train already)."""
+    if counts:
+        landing.failures += 1
+        landing.failed_sha = landing.head_sha
+    landing.train_id, landing.group_no = None, None
+    author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
+    ticket = await s.get(Task, landing.task_id) if landing.task_id else None
+    if landing.failures >= landing_service.MAX_FAILED_ROUNDS or author is None or not author.enabled:
+        landing.status = LandingStatus.STUCK
+        await s.commit()
+        why = f"{landing.failures} times now" if author and author.enabled else "and its author is not available"
+        await tell_manager(
+            s, runs, project,
+            f"Not landed in {repo.name}: {await label(s, landing)} {what}, {why}. PlainBoard has stopped for this branch. "
+            "Decide how to go on (another approach, the failing check itself, the user); merge_when_green puts it on a train again.",
+        )
+        return False
+    landing.status = LandingStatus.BACK
+    await s.commit()
+    if ticket:
+        await board_service.add_comment(s, ticket, f"Branch {landing.branch} {what}. Back to {author.name}.", author_kind="system")
+    if not await open_repair(s, landing):
+        await runs.delegate(s, None, author, title, instructions, ticket, landing_id=landing.id)
+    return True

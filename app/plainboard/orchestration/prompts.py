@@ -33,11 +33,17 @@ Time here is the opposite of what human teams are used to, and your instincts ab
     possible, and PlainBoard starts them, nobody else. It merges all finished branches of a repository
     into one train and has that checked once; what gets ready meanwhile goes on the next train. So the
     number of check runs follows the clock, not the number of changes. A train that passes lands all
-    its branches. If one fails, PlainBoard finds the branch that breaks it and gives only that one back
-    to its author. You hear of it when branches have landed or when it cannot go on. What checks a train
-    is the repository's check command (update_repository check_command, e.g. the script its CI runs);
-    without one, on GitHub, the checks of one pull request for the train. If a member reports that
-    PlainBoard cannot land a repository's branches, set that command.
+    its branches. One that fails goes to one member as one assignment: it makes the branches pass
+    together, and gives a branch that needs more than a small fix back to its author. You hear of it
+    when branches have landed or when it cannot go on. What checks a train is the repository's check
+    command (update_repository check_command, e.g. the script its CI runs); without one, on GitHub,
+    the checks of one pull request for the train. If a member reports that PlainBoard cannot land a
+    repository's branches, set that command.
+  - What a minute can check must never cost a train. Give every repository a quick check
+    (update_repository quick_check_command: format, lint, whatever its checks reject within a minute
+    or two). PlainBoard runs it the moment a branch is handed over, and its author fixes what it finds
+    in the same turn. When a train fails on something that fast, add it to the quick check.
+  - Changes that only pass together are one branch: have one member merge them and hand over that one.
   - So nobody opens a pull request per change, pushes work in progress, starts or re-runs checks,
     watches them, or merges by hand, and you never collect or merge branches yourself. Nobody runs the
     full suite on the machine before handing over either: that is what the train is for.
@@ -185,9 +191,11 @@ them:
     run once more. Never repeat a run without a change in between.
   - Use the fastest check that can catch your mistake. The full suite and CI are not yours to start:
     PlainBoard runs them once for all finished branches together.
-  - Push your branch once, when the change is complete, and hand it over with merge_when_green. Open
-    no pull request, push no work in progress, start, re-run or watch no checks: each of these costs
-    a check run that everybody waits for.
+  - Push your branch once, when the change is complete, and hand it over with merge_when_green. It
+    runs the repository's quick check (format, lint) on what you pushed and answers at once: fix
+    everything it reports, push and hand over again. Changes of yours that only pass together go
+    into one branch. Open no pull request, push no work in progress, start, re-run or watch no
+    checks: each of these costs a check run that everybody waits for.
   - A failure that does not come from your change (a flaky test, a broken main branch, a full disk):
     re-run once at most, then say so in your report. Don't work around it in circles.
 
@@ -549,13 +557,49 @@ def continue_prompt(assignment: Assignment, ledger: str) -> str:
     )
 
 
+RESTART_NOTE = (
+    "PlainBoard was restarted while you were working: your last turn was cut off, and its last step may be half done. "
+    "Look at where the work stands (git status, your steps above), then go on. Nothing has to be started over."
+)
+RESUME_NOTE = "You were paused and are enabled again. Go on with your open assignment where you stopped; your last message says where that is."
+
+
 def repair_instructions(branch: str, evidence: str, round_no: int, max_rounds: int) -> str:
     return (
         f"Your branch {branch} did not pass the checks. It was checked on its own, so the cause is in it (or in the base branch):\n{evidence}\n\n"
-        "Fix every failure in one go, see with the fastest check that shows the failure that it is gone, and push to the same branch. "
-        "PlainBoard puts the branch on the next train by itself when you are done: don't call merge_when_green again, open no pull "
-        "request and wait for no checks. If it failed for a reason outside your change (a check that fails at random, a broken base "
-        "branch), change nothing and say so in your report.\n"
+        "Fix every failure in one go, see with the fastest check that shows the failure that it is gone, push to the same branch and "
+        "hand it over with merge_when_green (it runs the quick check). PlainBoard puts the branch on the next train when you are done: "
+        "open no pull request and wait for no checks. If it failed for a reason outside your change (a check that fails at random, a "
+        "broken base branch), change nothing and say so in your report.\n"
+        f"This is failed round {round_no} of {max_rounds}; after that the manager decides how to go on."
+    )
+
+
+def train_repair_instructions(repo: str, base: str, branches: list[str], evidence: str, round_no: int, max_rounds: int) -> str:
+    listed = "\n".join(f"- {b}" for b in branches)
+    return (
+        f"These {len(branches)} finished branches of {repo} were merged onto {base} and checked together, and that did not pass:\n{listed}\n\n"
+        f"{evidence}\n\n"
+        "Each may be fine on its own; several can fail at once, each for its own reason, and some only fail together. "
+        "Make them pass together, in one go:\n"
+        f"1. Read every failure once. Then take one of the branches and merge origin/{base} and the others into it.\n"
+        "2. A branch that needs more than a small fix (a redesign, a decision): don't merge it. Give it back to its author with "
+        "return_branch, so the others land without it.\n"
+        "3. Fix everything else on that one branch, run the checks that failed on it once (the part that shows the failure, not the "
+        "whole suite), push it and hand it over with merge_when_green.\n"
+        "That branch then carries the others, so all of them land with it. PlainBoard checks them again when you finish: open no pull "
+        "request and wait for no checks. If the cause is outside the branches (a check that fails at random, a broken base branch), "
+        "change nothing and say so in your report.\n"
+        f"This is failed round {round_no} of {max_rounds}; after that the manager decides how to go on."
+    )
+
+
+def returned_instructions(branch: str, by: str, reason: str, round_no: int, max_rounds: int) -> str:
+    return (
+        f"Your branch {branch} was checked together with other finished branches, and that did not pass. {by}, who repaired them, "
+        f"took yours off because it needs more than a small fix:\n{reason.strip()}\n\n"
+        "Fix it, see with the fastest check that shows the failure that it is gone, push to the same branch and hand it over with "
+        "merge_when_green. PlainBoard puts it on the next train when you are done: open no pull request and wait for no checks.\n"
         f"This is failed round {round_no} of {max_rounds}; after that the manager decides how to go on."
     )
 

@@ -140,9 +140,11 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   and moves the ticket to *Done* (*Review* only if you have to look at something).
 - Finished branches land together. A member pushes its branch and hands it over
   (`merge_when_green`). PlainBoard, without any model, checks one train of branches per repository at
-  a time, so check runs follow the clock instead of the number of changes. If a train fails, it is
-  cut in halves until the branch that breaks the checks is found, and only that one goes back to its
-  author. A repository's **check command** (e.g. `./scripts/ci.sh`) decides whether a train may land;
+  a time, so check runs follow the clock instead of the number of changes. If a train fails, one
+  member gets its branches and the failures as one assignment and makes them pass together; a branch
+  that needs more goes back to its author. A repository's **quick check** (e.g.
+  `cargo fmt --check && cargo clippy`) runs the moment a branch is handed over, so format and lint
+  never cost a check run. A repository's **check command** (e.g. `./scripts/ci.sh`) decides whether a train may land;
   this works with any git host. Without one, on GitHub, the checks of one pull request for the train
   decide.
 - Time is measured and shown to the agents where they decide (how long a command took, work against

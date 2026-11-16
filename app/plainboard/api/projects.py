@@ -111,9 +111,13 @@ async def create_agent(project_id: int, body: AgentCreate, session: Session, run
 @router.patch("/agents/{agent_id}", response_model=AgentOut)
 async def update_agent(agent_id: int, body: AgentUpdate, session: Session, runner: Runner, runs: Runs) -> AgentOut:
     catalog = await _catalog(runner, body.provider)
-    agent = await agent_service.update(session, await agent_service.get(session, agent_id), body, catalog)
+    agent = await agent_service.get(session, agent_id)
+    was_enabled = agent.enabled
+    agent = await agent_service.update(session, agent, body, catalog)
     if body.enabled is False:
         await runs.wind_down(session, agent)
+    elif body.enabled and not was_enabled:
+        await runs.resume(session, agent)
     (out,) = await agent_service.to_out(session, [agent])
     return out
 

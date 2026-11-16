@@ -60,25 +60,45 @@ def test_manager_setup_script_reaches_the_runner(client, project):
     assert "install it yourself" in spec.system_prompt.replace("\n", " ")
 
 
-def test_restart_reports_interrupted_assignment_to_the_manager(client, project):
+def interrupted_assignment(client, pid: int, dev: dict, manager: dict, ticket: dict, cut_off_before: int = 0) -> None:
+    """An assignment whose turn was running when the app stopped, then the restart."""
     from plainboard.db import sessionmaker
     from plainboard.models import Assignment, Run
-
-    pid = project["id"]
-    dev = make_dev(client, pid)
-    manager = agents_by_slug(client, pid)["manager"]
-    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "in_progress"}).json()
 
     async def interrupt_and_restart():
         async with sessionmaker()() as s:
             assignment = Assignment(project_id=pid, task_id=ticket["id"], agent_id=dev["id"], created_by_agent_id=manager["id"], title="Do the work", instructions="x", status="running")
             s.add(assignment)
             await s.commit()
+            for _ in range(cut_off_before):
+                s.add(Run(project_id=pid, agent_id=dev["id"], trigger="wake", input_text="", status="failed", error="Interrupted by a restart", assignment_id=assignment.id))
             s.add(Run(project_id=pid, agent_id=dev["id"], trigger="assignment", input_text="x", status="running", assignment_id=assignment.id, task_id=ticket["id"]))
             await s.commit()
         await client.app_ref.state.runs._recover_interrupted()
 
     client.portal.call(interrupt_and_restart)
+
+
+def test_an_assignment_interrupted_by_a_restart_goes_on_by_itself(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "in_progress"}).json()
+    interrupted_assignment(client, pid, dev, manager, ticket)
+    wait_for(lambda: idle(client, pid) and client.get(f"/api/tasks/{ticket['id']}").json()["assignments"][0]["status"] == "done")
+    # Its agent continued in its own turn: no manager turn and no new assignment were needed for that.
+    resumed = next(s for s in runner(client).specs if "PlainBoard was restarted while you were working" in s.prompt)
+    assert 'Go on with assignment #1 "Do the work"' in resumed.prompt and "delegate" not in {t.name for t in resumed.bridge.tools}
+    assert len(client.get(f"/api/tasks/{ticket['id']}").json()["assignments"]) == 1
+    assert not any("interrupted by a restart" in s.prompt for s in runner(client).specs)
+
+
+def test_an_assignment_that_restarts_keep_cutting_off_is_reported_to_the_manager(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "in_progress"}).json()
+    interrupted_assignment(client, pid, dev, manager, ticket, cut_off_before=2)
     wait_for(lambda: idle(client, pid))
     spec = runner(client).specs[-1]
     assert spec.bridge.tools and "Do the work" in spec.prompt and "interrupted by a restart" in spec.prompt
@@ -870,6 +890,26 @@ def test_manager_pauses_a_teammate_and_drops_its_queue(client, project):
     assert tools[2]["meta"]["is_error"] is True
     runner(client).released = True
     wait_for(lambda: idle(client, pid))
+
+
+def test_a_paused_agent_keeps_its_assignments_and_goes_on_when_enabled_again(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    first = json.dumps({"agent": "dev", "title": "First", "instructions": "HOLD"})
+    second = json.dumps({"agent": "dev", "title": "Second", "instructions": "SAY second done"})
+    chat(client, manager["id"], f"TOOL delegate {first}\nTOOL delegate {second}")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid, agent_id=dev["id"])))
+    assert client.patch(f"/api/agents/{dev['id']}", json={"enabled": False}).status_code == 200
+    runner(client).released = True  # it wraps up
+    wait_for(lambda: idle(client, pid) or all(r["status"] == "queued" for r in runs_of(client, pid, active=True)))
+    states = {a["title"]: a["status"] for a in client.get(f"/api/projects/{pid}/assignments").json()}
+    assert states == {"First": "running", "Second": "queued"}  # nothing was closed or dropped, and nobody got a report
+    assert [r["trigger"] for r in runs_of(client, pid, agent_id=manager["id"])] == ["chat"]
+
+    assert client.patch(f"/api/agents/{dev['id']}", json={"enabled": True}).status_code == 200
+    wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in client.get(f"/api/projects/{pid}/assignments").json()))
+    assert any("You were paused and are enabled again" in s.prompt and "Go on with assignment #1" in s.prompt for s in runner(client).specs)
 
 
 def test_working_teammate_is_told_to_wrap_up_not_aborted(client, project):

@@ -127,6 +127,8 @@
     "repoDescriptionPlaceholder": "What's in it? Helps the manager route work (optional)",
     "repoCheckPlaceholder": "Check command, e.g. ./scripts/ci.sh (optional)",
     "repoCheckHint": "Decides whether finished branches may land. PlainBoard merges all finished branches, runs this once for all of them and pushes to the base branch if it succeeds: works with any git host. Empty: on GitHub, the checks of one pull request for the merged branches decide.",
+    "repoQuickCheckPlaceholder": "Quick check, e.g. cargo fmt --check && cargo clippy (optional)",
+    "repoQuickCheckHint": "The fast part of the checks: format, lint, anything that takes a minute or two. PlainBoard runs it in the agent's clone the moment a branch is handed over, so such failures come back at once instead of costing a check run for everyone.",
     "confirmRemoveRepo": "Remove repository \"{{name}}\" from the project? Existing clones stay on disk.",
     "pickFromGithub": "Choose from GitHub",
     "addRepoByUrl": "Add by URL",

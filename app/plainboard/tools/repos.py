@@ -20,6 +20,7 @@ class AddRepoArgs(BaseModel):
     branch: str | None = Field(default=None, description="Branch to check out; default: the repo's default")
     description: str = Field(default="", description="What the repository contains (helps routing work)")
     check_command: str = Field(default="", description="Command that decides whether finished branches may land; run once on all of them merged. Empty: on GitHub, a pull request's checks")
+    quick_check_command: str = Field(default="", description="Fast checks (format, lint; a minute or two), run on each branch when it is handed over")
     agents: list[str] | None = Field(default=None, description="Grant access to these agents (agents with access to all repos get it anyway)")
 
 
@@ -30,6 +31,7 @@ class UpdateRepoArgs(BaseModel):
     branch: str | None = None
     description: str | None = None
     check_command: str | None = Field(default=None, description="Decides whether finished branches may land; '' = on GitHub, a pull request's checks")
+    quick_check_command: str | None = Field(default=None, description="Fast checks (format, lint; a minute or two), run on each branch when it is handed over; '' = none")
 
 
 class RepoRef(BaseModel):
@@ -61,7 +63,8 @@ async def list_repositories(ctx: ToolContext, _args) -> str:
         who = [a.slug for a in agents if repo in repo_service.accessible(a, repos)]
         branch = f" @{repo.default_branch}" if repo.default_branch else ""
         about = f" — {truncate(repo.description, 100)}" if repo.description else ""
-        lines.append(f"{repo.name}{branch}: {repo.url}{about} | agents: {', '.join(who) or 'none'}")
+        quick = f" | quick check: {truncate(repo.quick_check_command, 80)}" if repo.quick_check_command.strip() else ""
+        lines.append(f"{repo.name}{branch}: {repo.url}{about} | agents: {', '.join(who) or 'none'}{quick}")
     return "\n".join(lines)
 
 
@@ -71,12 +74,12 @@ async def add_repository(ctx: ToolContext, args: AddRepoArgs) -> str:
     repo = await repo_service.create(
         ctx.session,
         ctx.project.id,
-        RepositoryCreate(url=args.url, name=args.name, default_branch=args.branch, description=args.description, check_command=args.check_command, agent_ids=agent_ids),
+        RepositoryCreate(url=args.url, name=args.name, default_branch=args.branch, description=args.description, check_command=args.check_command, quick_check_command=args.quick_check_command, agent_ids=agent_ids),
     )
     return f"Repository {repo.name} added."
 
 
-@tool("update_repository", "Change a repository's URL, folder name, branch, description or check command.", UpdateRepoArgs, roles=(MANAGER,))
+@tool("update_repository", "Change a repository's URL, folder name, branch, description or check commands.", UpdateRepoArgs, roles=(MANAGER,))
 async def update_repository(ctx: ToolContext, args: UpdateRepoArgs) -> str:
     repo = await repo_service.resolve(ctx.session, ctx.project.id, args.repository)
     fields = args.model_dump(exclude_unset=True, exclude={"repository", "branch"})

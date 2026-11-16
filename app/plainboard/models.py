@@ -69,7 +69,7 @@ class DecisionStatus(StrEnum):
 class LandingStatus(StrEnum):
     WAITING = "open"  # handed over: goes on the next train
     TRAIN = "train"  # on a train whose checks are running
-    BACK = "back"  # it broke a train or conflicts: its author is repairing it
+    BACK = "back"  # it did not pass or conflicts: it is being repaired
     MERGED = "merged"  # on the base branch
     CLOSED = "closed"
     STUCK = "stuck"  # handed to the manager
@@ -170,6 +170,9 @@ class Repository(Timestamps, Base):
     # and pushes to the base branch if it succeeds. Works with any git host. Empty: on GitHub, the
     # checks of a pull request for the merged branches decide.
     check_command: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # The fast part of the checks (format, lint, ...). PlainBoard runs it on a branch at the moment
+    # its author hands it over, in the author's clone: what it catches never costs a check run.
+    quick_check_command: Mapped[str] = mapped_column(Text, default="", server_default="")
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")
@@ -324,6 +327,8 @@ class Assignment(Timestamps, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
     # Set when PlainBoard itself ordered this work: repairing that branch, which broke a train or conflicts.
     landing_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    # Or repairing the branches of that train, which did not pass together.
+    train_id: Mapped[int | None] = mapped_column(Integer, index=True)
 
 
 class Landing(Timestamps, Base):
@@ -346,7 +351,8 @@ class Landing(Timestamps, Base):
     failed_sha: Mapped[str] = mapped_column("handled_sha", String(64), default="")  # the head it last failed with
     failures: Mapped[int] = mapped_column(Integer, default=0)  # times it went back to its author
     train_id: Mapped[int | None] = mapped_column(Integer, index=True)  # the train it is on, or landed with
-    # While PlainBoard narrows down which branch broke a train: the half this branch is in.
+    # Branches that failed together and are repaired together share a number: they are checked
+    # again as that group, before anything new joins them.
     group_no: Mapped[int | None] = mapped_column(Integer)
     merged_at: Mapped[datetime | None] = mapped_column(DateTime)
 
@@ -367,7 +373,7 @@ class Train(Timestamps, Base):
     number: Mapped[int | None] = mapped_column(Integer)  # github: its pull request
     url: Mapped[str] = mapped_column(String(500), default="")
     job_id: Mapped[str | None] = mapped_column(String(32))  # command: the runner job that runs the check
-    group_no: Mapped[int | None] = mapped_column(Integer)  # a half of a failed train (see Landing.group_no)
+    group_no: Mapped[int | None] = mapped_column(Integer)  # the repaired branches of a failed train (see Landing.group_no)
     size: Mapped[int] = mapped_column(Integer, default=0)  # branches on it
     check_seconds: Mapped[int] = mapped_column(Integer, default=0)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
