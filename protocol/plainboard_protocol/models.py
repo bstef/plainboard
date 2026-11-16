@@ -200,6 +200,9 @@ class TrainSpec(BaseModel):
     members: list[str]  # branches, in the order they are merged
     # Leave a branch out while its head is still this commit: it failed like this before.
     skip_unchanged: dict[str, str] = Field(default_factory=dict)
+    # A branch that changes anything under these paths is checked alone: first in line it is the
+    # whole train, later in line it is left for the next one (TrainResult.held).
+    alone_paths: list[str] = Field(default_factory=list)
     # owner/name on GitHub: push the train's branch and open a pull request, whose checks check the
     # train. None: the train is checked by a command in the clone and never pushed as a branch.
     github: str | None = Field(default=None, pattern=r"^[\w.-]+/[\w.-]+$")
@@ -217,6 +220,7 @@ class TrainResult(BaseModel):
     missing: list[str] = Field(default_factory=list)  # not on the remote
     unchanged: list[str] = Field(default_factory=list)  # left out: see TrainSpec.skip_unchanged
     landed: list[str] = Field(default_factory=list)  # already contained in the base branch
+    held: list[str] = Field(default_factory=list)  # left for the next train: see TrainSpec.alone_paths
 
 
 class TrainCheckSpec(BaseModel):

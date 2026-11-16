@@ -225,11 +225,13 @@ class Agent(Timestamps, Base):
     model: Mapped[str] = mapped_column(String(100))
     effort: Mapped[str | None] = mapped_column(String(20))
     toolset: Mapped[str] = mapped_column(String(20), default="full")
-    context_limit_tokens: Mapped[int] = mapped_column(Integer, default=120000)
+    context_limit_tokens: Mapped[int] = mapped_column(Integer, default=350000)
     keep_recent_messages: Mapped[int] = mapped_column(Integer, default=6)
     summary_model: Mapped[str] = mapped_column(String(100), default="claude-haiku-5-5")
     max_turns: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Paused together with the rest of the team (pause_team): resume_team enables exactly these again.
+    team_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     color: Mapped[str] = mapped_column(String(20), default="#6366f1")
     all_repos: Mapped[bool] = mapped_column(Boolean, default=True)  # False = only `repositories`
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))  # None = automatic

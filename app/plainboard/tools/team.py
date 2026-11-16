@@ -197,7 +197,7 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort)
     effort = f" (effort {args.effort})" if args.effort else ""
     limit = int(await settings_service.get(ctx.session, "max_parallel_runs"))
-    capacity = await board_service.capacity(ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id)
+    capacity = await board_service.capacity(ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id, waiting=ctx.runs.waiting_for_job())
     use = f"{capacity.working} of {limit} parallel agents in use"
     if limit < 1:
         state = "Members are paused by the user (limit 0): it starts when they raise it."
@@ -282,6 +282,35 @@ async def stop_agent(ctx: ToolContext, args: StopAgentArgs) -> str:
             return f"{target.slug} was told to wrap up after its current step. Paused until enabled again: its assignments stay open and go on by themselves then."
         return f"{target.slug} was told to wrap up after its current step; its report comes as an update."
     return f"{target.slug} is not working.{paused}"
+
+
+class PauseTeamArgs(BaseModel):
+    reason: str = Field(default="", max_length=300)
+
+
+@tool(
+    "pause_team",
+    "Pause all members at once: they finish their current step, their assignments stay open. resume_team continues everything. Not needed for a restart or update of PlainBoard: work goes on by itself after one.",
+    PauseTeamArgs,
+    roles=(MANAGER,),
+)
+async def pause_team(ctx: ToolContext, args: PauseTeamArgs) -> str:
+    members = await agent_service.pause_team(ctx.session, ctx.project.id)
+    if not members:
+        return "No member to pause: all are off already."
+    wrapping_up = [m.slug for m in members if await ctx.runs.wind_down(ctx.session, m, args.reason)]
+    working = f" Finishing their current step: {', '.join(wrapping_up)}." if wrapping_up else " None of them was working."
+    return f"Paused {len(members)} members.{working} Their assignments stay open; resume_team continues them."
+
+
+@tool("resume_team", "Continue after pause_team: the members it paused work on, with what they had open.", roles=(MANAGER,))
+async def resume_team(ctx: ToolContext, _args) -> str:
+    members = await agent_service.resume_team(ctx.session, ctx.project.id)
+    if not members:
+        return "No member was paused with pause_team."
+    for member in members:
+        await ctx.runs.resume(ctx.session, member)
+    return f"Resumed {', '.join(m.slug for m in members)}. Their open assignments go on by themselves: don't delegate them again."
 
 
 @tool("read_chat", "Read a teammate's conversation, newest messages last.", ReadChatArgs, roles=ALL)

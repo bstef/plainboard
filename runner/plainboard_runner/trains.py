@@ -100,15 +100,22 @@ async def assemble(spec: TrainSpec) -> TrainResult:
         await git("checkout", "-q", "-f", "-B", spec.branch, f"refs/remotes/origin/{base}")
         await git("clean", "-q", "-fdx")
         base_sha = await git("rev-parse", "HEAD")
+        alone = False  # the train is one branch that changes the checks themselves
         for branch in members:
             before = await git("rev-parse", "HEAD")
             ref = f"refs/remotes/origin/{branch}"
+            # What the branch itself changed since it left the base branch, whatever was merged before it.
+            changes_checks = bool(spec.alone_paths) and not await git.ok("diff", "--quiet", f"{base_sha}...{ref}", "--", *spec.alone_paths)
+            if alone or (changes_checks and result.merged):
+                result.held.append(branch)
+                continue
             if not await git.ok("merge", "-q", "--no-ff", "--no-edit", "-m", f"Land {branch}", ref):
                 if not await git.ok("merge", "--abort"):
                     await git("reset", "-q", "--hard", before)
                 result.conflicts.append(branch)
             elif await git("rev-parse", "HEAD") != before or not await git.ok("merge-base", "--is-ancestor", ref, base_sha):
                 result.merged[branch] = heads[branch]  # also a branch that an earlier member already brought along
+                alone = changes_checks
             else:
                 result.landed.append(branch)  # the base branch has it already
         result.head_sha = await git("rev-parse", "HEAD")

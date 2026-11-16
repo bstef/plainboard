@@ -104,8 +104,29 @@ async def create(
     return agent
 
 
+async def pause_team(session: AsyncSession, project_id: int) -> list[Agent]:
+    """Pause every member that is working or could: one step instead of one per member. The
+    members it paused are remembered, so ``resume_team`` leaves alone whoever was off before."""
+    members = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, ~Agent.is_manager, Agent.enabled).order_by(Agent.id)))
+    for agent in members:
+        agent.enabled, agent.team_pause = False, True
+    await session.commit()
+    return members
+
+
+async def resume_team(session: AsyncSession, project_id: int) -> list[Agent]:
+    """Enable the members that were paused together again. Returns them."""
+    members = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, Agent.team_pause).order_by(Agent.id)))
+    for agent in members:
+        agent.enabled, agent.team_pause = True, False
+    await session.commit()
+    return members
+
+
 async def update(session: AsyncSession, agent: Agent, data: AgentUpdate, catalog: list[ProviderInfo] | None = None) -> Agent:
     fields = data.model_dump(exclude_unset=True)
+    if "enabled" in fields:
+        agent.team_pause = False  # switched by hand: the team's pause no longer speaks for this member
     if fields.get("provider") and fields["provider"] != agent.provider:
         if catalog:  # keep the models' size on the new provider
             for key in ("model", "summary_model"):

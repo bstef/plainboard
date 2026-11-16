@@ -107,3 +107,22 @@ async def test_the_head_of_a_branch_on_the_remote(remote):
     access = RepoSpec(name="api", url=str(remote))
     assert await trains.branch_head(Credentials(), access, "feat-a") == heads(remote)["feat-a"]
     assert await trains.branch_head(Credentials(), access, "nope") is None
+
+
+async def test_a_branch_that_changes_the_checks_rides_alone(remote, tmp_path):
+    work = tmp_path / "work"
+    git(work, "checkout", "-q", "-b", "ci-x", "main")
+    (work / ".github").mkdir()
+    commit(work, ".github/ci.yml", "jobs: {}\n", "change the checks")
+    git(work, "push", "-q", "origin", "ci-x")
+    git(work, "checkout", "-q", "main")
+    # Later in line it is left for the next train, so a mistake in it cannot fail the others ...
+    result = await trains.assemble(spec(remote, ["feat-a", "ci-x", "feat-b"], alone_paths=[".github/"]))
+    assert list(result.merged) == ["feat-a", "feat-b"] and result.held == ["ci-x"]
+    assert not (trains.folder("p1-r1") / ".github").exists()
+    # ... and first in line it is the whole train.
+    result = await trains.assemble(spec(remote, ["ci-x", "feat-a", "feat-b"], alone_paths=[".github/"]))
+    assert list(result.merged) == ["ci-x"] and result.held == ["feat-a", "feat-b"]
+    assert (trains.folder("p1-r1") / ".github" / "ci.yml").exists() and not (trains.folder("p1-r1") / "b.txt").exists()
+    result = await trains.assemble(spec(remote, ["feat-a", "ci-x", "feat-b"]))
+    assert list(result.merged) == ["feat-a", "ci-x", "feat-b"] and result.held == []

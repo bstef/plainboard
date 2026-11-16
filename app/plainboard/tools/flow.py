@@ -47,14 +47,36 @@ async def _repository(ctx: ToolContext, name: str) -> Repository:
     return repo
 
 
+def quick_check_script(folder: str, branch: str, head: str, command: str) -> str:
+    """The quick check on exactly ``head``: in the clone if it is on that commit with nothing
+    uncommitted, else in a worktree that is thrown away afterwards."""
+    q = shlex.quote
+    return "\n".join(
+        [
+            f"cd {q(folder)} || exit {NOT_AS_PUSHED}",
+            f'if git diff --quiet HEAD 2>/dev/null && [ "$(git rev-parse HEAD 2>/dev/null)" = "{head}" ]; then',
+            f"(\n{command.strip()}\n)",
+            "exit $?",
+            "fi",
+            f"git cat-file -e {head}^{{commit}} 2>/dev/null || git fetch -q origin {q(branch)} || exit {NOT_AS_PUSHED}",
+            f'tmp=$(mktemp -d) && git worktree add -q --detach "$tmp/tree" {head} || exit {NOT_AS_PUSHED}',
+            f'(\ncd "$tmp/tree" || exit {NOT_AS_PUSHED}\n{command.strip()}\n)',
+            "rc=$?",
+            'git worktree remove --force "$tmp/tree" >/dev/null 2>&1; rm -rf "$tmp"',
+            "exit $rc",
+        ]
+    )
+
+
 async def _quick_check(ctx: ToolContext, repo: Repository, branch: str, head: str) -> str:
-    """Run the repository's quick check on what is handed over, in the agent's own clone (its build
-    cache is warm there). A failure comes back in this call, while the agent still knows the change;
-    it never reaches a train, where it would cost everybody a check run."""
+    """Run the repository's quick check on the commit that is handed over. A failure comes back in
+    this call, while the agent still knows the change; it never reaches a train, where it would cost
+    everybody a check run. Where the agent worked does not matter (most use worktrees of their own):
+    if its clone happens to be on that commit, the check runs there, with a warm build cache;
+    otherwise in a throw-away worktree of exactly that commit."""
     if not re.fullmatch(r"[0-9a-f]{7,64}", head):
         return ""
-    guard = f'cd {shlex.quote(repo.name)} && git diff --quiet HEAD && [ "$(git rev-parse HEAD)" = "{head}" ] || exit {NOT_AS_PUSHED}'
-    job = await ctx.runs.start_job(ctx.session, ctx.project, ctx.agent, f"{guard}\n{repo.quick_check_command.strip()}", ctx.run.assignment_id)
+    job = await ctx.runs.start_job(ctx.session, ctx.project, ctx.agent, quick_check_script(repo.name, branch, head, repo.quick_check_command), ctx.run.assignment_id)
     await ctx.session.commit()  # don't hold a DB transaction while waiting
     try:
         result = await ctx.runs.wait_job(job.id, QUICK_CHECK_SECONDS, ctx.run.run_id)
@@ -73,8 +95,8 @@ async def _quick_check(ctx: ToolContext, repo: Repository, branch: str, head: st
         return f" The quick check of {repo.name} did not end within {QUICK_CHECK_SECONDS // 60} min and was skipped: say so in your report, it is not quick."
     if job.exit_code == NOT_AS_PUSHED:
         raise ToolError(
-            f"Not handed over: your clone of {repo.name} is not on the commit you pushed ({head[:10]}), or has uncommitted changes. "
-            f"The quick check runs on what you hand over: check out {branch} as pushed, with a clean tree, and hand it over again."
+            f"Not handed over: PlainBoard could not check out the commit you pushed ({head[:10]}) from your clone of {repo.name} to run the quick check on it. "
+            f"See that the workspace folder {repo.name} is a working clone that can fetch {branch}, and hand it over again.\n" + (result or "")
         )
     if job.exit_code != 0:
         raise ToolError(

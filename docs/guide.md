@@ -147,7 +147,9 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   (`merge_when_green`). PlainBoard, without any model, checks one train of branches per repository at
   a time, so check runs follow the clock instead of the number of changes. If a train fails, one
   member gets its branches and the failures as one assignment and makes them pass together; a branch
-  that needs more goes back to its author. A repository's **quick check** (e.g.
+  that needs more goes back to its author. Trains are as long as pays: while they pass, up to twelve
+  branches; when they fail, fewer, so one bad branch takes fewer with it. A branch that changes the
+  checks themselves is checked alone. A repository's **quick check** (e.g.
   `cargo fmt --check && cargo clippy`) runs the moment a branch is handed over, so format and lint
   never cost a check run. A repository's **check command** (e.g. `./scripts/ci.sh`) decides whether a train may land;
   this works with any git host. Without one, on GitHub, the checks of one pull request for the train

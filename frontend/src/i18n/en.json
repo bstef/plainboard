@@ -603,7 +603,7 @@
     "contextLimit": "Compress at (tokens)",
     "keepRecent": "Keep recent messages",
     "maxParallel": "Parallel agents",
-    "maxParallelHint": "Counts the members. 0 pauses them; the manager still answers.",
+    "maxParallelHint": "Counts the members that work. One that only waits for its job takes no place. 0 pauses them; the manager still answers.",
     "timezone": "Timezone",
     "ownLoginNotice": "Uses your own Claude account login. Whether this is allowed for third-party tools depends on Anthropic's terms for your plan; an API key is the officially supported option.",
     "sshKey": "SSH key for all repositories",

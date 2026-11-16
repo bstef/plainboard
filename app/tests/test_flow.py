@@ -505,13 +505,17 @@ def test_the_quick_check_runs_at_hand_over_and_a_failure_never_reaches_a_train(c
 
     # PlainBoard runs it in the member's clone, on exactly the commit that is handed over.
     result = hand_over_and_end_with(1, "Diff in src/home.rs at line 12")
+    # On exactly the commit that is handed over: in the clone if it is on it, else in a worktree of its own
+    # (agents work in worktrees, so their clone usually is somewhere else).
     command = fake.job_specs[-1].command
-    assert command.startswith("cd api && git diff --quiet HEAD && ") and '= "abc1234def" ] || exit 97' in command and command.endswith("\ncargo fmt --check")
+    assert command.startswith('cd api || exit 97\nif git diff --quiet HEAD 2>/dev/null && [ "$(git rev-parse HEAD 2>/dev/null)" = "abc1234def" ]; then\n(\ncargo fmt --check\n)\nexit $?\nfi\n')
+    assert 'git worktree add -q --detach "$tmp/tree" abc1234def || exit 97' in command and '(\ncd "$tmp/tree" || exit 97\ncargo fmt --check\n)' in command
+    assert "git fetch -q origin feat-a" in command and command.endswith('git worktree remove --force "$tmp/tree" >/dev/null 2>&1; rm -rf "$tmp"\nexit $rc')
     assert "Not handed over: the quick check of api failed" in result and "Diff in src/home.rs at line 12" in result
     land_tick(client)
     assert not fake.train_specs  # the member fixes it in the same turn; no check run was spent on it
 
-    assert "is not on the commit you pushed (abc1234def)" in hand_over_and_end_with(97, "")
+    assert "could not check out the commit you pushed (abc1234def)" in hand_over_and_end_with(97, "")
     land_tick(client)
     assert not fake.train_specs
 
@@ -661,3 +665,133 @@ def test_a_slow_command_says_what_it_cost_before_it_is_started_again(client, pro
     assert "40 min = 2 x 20 min: make test" in report and "Most of the time is waiting" in report
     assert "40 min waiting for jobs and checks" in timing.waiting_line(overview) or timing.waiting_line(overview) == ""
     assert "`make test` 20 min per run" in timing.facts_text(overview)
+
+
+# --- what the production data showed (2026-11-16) --------------------------------------------
+
+
+def set_failures(client, branch: str, failures: int) -> None:
+    from plainboard.db import sessionmaker
+    from plainboard.models import Landing
+    from sqlalchemy import update
+
+    async def write() -> None:
+        async with sessionmaker()() as s:
+            await s.execute(update(Landing).where(Landing.branch == branch).values(failures=failures))
+            await s.commit()
+
+    client.portal.call(write)
+
+
+def repairs(client, pid: int) -> list[dict]:
+    return [a for a in assignments(client, pid) if a["title"].startswith(("Make ", "Repair "))]
+
+
+def test_a_branch_that_used_up_its_rounds_leaves_alone_and_the_others_are_repaired(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b", "feat-c"])
+    set_failures(client, "feat-c", 2)  # it failed twice before, with other trains
+    land_tick(client)
+    finish_check(client, fake, every=True)
+    wait_for(lambda: idle(client, pid) and "feat-c (Dev3) did not pass" in last_update(fake))
+    # One branch that keeps failing does not send the whole train to the manager.
+    update = last_update(fake)
+    assert "3 times now" in update and "PlainBoard has stopped for this branch." in update
+    assert "The other 2 branches of that train are being repaired without it." in update and "feat-a (Dev1)" not in update.split("did not pass")[0]
+    (repair,) = repairs(client, pid)
+    assert repair["title"] == "Make 2 branches of api pass together"
+
+
+def test_the_repair_goes_to_an_author_who_is_free(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b"])
+    dev1, dev2 = (agents_by_slug(client, pid)[slug] for slug in ("dev1", "dev2"))
+    # Dev1 wrote most of the train, but is in the middle of other work.
+    fake.branches["feat-x"] = "sha-feat-x"
+    chat(client, dev1["id"], "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "feat-x"}))
+    wait_for(lambda: idle(client, pid))
+    chat(client, manager_of(client, pid)["id"], delegate("dev1", "Long work", "TOOL start_job " + json.dumps({"command": "make all"})))
+    wait_for(lambda: idle(client, pid) and fake.job_specs)
+    land_tick(client)
+    assert fake.train_specs[-1].members == ["feat-a", "feat-b", "feat-x"]
+    finish_check(client, fake, every=True)
+    # It would wait behind that work, and nothing of the train lands until it is repaired: Dev2 starts at once.
+    (repair,) = repairs(client, pid)
+    assert repair["agent_id"] == dev2["id"] and repair["status"] == "done"
+
+
+def test_trains_get_shorter_while_they_fail_and_longer_again_when_they_pass(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, [f"feat-{c}" for c in "abcdef"])
+    land_tick(client)
+    assert len(fake.train_specs[-1].members) == 6  # nothing has failed: as many as are ready
+    finish_check(client, fake, every=True)
+    for n in range(1, 8):
+        hand_over(client, pid, fake, f"New{n}", f"new-{n}")
+    fake.branches["feat-a"] = "sha-feat-a-2"
+    land_tick(client)
+    assert fake.train_specs[-1].members == [f"feat-{c}" for c in "abcdef"]  # the repaired branches, whole and first
+    finish_check(client, fake)
+    # One of six branches failed its train: at that rate five per train land most per check run.
+    assert fake.train_specs[-1].members == [f"new-{n}" for n in range(1, 6)]
+    finish_check(client, fake)
+    assert fake.train_specs[-1].members == ["new-6", "new-7"]  # and with every train that passes, more fit again
+    events = [e["data"]["size_limit"] for e in flow_events(client, pid) if e["kind"] == "train.departed"]
+    assert events == [12, 12, 5, 10]
+
+
+def test_a_branch_that_changes_the_checks_is_checked_alone(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "ci-faster", "feat-c"], url="https://github.com/acme/api.git", check_command="")
+    fake.changes_checks = {"ci-faster"}
+
+    def checks_pass() -> None:
+        key = ("acme/api", fake.train_results[-1].number)
+        fake.pulls[key] = fake.pulls[key].model_copy(update={"checks": [PullRequestCheck(name="ci / test", state="pass")]})
+        land_tick(client)
+        wait_for(lambda: idle(client, pid))
+
+    land_tick(client)
+    assert fake.train_specs[-1].alone_paths == [".github/"]
+    assert list(fake.train_results[-1].merged) == ["feat-a", "feat-c"] and fake.train_results[-1].held == ["ci-faster"]
+    checks_pass()
+    # A mistake in it would fail every branch it is checked with: now it can only fail itself.
+    assert fake.train_specs[-1].members == ["ci-faster"] and list(fake.train_results[-1].merged) == ["ci-faster"]
+    checks_pass()
+    assert len(fake.merged) == 2
+
+
+def test_a_turn_that_waits_for_its_job_takes_no_slot(client, project):
+    pid = project["id"]
+    assert client.put("/api/settings", json={"values": {"max_parallel_runs": 1}}).status_code == 200
+    builder, other = make_member(client, pid, "Builder"), make_member(client, pid, "Other")
+    chat(client, builder["id"], "TOOL start_job " + json.dumps({"command": "cargo build", "wait_minutes": 5}))
+    wait_for(lambda: bool(client.app_ref.state.runs._job_waiters))
+    # One agent may work at a time, and the builder only waits: the other one works meanwhile.
+    chat(client, other["id"], "SAY done meanwhile")
+    wait_for(lambda: any(r["agent_id"] == other["id"] and r["status"] == "succeeded" for r in runs_of(client, pid)))
+    assert next(r for r in runs_of(client, pid) if r["agent_id"] == builder["id"])["status"] == "running"
+    runner(client).jobs[runner(client).job_specs[-1].id] = JobState(running=False, exit_code=0, log_path="/jobs/x.log", tail="ok")
+    job_tick(client)
+    wait_for(lambda: idle(client, pid))
+
+
+def test_the_manager_pauses_and_resumes_the_whole_team_in_one_call_each(client, project):
+    pid = project["id"]
+    manager = manager_of(client, pid)
+    make_member(client, pid, "Dev1"), make_member(client, pid, "Dev2")
+    off = make_member(client, pid, "Off")
+    assert client.patch(f"/api/agents/{off['id']}", json={"enabled": False}).status_code == 200  # switched off by the user before
+    chat(client, manager["id"], delegate("dev1", "Build", "TOOL start_job " + json.dumps({"command": "make all"})))
+    wait_for(lambda: idle(client, pid) and runner(client).job_specs)
+
+    chat(client, manager["id"], 'TOOL pause_team {"reason": "the user wants quiet"}')
+    wait_for(lambda: idle(client, pid) and not agents_by_slug(client, pid)["dev2"]["enabled"])
+    assert tool_results(client, manager["id"])[-1].startswith("Paused 2 members.")
+    assert assignments(client, pid)[0]["status"] == "running"  # nothing is lost
+
+    chat(client, manager["id"], "TOOL resume_team")
+    wait_for(lambda: idle(client, pid) and agents_by_slug(client, pid)["dev2"]["enabled"])
+    team = agents_by_slug(client, pid)
+    assert tool_results(client, manager["id"])[-1].startswith("Resumed dev1, dev2.")
+    assert team["dev1"]["enabled"] and not team["off"]["enabled"]  # whoever was off before stays off

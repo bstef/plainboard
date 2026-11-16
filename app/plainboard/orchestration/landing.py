@@ -31,7 +31,7 @@ from plainboard_protocol import Credentials, PullRequestState, RepoSpec, TrainCh
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..models import Agent, Assignment, AssignmentStatus, Landing, LandingStatus, Project, Repository, Task, Train, TrainStatus, utcnow
+from ..models import ACTIVE_RUN_STATUSES, Agent, Assignment, AssignmentStatus, Landing, LandingStatus, Project, Repository, Run, Task, Train, TrainStatus, utcnow
 from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import flow_log
@@ -266,21 +266,35 @@ class LandingWatcher:
         for member in members:
             member.failures += 1
             member.failed_sha = member.head_sha
-        rounds = max(m.failures for m in members)
-        fixer = await self._fixer(s, members)
-        labels = [await label(s, m) for m in members]
-        if rounds >= landing_service.MAX_FAILED_ROUNDS or fixer is None:
-            for member in members:
+        # A branch that has used up its rounds goes to the manager on its own: the branches it was
+        # checked with did not fail that often, and are repaired like any others.
+        spent = [m for m in members if m.failures >= landing_service.MAX_FAILED_ROUNDS]
+        members = [m for m in members if m not in spent]
+        fixer = await self._fixer(s, members) if members else None
+        if fixer is None:
+            spent, members = [*spent, *members], []
+        if spent:
+            listed = "; ".join([await label(s, m) for m in spent])
+            for member in spent:
                 member.status, member.train_id, member.group_no = LandingStatus.STUCK, None, None
             await s.commit()
-            await flow_log.record(s, r.project.id, "train.given_up", train_id=train.id, rounds=rounds, nobody_available=fixer is None)
-            why = f"{rounds} times now" if fixer else "and none of their authors is available"
+            await flow_log.record(s, r.project.id, "train.given_up", train_id=train.id, branches=[m.branch for m in spent], repaired=len(members), nobody_available=fixer is None)
+            why = "and none of their authors is available" if fixer is None and not any(m.failures >= landing_service.MAX_FAILED_ROUNDS for m in spent) else f"{landing_service.MAX_FAILED_ROUNDS} times now"
+            others = f" The other {len(members)} branch{'es' if len(members) != 1 else ''} of that train {'are' if len(members) != 1 else 'is'} being repaired without {'them' if len(spent) != 1 else 'it'}." if members else ""
             await self._tell_manager(
                 s, r,
-                f"Not landed in {r.repo.name}: {'; '.join(labels)} did not pass together ({summary}), {why}. PlainBoard has stopped for these branches. "
+                f"Not landed in {r.repo.name}: {listed} did not pass{' together' if len(spent) != 1 else ''} ({summary}), {why}. PlainBoard has stopped for {'these branches' if len(spent) != 1 else 'this branch'}.{others} "
                 "Decide how to go on (another approach, the failing check itself, the user); merge_when_green puts a branch on a train again.",
             )
+        if not members:
             return
+        if len(members) == 1:  # what is left of the train is one branch: its author repairs it
+            only = members[0]
+            instructions = prompts.repair_instructions(only.branch, evidence, only.failures, landing_service.MAX_FAILED_ROUNDS)
+            await give_back(s, self._runs, r.repo, r.project, only, f"did not pass ({summary})", f"Repair branch {only.branch}", instructions, counts=False)
+            return
+        rounds = max(m.failures for m in members)
+        labels = [await label(s, m) for m in members]
         group = await landing_service.next_group(s, r.repo.id)
         for member in members:
             member.status, member.group_no = LandingStatus.BACK, group  # train_id stays: it names the repair they wait for
@@ -291,16 +305,22 @@ class LandingWatcher:
 
     @staticmethod
     async def _fixer(s: AsyncSession, members: list[Landing]) -> Agent | None:
-        """Who repairs a failed train: the author of most of its branches who is available."""
+        """Who repairs a failed train: one of its authors who has nothing to do right now, so the
+        repair starts at once instead of waiting behind other work; among those, and if all are
+        busy, the author of most of its branches. Until the repair is done nothing of the train lands."""
         counts: dict[int, int] = {}
         for member in members:
             if member.agent_id:
                 counts[member.agent_id] = counts.get(member.agent_id, 0) + 1
-        for agent_id in sorted(counts, key=lambda a: -counts[a]):
-            agent = await s.get(Agent, agent_id)
-            if agent and agent.enabled:
-                return agent
-        return None
+        authors = [a for a in [await s.get(Agent, agent_id) for agent_id in counts] if a and a.enabled]
+        if not authors:
+            return None
+        ids = [a.id for a in authors]
+        busy = {
+            *await s.scalars(select(Assignment.agent_id).where(Assignment.agent_id.in_(ids), Assignment.status.in_((AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)))),
+            *await s.scalars(select(Run.agent_id).where(Run.agent_id.in_(ids), Run.status.in_(ACTIVE_RUN_STATUSES))),
+        }
+        return min(authors, key=lambda a: (a.id in busy, -counts[a.id], a.id))
 
     async def _back(self, s: AsyncSession, r: Repo, landing: Landing, what: str, title: str, instructions: str) -> None:
         await give_back(s, self._runs, r.repo, r.project, landing, what, title, instructions)
@@ -324,7 +344,9 @@ class LandingWatcher:
         # Branches that were repaired together go first and on their own: what fails then is theirs.
         groups = {w.group_no for w in waiting if w.group_no is not None}
         group = min(groups) if groups else None
-        pick = [w for w in waiting if w.group_no == group][: landing_service.MAX_TRAIN]
+        # A repaired group is checked whole. New branches: as many as land per check run (see train_size).
+        size = landing_service.MAX_TRAIN if group is not None else await landing_service.train_size(s, r.repo.id)
+        pick = [w for w in waiting if w.group_no == group][:size]
         await s.commit()
         if not pick:
             return
@@ -355,6 +377,8 @@ class LandingWatcher:
             members=[p.branch for p in pick],
             # A group failed together: a branch of it that needed no change still belongs on the train.
             skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha} if group is None else {},
+            # A repaired group passes or fails together anyway: nothing of it rides alone.
+            alone_paths=landing_service.CHECK_PATHS if group is None and r.mode == landing_service.GITHUB else [],
             github=r.slug if r.mode == landing_service.GITHUB else None,
             title="Land " + truncate(", ".join(p.branch for p in pick), 200),
             body=body,
@@ -374,7 +398,7 @@ class LandingWatcher:
         await s.commit()
         await flow_log.record(
             s, r.project.id, "train.departed" if on_train else "train.empty", train_id=train.id if on_train else None, branches=[p.branch for p in on_train],
-            ready=len(waiting), repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
+            ready=len(waiting), size_limit=size, held=list(result.held), repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
             missing=list(result.missing), unchanged=list(result.unchanged),
         )  # fmt: skip
 

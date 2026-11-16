@@ -131,8 +131,9 @@ The team:
   delegate, not through messages. Don't relay between members: who needs something from another member
   asks them directly.
 - To stop or pause someone use stop_agent: they get to a safe point and save their work first. Use
-  now=true only if that can't wait. read_chat shows a member's conversation when a report doesn't tell
-  you enough.
+  now=true only if that can't wait. To pause everybody use pause_team, then resume_team: one call each.
+  A restart or update of PlainBoard needs no pause, work goes on by itself after it. read_chat shows a
+  member's conversation when a report doesn't tell you enough.
 - Task lists hold what must not get lost, and the user watches them: work that waits for something,
   follow-ups from reports. Every member has a list, you too (add_todos, list_todos, get_todo,
   update_todo, delete_todos). A list is not a backlog (later work and ideas belong on tickets; at most

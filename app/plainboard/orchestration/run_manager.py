@@ -276,6 +276,8 @@ class RunManager:
         ended: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         waits = self._turn_waits.setdefault(run_id, []) if run_id is not None else []
         waits.append((kind, ended))
+        if kind == "job":
+            self._wake.set()  # its slot is free while it waits: someone else can start
         try:
             await asyncio.wait({future, ended}, timeout=seconds, return_when=asyncio.FIRST_COMPLETED)
         finally:
@@ -287,6 +289,13 @@ class RunManager:
         if ended.done():
             raise WaitEnded(ended.result())
         raise TimeoutError
+
+    def waiting_for_job(self) -> set[int]:
+        """Turns that do nothing but wait for a job right now. The limit is about agents that work
+        (it protects the token quota), so they take no slot: another agent starts meanwhile. When
+        the job ends they go on at once, which can put one more agent to work than the limit for
+        the rest of that turn; nothing new starts until that is over."""
+        return {run_id for run_id, waits in self._turn_waits.items() if any(kind == "job" for kind, _ in waits)}
 
     def _end_waits(self, run_id: int, reason: str, *, asks: bool = True) -> list[str]:
         """End what the run's turn is waiting for, so that its agent gets to the message it was just sent.
@@ -656,7 +665,7 @@ class RunManager:
             # The limit is about members. A manager's turn never waits for a slot, not even at limit 0:
             # the user gets an answer, and the members' reports get read.
             unlimited = nested or manager
-            if not unlimited and len(self._running) - len(self._unlimited) >= max_parallel:
+            if not unlimited and len(self._running.keys() - self._unlimited - self.waiting_for_job()) >= max_parallel:
                 continue
             self._busy_agents.add(agent_id)
             if unlimited:
@@ -768,7 +777,7 @@ class RunManager:
             board = ""
             if agent.is_manager:
                 limit = int(values["max_parallel_runs"])
-                capacity = await board_service.capacity(s, project.id, limit, except_run_id=run.id)
+                capacity = await board_service.capacity(s, project.id, limit, except_run_id=run.id, waiting=self.waiting_for_job())
                 team = [a for a in await agent_service.list_for_project(s, project.id) if a.enabled and not a.is_manager]
                 open_todos = await todo_service.open_stats(s, [a.id for a in team])
                 todo_counts = [(a.name, *_count_and_age(open_todos.get(a.id))) for a in team[:12]]

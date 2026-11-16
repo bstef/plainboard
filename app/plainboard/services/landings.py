@@ -26,7 +26,11 @@ from . import repositories as repo_service
 
 GITHUB_URL = re.compile(r"github\.com[:/]+([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
 MAX_FAILED_ROUNDS = 3  # after this many, the author stops getting it back and the manager decides
-MAX_TRAIN = 12  # branches on one train
+MAX_TRAIN = 12  # branches on one train, while trains pass
+SIZE_WINDOW = 8  # trains whose results decide the size of the next one
+# A branch that changes these changes the checks themselves: a mistake in it fails everything it is
+# checked with, so it is checked alone. (Where a pull request's checks decide.)
+CHECK_PATHS = [".github/"]
 ACTIVE = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK)
 RUNNING_TRAINS = (TrainStatus.CHECKING, TrainStatus.BLOCKED)
 COMMAND, GITHUB = "command", "github"
@@ -98,6 +102,21 @@ async def members(session: AsyncSession, train: Train) -> list[Landing]:
 async def active_for_project(session: AsyncSession, project_id: int) -> list[Landing]:
     q = select(Landing).where(Landing.project_id == project_id, Landing.status.in_(ACTIVE)).order_by(Landing.id)
     return list((await session.scalars(q)).all())
+
+
+async def train_size(session: AsyncSession, repository_id: int) -> int:
+    """How many branches the next train takes. One branch that fails takes its whole train with it,
+    so a big train only pays while nearly every branch passes: of n branches that each fail with
+    probability p, n * (1 - p) ** n land per check run. p is measured on the trains of new branches
+    that ran lately (every failed one had at least one such branch), and the size is the n that
+    lands most. No failures: as many as fit."""
+    lately = select(Train).where(Train.repository_id == repository_id, Train.group_no.is_(None), Train.size > 0, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
+    trains = list(await session.scalars(lately.order_by(Train.id.desc()).limit(SIZE_WINDOW)))
+    failed = sum(t.status == TrainStatus.FAILED for t in trains)
+    if not failed:
+        return MAX_TRAIN
+    p = min(failed / sum(t.size for t in trains), 0.9)
+    return max(2, max(range(1, MAX_TRAIN + 1), key=lambda n: n * (1 - p) ** n))
 
 
 async def next_group(session: AsyncSession, repository_id: int) -> int:
