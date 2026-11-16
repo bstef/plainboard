@@ -245,6 +245,20 @@ class BranchRef(BaseModel):
     branch: str
 
 
+class UpstreamRef(BaseModel):
+    """Where newer versions of PlainBoard itself come from, and the commit that is running."""
+
+    credentials: Credentials
+    repository: str = Field(pattern=r"^[\w.-]+/[\w.-]+$")  # owner/name on GitHub
+    branch: str = Field(pattern=r"^[\w./-]+$")
+    commit: str = Field(pattern=r"^[0-9a-f]{7,64}$")
+
+
+class UpstreamState(BaseModel):
+    behind: int  # commits the branch has that the running commit has not
+    url: str = ""  # where to read them
+
+
 # ---------------------------------------------------------------------------
 # Run events (runner -> app), streamed as NDJSON
 # ---------------------------------------------------------------------------

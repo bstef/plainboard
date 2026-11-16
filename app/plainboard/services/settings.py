@@ -42,6 +42,7 @@ SETTINGS: dict[str, SettingDef] = {
     # Up to how many parallel agents a manager may set (0: managers can't change it).
     "manager_parallel_limit": SettingDef(6),
     "timezone": SettingDef("Europe/Berlin"),
+    "update_check": SettingDef(True),  # ask now and then whether a newer PlainBoard exists
 }
 
 

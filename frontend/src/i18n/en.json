@@ -64,6 +64,11 @@
     "runnerDown": "Runner not reachable",
     "noCredentials": "Add an account in Settings"
   },
+  "update": {
+    "available": "Update available",
+    "how_one": "A newer PlainBoard is available ({{count}} commit ahead). On the server: git pull, then docker compose up -d --build.",
+    "how_other": "A newer PlainBoard is available ({{count}} commits ahead). On the server: git pull, then docker compose up -d --build."
+  },
   "taskStatus": {
     "backlog": "Backlog",
     "todo": "To Do",
@@ -535,6 +540,10 @@
     "rotationHint": "Each agent stays on its account until it reaches 95 %, then moves to the subscription with the most room. The last 5 % of every subscription are used once all are that full, API keys only after that. You can pin an agent to an account in the team editor."
   },
   "settings": {
+    "updateCheck": "Tell me when a newer PlainBoard is available",
+    "updateCheckHint": "Every few hours PlainBoard asks GitHub whether its repository has newer commits than the one that is running. Only that commit id is sent.",
+    "versionRunning": "Running {{commit}}.",
+    "versionCurrent": "That is the newest.",
     "title": "Settings",
     "test": "Test connection",
     "testing": "Testing…",

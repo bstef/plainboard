@@ -67,6 +67,10 @@ class FakeRunner:
         self.merged: list[tuple[str, int, dict]] = []
         self.closed: list[int] = []
         self.merge_error = ""
+        # Newer versions of PlainBoard itself: what GitHub would say.
+        self.upstream_state = None
+        self.upstream_error = ""
+        self.upstream_calls: list[tuple[str, str, str]] = []
 
     async def stream_run(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
         self.specs.append(spec)
@@ -178,6 +182,12 @@ class FakeRunner:
 
     async def close_pull_request(self, credentials, repo: str, number: int) -> None:
         self.closed.append(number)
+
+    async def upstream(self, credentials, repository: str, branch: str, commit: str):
+        self.upstream_calls.append((repository, branch, commit))
+        if self.upstream_error:
+            raise RunnerError(self.upstream_error)
+        return self.upstream_state
 
     async def providers(self) -> list[ProviderInfo]:
         return [

@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { checks, qk, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
-import { Button, ErrorText, Field, Input, Modal, Select, Textarea } from "../../components/ui";
+import { Button, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from "../../components/ui";
 import { equivalentModel } from "../../lib/models";
 import { ModelSelect } from "../team/AgentEditor";
 import { AccountsEditor } from "./AccountsEditor";
@@ -204,6 +204,14 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             <Field label={t("settings.timezone")}>
               <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
             </Field>
+          </div>
+          <div className="mt-3 space-y-1">
+            <Toggle checked={values.update_check ?? true} onChange={(v) => set({ update_check: v })} label={t("settings.updateCheck")} />
+            <p className="text-fg-3">
+              {t("settings.updateCheckHint")}
+              {meta.data?.version && ` ${t("settings.versionRunning", { commit: meta.data.version.commit })}`}
+              {meta.data?.version?.behind ? ` ${t("update.how", { count: meta.data.version.behind })}` : meta.data?.version?.behind === 0 ? ` ${t("settings.versionCurrent")}` : ""}
+            </p>
           </div>
         </Section>
         <ErrorText error={error} />

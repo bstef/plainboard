@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks, Request
 from pydantic import BaseModel
 
 from ..models import TaskStatus
@@ -12,6 +12,7 @@ from ..orchestration.prompts import PINNED_BUDGET_CHARS
 from ..schemas import CheckOut, LimitsOut, SettingsOut, SettingsUpdate
 from ..services import limits as limits_service
 from ..services import settings as settings_service
+from ..services import version as version_service
 from ..services.errors import ServiceError
 from ..orchestration.runner_client import RunnerError
 from .deps import Runner, Runs, Session
@@ -25,7 +26,7 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/meta")
-async def meta(runner: Runner) -> dict[str, Any]:
+async def meta(runner: Runner, session: Session) -> dict[str, Any]:
     try:
         providers = [p.model_dump() for p in await runner.providers()]
         runner_ok = True
@@ -36,6 +37,8 @@ async def meta(runner: Runner) -> dict[str, Any]:
         "runner_ok": runner_ok,
         "statuses": [s.value for s in TaskStatus],
         "pinned_note_budget_chars": PINNED_BUDGET_CHARS,
+        # The running commit and how far it is behind the newest PlainBoard; None: not known or not wanted.
+        "version": version_service.current() if await settings_service.get(session, "update_check") else None,
     }
 
 
@@ -55,12 +58,14 @@ async def get_settings(session: Session) -> SettingsOut:
 
 
 @router.put("/settings", response_model=SettingsOut)
-async def put_settings(body: SettingsUpdate, session: Session, runs: Runs) -> SettingsOut:
+async def put_settings(body: SettingsUpdate, session: Session, runs: Runs, request: Request, background: BackgroundTasks) -> SettingsOut:
     try:
         await settings_service.update(session, body.values)
     except ValueError as exc:
         raise ServiceError(str(exc)) from exc
     runs.recheck()  # more parallel agents: waiting turns may start now
+    if "update_check" in body.values:
+        background.add_task(request.app.state.updates.tick)  # switched on: don't wait hours for the first answer
     return await get_settings(session)
 
 

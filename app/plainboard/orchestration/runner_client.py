@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, parse_event
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -187,6 +187,12 @@ class RunnerClient:
         """The commit a branch points to on its remote; None if the branch is not there."""
         body = {"credentials": credentials.model_dump(mode="json"), "remote": remote.model_dump(mode="json"), "branch": branch}
         return (await self._github("/git/branch", body, 150)).json().get("sha")
+
+    async def upstream(self, credentials: Credentials, repository: str, branch: str, commit: str) -> UpstreamState | None:
+        """How far ``commit`` is behind PlainBoard's own upstream branch; None if GitHub does not know it there."""
+        body = {"credentials": credentials.model_dump(mode="json"), "repository": repository, "branch": branch, "commit": commit}
+        data = (await self._github("/github/upstream", body, 60)).json()
+        return UpstreamState.model_validate(data) if data else None
 
     def browser_url(self, key: str) -> str:
         """The socket of the runner's browser for ``key`` (see the runner's browser.py)."""

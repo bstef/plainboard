@@ -7,7 +7,8 @@ import json
 import re
 from typing import Any
 
-from plainboard_protocol import CheckResult, Credentials, PullRequestCheck, PullRequestState
+import httpx
+from plainboard_protocol import CheckResult, Credentials, PullRequestCheck, PullRequestState, UpstreamState
 
 from .workspace import WorkspaceError, git_env, run_cmd
 
@@ -76,6 +77,32 @@ async def merge(credentials: Credentials, repo: str, number: int, methods: tuple
             if "not allowed" not in error.lower() and "not enabled" not in error.lower():
                 break  # not about the merge method: another one would fail the same way
     return CheckResult(ok=False, detail=error[-600:])
+
+
+API = "https://api.github.com"
+
+
+async def upstream(credentials: Credentials, repository: str, branch: str, commit: str, *, transport: httpx.AsyncBaseTransport | None = None) -> UpstreamState | None:
+    """How many commits ``branch`` of ``repository`` has that ``commit`` has not. None if GitHub does
+    not know the commit there (a local build, a fork). Asked without a token first: a public
+    repository needs none, and the user's token is not sent where it is not needed."""
+    url = f"{API}/repos/{repository}/compare/{commit}...{branch}"
+    async with httpx.AsyncClient(timeout=20, transport=transport) as client:
+        tokens = [None, credentials.github_token] if credentials.github_token else [None]
+        for token in tokens:
+            headers = {"Accept": "application/vnd.github+json", "User-Agent": "plainboard"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            try:
+                resp = await client.get(url, params={"per_page": 1}, headers=headers)
+            except httpx.HTTPError as exc:
+                raise WorkspaceError(f"GitHub is not reachable: {exc}") from exc
+            if resp.status_code == 200:
+                data = resp.json()
+                return UpstreamState(behind=int(data.get("ahead_by") or 0), url=data.get("html_url") or "")
+        if resp.status_code == 404:
+            return None
+        raise WorkspaceError(f"GitHub answered {resp.status_code} for {repository}")
 
 
 async def close(credentials: Credentials, repo: str, number: int) -> bool:

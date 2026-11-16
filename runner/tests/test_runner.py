@@ -612,3 +612,35 @@ async def test_merge_tries_the_methods_a_repository_allows(monkeypatch):
     monkeypatch.setattr(github, "run_cmd", conflict)
     result = await github.merge(Credentials(github_token="t"), "acme/api", 7)
     assert not result.ok and "not mergeable" in result.detail and calls[2:] == ["x"]  # another method would fail the same way
+
+
+async def test_how_far_the_running_plainboard_is_behind_its_upstream():
+    from plainboard_runner import github
+
+    seen = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url), request.headers.get("authorization")))
+        if "private" in request.url.path and not request.headers.get("authorization"):
+            return httpx.Response(404, json={"message": "Not Found"})
+        if "unknown" in request.url.path:
+            return httpx.Response(404, json={"message": "Not Found"})
+        if "limited" in request.url.path:
+            return httpx.Response(403, json={"message": "rate limit"})
+        return httpx.Response(200, json={"status": "ahead", "ahead_by": 3, "behind_by": 0, "html_url": "https://github.com/acme/app/compare/abc1234...main"})
+
+    transport = httpx.MockTransport(answer)
+    state = await github.upstream(Credentials(github_token="tok"), "acme/app", "main", "abc1234", transport=transport)
+    assert (state.behind, state.url) == (3, "https://github.com/acme/app/compare/abc1234...main")
+    # A public repository is asked without the user's token.
+    assert seen == [("https://api.github.com/repos/acme/app/compare/abc1234...main?per_page=1", None)]
+
+    # A private one: the token only after the question without it was refused.
+    seen.clear()
+    assert (await github.upstream(Credentials(github_token="tok"), "acme/private", "main", "abc1234", transport=transport)).behind == 3
+    assert [auth for _url, auth in seen] == [None, "Bearer tok"]
+
+    # GitHub does not know the commit there (a local build): no answer, no error.
+    assert await github.upstream(Credentials(), "acme/unknown", "main", "abc1234", transport=transport) is None
+    with pytest.raises(WorkspaceError):
+        await github.upstream(Credentials(), "acme/limited", "main", "abc1234", transport=transport)

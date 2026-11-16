@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { AlertTriangle, AppWindow, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, Users } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowUpCircle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
@@ -154,6 +154,30 @@ function StatusHints({ onOpenSettings, wide }: { onOpenSettings: () => void; wid
   );
 }
 
+/** A newer PlainBoard exists. Nothing waits for the user here, so it is quiet: a line at the foot of the sidebar. */
+function UpdateNotice({ wide }: { wide: boolean }) {
+  const { t } = useTranslation();
+  const version = useMeta().data?.version;
+  if (!version?.behind) return null;
+  const how = t("update.how", { count: version.behind });
+  const cls = clsx("flex shrink-0 items-center gap-2.5 rounded-sm text-fg-2 hover:bg-sunk hover:text-fg", wide ? "mx-2 h-8 px-2" : "mx-auto size-8 justify-center");
+  const body = (
+    <>
+      <ArrowUpCircle className="size-4 shrink-0" />
+      {wide && <span className="truncate">{t("update.available")}</span>}
+    </>
+  );
+  return version.url ? (
+    <a href={version.url} target="_blank" rel="noreferrer" className={cls} title={how} aria-label={how}>
+      {body}
+    </a>
+  ) : (
+    <div role="status" className={cls} title={how} aria-label={how}>
+      {body}
+    </div>
+  );
+}
+
 const MIN_PANEL = 340;
 
 function ProjectWorkspace({
@@ -269,6 +293,7 @@ function ProjectWorkspace({
             ) : (
               <div className="flex-1" />
             )}
+            <UpdateNotice wide={wide} />
             <div className={clsx("flex shrink-0 gap-0.5 p-2", wide ? "items-center justify-end" : "flex-col items-center")}>
               <LookButton />
               <IconButton label={t("nav.settings")} onClick={onSettings}>
@@ -290,6 +315,7 @@ function ProjectWorkspace({
                 {switcher("bar")}
                 <div className="flex-1" />
                 <StatusHints onOpenSettings={onSettings} wide={false} />
+                <UpdateNotice wide={false} />
                 <ForYou />
               </div>
             </header>

@@ -5,6 +5,10 @@
 **/*.pyc
 **/*.tsbuildinfo
 .git
+# The build reads which commit it is built from (see app/Dockerfile), nothing else of git.
+!.git/HEAD
+!.git/packed-refs
+!.git/refs/heads/**
 .env
 data
 docs

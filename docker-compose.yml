@@ -14,6 +14,8 @@ services:
       PLAINBOARD_PASSWORD: ${PLAINBOARD_PASSWORD:-}
       PLAINBOARD_RUNNER_URL: http://runner:8090
       PLAINBOARD_INTERNAL_URL: http://app:8080
+      # Where newer versions of PlainBoard come from (for the "update available" notice).
+      PLAINBOARD_UPDATE_REPOSITORY: ${PLAINBOARD_UPDATE_REPOSITORY:-hthoene/plainboard}
       # Optional credential fallbacks (usually entered in the UI under Settings). Prefixed on
       # purpose, so keys that happen to be exported in your shell are never picked up silently.
       CLAUDE_CODE_OAUTH_TOKEN: ${PLAINBOARD_CLAUDE_CODE_OAUTH_TOKEN:-}

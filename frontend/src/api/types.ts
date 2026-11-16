@@ -327,6 +327,8 @@ export interface Meta {
   runner_ok: boolean;
   statuses: TaskStatus[];
   pinned_note_budget_chars: number;
+  /** The running commit and how many newer ones exist; null: the build does not know, or the check is off. */
+  version: { commit: string; behind: number | null; url: string } | null;
 }
 
 export interface SettingsResponse {

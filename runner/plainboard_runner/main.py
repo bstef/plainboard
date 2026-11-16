@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
 from pydantic import BaseModel
 
 from . import github
@@ -290,6 +290,14 @@ async def check_train(spec: TrainCheckSpec) -> JobState:
 @app.post("/trains/land", response_model=CheckResult)
 async def land_train(spec: TrainLandSpec) -> CheckResult:
     return await trains.land(spec)
+
+
+@app.post("/github/upstream")
+async def github_upstream(ref: UpstreamRef) -> UpstreamState | None:
+    try:
+        return await github.upstream(ref.credentials, ref.repository, ref.branch, ref.commit)
+    except WorkspaceError as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
 
 
 @app.post("/git/branch")

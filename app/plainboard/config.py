@@ -24,6 +24,14 @@ class Config(BaseSettings):
     # A train waits this long for further branches after the first one is ready: members often
     # finish within minutes of each other, and whoever misses a train waits a whole check run.
     landing_linger_seconds: float = 90.0
+    # Newer versions of PlainBoard itself: the commit this build is (written by the image build; the
+    # variable overrides it), where newer ones come from (a fork names its own repository) and how
+    # often to ask. See services/version.py.
+    commit: str = ""
+    commit_file: Path = Path("/app/commit")
+    update_repository: str = "hthoene/plainboard"
+    update_branch: str = "main"
+    update_interval_seconds: float = 6 * 3600.0
     # Workspaces as seen by the runner container.
     workspaces_root: str = "/workspaces"
     runner_uploads_dir: str = "/uploads"
