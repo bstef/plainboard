@@ -7,6 +7,8 @@ export interface ShellApi {
   agentById: (id: number | null | undefined) => Agent | undefined;
   openChat: (agentId: number) => void;
   openTask: (taskId: number) => void;
+  /** Show an address of the agents' environment (e.g. http://localhost:5173/) in the browser window. */
+  openBrowser: (address: string) => void;
 }
 
 export const ShellContext = createContext<ShellApi | null>(null);

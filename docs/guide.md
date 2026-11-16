@@ -8,6 +8,7 @@ The details behind the [README](../README.md). For the design of the code see
 - [Working on local folders](#working-on-local-folders)
 - [Running on a server](#running-on-a-server)
 - [Preview](#preview)
+- [Browser window](#browser-window)
 - [Public API](#public-api)
 - [How work flows](#how-work-flows)
 - [Token efficiency](#token-efficiency)
@@ -81,6 +82,26 @@ app has to know its base path: the agent sets it to `/preview-base/<port>/` (e.g
 `basePath` in Next.js) and gives you that link; agents are told to. Still shared between PlainBoard
 and all previews is the browser's storage, and with two previews open at once a WebSocket to the root
 goes to the one opened last.
+
+## Browser window
+
+Some apps don't work as a preview link, whatever is repaired: they sign in through a redirect to
+`localhost`, or keep things in the browser's storage that then mix with PlainBoard's. For these there
+is the **Browser** view: a real browser that runs next to the agents and is shown in PlainBoard.
+There the page is at `localhost:<port>`, exactly as on the machine of someone developing it.
+
+Enter an address like `localhost:5173` (or just the port), or click the window icon next to a
+preview link in the chat. You see the page and use it with mouse, keyboard and touch; on phones the
+keyboard button brings up the on-screen keyboard. Each project has one browser; what you sign in to
+stays signed in. It is only for you, never for someone a preview is shared with.
+
+What it is not: it is a picture of a page, so it is less sharp and a little slower than a tab of your
+own browser, text can be pasted in but not copied out, and it does not download or upload files.
+Where a preview link works, the link is the better way; the arrow at the right of the address opens
+the same page as one.
+
+The browser needs Chromium in the runner image (about 700 MB). To leave it out, set
+`PLAINBOARD_BROWSER=0` in `.env` and rebuild.
 
 ## Public API
 

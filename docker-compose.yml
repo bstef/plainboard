@@ -31,6 +31,9 @@ services:
     build:
       context: .
       dockerfile: runner/Dockerfile
+      args:
+        # 0 leaves Chromium (the browser window, about 700 MB) out of the image.
+        PLAINBOARD_BROWSER: ${PLAINBOARD_BROWSER:-1}
     image: plainboard-runner
     restart: unless-stopped
     # Not published: only the app talks to the runner.

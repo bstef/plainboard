@@ -27,6 +27,15 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 ARG CODEX_VERSION=0.166.0
 RUN npm install -g --no-audit --no-fund @openai/codex@${CODEX_VERSION} && codex --version
 
+# Chromium for the browser window: pages of the agents' servers shown in PlainBoard as they are at
+# localhost (plainboard_runner/browser.py). About 700 MB; build with PLAINBOARD_BROWSER=0 to leave it out.
+# DejaVu gives the generic families (sans-serif, system-ui) a font: without it everything is monospace.
+ARG PLAINBOARD_BROWSER=1
+RUN if [ "$PLAINBOARD_BROWSER" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends chromium fonts-liberation fonts-dejavu-core fonts-noto-color-emoji \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Git talks to GitHub through the gh credential helper (uses GH_TOKEN from each run).
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential' \
     && git config --system init.defaultBranch main \

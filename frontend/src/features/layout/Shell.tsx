@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { AlertTriangle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, Users } from "lucide-react";
+import { AlertTriangle, AppWindow, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
@@ -9,6 +9,7 @@ import { Button, EmptyState, IconButton, Spinner } from "../../components/ui";
 import { useIsDesktop, useMediaQuery, useStored } from "../../lib/hooks";
 import { Logo } from "../auth/Login";
 import { Board } from "../board/Board";
+import { BrowserView, type BrowserRequest } from "../browser/BrowserView";
 import { ForYou } from "../board/ForYou";
 import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
@@ -25,7 +26,7 @@ import { ToolsView } from "../tools/ToolsView";
 import { RunningNow } from "./RunningNow";
 import { ShellContext, type ShellApi } from "./shell-context";
 
-export type View = "board" | "chat" | "team" | "notes" | "schedules" | "tools" | "stats";
+export type View = "board" | "chat" | "team" | "notes" | "schedules" | "browser" | "tools" | "stats";
 
 const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "board", icon: (c) => <FolderKanban className={c} /> },
@@ -33,6 +34,7 @@ const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "team", icon: (c) => <Users className={c} /> },
   { id: "notes", icon: (c) => <NotebookPen className={c} /> },
   { id: "schedules", icon: (c) => <CalendarClock className={c} /> },
+  { id: "browser", icon: (c) => <AppWindow className={c} /> },
   { id: "tools", icon: (c) => <Plug className={c} /> },
   { id: "stats", icon: (c) => <BarChart3 className={c} /> },
 ];
@@ -179,6 +181,7 @@ function ProjectWorkspace({
   const [chatAgentId, setChatAgentId] = useStored<number | null>(`plainboard.chatAgent.${project.id}`, null);
   const [panelWidth, setPanelWidth] = useStored<number>("plainboard.panelWidth", 380);
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
+  const [browserRequest, setBrowserRequest] = useState<BrowserRequest>({ url: "", n: 0 });
   useProjectEvents(project.id);
 
   const manager = agents.data?.find((a) => a.is_manager);
@@ -197,6 +200,10 @@ function ProjectWorkspace({
         else setView("chat");
       },
       openTask: setOpenTaskId,
+      openBrowser: (address) => {
+        setBrowserRequest((last) => ({ url: address, n: last.n + 1 }));
+        setView("browser");
+      },
     }),
     [project, agents.data, agentById, setChatAgentId, isDesktop, view, setPanelOpen, setView],
   );
@@ -296,6 +303,7 @@ function ProjectWorkspace({
               {view === "team" && <TeamView />}
               {view === "notes" && <NotesView />}
               {view === "schedules" && <SchedulesView />}
+              {view === "browser" && <BrowserView request={browserRequest} />}
               {view === "tools" && <ToolsView />}
               {view === "stats" && <StatsView />}
             </main>

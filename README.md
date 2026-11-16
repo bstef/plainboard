@@ -123,7 +123,7 @@ Everything is optional. Copy `.env.example` to `.env` for the settings below.
 | --- | --- |
 | Let agents work in a folder on your machine | Set `PLAINBOARD_WORKSPACES_DIR` and the project's **Local folder** |
 | Run it on a server | Set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD`, behind a reverse proxy with TLS |
-| Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard password |
+| Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard password; apps that break there open in the **Browser** view, a browser next to the agents |
 | Show progress on your website | Create a key under **Project settings → Public API** |
 | Use several subscriptions | Add more accounts under Settings; agents move to the one with the most room |
 | Change the look | The palette button: two designs, each light and dark. Your own is one stylesheet, see [ARCHITECTURE.md](ARCHITECTURE.md) |

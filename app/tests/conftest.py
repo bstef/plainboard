@@ -41,6 +41,9 @@ class FakeRunner:
 
     app = None  # set by fixture; used to execute tools through the real RunManager
 
+    def browser_url(self, key: str) -> str:
+        return f"ws://runner/browser/{key}"
+
     def __init__(self, base_url: str):
         self.specs: list[RunSpec] = []
         self.completions: list[CompletionSpec] = []

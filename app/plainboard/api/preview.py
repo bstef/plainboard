@@ -8,18 +8,19 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Form, Request, WebSocket
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.requests import HTTPConnection
 from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosed, InvalidHandshake
+from websockets.exceptions import InvalidHandshake
 
 from ..config import get_config
 from ..db import sessionmaker
 from ..security import SESSION_COOKIE, session_cookie_valid
 from ..services import preview
 from ..services.errors import ServiceError
+from .relay import relay
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
@@ -200,32 +201,4 @@ async def _pipe(websocket: WebSocket, port: int, path: str, base: bool = False) 
         return
     async with upstream:
         await websocket.accept(subprotocol=upstream.subprotocol)
-
-        async def to_server() -> None:
-            while True:
-                message = await websocket.receive()
-                if message["type"] == "websocket.disconnect":
-                    return
-                await upstream.send(message["text"] if message.get("text") is not None else message["bytes"])
-
-        async def to_browser() -> None:
-            async for message in upstream:
-                if isinstance(message, str):
-                    await websocket.send_text(message)
-                else:
-                    await websocket.send_bytes(message)
-
-        tasks = [asyncio.create_task(to_server()), asyncio.create_task(to_browser())]
-        try:
-            done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                if (exc := task.exception()) and not isinstance(exc, (ConnectionClosed, WebSocketDisconnect, RuntimeError)):
-                    log.info("Preview socket on port %s ended: %s", port, exc)
-        finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            try:
-                await websocket.close()
-            except RuntimeError:
-                pass  # the browser closed first
+        await relay(websocket, upstream, f"Preview socket on port {port}")

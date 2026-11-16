@@ -188,5 +188,10 @@ class RunnerClient:
         body = {"credentials": credentials.model_dump(mode="json"), "remote": remote.model_dump(mode="json"), "branch": branch}
         return (await self._github("/git/branch", body, 150)).json().get("sha")
 
+    def browser_url(self, key: str) -> str:
+        """The socket of the runner's browser for ``key`` (see the runner's browser.py)."""
+        base = self._client.base_url
+        return f"{'wss' if base.scheme == 'https' else 'ws'}://{base.netloc.decode()}/browser/{key}"
+
     async def aclose(self) -> None:
         await self._client.aclose()

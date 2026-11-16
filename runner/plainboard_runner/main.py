@@ -9,12 +9,13 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
 from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 from pydantic import BaseModel
 
 from . import github
+from .browser import browsers
 from . import jobs
 from . import notices
 from . import trains
@@ -32,6 +33,17 @@ _active: dict[str, asyncio.Task[None]] = {}
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.websocket("/browser/{key}")
+async def browser(websocket: WebSocket, key: str) -> None:
+    """A browser in this container, shown in PlainBoard (see browser.py). One per key."""
+    await browsers.serve(websocket, key)
+
+
+@app.on_event("shutdown")
+async def close_browsers() -> None:
+    await browsers.close_all()
 
 
 @app.get("/providers", response_model=list[ProviderInfo])

@@ -3,7 +3,10 @@ import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useArchivedTasks, useTasks } from "../api/queries";
+import { AppWindow } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useShell } from "../features/layout/shell-context";
+import { browserAddress } from "../lib/preview";
 import { Lightbox } from "./Lightbox";
 
 // Not inside words, URL paths or entities ("a#1", "x/#1", "&#1"), but "#1/#2" links both.
@@ -117,6 +120,27 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+/** A link to a preview, and next to it the way into the browser window, where the same page runs
+ * at its real address (some pages only work there). */
+function PreviewLink({ address, children }: { address: string; children: ReactNode }) {
+  const { t } = useTranslation();
+  const { openBrowser } = useShell();
+  return (
+    <>
+      {children}
+      <button
+        type="button"
+        onClick={() => openBrowser(address)}
+        title={t("browser.openHere")}
+        aria-label={t("browser.openHere")}
+        className="ml-1 inline-flex size-5 items-center justify-center rounded-sm align-text-bottom text-fg-3 ring-1 ring-line-2 ring-inset hover:bg-sunk hover:text-fg"
+      >
+        <AppWindow className="size-3.5" />
+      </button>
+    </>
+  );
+}
+
 export function Markdown({ children, className }: { children: string; className?: string }) {
   return (
     <div className={clsx("prose-chat break-words", className)}>
@@ -125,7 +149,10 @@ export function Markdown({ children, className }: { children: string; className?
         components={{
           a: ({ node: _node, ...props }) => {
             const ticket = props.href?.match(/^#ticket-(\d+)$/);
-            return ticket ? <TicketLink number={Number(ticket[1])}>{props.children}</TicketLink> : <a {...props} target="_blank" rel="noreferrer" />;
+            if (ticket) return <TicketLink number={Number(ticket[1])}>{props.children}</TicketLink>;
+            const link = <a {...props} target="_blank" rel="noreferrer" />;
+            const address = browserAddress(props.href);
+            return address ? <PreviewLink address={address}>{link}</PreviewLink> : link;
           },
           img: ({ src, alt }) => (typeof src === "string" ? <ZoomableImage src={src} alt={alt ?? ""} /> : null),
           table: ({ node: _node, ...props }) => (

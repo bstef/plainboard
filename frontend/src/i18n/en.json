@@ -21,11 +21,28 @@
     "tools": "Tools",
     "stats": "Stats",
     "chat": "Chat",
+    "browser": "Browser",
     "settings": "Settings",
     "togglePanel": "Toggle chat panel",
     "more": "More",
     "theme": "Design and theme",
     "views": "Views"
+  },
+  "browser": {
+    "address": "Address, e.g. localhost:5173",
+    "back": "Back",
+    "forward": "Forward",
+    "reload": "Reload",
+    "keyboard": "Show the keyboard",
+    "openTab": "Open in a tab of your own browser",
+    "openHere": "Open in the browser window",
+    "connecting": "Starting the browser…",
+    "closed": "The connection to the browser ended.",
+    "reconnect": "Connect again",
+    "emptyTitle": "A browser next to your agents",
+    "emptyHint": "Pages of a server an agent started run here as they do at localhost, so apps work that break as a preview link. Enter an address like localhost:5173, or use the window icon next to a preview link in the chat.",
+    "leavePage": "Leave this page?",
+    "ok": "OK"
   },
   "look": {
     "title": "Design and theme",
