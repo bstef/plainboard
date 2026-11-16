@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, BackgroundTasks, Query, Request
 from pydantic import BaseModel
 
 from ..models import TaskStatus
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
-from ..schemas import CheckOut, LimitsOut, SettingsOut, SettingsUpdate
+from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PublicApiKeyIn, SettingsOut, SettingsUpdate
+from ..services import access_keys as access_key_service
+from ..services import inspect as inspect_service
 from ..services import limits as limits_service
 from ..services import settings as settings_service
 from ..services import version as version_service
@@ -40,6 +42,37 @@ async def meta(runner: Runner, session: Session) -> dict[str, Any]:
         # The running commit and how far it is behind the newest PlainBoard; None: not known or not wanted.
         "version": version_service.current() if await settings_service.get(session, "update_check") else None,
     }
+
+
+@router.get("/access-keys", response_model=list[AccessKeyOut])
+async def list_access_keys(session: Session) -> list[AccessKeyOut]:
+    return [AccessKeyOut.model_validate(k) for k in await access_key_service.list_all(session)]
+
+
+@router.post("/access-keys", response_model=AccessKeyOut, status_code=201)
+async def create_access_key(body: PublicApiKeyIn, session: Session) -> AccessKeyOut:
+    """A key that may read the whole API and change nothing. The answer carries the key itself, this once."""
+    key, secret = await access_key_service.create(session, body.label)
+    out = AccessKeyOut.model_validate(key)
+    out.key = secret
+    return out
+
+
+@router.delete("/access-keys/{key_id}", status_code=204)
+async def revoke_access_key(key_id: int, session: Session) -> None:
+    await access_key_service.delete(session, key_id)
+
+
+@router.get("/inspect/schema")
+async def inspect_schema() -> list[dict[str, Any]]:
+    """The database's tables, their sizes and readable columns."""
+    return await inspect_service.schema()
+
+
+@router.get("/inspect/query")
+async def inspect_query(sql: str, limit: int = Query(default=200, ge=1), cell_chars: int = Query(default=2000, ge=0)) -> dict[str, Any]:
+    """One SELECT on the database, read-only. Credentials read as NULL."""
+    return await inspect_service.query(sql, limit, cell_chars)
 
 
 @router.get("/limits", response_model=LimitsOut)

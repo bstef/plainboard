@@ -27,14 +27,18 @@ export interface Secret {
 }
 
 /** A key for a project's read-only public API. `key` is only set right after creating it. */
-export interface PublicApiKey {
+/** A key that is shown once, when it is created (`key`), and by its last characters afterwards. */
+export interface ApiKey {
   id: number;
-  project_id: number;
   label: string;
   hint: string;
   created_at: string;
   last_used_at: string | null;
   key: string | null;
+}
+
+export interface PublicApiKey extends ApiKey {
+  project_id: number;
 }
 
 /** How git reaches a repository: the general GitHub token (or none), its own token, or its own SSH key. */

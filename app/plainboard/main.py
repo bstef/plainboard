@@ -78,7 +78,8 @@ def create_app() -> FastAPI:
         if redirect := preview.redirect_from_preview_page(request):
             return redirect
         if path.startswith("/api/") and not path.startswith(PUBLIC_PREFIXES) and not auth.is_authenticated(request):
-            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+            if refusal := await auth.read_key_refusal(request):  # no login: a read key may still read
+                return JSONResponse({"detail": refusal[1]}, status_code=refusal[0])
         return await call_next(request)
 
     @app.exception_handler(ServiceError)

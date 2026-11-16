@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { checks, qk, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
+import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { Button, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from "../../components/ui";
 import { equivalentModel } from "../../lib/models";
 import { ModelSelect } from "../team/AgentEditor";
@@ -219,6 +220,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               <Input type="number" min={0} max={50} value={values.default_keep_recent ?? 6} onChange={(e) => set({ default_keep_recent: Number(e.target.value) })} />
             </Field>
           </div>
+        </Section>
+
+        <Section title={t("settings.readAccess")} description={t("settings.readAccessHint")}>
+          <ApiKeyEditor path="/access-keys" revokePath="/access-keys" placeholder={t("settings.readAccessLabel")} />
         </Section>
         <ErrorText error={error} />
       </div>

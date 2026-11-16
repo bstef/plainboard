@@ -385,6 +385,15 @@ class PublicApiKeyOut(ORM):
     key: str | None = None  # only in the answer that creates the key
 
 
+class AccessKeyOut(ORM):
+    id: int
+    label: str
+    hint: str  # last characters of the key
+    created_at: UTCDateTime
+    last_used_at: UTCDateTime | None
+    key: str | None = None  # only in the answer that creates the key
+
+
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1)
 

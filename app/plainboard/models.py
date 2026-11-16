@@ -155,6 +155,19 @@ class PublicApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
+class AccessKey(Base):
+    """A key that may read this PlainBoard's API and change nothing (services/access_keys.py):
+    for a tool or a person that looks at how the agents work. Only the hash is stored."""
+
+    __tablename__ = "access_keys"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    hint: Mapped[str] = mapped_column(String(8), default="")  # last characters, to recognise the key
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class Repository(Timestamps, Base):
     """A git repository belonging to a project; cloned into ``<workspace>/<name>``."""
 

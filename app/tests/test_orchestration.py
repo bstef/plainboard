@@ -1027,7 +1027,7 @@ def test_the_full_log_holds_what_happened_with_its_texts_but_no_credentials(clie
     ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Secret plan", "status": "todo"}).json()
     work = 'TOOL add_comment {"number": 1, "body": "said twice"}\nSAY finished on feat-a'
     chat(client, manager["id"], f'TOOL delegate {json.dumps({"agent": dev["slug"], "title": "Work", "instructions": work, "ticket_number": ticket["number"]})}')
-    wait_for(lambda: idle(client, pid) and len(runs_of(client, pid)) >= 3)
+    wait_for(lambda: idle(client, pid) and any(r["trigger"] == "wake" and r["status"] == "succeeded" for r in runs_of(client, pid)))
 
     resp = client.get(f"/api/projects/{pid}/work-log?days=7")
     assert resp.status_code == 200 and resp.headers["content-disposition"].endswith('.jsonl.gz"')

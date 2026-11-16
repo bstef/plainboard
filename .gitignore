@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 *.tsbuildinfo
 .env
+.remote.env
 .venv/
 
 # Impeccable: review screenshots and mock rounds are local
