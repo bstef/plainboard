@@ -35,7 +35,7 @@ async def project_browser(websocket: WebSocket, project_id: int) -> None:
             return
     await websocket.accept()
     try:
-        upstream = await connect(websocket.app.state.runner.browser_url(f"project-{project_id}"), max_size=None, open_timeout=30, ping_interval=None)
+        upstream = await connect(websocket.app.state.runner.browser_url(f"project-{project_id}"), max_size=None, open_timeout=30, ping_interval=None, compression=None)  # frames are JPEG: compressing them again only costs time
     except (OSError, TimeoutError, InvalidHandshake):
         await websocket.send_json({"t": "error", "message": "The runner can't be reached, or it has no browser yet (rebuild it)."})
         await websocket.close()

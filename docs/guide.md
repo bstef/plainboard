@@ -95,8 +95,8 @@ preview link in the chat. You see the page and use it with mouse, keyboard and t
 keyboard button brings up the on-screen keyboard. Each project has one browser; what you sign in to
 stays signed in. It is only for you, never for someone a preview is shared with.
 
-What it is not: it is a picture of a page, so it is less sharp and a little slower than a tab of your
-own browser, text can be pasted in but not copied out, and it does not download or upload files.
+What it is not: it is a picture of a page, so it is a little slower than a tab of your own browser
+and soft while something moves (it turns sharp when the page rests), text can be pasted in but not copied out, and it does not download or upload files.
 Where a preview link works, the link is the better way; the arrow at the right of the address opens
 the same page as one.
 

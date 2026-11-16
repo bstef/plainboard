@@ -83,6 +83,7 @@ export function BrowserView({ request }: { request: BrowserRequest }) {
     ws.onmessage = async (event) => {
       if (typeof event.data !== "string") {
         const mine = ++newest;
+        send({ t: "ack" }); // it has arrived: the browser makes the next one now, not earlier (no frames queue up on a slow line)
         const bitmap = await createImageBitmap(new Blob([event.data], { type: "image/jpeg" }));
         const target = canvas.current;
         if (mine === newest && target) {

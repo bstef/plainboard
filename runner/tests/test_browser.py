@@ -35,6 +35,28 @@ def test_input_is_translated_for_devtools():
     assert touch_event({"type": "end", "points": [{"x": 1, "y": 2, "id": 7}]}) == {"type": "touchEnd", "touchPoints": []}
 
 
+async def test_a_viewer_gets_the_next_frame_when_it_has_confirmed_the_last():
+    """Nothing queues up on a slow line: frames wait in the browser, not on the way."""
+    shown = browser.Browser("pace")
+    slow, told = Client(), []
+
+    async def post(method, params):
+        told.append((method, params))
+
+    shown._post = post
+    shown.clients.add(slow)
+    await shown._frame_made(b"one", "f1")
+    await shown._frame_made(b"two", None)  # e.g. the sharp picture of the page at rest
+    await shown._frame_made(b"three", "f3")
+    # The viewer still has the first one in the line; the browser has not been asked for more.
+    assert slow.frames == [b"one"] and told == []
+    await shown.handle({"t": "ack"}, slow)
+    # It gets the newest, not the ones in between, and the browser may go on.
+    assert slow.frames == [b"one", b"three"] and told == [("Page.screencastFrameAck", {"sessionId": "f3"})]
+    await shown.handle({"t": "ack"}, slow)
+    assert slow.frames == [b"one", b"three"]  # nothing new: nothing sent
+
+
 class Client:
     """What the browser tells one viewer."""
 
@@ -72,6 +94,7 @@ async def test_a_page_at_localhost_is_shown_and_typed_into(tmp_path, monkeypatch
         await opened.join(client)
         await opened.handle({"t": "size", "w": 640, "h": 480, "dpr": 1, "touch": False})
         await opened.handle({"t": "nav", "url": str(port)})
+        await opened.handle({"t": "ack"}, client)
         await wait_for(lambda: client.frames and any(s["url"].endswith(f":{port}/") and not s["loading"] for s in client.states))
         assert client.frames[-1][:2] == b"\xff\xd8"  # a JPEG
         await opened.handle({"t": "text", "text": "hi"})

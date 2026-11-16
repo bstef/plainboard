@@ -7,7 +7,7 @@ PlainBoard shows its picture and sends back what the user does.
 
 One Chromium per key (a project), driven over the DevTools protocol. A client is a WebSocket:
 
-    to the client   bytes                                  a frame of the page (JPEG)
+    to the client   bytes                                  a frame of the page (JPEG); answered with "ack"
                     {"t": "state", url, title, loading, back, forward}
                     {"t": "dialog", kind, message}          alert, confirm, prompt, beforeunload
                     {"t": "error", message}
@@ -19,6 +19,12 @@ One Chromium per key (a project), driven over the DevTools protocol. A client is
                     {"t": "key", type: down|up, key, code, keyCode, mods, text}
                     {"t": "text", text}                     typed or pasted text
                     {"t": "dialog", accept, text}
+                    {"t": "ack"}                            the last frame has arrived and is shown
+
+The picture keeps pace with the viewer. The browser makes the next frame only when a viewer has
+confirmed the last one, so a slow line gets fewer frames instead of old ones: nothing queues up, and
+what the viewer sees is never further behind than one frame. While the page moves, frames are small
+(the page's size, compressed hard); once it rests, one sharp picture follows.
 
 ``mods`` is the DevTools bit mask: Alt 1, Ctrl 2, Meta 4, Shift 8.
 """
@@ -33,6 +39,7 @@ import logging
 import re
 import shutil
 import time
+import zlib
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -54,7 +61,11 @@ MIN_SIDE, MAX_SIDE = 200, 4000
 _MOUSE = {"down": "mousePressed", "up": "mouseReleased", "move": "mouseMoved"}
 _BUTTON = {0: "left", 1: "middle", 2: "right"}
 _TOUCH = {"start": "touchStart", "move": "touchMove", "end": "touchEnd", "cancel": "touchCancel"}
-INPUT = {"mouse", "wheel", "touch", "key", "text"}  # in the order it was made; everything else may overtake
+INPUT = {"mouse", "wheel", "touch", "key", "text", "ack"}  # in the order it was made; everything else may overtake
+MOVING_QUALITY = 55  # JPEG quality of frames while the page changes
+STILL_QUALITY = 88  # and of the picture once it rests
+REST_SECONDS = 0.3  # no new frame for this long: the page rests
+STALL_SECONDS = 0.5  # a viewer that confirms nothing does not hold the others up for longer
 
 
 class BrowserError(Exception):
@@ -218,6 +229,12 @@ class Browser:
         self._page: str | None = None
         self._worker: asyncio.Task[None] | None = None
         self._frame: bytes | None = None
+        self._number = 0  # of the newest frame
+        self._has: dict[WebSocket, int] = {}  # per viewer: the frame it was sent last
+        self._busy: set[WebSocket] = set()  # viewers that have not confirmed that frame yet
+        self._owed: str | None = None  # the browser's frame it still waits to hear about before it makes the next
+        self._rest: asyncio.TimerHandle | None = None
+        self._cast_mark = 0  # of the browser's last frame: one that looks the same is not news
         self._state: dict[str, Any] = {"t": "state", "url": "", "title": "", "loading": False, "back": False, "forward": False}
         self._size = (1280, 800, 1.0, False)
         self._casting = False
@@ -241,6 +258,7 @@ class Browser:
             "--disable-dev-shm-usage",  # Docker's /dev/shm is small
             "--no-first-run",
             "--no-default-browser-check",
+            "--disable-smooth-scrolling",  # a turn of the wheel is one new picture, not a dozen on the way there
             "--remote-debugging-port=0",
             f"--user-data-dir={profile}",
             f"--window-size={self._size[0]},{self._size[1]}",
@@ -302,30 +320,98 @@ class Browser:
     async def join(self, client: WebSocket) -> None:
         self.clients.add(client)
         await client.send_json(self._state)
-        if self._frame:
-            await client.send_bytes(self._frame)
+        await self._show(client)
         await self._cast(True)
 
     async def leave(self, client: WebSocket) -> None:
         self.clients.discard(client)
+        self._busy.discard(client)
+        self._has.pop(client, None)
         if not self.clients:
             self.left_at = time.monotonic()
             with contextlib.suppress(BrowserError):
                 await self._cast(False)  # no frames for nobody
+                await self._next_frame()
 
-    async def _tell(self, message: dict[str, Any] | bytes) -> None:
+    async def _tell(self, message: dict[str, Any]) -> None:
         for client in list(self.clients):
             try:
-                await (client.send_bytes(message) if isinstance(message, bytes) else client.send_json(message))
+                await client.send_json(message)
             except Exception:  # it is gone; its own loop notices
                 self.clients.discard(client)
 
+    # --- frames: one at a time, at the viewer's pace ------------------------------------------
+
+    async def _show(self, client: WebSocket) -> bool:
+        """Send the newest frame to a viewer that is free and does not have it yet."""
+        if self._frame is None or client in self._busy or self._has.get(client) == self._number:
+            return False
+        self._busy.add(client)
+        self._has[client] = self._number
+        try:
+            await client.send_bytes(self._frame)
+        except Exception:  # it is gone; its own loop notices
+            self.clients.discard(client)
+            self._busy.discard(client)
+            return False
+        return True
+
+    async def _frame_made(self, frame: bytes, owed: str | None) -> None:
+        self._frame = frame
+        self._number += 1
+        if owed:
+            self._owed = owed
+        for client in list(self.clients):
+            await self._show(client)
+        if owed:
+            # The browser hears about this frame when a viewer has it. One that confirms nothing
+            # (gone, or stuck) must not stop the picture for the others.
+            asyncio.get_running_loop().call_later(STALL_SECONDS, self._stalled, self._number)
+
+    def _stalled(self, number: int) -> None:
+        if number == self._number and self._owed and not self.closed:
+            self._busy.clear()
+            asyncio.create_task(self._next_frame())
+
+    async def _confirmed(self, client: WebSocket) -> None:
+        """A viewer has the frame it was sent: it gets the newest one if that is another, and the
+        browser may make the next."""
+        self._busy.discard(client)
+        await self._show(client)
+        await self._next_frame()
+
+    async def _next_frame(self) -> None:
+        owed, self._owed = self._owed, None
+        if owed and not self.closed:
+            with contextlib.suppress(BrowserError):
+                await self._post("Page.screencastFrameAck", {"sessionId": owed})
+
+    def _rests_soon(self) -> None:
+        if self._rest:
+            self._rest.cancel()
+        self._rest = asyncio.get_running_loop().call_later(REST_SECONDS, lambda number=self._number: asyncio.create_task(self._sharpen(number)))
+
+    async def _sharpen(self, number: int) -> None:
+        """The page rests: one picture in full sharpness replaces the last small one."""
+        if number != self._number or not self.clients or self.closed:
+            return
+        try:
+            shot = await self._send("Page.captureScreenshot", {"format": "jpeg", "quality": STILL_QUALITY})
+        except BrowserError:
+            return
+        if number != self._number:  # it moved on while the picture was taken
+            return
+        await self._frame_made(base64.b64decode(shot["data"]), None)
+
     # --- what the client asks ----------------------------------------------------------------
 
-    async def handle(self, command: dict[str, Any]) -> None:
+    async def handle(self, command: dict[str, Any], client: WebSocket | None = None) -> None:
         """Input (see INPUT) is passed on at once and never waited for; the rest returns when it is done."""
         kind = command.get("t")
-        if kind == "size":
+        if kind == "ack":
+            if client is not None:
+                await self._confirmed(client)
+        elif kind == "size":
             width = int(min(MAX_SIDE, max(MIN_SIDE, _number(command.get("w")))))
             height = int(min(MAX_SIDE, max(MIN_SIDE, _number(command.get("h")))))
             size = (width, height, min(2.0, max(1.0, _number(command.get("dpr")) or 1.0)), bool(command.get("touch")))
@@ -395,7 +481,9 @@ class Browser:
         self._casting = on
         if on:
             width, height, scale, _ = self._size
-            await self._send("Page.startScreencast", {"format": "jpeg", "quality": 75, "maxWidth": int(width * scale), "maxHeight": int(height * scale), "everyNthFrame": 1})
+            # Frames in the page's own size, not the screen's: a quarter of the pixels on a sharp
+            # screen. The sharp picture comes once the page rests (_sharpen).
+            await self._send("Page.startScreencast", {"format": "jpeg", "quality": MOVING_QUALITY, "maxWidth": width, "maxHeight": height, "everyNthFrame": 1})
         else:
             await self._send("Page.stopScreencast")
 
@@ -418,9 +506,17 @@ class Browser:
 
     async def _on(self, method: str, params: dict[str, Any], session: str | None) -> None:
         if method == "Page.screencastFrame":
-            self._frame = base64.b64decode(params["data"])
-            await self._send("Page.screencastFrameAck", {"sessionId": params["sessionId"]})
-            await self._tell(self._frame)
+            mark = zlib.crc32(params["data"].encode())
+            if mark == self._cast_mark:
+                # The same picture again (taking the still makes the browser repeat itself): the
+                # viewer has it, and the sharp one stays.
+                await self._post("Page.screencastFrameAck", {"sessionId": params["sessionId"]})
+                return
+            self._cast_mark = mark
+            await self._frame_made(base64.b64decode(params["data"]), params["sessionId"])
+            if not self.clients:
+                await self._next_frame()
+            self._rests_soon()
         elif method in ("Page.frameNavigated", "Page.navigatedWithinDocument"):
             frame = params.get("frame", {})
             if method == "Page.navigatedWithinDocument" or not frame.get("parentId"):
@@ -536,7 +632,7 @@ class Browsers:
 
         async def run(command: dict[str, Any]) -> None:
             try:
-                await browser.handle(command)
+                await browser.handle(command, client)
             except BrowserError as exc:
                 with contextlib.suppress(Exception):
                     await client.send_json({"t": "error", "message": str(exc)})

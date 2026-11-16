@@ -22,4 +22,5 @@ USER plainboard
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"
-CMD ["uvicorn", "plainboard.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+# No WebSocket compression: the largest messages are pictures of the browser window, compressed already.
+CMD ["uvicorn", "plainboard.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--ws-per-message-deflate", "false"]
