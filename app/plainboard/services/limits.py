@@ -1,4 +1,5 @@
-"""The plan limits of every provider account as last reported. Reading them costs no tokens.
+"""The plan limits of every provider account as last reported. Reading them costs no tokens, or
+for a Claude subscription signed in with a token a handful (the runner asks with a minimal turn).
 
 Stored per account key. Window names: Claude's as it reports them (seven_day, seven_day_opus ...),
 Codex's prefixed with codex_.
@@ -88,6 +89,16 @@ def forecast(window: LimitWindow, days: dict[str, float], now: float) -> LimitFo
 async def _stored(session: AsyncSession) -> tuple[Setting, dict]:
     row = await session.get(Setting, KEY) or Setting(key=KEY, secret=False)
     return row, (json.loads(row.value) if row.value else {}).get("accounts", {})
+
+
+FRESH_SECONDS = 600  # a report this new needs no asking: an account in use reports with every turn
+
+
+async def fresh(session: AsyncSession) -> set[str]:
+    """Accounts (by key) whose limits were reported a moment ago."""
+    _row, accounts = await _stored(session)
+    now = time.time()
+    return {key for key, stored in accounts.items() if now - (stored.get("updated_at") or 0) < FRESH_SECONDS}
 
 
 async def record(session: AsyncSession, account_key: str, windows: list[LimitWindow], complete: bool = False) -> None:

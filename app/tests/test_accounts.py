@@ -111,3 +111,37 @@ def test_codex_accounts_have_their_own_sign_in(client, project):
     assert creds.codex_account not in ("default", "") and creds.codex_auth_mode == "chatgpt"
     moved = client.patch(f"/api/agents/{dev['id']}", json={"provider": "claude_code"}).json()
     assert moved["account_id"] is None  # the pin belonged to Codex
+
+
+def test_only_a_subscription_without_a_fresh_report_is_asked(client, project):
+    """A subscription in use reports its limits with every turn. One that PlainBoard has stopped
+    using (nearly full) reports nothing any more: that one has to be asked, or its numbers stay."""
+    import time
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Account
+    from plainboard.services import limits as limits_service
+    from sqlalchemy import select
+
+    client.patch(f"/api/accounts/{accounts(client)['Claude']['id']}", json={"auth_mode": "oauth_token", "secret": "tok-in-use"})
+    idle_account = client.post("/api/accounts", json={"provider": "claude_code", "auth_mode": "oauth_token", "secret": "tok-idle", "label": "Idle"}).json()
+    runs = client.app_ref.state.runs
+
+    async def report(label: str, age: float) -> None:
+        async with sessionmaker()() as s:
+            key = await s.scalar(select(Account.key).where(Account.label == label))
+            await limits_service.record(s, key, [LimitWindow(name="seven_day", utilization=0.9)])
+            row, stored = await limits_service._stored(s)
+            stored[key]["updated_at"] = int(time.time() - age)
+            row.value = __import__("json").dumps({"accounts": stored})
+            await s.commit()
+
+    client.portal.call(report, "Claude", 30)  # a turn reported it half a minute ago
+    client.portal.call(report, "Idle", 36 * 3600)  # its last turn was a day and a half ago
+    wait_for(lambda: not (runs._limits_task and not runs._limits_task.done()))
+    runner(client).limit_calls.clear()
+    runner(client).limit_windows = [LimitWindow(name="seven_day", utilization=0.6)]
+    client.portal.call(runs._refresh_limits)
+    asked = [creds.claude_oauth_token for provider, creds in runner(client).limit_calls if provider == "claude_code"]
+    assert asked == ["tok-idle"]
+    assert limits_of(client, idle_account["id"])["windows"][0]["utilization"] == 0.6

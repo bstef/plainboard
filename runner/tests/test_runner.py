@@ -644,3 +644,54 @@ async def test_how_far_the_running_plainboard_is_behind_its_upstream():
     assert await github.upstream(Credentials(), "acme/unknown", "main", "abc1234", transport=transport) is None
     with pytest.raises(WorkspaceError):
         await github.upstream(Credentials(), "acme/limited", "main", "abc1234", transport=transport)
+
+
+class FakeUsageClient:
+    """Stands in for the SDK client: answers the usage request with nothing, like a subscription
+    signed in with a token, and reports the limits with a turn's first answer."""
+
+    asked: list[str] = []
+
+    def __init__(self, options=None):
+        self.options = options
+        self._query = self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def _send_control_request(self, request, timeout=None):
+        return {"rate_limits": self.usage}
+
+    async def query(self, prompt):
+        FakeUsageClient.asked.append(f"{self.options.model}: {prompt}")
+
+    async def receive_response(self):
+        from claude_agent_sdk.types import RateLimitEvent, RateLimitInfo
+
+        windows = {"seven_day": {"utilization": 0.41, "resetsAt": 1795143600, "status": "allowed"}, "seven_day_overage_included": {"utilization": 0.0, "status": "allowed"}}
+        yield RateLimitEvent(rate_limit_info=RateLimitInfo(status="allowed", rate_limit_type="seven_day", utilization=0.41, raw={"unifiedWindows": windows}), uuid="u", session_id="s")
+
+
+async def test_the_limits_of_a_token_subscription_come_from_a_minimal_turn(monkeypatch):
+    from plainboard_runner.providers import claude_code
+
+    monkeypatch.setattr(claude_code, "ClaudeSDKClient", FakeUsageClient)
+    FakeUsageClient.asked = []
+    provider = claude_code.ClaudeCodeProvider()
+    token = Credentials(claude_auth_mode="oauth_token", claude_oauth_token="tok")
+
+    # The usage request answers: no turn, no tokens.
+    FakeUsageClient.usage = {"seven_day": {"utilization": 23, "resets_at": "2026-11-20T03:00:00+00:00"}}
+    (window,) = await provider.limits(token)
+    assert (window.name, window.utilization) == ("seven_day", 0.23) and FakeUsageClient.asked == []
+
+    # It answers with nothing (the token is for model requests only): one word to the small model shows them.
+    FakeUsageClient.usage = None
+    windows = {w.name: w for w in await provider.limits(token)}
+    assert windows["seven_day"].utilization == 0.41 and windows["seven_day"].resets_at == 1795143600 and "seven_day_overage_included" in windows
+    assert FakeUsageClient.asked == ["claude-haiku-5-5: ok"]
+
+    assert await provider.limits(Credentials(claude_auth_mode="api_key", anthropic_api_key="k")) == []  # an API key has no plan

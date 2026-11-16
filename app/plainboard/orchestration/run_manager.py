@@ -517,7 +517,8 @@ class RunManager:
         return True
 
     def refresh_limits(self) -> None:
-        """Ask for the plan limits in the background, at most every five minutes. Uses no tokens."""
+        """Ask for the plan limits in the background, at most every five minutes, and only accounts
+        that have not just reported them. Uses no tokens, or a handful (see services/limits.py)."""
         if self._limits_task and not self._limits_task.done() or (self._limits_asked and time.monotonic() - self._limits_asked < 300):
             return
         self._limits_asked = time.monotonic()
@@ -526,7 +527,8 @@ class RunManager:
     async def _refresh_limits(self) -> None:
         async with self._sm() as s:
             values = await settings_service.get_all(s)
-            accounts = [a for a in await account_service.list_accounts(s) if a.enabled and account_service.has_plan(a)]
+            reported = await limits_service.fresh(s)  # an account in use reports with every turn
+            accounts = [a for a in await account_service.list_accounts(s) if a.enabled and account_service.has_plan(a) and a.key not in reported]
             found = await asyncio.gather(
                 *(self.runner.limits(a.provider, settings_service.credentials(values, account=account_service.fields(a))) for a in accounts)
             )

@@ -325,6 +325,9 @@ class EventMapper:
         return events
 
 
+PROBE_MODEL = next(m.id for m in MODELS if m.tier == "small")
+
+
 class ClaudeCodeProvider(Provider):
     name = "claude_code"
 
@@ -400,11 +403,43 @@ class ClaudeCodeProvider(Provider):
     async def limits(self, credentials: Credentials) -> list[LimitWindow]:
         if credentials.claude_auth_mode == "api_key":
             return []
+        try:
+            windows = await self._usage(credentials)
+        except Exception as exc:
+            log.info("Claude's usage could not be read, asking with a minimal turn: %s", str(exc)[:200])
+            windows = []
+        return windows or await self._limits_of_a_turn(credentials)
+
+    async def _usage(self, credentials: Credentials) -> list[LimitWindow]:
         options = ClaudeAgentOptions(tools=[], setting_sources=[], cwd="/tmp", env=auth_env(credentials))
         async with ClaudeSDKClient(options) as client:
             # Claude Code's usage request has no public method in the SDK yet.
             answer = await client._query._send_control_request({"subtype": "get_usage", "skip_behaviors": True}, timeout=20)
         return usage_windows(answer.get("rate_limits"))
+
+    async def _limits_of_a_turn(self, credentials: Credentials) -> list[LimitWindow]:
+        """The limits as a turn reports them. A subscription that is signed in with a token
+        (``claude setup-token``) answers the usage request with nothing: the token is for model
+        requests only. Every model request reports the limits, though, so the smallest one there
+        is shows them: one word to the small model, a few tokens. Without this, a subscription
+        that no agent is running on keeps the numbers of its last turn for days."""
+        options = ClaudeAgentOptions(
+            model=PROBE_MODEL, tools=[], system_prompt="Reply with the single word: ok", setting_sources=[], max_turns=1, cwd="/tmp", env=auth_env(credentials)
+        )
+        windows: dict[str, LimitWindow] = {}
+
+        async def ask() -> None:
+            async with ClaudeSDKClient(options) as client:
+                await client.query("ok")
+                async for message in client.receive_response():
+                    if isinstance(message, RateLimitEvent):
+                        windows.update({w.name: w for w in limit_windows(message.rate_limit_info)})
+
+        try:
+            await asyncio.wait_for(ask(), timeout=60)
+        except Exception as exc:  # a subscription that is used up refuses the request, after reporting that
+            log.info("Minimal turn for Claude's limits ended early: %s", str(exc)[:200])
+        return list(windows.values())
 
     async def complete(self, spec: CompletionSpec) -> CompletionResult:
         stderr_tail: collections.deque[str] = collections.deque(maxlen=30)
