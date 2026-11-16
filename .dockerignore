@@ -7,3 +7,5 @@
 .git
 .env
 data
+docs
+design
