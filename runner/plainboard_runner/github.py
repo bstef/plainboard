@@ -1,18 +1,20 @@
-"""Pull requests on GitHub, read and merged with the gh CLI. The app asks for this on a timer, so
-that no agent has to spend a turn (or sit in one) waiting for checks."""
+"""GitHub pull requests through the gh CLI: used where a train of branches is checked by GitHub's
+own checks. Everything else about trains is plain git (trains.py) and works with any host."""
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from plainboard_protocol import CheckResult, Credentials, PullRequestCheck, PullRequestState
 
 from .workspace import WorkspaceError, git_env, run_cmd
 
-FIELDS = "state,mergeable,headRefOid,url,title,statusCheckRollup"
+FIELDS = "state,mergeable,headRefOid,headRefName,url,title,statusCheckRollup"
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 MERGE_METHODS = ("squash", "merge", "rebase")  # tried in this order: a repository may allow only some
+PULL_URL = re.compile(r"https://\S+/pull/(\d+)")
 
 
 def check_state(item: dict[str, Any]) -> PullRequestCheck:
@@ -37,6 +39,7 @@ def parse_state(data: dict[str, Any]) -> PullRequestState:
         state={"MERGED": "merged", "CLOSED": "closed"}.get((data.get("state") or "").upper(), "open"),
         mergeable=mergeable,  # type: ignore[arg-type]
         head_sha=data.get("headRefOid") or "",
+        branch=data.get("headRefName") or "",
         url=data.get("url") or "",
         title=data.get("title") or "",
         checks=list(checks.values()),
@@ -48,10 +51,23 @@ async def pull_request(credentials: Credentials, repo: str, number: int) -> Pull
     return parse_state(json.loads(out))
 
 
-async def merge(credentials: Credentials, repo: str, number: int) -> CheckResult:
+async def open_pull_request(credentials: Credentials, repo: str, base: str, head: str, title: str, body: str) -> tuple[int, str]:
+    """The open pull request of a branch, created if there is none: its number and URL."""
+    env = git_env(credentials)
+    found = json.loads(await run_cmd(["gh", "pr", "list", "--repo", repo, "--head", head, "--state", "open", "--json", "number,url"], cwd=None, env=env, timeout=60) or "[]")
+    if found:
+        return found[0]["number"], found[0]["url"]
+    out = await run_cmd(["gh", "pr", "create", "--repo", repo, "--base", base, "--head", head, "--title", title, "--body", body], cwd=None, env=env, timeout=120)
+    created = PULL_URL.search(out)
+    if not created:
+        raise WorkspaceError(f"Could not open the pull request: {out[-300:]}")
+    return int(created.group(1)), created.group(0)
+
+
+async def merge(credentials: Credentials, repo: str, number: int, methods: tuple[str, ...] | list[str] = MERGE_METHODS) -> CheckResult:
     env = git_env(credentials)
     error = ""
-    for method in MERGE_METHODS:
+    for method in methods or MERGE_METHODS:
         try:
             await run_cmd(["gh", "pr", "merge", str(number), "--repo", repo, f"--{method}", "--delete-branch"], cwd=None, env=env, timeout=120)
             return CheckResult(ok=True, detail=method)
@@ -60,3 +76,12 @@ async def merge(credentials: Credentials, repo: str, number: int) -> CheckResult
             if "not allowed" not in error.lower() and "not enabled" not in error.lower():
                 break  # not about the merge method: another one would fail the same way
     return CheckResult(ok=False, detail=error[-600:])
+
+
+async def close(credentials: Credentials, repo: str, number: int) -> bool:
+    """Close a pull request that will not be merged, with its branch."""
+    try:
+        await run_cmd(["gh", "pr", "close", str(number), "--repo", repo, "--delete-branch"], cwd=None, env=git_env(credentials), timeout=60)
+        return True
+    except WorkspaceError:
+        return False

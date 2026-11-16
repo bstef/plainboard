@@ -59,10 +59,11 @@ async def _watch(job: Job) -> None:
     job.finished_at = time.time()
 
 
-async def start(spec: JobSpec) -> JobState:
+async def start(spec: JobSpec, cwd: Path | None = None) -> JobState:
+    """``cwd``: a folder of the runner's own outside the workspaces (a train's clone)."""
     if spec.id in _jobs:
         raise ValueError(f"Job {spec.id} already exists")
-    cwd = resolve_workspace(WorkspaceSpec(path=spec.workspace))
+    cwd = cwd or resolve_workspace(WorkspaceSpec(path=spec.workspace))
     cwd.mkdir(parents=True, exist_ok=True)
     JOBS_ROOT.mkdir(parents=True, exist_ok=True)
     _prune()

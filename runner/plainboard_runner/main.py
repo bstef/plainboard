@@ -11,12 +11,13 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 from pydantic import BaseModel
 
 from . import github
 from . import jobs
 from . import notices
+from . import trains
 from .providers import get_provider, list_providers
 from .tool_bridge import ToolBridge
 from .workspace import WorkspaceError, config_args, git_env, prepare_workspace, run_cmd
@@ -230,9 +231,60 @@ async def github_pull_request(ref: PullRequestRef) -> PullRequestState:
         raise HTTPException(502, str(exc)[:600]) from exc
 
 
+class MergeRequest(PullRequestRef):
+    methods: list[str] = []  # merge methods to try, in this order; empty: the default order
+    # The branches a train's pull request brought along: removed once they are in the base branch.
+    key: str | None = None
+    remote: RepoSpec | None = None
+    delete_branches: dict[str, str] = {}  # branch -> the commit that landed
+
+
 @app.post("/github/pull-request/merge", response_model=CheckResult)
-async def github_merge(ref: PullRequestRef) -> CheckResult:
-    return await github.merge(ref.credentials, ref.repo, ref.number)
+async def github_merge(ref: MergeRequest) -> CheckResult:
+    result = await github.merge(ref.credentials, ref.repo, ref.number, ref.methods)
+    if result.ok and ref.key and ref.remote and ref.delete_branches:
+        await trains.delete_branches(ref.credentials, ref.remote, ref.key, ref.delete_branches)
+    return result
+
+
+@app.post("/github/pull-request/close")
+async def github_close(ref: PullRequestRef) -> dict[str, bool]:
+    return {"closed": await github.close(ref.credentials, ref.repo, ref.number)}
+
+
+@app.post("/trains", response_model=TrainResult)
+async def assemble_train(spec: TrainSpec) -> TrainResult:
+    """Merge finished branches into one, so one check run covers all of them. With ``github`` the
+    train also gets a pull request, whose checks are that run."""
+    try:
+        result = await trains.assemble(spec)
+        if spec.github and result.merged:
+            title = spec.title or f"Land {len(result.merged)} branches"
+            result.number, result.url = await github.open_pull_request(spec.credentials, spec.github, result.base, spec.branch, title, spec.body)
+        return result
+    except (WorkspaceError, ValueError, OSError) as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
+
+
+@app.post("/trains/check", response_model=JobState)
+async def check_train(spec: TrainCheckSpec) -> JobState:
+    try:
+        return await trains.start_check(spec)
+    except (WorkspaceError, ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc)[:500]) from exc
+
+
+@app.post("/trains/land", response_model=CheckResult)
+async def land_train(spec: TrainLandSpec) -> CheckResult:
+    return await trains.land(spec)
+
+
+@app.post("/git/branch")
+async def git_branch(ref: BranchRef) -> dict[str, str | None]:
+    try:
+        return {"sha": await trains.branch_head(ref.credentials, ref.remote, ref.branch)}
+    except WorkspaceError as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
 
 
 class GitHubCheck(BaseModel):

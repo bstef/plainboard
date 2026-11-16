@@ -14,7 +14,8 @@ execution, providers), `protocol/` (shared wire models), `frontend/` (React + TS
   user turn (`prompts.with_preface`).
 - Agents are LLMs, not employees. Every turn re-reads its context, so nothing may cost a turn without
   need, and waiting is never agent work: what polls or waits is a watcher without a model
-  (`job_watcher`, `pr_watcher`). An agent has no clock: tool results that follow a wait say how long it
+  (`job_watcher`, `landing`). Check runs are the slowest step: agents start none, PlainBoard runs one
+  for all finished branches together. An agent has no clock: tool results that follow a wait say how long it
   took (`services/timing.py`). What is already ordered comes from the database (`board.in_flight`),
   never from the manager's memory. Prefer such mechanisms over more prompt text.
 - Timestamps are naive UTC in the DB and serialized with a trailing `Z` (`schemas.UTCDateTime`).

@@ -14,7 +14,7 @@ from statistics import median
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Agent, Assignment, AssignmentStatus, Job, JobStatus, PullRequest, PullRequestStatus, Run, RunTrigger, utcnow
+from ..models import Agent, Assignment, AssignmentStatus, Job, JobStatus, Run, RunTrigger, Train, TrainStatus, utcnow
 from .util import truncate
 
 SLOW_SECONDS = 180  # a command that takes this long is worth planning around
@@ -138,9 +138,10 @@ class Overview:
     queued: int = 0
     commands: list[SlowCommand] = field(default_factory=list)
     loops: list[tuple[int, str, int, str]] = field(default_factory=list)  # assignment, agent, runs, command
-    check_rounds: int = 0
+    check_rounds: int = 0  # trains: check runs for landing branches
     check_failed: int = 0
     check_median: int = 0
+    branches_landed: int = 0
     message_turns: int = 0
 
 
@@ -196,11 +197,12 @@ async def overview(session: AsyncSession, project_id: int, hours: int = 24, now:
         names = dict((await session.execute(select(Assignment.id, Agent.name).join(Agent, Agent.id == Assignment.agent_id).where(Assignment.id.in_([a for a, _c in loops])))).all())
         out.loops = sorted(((a, names.get(a, "?"), count, command) for (a, command), count in loops.items()), key=lambda item: item[2], reverse=True)
 
-    for rounds, failures, seconds in await session.execute(
-        select(PullRequest.rounds, PullRequest.failures, PullRequest.check_seconds).where(PullRequest.project_id == project_id, PullRequest.updated_at >= since, PullRequest.rounds > 0)
+    for status, size, seconds, mode in await session.execute(
+        select(Train.status, Train.size, Train.check_seconds, Train.mode).where(Train.project_id == project_id, Train.finished_at >= since, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
     ):
-        out.check_rounds += rounds
-        out.check_failed += failures
+        out.check_rounds += 1
+        out.check_failed += status == TrainStatus.FAILED
+        out.branches_landed += size if status == TrainStatus.LANDED else 0
         out.waiting += seconds
         out.check_median += seconds  # summed here, averaged below
     if out.check_rounds:
@@ -218,9 +220,9 @@ def report_text(o: Overview, waiting_prs: list[str]) -> str:
         lines.append("Slow commands (total = runs x median):")
         lines += [f"- {duration(c.total)} = {c.runs} x {duration(c.median)}: {truncate(c.command, 100)}" for c in o.commands[:6]]
     if o.check_rounds:
-        lines.append(f"Pull request checks: {o.check_rounds} rounds of about {duration(o.check_median)}, {o.check_failed} failed.")
+        lines.append(f"Landing: {o.check_rounds} check runs of about {duration(o.check_median)} brought {o.branches_landed} branches to the base branch; {o.check_failed} runs failed.")
     if waiting_prs:
-        lines.append("Pull requests waiting for checks now: " + "; ".join(waiting_prs[:8]) + ".")
+        lines.append("Being checked now: " + "; ".join(waiting_prs[:8]) + ".")
     if o.loops:
         lines.append("Assignments that ran the same slow command several times: " + "; ".join(f"#{a} ({name}) {count} x {truncate(command, 50)}" for a, name, count, command in o.loops[:5]) + ".")
     if o.message_turns:
@@ -251,7 +253,7 @@ def facts_text(o: Overview) -> str:
         parts.append(f"an assignment's own work takes {duration(o.median_work)} (median)")
     slow = [f"`{truncate(c.command, 60)}` {duration(c.median)} per run" for c in sorted(o.commands, key=lambda c: c.runs, reverse=True)[:3]]
     if o.check_rounds:
-        slow.append(f"the checks of a pull request {duration(o.check_median)} per round")
+        slow.append(f"the check run that lands branches {duration(o.check_median)}")
     if not slow:
         return ""
     head = f"Measured here in the last {o.hours // 24} days: " + (parts[0] + "; " if parts else "")
@@ -277,8 +279,8 @@ def forget_cache() -> None:
     _CACHE.clear()
 
 
-async def waiting_pull_requests(session: AsyncSession, project_id: int, now: datetime | None = None) -> list[str]:
+async def running_trains(session: AsyncSession, project_id: int, now: datetime | None = None) -> list[str]:
     now = now or utcnow()
-    rows = await session.scalars(select(PullRequest).where(PullRequest.project_id == project_id, PullRequest.status == PullRequestStatus.OPEN).order_by(PullRequest.id))
-    return [f"PR #{pr.number} ({duration(_span(pr.round_started_at, now))})" for pr in rows if pr.checks == "pending"]
+    rows = await session.scalars(select(Train).where(Train.project_id == project_id, Train.status == TrainStatus.CHECKING).order_by(Train.id))
+    return [f"{train.size} branch{'es' if train.size != 1 else ''} ({duration(_span(train.created_at, now))})" for train in rows]
 

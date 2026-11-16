@@ -110,7 +110,9 @@ async def create(session: AsyncSession, project_id: int, data: RepositoryCreate)
         raise ServiceError("Repository URL is required")
     name = _validate_name((data.name or name_from_url(url)).strip())
     await _check_unique(session, project_id, name)
-    repo = Repository(project_id=project_id, name=name, url=url, default_branch=data.default_branch or None, description=data.description, auth=data.auth)
+    repo = Repository(
+        project_id=project_id, name=name, url=url, default_branch=data.default_branch or None, description=data.description, check_command=data.check_command.strip(), auth=data.auth
+    )
     _apply_access(repo, token=data.token, token_user=data.token_user, ssh_private_key=data.ssh_private_key, new_ssh_key=False)
     session.add(repo)
     await session.flush()

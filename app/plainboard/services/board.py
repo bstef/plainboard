@@ -23,14 +23,16 @@ from ..models import (
     DecisionStatus,
     Job,
     JobStatus,
+    Landing,
+    LandingStatus,
     Project,
-    PullRequest,
-    PullRequestStatus,
     Run,
     RunStatus,
     Task,
     TaskStatus,
     TaskTransition,
+    Train,
+    TrainStatus,
     utcnow,
 )
 from ..schemas import AssignmentOut, AttachmentOut, CommentOut, DecisionOut, PublicBoard, PublicTask, TaskCreate, TaskDetail, TaskOut, TaskUpdate
@@ -270,9 +272,9 @@ async def idle_in_progress(session: AsyncSession, project_id: int) -> list[Task]
     busy = {
         *await session.scalars(select(Run.task_id).where(Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES))),
         *await session.scalars(select(Decision.task_id).where(Decision.project_id == project_id, Decision.status == DecisionStatus.OPEN)),
-        # An assignment stays open while it waits for its jobs, a pull request while its checks run.
+        # An assignment stays open while it waits for its jobs, a branch is in flight until it has landed.
         *await session.scalars(select(Assignment.task_id).where(Assignment.project_id == project_id, Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES))),
-        *await session.scalars(select(PullRequest.task_id).where(PullRequest.project_id == project_id, PullRequest.status == PullRequestStatus.OPEN)),
+        *await session.scalars(select(Landing.task_id).where(Landing.project_id == project_id, Landing.status.in_(LANDING_IN_FLIGHT))),
     }
     return [t for t in tasks if t.id not in busy]
 
@@ -321,17 +323,19 @@ async def capacity(session: AsyncSession, project_id: int, limit: int, *, except
 
 
 IN_FLIGHT_LINES = 12
+LANDING_IN_FLIGHT = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK)
 LONG_JOB_SECONDS = 2 * 3600  # an assignment waiting this long for one job may be stuck: its agent takes no other work meanwhile
 
 
 async def in_flight(session: AsyncSession, project_id: int, now: datetime | None = None) -> tuple[list[str], int]:
-    """Open assignments and watched pull requests, one line each, and how many more there are. The
+    """Open assignments and branches on their way to the base branch, one line each, and how many more there are. The
     manager gets this on every turn: what is already ordered comes from here, not from its memory."""
     now = now or utcnow()
     names = await agent_names(session, project_id)
     assignments = list(await session.scalars(select(Assignment).where(Assignment.project_id == project_id, Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES)).order_by(Assignment.id)))
-    pulls = list(await session.scalars(select(PullRequest).where(PullRequest.project_id == project_id, PullRequest.status == PullRequestStatus.OPEN).order_by(PullRequest.id)))
-    task_ids = {x.task_id for x in (*assignments, *pulls) if x.task_id}
+    landings = list(await session.scalars(select(Landing).where(Landing.project_id == project_id, Landing.status.in_(LANDING_IN_FLIGHT)).order_by(Landing.id)))
+    trains = {t.id: t for t in await session.scalars(select(Train).where(Train.id.in_([x.train_id for x in landings if x.train_id])))} if landings else {}
+    task_ids = {x.task_id for x in (*assignments, *landings) if x.task_id}
     numbers = dict((await session.execute(select(Task.id, Task.number).where(Task.id.in_(task_ids)))).all()) if task_ids else {}
     ids = [a.id for a in assignments]
     turns: dict[int, str] = {}
@@ -342,7 +346,6 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
                 turns[assignment_id] = status
         started = select(Job.assignment_id, func.min(Job.created_at)).where(Job.assignment_id.in_(ids), Job.status == JobStatus.RUNNING).group_by(Job.assignment_id)
         jobs = dict((await session.execute(started)).all())
-    fixing = {a.pull_request_id for a in assignments if a.pull_request_id}
 
     def age(since: datetime) -> str:
         return duration((now - since).total_seconds())
@@ -360,15 +363,18 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
             state = "continues with its next turn"
         ticket = f" for #{numbers[a.task_id]}" if a.task_id in numbers else ""
         lines.append(f'- Assignment #{a.id}{ticket}, {names.get(a.agent_id, "?")}: "{truncate(a.title, 70)}" · {state}, ordered {age(a.created_at)} ago')
-    for pr in pulls:
-        ticket = f" for #{numbers[pr.task_id]}" if pr.task_id in numbers else ""
-        if pr.id in fixing:
-            state = "checks failed, its author is fixing it"
-        elif pr.checks == "pending":
-            state = f"checks running ({age(pr.round_started_at)})"
+    for landing in landings:
+        ticket = f" for #{numbers[landing.task_id]}" if landing.task_id in numbers else ""
+        train = trains.get(landing.train_id or 0)
+        if landing.status == LandingStatus.BACK:
+            state = "did not pass the checks, its author is repairing it"
+        elif landing.status == LandingStatus.TRAIN and train and train.status == TrainStatus.BLOCKED:
+            state = f"passed its checks, waits for pull request #{train.number} to be merged by hand"
+        elif landing.status == LandingStatus.TRAIN and train:
+            state = f"being checked with {train.size - 1} other branch{'es' if train.size != 2 else ''} ({age(train.created_at)})" if train.size > 1 else f"being checked ({age(train.created_at)})"
         else:
-            state = f"checks {pr.checks}"
-        lines.append(f'- PR #{pr.number}{ticket}, {names.get(pr.agent_id or 0, "?")}: {state}; PlainBoard watches it' + (" and merges it when they pass" if pr.merge else ""))
+            state = "goes on the next train"
+        lines.append(f'- Branch {truncate(landing.branch, 60)}{ticket}, {names.get(landing.agent_id or 0, "?")}: {state}; PlainBoard lands it')
     return lines[:IN_FLIGHT_LINES], max(len(lines) - IN_FLIGHT_LINES, 0)
 
 

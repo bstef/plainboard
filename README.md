@@ -16,11 +16,12 @@ Claude login); the provider layer is ready for others such as OpenAI.
 - **Manager chat**: the manager reads tickets, gives each one to a member as one complete assignment,
   reads the reports, and moves the tickets. It also manages agents, notes, schedules and MCP servers.
 - **Built for how LLMs work, not how companies do**: an agent writes code in minutes and loses hours
-  waiting, so PlainBoard cuts the waits. One member owns a change from the first line to the merge.
-  Nobody waits for CI: a member hands its pull request over (`merge_when_green`), PlainBoard watches
-  the checks without any model, merges when they pass and gives all failures back at once. Time is
-  measured and shown to the agents where they decide (how long a command took, work against waiting
-  per assignment), because a model has no clock.
+  waiting, so PlainBoard cuts the waits. One member owns a change from the first line to handing it
+  over. Nobody starts or awaits a check run: a member pushes its branch and hands it over
+  (`merge_when_green`), and PlainBoard, without any model, merges all finished branches into one
+  train, has it checked once and lands what passes. Ten changes in half an hour cost one check run,
+  not ten. Time is measured and shown to the agents where they decide (how long a command took, work
+  against waiting per assignment), because a model has no clock.
 - **Team per project**: each agent has a role, a narrow area of responsibility, its own model,
   effort level and capabilities. Agents can ask each other (`ask_agent`) or message each other
   (`message_agent`).
@@ -137,8 +138,11 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   against waiting). Reports go to the manager's inbox and appear as ticket comments. The manager is
   woken up once per batch of reports (turn off per project with *auto-wake*), starts what comes next
   and moves the ticket to *Done* (*Review* only if you have to look at something).
-- Pull requests on GitHub that a member hands over are watched and merged by PlainBoard itself; after
-  three failed rounds of checks the manager decides how to go on.
+- Finished branches land together. PlainBoard checks one train of branches per repository at a time,
+  so check runs follow the clock instead of the number of changes. If a train fails, it is cut in
+  halves until the branch that breaks the checks is found, and only that one goes back to its author.
+  A repository's **check command** (e.g. `./scripts/ci.sh`) decides whether a train may land; this
+  works with any git host. Without one, on GitHub, the checks of one pull request for the train decide.
 - You can chat with any agent directly; the full-page **Chat** view lists all conversations.
 
 ## Token efficiency

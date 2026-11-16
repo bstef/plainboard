@@ -178,9 +178,71 @@ class PullRequestState(BaseModel):
     state: Literal["open", "merged", "closed"]
     mergeable: Literal["yes", "conflict", "unknown"] = "unknown"
     head_sha: str = ""
+    branch: str = ""  # the branch the pull request comes from
     url: str = ""
     title: str = ""
     checks: list[PullRequestCheck] = Field(default_factory=list)
+
+
+TRAIN_KEY = r"^[\w.-]{1,80}$"
+
+
+class TrainSpec(BaseModel):
+    """Several finished branches to be checked together: merged, in order, onto the base branch in
+    the runner's own clone of the repository, so that one check run covers all of them. Plain git:
+    works with any host."""
+
+    credentials: Credentials
+    key: str = Field(pattern=TRAIN_KEY)  # names the runner's clone for this repository
+    remote: RepoSpec  # where to fetch from and push to, with the repository's own access if it has one
+    base: str | None = None  # None: the repository's default branch
+    branch: str  # the train's own branch
+    members: list[str]  # branches, in the order they are merged
+    # Leave a branch out while its head is still this commit: it failed like this before.
+    skip_unchanged: dict[str, str] = Field(default_factory=dict)
+    # owner/name on GitHub: push the train's branch and open a pull request, whose checks check the
+    # train. None: the train is checked by a command in the clone and never pushed as a branch.
+    github: str | None = Field(default=None, pattern=r"^[\w.-]+/[\w.-]+$")
+    title: str = ""
+    body: str = ""
+
+
+class TrainResult(BaseModel):
+    base: str = ""
+    head_sha: str = ""
+    number: int | None = None  # the train's pull request, if it has one
+    url: str = ""
+    merged: dict[str, str] = Field(default_factory=dict)  # branch -> its head commit, now part of the train
+    conflicts: list[str] = Field(default_factory=list)  # could not be merged onto the base and the branches before them
+    missing: list[str] = Field(default_factory=list)  # not on the remote
+    unchanged: list[str] = Field(default_factory=list)  # left out: see TrainSpec.skip_unchanged
+    landed: list[str] = Field(default_factory=list)  # already contained in the base branch
+
+
+class TrainCheckSpec(BaseModel):
+    """Run the repository's check command in the clone that holds the assembled train."""
+
+    credentials: Credentials
+    key: str = Field(pattern=TRAIN_KEY)
+    id: str = Field(pattern=r"^[0-9a-f]+$")  # the job this becomes
+    command: str
+
+
+class TrainLandSpec(BaseModel):
+    """Push a checked train to the base branch (it only moves forward) and remove the landed branches."""
+
+    credentials: Credentials
+    key: str = Field(pattern=TRAIN_KEY)
+    remote: RepoSpec
+    base: str
+    head_sha: str
+    delete_branches: dict[str, str] = Field(default_factory=dict)  # branch -> the commit that landed
+
+
+class BranchRef(BaseModel):
+    credentials: Credentials
+    remote: RepoSpec
+    branch: str
 
 
 # ---------------------------------------------------------------------------

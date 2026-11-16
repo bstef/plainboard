@@ -66,11 +66,21 @@ class DecisionStatus(StrEnum):
     WITHDRAWN = "withdrawn"
 
 
-class PullRequestStatus(StrEnum):
-    OPEN = "open"  # PlainBoard is watching it
-    MERGED = "merged"
-    CLOSED = "closed"  # closed without a merge
-    STUCK = "stuck"  # handed to the manager: checks keep failing or it cannot be merged
+class LandingStatus(StrEnum):
+    WAITING = "open"  # handed over: goes on the next train
+    TRAIN = "train"  # on a train whose checks are running
+    BACK = "back"  # it broke a train or conflicts: its author is repairing it
+    MERGED = "merged"  # on the base branch
+    CLOSED = "closed"
+    STUCK = "stuck"  # handed to the manager
+
+
+class TrainStatus(StrEnum):
+    CHECKING = "checking"
+    BLOCKED = "blocked"  # checks passed, but it could not be merged: someone has to
+    LANDED = "landed"
+    FAILED = "failed"
+    ABORTED = "aborted"  # given up without a result (e.g. the runner restarted): its branches go on the next one
 
 
 class JobStatus(StrEnum):
@@ -156,6 +166,10 @@ class Repository(Timestamps, Base):
     url: Mapped[str] = mapped_column(String(500))
     default_branch: Mapped[str | None] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")  # what it contains (helps routing work)
+    # Decides whether finished branches may land: PlainBoard runs it on all of them merged together
+    # and pushes to the base branch if it succeeds. Works with any git host. Empty: on GitHub, the
+    # checks of a pull request for the merged branches decide.
+    check_command: Mapped[str] = mapped_column(Text, default="", server_default="")
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")
@@ -308,34 +322,55 @@ class Assignment(Timestamps, Base):
     result: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[int | None] = mapped_column(Integer)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
-    # Set when PlainBoard itself ordered this work: fixing the failed checks or conflicts of that pull request.
-    pull_request_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    # Set when PlainBoard itself ordered this work: repairing that branch, which broke a train or conflicts.
+    landing_id: Mapped[int | None] = mapped_column(Integer, index=True)
 
 
-class PullRequest(Timestamps, Base):
-    """A pull request an agent handed to PlainBoard (merge_when_green). PlainBoard watches its checks
-    without an agent turn, merges it when they pass and gives failures back to the author."""
+class Landing(Timestamps, Base):
+    """A finished branch an agent handed to PlainBoard (merge_when_green). PlainBoard brings it to
+    the base branch without an agent turn, together with the other finished branches: one check
+    run for all of them (a train)."""
 
-    __tablename__ = "pull_requests"
-    __table_args__ = (UniqueConstraint("repository_id", "number"),)
+    __tablename__ = "landings"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"))
-    number: Mapped[int] = mapped_column(Integer)
+    branch: Mapped[str] = mapped_column(String(250), default="")
+    number: Mapped[int | None] = mapped_column(Integer)  # its own pull request, if the agent opened one
     url: Mapped[str] = mapped_column(String(500), default="")
     title: Mapped[str] = mapped_column(String(300), default="")
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))  # the author
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
-    merge: Mapped[bool] = mapped_column(Boolean, default=True)  # False: only watch and report
-    status: Mapped[str] = mapped_column(String(20), default=PullRequestStatus.OPEN, index=True)
-    checks: Mapped[str] = mapped_column(String(20), default="pending")  # pending | passed | failed
+    status: Mapped[str] = mapped_column(String(20), default=LandingStatus.WAITING, index=True)
     head_sha: Mapped[str] = mapped_column(String(64), default="")
-    handled_sha: Mapped[str] = mapped_column(String(64), default="")  # the head whose result was already passed on
-    failures: Mapped[int] = mapped_column(Integer, default=0)  # rounds of checks that failed
-    rounds: Mapped[int] = mapped_column(Integer, default=0)  # rounds of checks that finished
-    check_seconds: Mapped[int] = mapped_column(Integer, default=0)  # time those rounds took together
-    round_started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    failed_sha: Mapped[str] = mapped_column("handled_sha", String(64), default="")  # the head it last failed with
+    failures: Mapped[int] = mapped_column(Integer, default=0)  # times it went back to its author
+    train_id: Mapped[int | None] = mapped_column(Integer, index=True)  # the train it is on, or landed with
+    # While PlainBoard narrows down which branch broke a train: the half this branch is in.
+    group_no: Mapped[int | None] = mapped_column(Integer)
     merged_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class Train(Timestamps, Base):
+    """Finished branches of one repository that are checked together. One train at a time per
+    repository: however fast the team works, check runs follow the clock, not the number of changes."""
+
+    __tablename__ = "trains"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"), index=True)
+    mode: Mapped[str] = mapped_column(String(20))  # command: the repository's check command | github: a pull request's checks
+    status: Mapped[str] = mapped_column(String(20), default=TrainStatus.CHECKING, index=True)
+    branch: Mapped[str] = mapped_column(String(250), default="")
+    base: Mapped[str] = mapped_column(String(250), default="")
+    head_sha: Mapped[str] = mapped_column(String(64), default="")
+    number: Mapped[int | None] = mapped_column(Integer)  # github: its pull request
+    url: Mapped[str] = mapped_column(String(500), default="")
+    job_id: Mapped[str | None] = mapped_column(String(32))  # command: the runner job that runs the check
+    group_no: Mapped[int | None] = mapped_column(Integer)  # a half of a failed train (see Landing.group_no)
+    size: Mapped[int] = mapped_column(Integer, default=0)  # branches on it
+    check_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 # --- conversations & runs -------------------------------------------------------------------

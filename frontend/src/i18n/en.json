@@ -89,6 +89,8 @@
     "repoNamePlaceholder": "Folder name (optional)",
     "repoBranchPlaceholder": "Branch (optional)",
     "repoDescriptionPlaceholder": "What's in it? Helps the manager route work (optional)",
+    "repoCheckPlaceholder": "Check command, e.g. ./scripts/ci.sh (optional)",
+    "repoCheckHint": "Decides whether finished branches may land. PlainBoard merges all finished branches, runs this once for all of them and pushes to the base branch if it succeeds: works with any git host. Empty: on GitHub, the checks of one pull request for the merged branches decide.",
     "confirmRemoveRepo": "Remove repository \"{{name}}\" from the project? Existing clones stay on disk.",
     "pickFromGithub": "Choose from GitHub",
     "addRepoByUrl": "Add by URL",

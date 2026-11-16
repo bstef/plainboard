@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, parse_event
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -129,22 +129,64 @@ class RunnerClient:
         except httpx.HTTPError as exc:
             return {"ok": False, "detail": f"Runner unreachable: {exc}", "repos": []}
 
-    async def pull_request(self, credentials: Credentials, repo: str, number: int) -> PullRequestState:
-        """State and checks of a GitHub pull request (``repo`` is owner/name)."""
+    async def _github(self, path: str, body: dict, timeout: float) -> httpx.Response:
         try:
-            resp = await self._client.post("/github/pull-request", json={"credentials": credentials.model_dump(mode="json"), "repo": repo, "number": number}, timeout=90)
+            resp = await self._client.post(path, json=body, timeout=timeout)
         except httpx.HTTPError as exc:
             raise RunnerError(f"Runner unreachable: {exc}") from exc
         if resp.status_code >= 400:
             raise RunnerError(resp.text[:600])
-        return PullRequestState.model_validate(resp.json())
+        return resp
 
-    async def merge_pull_request(self, credentials: Credentials, repo: str, number: int) -> CheckResult:
+    async def pull_request(self, credentials: Credentials, repo: str, number: int) -> PullRequestState:
+        """State and checks of a GitHub pull request (``repo`` is owner/name)."""
+        body = {"credentials": credentials.model_dump(mode="json"), "repo": repo, "number": number}
+        return PullRequestState.model_validate((await self._github("/github/pull-request", body, 90)).json())
+
+    async def merge_pull_request(
+        self, credentials: Credentials, repo: str, number: int, *, methods: list[str] | None = None, key: str | None = None, remote: RepoSpec | None = None, delete_branches: dict[str, str] | None = None
+    ) -> CheckResult:
+        body = {
+            "credentials": credentials.model_dump(mode="json"),
+            "repo": repo,
+            "number": number,
+            "methods": methods or [],
+            "key": key,
+            "remote": remote.model_dump(mode="json") if remote else None,
+            "delete_branches": delete_branches or {},
+        }
         try:
-            resp = await self._client.post("/github/pull-request/merge", json={"credentials": credentials.model_dump(mode="json"), "repo": repo, "number": number}, timeout=180)
+            resp = await self._client.post("/github/pull-request/merge", json=body, timeout=300)
             return CheckResult.model_validate(resp.json())
         except (httpx.HTTPError, ValueError) as exc:
             return CheckResult(ok=False, detail=f"Runner unreachable: {exc}")
+
+    async def close_pull_request(self, credentials: Credentials, repo: str, number: int) -> None:
+        try:
+            await self._client.post("/github/pull-request/close", json={"credentials": credentials.model_dump(mode="json"), "repo": repo, "number": number}, timeout=90)
+        except httpx.HTTPError:
+            pass  # tidying up only
+
+    async def assemble_train(self, spec: TrainSpec) -> TrainResult:
+        """Merge finished branches into one train (one check run for all of them)."""
+        return TrainResult.model_validate((await self._github("/trains", spec.model_dump(mode="json"), 900)).json())
+
+    async def check_train(self, spec: TrainCheckSpec) -> JobState:
+        """Start the repository's check command on the assembled train; poll it with ``job_status``."""
+        return JobState.model_validate((await self._github("/trains/check", spec.model_dump(mode="json"), 60)).json())
+
+    async def land_train(self, spec: TrainLandSpec) -> CheckResult:
+        """Push a checked train to the base branch."""
+        try:
+            resp = await self._client.post("/trains/land", json=spec.model_dump(mode="json"), timeout=400)
+            return CheckResult.model_validate(resp.json())
+        except (httpx.HTTPError, ValueError) as exc:
+            return CheckResult(ok=False, detail=f"Runner unreachable: {exc}")
+
+    async def branch_head(self, credentials: Credentials, remote: RepoSpec, branch: str) -> str | None:
+        """The commit a branch points to on its remote; None if the branch is not there."""
+        body = {"credentials": credentials.model_dump(mode="json"), "remote": remote.model_dump(mode="json"), "branch": branch}
+        return (await self._github("/git/branch", body, 150)).json().get("sha")
 
     async def aclose(self) -> None:
         await self._client.aclose()

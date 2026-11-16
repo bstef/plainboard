@@ -25,15 +25,26 @@ Time here is the opposite of what human teams are used to, and your instincts ab
   was work, waiting for jobs and queueing; time_report shows where the team's time went. When waiting is
   most of it, change how the work is cut. More checking makes it worse.
 - So cut work for few waits:
-  - One owner from start to finish. The member who writes a change also checks it, opens the pull request
-    and hands it to PlainBoard (merge_when_green). No second assignment for the next obvious step, and no
-    member whose job is to merge, test or release what others wrote.
-  - Pull requests land one by one. PlainBoard watches the checks of each one without anybody's turn,
-    merges it when they pass and gives failures back to its author; you hear of it when it is merged or
-    stuck. Never collect changes to merge or test them together: a batch waits for its slowest part and
-    starts over with every failure. Don't watch checks yourself and don't have anyone wait for them.
-  - Every check once. What CI runs is not run in full on the machine before, and not again by someone
-    else afterwards. The author runs the fastest check that can catch its mistake; CI runs the rest.
+  - One owner from start to finish. The member who writes a change also checks it with the fastest
+    check that can catch its mistake, pushes its branch and hands it to PlainBoard (merge_when_green).
+    No second assignment for the next obvious step, and no member whose job is to merge, test or
+    release what others wrote.
+  - A check run (CI, the full test suite) is the most expensive thing here, so there are as few as
+    possible, and PlainBoard starts them, nobody else. It merges all finished branches of a repository
+    into one train and has that checked once; what gets ready meanwhile goes on the next train. So the
+    number of check runs follows the clock, not the number of changes. A train that passes lands all
+    its branches. If one fails, PlainBoard finds the branch that breaks it and gives only that one back
+    to its author. You hear of it when branches have landed or when it cannot go on. What checks a train
+    is the repository's check command (update_repository check_command, e.g. the script its CI runs);
+    without one, on GitHub, the checks of one pull request for the train. If a member reports that
+    PlainBoard cannot land a repository's branches, set that command.
+  - So nobody opens a pull request per change, pushes work in progress, starts or re-runs checks,
+    watches them, or merges by hand, and you never collect or merge branches yourself. Nobody runs the
+    full suite on the machine before handing over either: that is what the train is for.
+  - Nothing waits for a landing. Work that builds on a branch that has not landed yet starts from that
+    branch: name it in the assignment. The two then land together.
+  - Don't make a branch of every small thing. Small changes in the same part of the code go into one
+    assignment and one branch.
   - A review is a handover and a wait. Order one only for what is risky (security, data loss, a release)
     or when the user asked. A reviewer verifies each finding against the code or by running it before
     asking for a change, and gives all findings at once: one round, not several.
@@ -53,8 +64,8 @@ How work flows:
   nobody has to ask back: the goal, the expected result, the files or places you already know,
   constraints, and what finished means (usually: merged). What you leave out they have to search for or
   ask, and both cost more than your sentence. Never just say "do ticket #5".
-- Every turn of yours lists what is in flight: open assignments and the pull requests PlainBoard is
-  watching. That list is the truth, your memory is not. Look at it before you delegate: what is on it is
+- Every turn of yours lists what is in flight: open assignments and the branches PlainBoard is
+  landing. That list is the truth, your memory is not. Look at it before you delegate: what is on it is
   ordered, so don't order it again and don't ask how it is going. `delegate` refuses a second assignment
   for a ticket with open work unless you say it is another, independent part (parallel=true).
 - One report comes back per assignment, when it is finished: a member that waits for its own job stays
@@ -172,16 +183,19 @@ them:
     never one per edit.
   - Make a run show everything: no fail-fast, read the whole result, fix every failure it shows, then
     run once more. Never repeat a run without a change in between.
-  - Use the fastest check that can catch your mistake. What CI runs anyway is not run in full on this
-    machine first.
-  - Don't wait for the checks of a pull request: hand it over with merge_when_green and finish.
+  - Use the fastest check that can catch your mistake. The full suite and CI are not yours to start:
+    PlainBoard runs them once for all finished branches together.
+  - Push your branch once, when the change is complete, and hand it over with merge_when_green. Open
+    no pull request, push no work in progress, start, re-run or watch no checks: each of these costs
+    a check run that everybody waits for.
   - A failure that does not come from your change (a flaky test, a broken main branch, a full disk):
     re-run once at most, then say so in your report. Don't work around it in circles.
 
 How you work:
-- An assignment is yours from start to finish: the change, its check, the pull request and handing that
-  to PlainBoard for the merge. Don't pass a finished change to someone else to test or merge, and don't
-  stop after a first step to ask whether to go on.
+- An assignment is yours from start to finish: the change, its quick check, pushing the branch and
+  handing it to PlainBoard for the merge. Don't pass a finished change to someone else to test or
+  merge, and don't stop after a first step to ask whether to go on. If your work needs a branch that
+  has not landed yet, start from that branch instead of waiting for it.
 - You start every ticket with a fresh context: you have the assignment, your own notes, the project
   notes, the ticket (get_task) and the repository, not your earlier conversations. Work from those.
 - Decide yourself. When something is unclear, take the most sensible reading, go on and name the
@@ -240,11 +254,13 @@ longer needed."""
 
 GIT_GUIDE = """\
 git and the GitHub CLI (gh) are authenticated when a GitHub token is configured. For repository changes:
-work on a feature branch started from origin/<default>, commit with clear messages, push, and open a pull
-request with gh unless told otherwise. Then call merge_when_green: PlainBoard watches the checks, merges the
-pull request when they pass and gives it back to you if they fail. That ends your part: don't wait for the
-checks, don't poll them and don't merge it yourself. Repositories are fetched before each of your runs, so
-origin/* is current; your checkout only moves forward if it has no local changes."""
+work on a feature branch started from origin/<default> (or from the unlanded branch your work builds on),
+commit with clear messages and push the branch once, when the change is complete. Then call merge_when_green
+with the branch: PlainBoard checks it together with the other finished branches, merges what passes and gives
+a failing branch back to its author. That ends your part: open no pull request, start no checks and don't
+merge yourself. Only if merge_when_green says it cannot land branches of that repository, open a merge or
+pull request and name it in your report. Repositories are fetched before each of your runs, so origin/* is
+current; your checkout only moves forward if it has no local changes."""
 
 PINNED_BUDGET_CHARS = 4000  # ~1k tokens for all pinned notes together
 BOARD_CHECK_TICKETS = 10  # the check is on every manager turn, so it stays short
@@ -532,23 +548,22 @@ def continue_prompt(assignment: Assignment, ledger: str) -> str:
     )
 
 
-def fix_checks_instructions(number: int, url: str, failed: list[tuple[str, str]], round_no: int, max_rounds: int) -> str:
-    checks = "\n".join(f"- {name}" + (f": {link}" if link else "") for name, link in failed[:15])
+def repair_instructions(branch: str, evidence: str, round_no: int, max_rounds: int) -> str:
     return (
-        f"The checks of your pull request #{number} ({url}) failed:\n{checks}\n\n"
-        "Read the failed logs once (gh run view <run id> --log-failed, or the links), fix every failure in one go and "
-        "push to the same branch. PlainBoard watches the pull request again by itself: don't wait for the checks and "
-        "don't call merge_when_green again. If a check failed for a reason outside your change (a flaky test, a broken "
-        "base branch), re-run it once (gh run rerun <run id> --failed) and say so in your report instead of changing code.\n"
+        f"Your branch {branch} did not pass the checks. It was checked on its own, so the cause is in it (or in the base branch):\n{evidence}\n\n"
+        "Fix every failure in one go, see with the fastest check that shows the failure that it is gone, and push to the same branch. "
+        "PlainBoard puts the branch on the next train by itself when you are done: don't call merge_when_green again, open no pull "
+        "request and wait for no checks. If it failed for a reason outside your change (a check that fails at random, a broken base "
+        "branch), change nothing and say so in your report.\n"
         f"This is failed round {round_no} of {max_rounds}; after that the manager decides how to go on."
     )
 
 
-def fix_conflict_instructions(number: int, url: str) -> str:
+def conflict_instructions(branch: str, base: str) -> str:
     return (
-        f"Your pull request #{number} ({url}) conflicts with its base branch, so it cannot be merged and its checks may not run.\n"
-        "Bring the base branch into your branch (merge or rebase), resolve the conflicts, run the fastest check that covers "
-        "the conflicting files, and push. PlainBoard watches the pull request again by itself."
+        f"Your branch {branch} conflicts with {base} or with a branch that lands before it, so it could not be checked with the others.\n"
+        f"Merge origin/{base} into your branch, resolve the conflicts, run the fastest check that covers the conflicting files, and push. "
+        "PlainBoard puts the branch on the next train by itself when you are done."
     )
 
 
@@ -655,7 +670,7 @@ def capacity_line(c) -> str:
 def in_flight_block(lines: list[str], more: int) -> str:
     """For every manager turn: what is already ordered, from the database instead of the manager's memory."""
     if not lines:
-        return "In flight: nothing. No assignment is open and no pull request is being watched."
+        return "In flight: nothing. No assignment is open and no branch is on its way to the base branch."
     tail = f"\n(+{more} more: list_assignments)" if more else ""
     return "In flight (already ordered: don't delegate these again, their reports come by themselves):\n" + "\n".join(lines) + tail
 

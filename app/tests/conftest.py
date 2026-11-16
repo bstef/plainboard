@@ -19,6 +19,7 @@ from plainboard_protocol import (
     JobState,
     ModelInfo,
     ProviderInfo,
+    PullRequestCheck,
     PullRequestState,
     ResultEvent,
     RunEvent,
@@ -26,6 +27,7 @@ from plainboard_protocol import (
     SessionEvent,
     ToolResultEvent,
     ToolUseEvent,
+    TrainResult,
     UsageEvent,
 )
 
@@ -49,8 +51,18 @@ class FakeRunner:
         self.job_specs: list[JobSpec] = []
         self.reachable = True
         self.released = False
-        self.pulls: dict[tuple[str, int], PullRequestState] = {}  # what GitHub would say
-        self.merged: list[tuple[str, int]] = []
+        # Landing: what the git host would say.
+        self.branches: dict[str, str] = {}  # branch -> head commit on the remote
+        self.conflicting: set[str] = set()  # branches that cannot be merged onto the base
+        self.on_base: set[str] = set()  # branches the base branch already contains
+        self.train_specs: list = []
+        self.train_results: list[TrainResult] = []
+        self.check_specs: list = []
+        self.land_specs: list = []
+        self.land_error = ""
+        self.pulls: dict[tuple[str, int], PullRequestState] = {}  # GitHub: the trains' pull requests
+        self.merged: list[tuple[str, int, dict]] = []
+        self.closed: list[int] = []
         self.merge_error = ""
 
     async def stream_run(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
@@ -115,17 +127,54 @@ class FakeRunner:
         job = self.jobs.get(runner_id)
         return bool(job and job.running)
 
+    async def branch_head(self, credentials, remote, branch: str) -> str | None:
+        return self.branches.get(branch)
+
+    async def assemble_train(self, spec) -> TrainResult:
+        self.train_specs.append(spec)
+        result = TrainResult(base=spec.base or "main", head_sha=f"train-{len(self.train_specs)}")
+        for branch in spec.members:
+            if branch not in self.branches:
+                result.missing.append(branch)
+            elif spec.skip_unchanged.get(branch) == self.branches[branch]:
+                result.unchanged.append(branch)
+            elif branch in self.on_base:
+                result.landed.append(branch)
+            elif branch in self.conflicting:
+                result.conflicts.append(branch)
+            else:
+                result.merged[branch] = self.branches[branch]
+        if spec.github and result.merged:
+            result.number, result.url = 100 + len(self.train_specs), f"https://github.com/{spec.github}/pull/{100 + len(self.train_specs)}"
+            self.pulls[(spec.github, result.number)] = PullRequestState(
+                state="open", mergeable="yes", head_sha=result.head_sha, url=result.url, checks=[PullRequestCheck(name="ci / test", state="pending", link="https://ci/run/1")]
+            )
+        self.train_results.append(result)
+        return result
+
+    async def check_train(self, spec) -> JobState:
+        self.check_specs.append(spec)
+        self.jobs[spec.id] = JobState(running=True, log_path=f"/jobs/{spec.id}.log")
+        return self.jobs[spec.id]
+
+    async def land_train(self, spec) -> CheckResult:
+        self.land_specs.append(spec)
+        return CheckResult(ok=not self.land_error, detail=self.land_error or "pushed")
+
     async def pull_request(self, credentials, repo: str, number: int) -> PullRequestState:
         if (repo, number) not in self.pulls:
             raise RunnerError("no such pull request")
         return self.pulls[(repo, number)]
 
-    async def merge_pull_request(self, credentials, repo: str, number: int) -> CheckResult:
+    async def merge_pull_request(self, credentials, repo: str, number: int, **options) -> CheckResult:
         if self.merge_error:
             return CheckResult(ok=False, detail=self.merge_error)
-        self.merged.append((repo, number))
+        self.merged.append((repo, number, options))
         self.pulls[(repo, number)] = self.pulls[(repo, number)].model_copy(update={"state": "merged"})
-        return CheckResult(ok=True, detail="squash")
+        return CheckResult(ok=True, detail="merge")
+
+    async def close_pull_request(self, credentials, repo: str, number: int) -> None:
+        self.closed.append(number)
 
     async def providers(self) -> list[ProviderInfo]:
         return [
@@ -164,7 +213,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_STATIC_DIR", str(tmp_path / "static"))
     monkeypatch.setenv("PLAINBOARD_SCHEDULER_INTERVAL_SECONDS", "3600")
     monkeypatch.setenv("PLAINBOARD_JOB_WATCH_INTERVAL_SECONDS", "3600")
-    monkeypatch.setenv("PLAINBOARD_PR_WATCH_INTERVAL_SECONDS", "3600")
+    monkeypatch.setenv("PLAINBOARD_LANDING_INTERVAL_SECONDS", "3600")
+    monkeypatch.setenv("PLAINBOARD_LANDING_LINGER_SECONDS", "0")
     for var in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "PLAINBOARD_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
     from plainboard import config, main

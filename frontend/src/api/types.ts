@@ -47,6 +47,7 @@ export interface Repository {
   url: string;
   default_branch: string | null;
   description: string;
+  check_command: string;
   agent_ids: number[];
   auth: RepoAuth;
   token_user: string;

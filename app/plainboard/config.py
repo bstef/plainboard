@@ -19,7 +19,10 @@ class Config(BaseSettings):
     max_upload_mb: int = 50
     scheduler_interval_seconds: float = 20.0
     job_watch_interval_seconds: float = 10.0
-    pr_watch_interval_seconds: float = 30.0  # how often watched pull requests are looked at
+    landing_interval_seconds: float = 30.0  # how often trains of finished branches are looked at
+    # A train waits this long for further branches after the first one is ready: members often
+    # finish within minutes of each other, and whoever misses a train waits a whole check run.
+    landing_linger_seconds: float = 90.0
     # Workspaces as seen by the runner container.
     workspaces_root: str = "/workspaces"
     runner_uploads_dir: str = "/uploads"

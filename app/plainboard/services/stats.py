@@ -202,9 +202,11 @@ async def work_report(session: AsyncSession, project_id: int, days: int = 14) ->
             "assignment_median_work_seconds": time.median_work,
             "slow_commands": [{"command": " ".join(c.command.split()[:2]), "runs": c.runs, "median_seconds": c.median, "total_seconds": c.total} for c in time.commands[:15]],
             "repeated_slow_runs": len(time.loops),
-            "pull_request_rounds": time.check_rounds,
-            "pull_request_rounds_failed": time.check_failed,
-            "pull_request_round_seconds": time.check_median,
+            # Landing: finished branches are checked together, so check runs should be far fewer than branches.
+            "landing_check_runs": time.check_rounds,
+            "landing_check_runs_failed": time.check_failed,
+            "landing_check_run_seconds": time.check_median,
+            "branches_landed": time.branches_landed,
         },
         "per_day": [
             {"date": d.date, "tickets_created": d.tickets_created, "tickets_done": d.tickets_done, "runs": d.runs, "cost_usd": round(d.cost_usd, 2)}

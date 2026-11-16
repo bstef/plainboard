@@ -38,6 +38,7 @@ class RepositoryCreate(BaseModel):
     name: str | None = Field(default=None, max_length=100, description="Folder name; default from URL")
     default_branch: str | None = None
     description: str = ""
+    check_command: str = Field(default="", max_length=2000)  # decides whether finished branches may land
     agent_ids: list[int] | None = None  # explicit access for agents restricted to selected repos
     auth: RepoAuth = "default"
     token: str | None = None  # write-only
@@ -50,6 +51,7 @@ class RepositoryUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     default_branch: str | None = None
     description: str | None = None
+    check_command: str | None = Field(default=None, max_length=2000)
     agent_ids: list[int] | None = None
     auth: RepoAuth | None = None
     token: str | None = None  # write-only; empty keeps the stored one
@@ -116,6 +118,7 @@ class RepositoryOut(ORM):
     url: str
     default_branch: str | None
     description: str
+    check_command: str = ""
     agent_ids: list[int] = Field(default_factory=list)
     auth: RepoAuth = "default"
     token_user: str = ""

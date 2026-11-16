@@ -313,7 +313,7 @@ class RunManager:
         instructions: str,
         task: Task | None,
         effort: str | None = None,
-        pull_request_id: int | None = None,
+        landing_id: int | None = None,
     ) -> Assignment:
         if task is not None and task.project_id != target.project_id:
             raise ServiceError("Ticket belongs to another project")
@@ -327,11 +327,11 @@ class RunManager:
             title=title,
             instructions=instructions,
             effort=effort,
-            pull_request_id=pull_request_id,
+            landing_id=landing_id,
         )
         s.add(assignment)
         await s.commit()
-        from_name = caller.name if caller else "PlainBoard" if pull_request_id else "the user"
+        from_name = caller.name if caller else "PlainBoard" if landing_id else "the user"
         run = await self.enqueue(
             s,
             target,
@@ -558,11 +558,11 @@ class RunManager:
             managers = set(await s.scalars(select(Agent.id).where(Agent.is_manager))) if queued else set()
             # An agent finishes its open assignment before it starts another one.
             occupied = set(await s.scalars(select(Assignment.agent_id).where(Assignment.status == AssignmentStatus.RUNNING))) if queued else set()
-            fixes = set(await s.scalars(select(Assignment.id).where(Assignment.status == AssignmentStatus.QUEUED, Assignment.pull_request_id.is_not(None)))) if queued else set()
+            fixes = set(await s.scalars(select(Assignment.id).where(Assignment.status == AssignmentStatus.QUEUED, Assignment.landing_id.is_not(None)))) if queued else set()
 
             def order(run: Run) -> tuple[int, int]:
                 """Someone waiting for an answer goes first, then what the user wrote, then work that
-                has been started (a job's result, a pull request to repair), then new work."""
+                has been started (a job's result, a branch to repair for landing), then new work."""
                 if run.parent_run_id is not None:
                     return 0, run.id
                 if run.trigger == RunTrigger.CHAT:
@@ -937,8 +937,8 @@ class RunManager:
                 await board_service.add_comment(s, ticket, f"**Assignment #{assignment.id}: {assignment.title}**\n\n{text}\n\n_{took}_", author_kind="agent", agent_id=agent.id)
             else:
                 await board_service.add_comment(s, ticket, f"Assignment #{assignment.id} ({agent.name}) {assignment.status}: {run.error}", author_kind="system")
-        if ok and assignment.pull_request_id:
-            return  # repair of a watched pull request: PlainBoard goes on watching, nobody has to read this
+        if ok and assignment.landing_id:
+            return  # repair of a branch for landing: PlainBoard puts it on the next train, nobody has to read this
         ref = f", ticket #{ticket.number}" if ticket else ""
         recipient = assignment.created_by_agent_id or (await agent_service.get_manager(s, project.id)).id
         if recipient != agent.id:
