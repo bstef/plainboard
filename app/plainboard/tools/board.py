@@ -10,7 +10,6 @@ from ..schemas import CUSTOMER_DESCRIPTION_MAX, CUSTOMER_TITLE_MAX, USER_ACTION_
 from ..services import board as board_service
 from ..services import decisions as decision_service
 from ..services import projects as project_service
-from ..services.util import truncate
 from .registry import ALL, MANAGER, ToolContext, ToolError, local_tool, tool
 
 
@@ -146,14 +145,10 @@ async def get_board_summary(ctx: ToolContext, _args) -> str:
     return f"Counts: {counts}\n" + (f"Label colors: {colors}\n" if colors else "") + "\n".join(ticket_line(t) for t in open_tasks[:40]) + more
 
 
-@tool("get_task", "Full ticket: description, attachments (paths), last 10 comments, assignments.", TicketRef)
+@tool("get_task", "Full ticket: description, attachments (paths), last 10 comments, latest assignments with their reports.", TicketRef)
 async def get_task(ctx: ToolContext, args: TicketRef) -> str:
     task = await board_service.get_task_by_number(ctx.session, ctx.project.id, args.number)
-    text = await board_service.ticket_text(ctx.session, task, comment_limit=10)
-    assignments = (await ctx.session.scalars(select(Assignment).where(Assignment.task_id == task.id).order_by(Assignment.id))).all()
-    if assignments:
-        text += "\n\nAssignments:\n" + "\n".join(f"- #{a.id} [{a.status}] agent {a.agent_id}: {a.title}" + (f" → {truncate(a.result, 200)}" if a.result else "") for a in assignments)
-    return text
+    return await board_service.ticket_text(ctx.session, task, comment_limit=10)
 
 
 @tool("get_comments", "Older ticket comments, page by page (newest first by offset).", GetCommentsArgs)
@@ -221,9 +216,13 @@ async def delete_tasks(ctx: ToolContext, args: TicketNumbers) -> str:
     return f"Deleted {text}."
 
 
-@tool("add_comment", "Comment on a ticket (visible to the user).", CommentArgs, roles=ALL)
+@tool("add_comment", "Comment on a ticket: what the user must know and no report says.", CommentArgs, roles=ALL)
 async def add_comment(ctx: ToolContext, args: CommentArgs) -> str:
     task = await board_service.get_task_by_number(ctx.session, ctx.project.id, args.number)
+    # The report of an assignment stays with its ticket: a comment next to it says the same thing twice.
+    assignment = await ctx.session.get(Assignment, ctx.run.assignment_id) if ctx.run.assignment_id else None
+    if assignment and assignment.task_id == task.id:
+        raise ToolError(f"Not added: ticket #{args.number} shows the report of your assignment, so say it there, once.")
     await board_service.add_comment(ctx.session, task, args.body, author_kind="agent", agent_id=ctx.agent.id)
     return f"Commented on #{args.number}."
 

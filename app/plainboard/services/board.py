@@ -613,4 +613,45 @@ async def ticket_text(session: AsyncSession, task: Task, comment_limit: int = CO
     decisions = await list_decisions(session, task.id)
     comments = await recent_comments(session, task.id, comment_limit)
     total = await count_comments(session, task.id)
-    return ticket_brief(task, await list_attachments(session, task.id), comments, names, runner_path, decisions, comment_total=total)
+    brief = ticket_brief(task, await list_attachments(session, task.id), comments, names, runner_path, decisions, comment_total=total)
+    work = await work_lines(session, task, names)
+    return brief + ("\n\n" + "\n".join(work) if work else "")
+
+
+BRIEF_ASSIGNMENTS = 5  # finished assignments an agent sees with a ticket; older ones: list_assignments
+
+
+async def work_lines(session: AsyncSession, task: Task, names: dict[int, str]) -> list[str]:
+    """The work on a ticket as an agent sees it: what is open and the latest reports. A report stays
+    with its assignment and is no comment, so comments are only what someone meant to say."""
+    on_ticket = select(Assignment).where(Assignment.task_id == task.id)
+    total = await session.scalar(select(func.count()).select_from(Assignment).where(Assignment.task_id == task.id)) or 0
+    if not total:
+        return []
+    still_open = Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES)
+    newest = Assignment.id.desc()
+    shown = [
+        *await session.scalars(on_ticket.where(still_open).order_by(newest).limit(BRIEF_ASSIGNMENTS)),
+        *await session.scalars(on_ticket.where(~still_open).order_by(newest).limit(BRIEF_ASSIGNMENTS)),
+    ]
+    more = f" (last {len(shown)} of {total}; older: list_assignments)" if total > len(shown) else ""
+    return [f"Assignments{more}:"] + [
+        f"- #{a.id} [{a.status}] {names.get(a.agent_id, '?')}: {a.title}" + (f" → {truncate(a.result, 400)}" if a.result else "") for a in sorted(shown, key=lambda a: a.id)
+    ]
+
+
+SPLIT_AFTER = 10  # assignments (the median ticket takes 3) after which a ticket is no longer one piece of work
+SPLIT_AGAIN = 5  # ... and after how many more it is said again
+
+
+async def split_hint(session: AsyncSession, task: Task) -> str:
+    """Said to the manager in the moment it orders yet more work on a ticket that has outgrown one
+    piece of work: no turn of its own, and nothing is said about tickets of a normal size."""
+    ordered = select(func.count()).select_from(Assignment).where(Assignment.task_id == task.id, Assignment.landing_id.is_(None), Assignment.train_id.is_(None))
+    count = await session.scalar(ordered) or 0
+    if count < SPLIT_AFTER or (count - SPLIT_AFTER) % SPLIT_AGAIN:
+        return ""
+    return (
+        f" Ticket #{task.number} has {count} assignments now, more than one ticket should carry: nobody can follow it any more. "
+        "If work remains after this one, split it into smaller tickets (create_tasks), each with one result, and finish this ticket instead of ordering more on it."
+    )

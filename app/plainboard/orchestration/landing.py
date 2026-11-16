@@ -461,8 +461,6 @@ async def give_back(
         return False
     landing.status = LandingStatus.BACK
     await s.commit()
-    if ticket:
-        await board_service.add_comment(s, ticket, f"Branch {landing.branch} {what}. Back to {author.name}.", author_kind="system")
-    if not await open_repair(s, landing):
+    if not await open_repair(s, landing):  # the repair is an assignment on the ticket: no comment says it again
         await runs.delegate(s, None, author, title, instructions, ticket, landing_id=landing.id)
     return True

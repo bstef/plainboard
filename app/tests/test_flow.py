@@ -46,6 +46,51 @@ def job_tick(client) -> None:
 # --- one assignment, one report -------------------------------------------------------------
 
 
+def test_reports_stay_with_their_assignment_and_comments_are_only_what_someone_meant_to_say(client, project):
+    pid = project["id"]
+    make_member(client, pid)
+    manager = manager_of(client, pid)
+    for title in ("Build it", "Another"):
+        client.post(f"/api/projects/{pid}/tasks", json={"title": title, "status": "in_progress"})
+    # The member says it twice, as a comment on its own ticket and as its report, and notes something on another ticket.
+    work = 'TOOL add_comment {"number": 1, "body": "Done, see feat-a"}\nTOOL add_comment {"number": 2, "body": "feat-a changes the API this needs"}\nSAY Done on feat-a'
+    chat(client, manager["id"], delegate("dev", "Do it", work, ticket_number=1))
+    wait_for(lambda: idle(client, pid) and assignments(client, pid)[0]["status"] == "done")
+    first, second = (client.get(f"/api/projects/{pid}/tasks").json()[i]["id"] for i in (0, 1))
+    assert client.get(f"/api/tasks/{first}").json()["comments"] == []
+    assert [c["body"] for c in client.get(f"/api/tasks/{second}").json()["comments"]] == ["feat-a changes the API this needs"]
+    refused = tool_results(client, agents_by_slug(client, pid)["dev"]["id"])[0]
+    assert refused.startswith("Not added: ticket #1 shows the report of your assignment")
+
+    # Whoever reads the ticket gets the report from the assignment, and only the latest ones of a long ticket.
+    chat(client, manager["id"], 'TOOL add_comment {"number": 1, "body": "The user must restart the device once"}\nTOOL get_task {"number": 1}')
+    wait_for(lambda: idle(client, pid))
+    text = tool_results(client, manager["id"])[-1]
+    assert "Recent comments:\n- Manager: The user must restart the device once" in text
+    assert "Assignments:\n- #1 [done] Dev: Do it → " in text and "Done on feat-a" in text
+    for i in range(2, 9):
+        chat(client, manager["id"], delegate("dev", f"Part {i}", f"SAY part {i} done", ticket_number=1))
+        wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in assignments(client, pid)))
+    chat(client, manager["id"], 'TOOL get_task {"number": 1}')
+    wait_for(lambda: idle(client, pid))
+    text = tool_results(client, manager["id"])[-1]
+    assert "Assignments (last 5 of 8; older: list_assignments):" in text and "Part 4" in text and "Part 3" not in text
+    assert client.get(f"/api/tasks/{first}").json()["comment_count"] == 1
+
+
+def test_the_manager_is_asked_to_split_a_ticket_that_keeps_getting_assignments(client, project):
+    pid = project["id"]
+    make_member(client, pid)
+    manager = manager_of(client, pid)
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Everything", "status": "in_progress"})
+    for i in range(1, 11):
+        chat(client, manager["id"], delegate("dev", f"Part {i}", f"SAY part {i} done", ticket_number=1))
+        wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in assignments(client, pid)))
+    results = [r for r in tool_results(client, manager["id"]) if r.startswith("Assignment #")]
+    assert len(results) == 10 and not any("split" in r for r in results[:9])  # a ticket of a normal size hears nothing
+    assert "Ticket #1 has 10 assignments now" in results[9] and "split it into smaller tickets (create_tasks)" in results[9]
+
+
 def test_an_assignment_stays_open_while_its_job_runs_and_reports_once(client, project):
     pid = project["id"]
     make_member(client, pid)

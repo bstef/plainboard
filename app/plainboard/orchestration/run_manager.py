@@ -186,8 +186,6 @@ class RunManager:
         assignment = await s.get(Assignment, run.assignment_id) if run.assignment_id else None
         if assignment:
             ticket = await s.get(Task, assignment.task_id) if assignment.task_id else None
-            if ticket:
-                await board_service.add_comment(s, ticket, f"Assignment #{assignment.id} ({agent.name}) was interrupted by a restart.", author_kind="system")
             ref = f", ticket #{ticket.number}" if ticket else ""
             recipient = assignment.created_by_agent_id or (await agent_service.get_manager(s, project.id)).id
             await inbox.push(
@@ -999,12 +997,8 @@ class RunManager:
         timing_service.forget_cache()
         took = (await timing_service.ledger(s, assignment)).text()
         bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
+        # The report stays with the assignment, which the ticket shows: it is not repeated as a comment.
         ticket = await s.get(Task, assignment.task_id) if assignment.task_id else None
-        if ticket:
-            if ok:
-                await board_service.add_comment(s, ticket, f"**Assignment #{assignment.id}: {assignment.title}**\n\n{text}\n\n_{took}_", author_kind="agent", agent_id=agent.id)
-            else:
-                await board_service.add_comment(s, ticket, f"Assignment #{assignment.id} ({agent.name}) {assignment.status}: {run.error}", author_kind="system")
         if ok and (assignment.landing_id or assignment.train_id):
             return  # repair for landing: PlainBoard puts the branches on the next train, nobody has to read this
         ref = f", ticket #{ticket.number}" if ticket else ""

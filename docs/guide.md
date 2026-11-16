@@ -126,7 +126,7 @@ it (see [Running on a server](#running-on-a-server)).
 
 ```
 You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
-  │              ▲  ▲                         │ report (+ ticket comment)
+  │              ▲  ▲                         │ report (kept with the ticket)
   └─ ticket ─────┘  └──── inbox / auto-wake ──┘
 ```
 
@@ -135,9 +135,14 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   orders for one or more agents.
 - An assignment is one piece of work with one report: it stays open while a job the member started
   for it is running, and the report is sent when it is really finished, with the time it took (work
-  against waiting). Reports go to the manager's inbox and appear as ticket comments. The manager is
-  woken up once per batch of reports (turn off per project with *auto-wake*), starts what comes next
-  and moves the ticket to *Done* (*Review* only if you have to look at something).
+  against waiting). Reports go to the manager's inbox and stay with their assignment, which the
+  ticket lists. The manager is woken up once per batch of reports (turn off per project with
+  *auto-wake*), starts what comes next and moves the ticket to *Done* (*Review* only if you have to
+  look at something).
+- Comments are only what someone meant to say: yours, a decision, a branch that reached the main
+  branch. Reports and repairs are not repeated there. A ticket that has collected ten assignments is
+  no longer one piece of work: the manager is told so when it orders more, and splits the rest into
+  smaller tickets.
 - Finished branches land together. A member pushes its branch and hands it over
   (`merge_when_green`). PlainBoard, without any model, checks one train of branches per repository at
   a time, so check runs follow the clock instead of the number of changes. If a train fails, one

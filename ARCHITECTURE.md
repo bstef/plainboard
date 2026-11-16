@@ -78,8 +78,8 @@ token that is valid only while the run lasts and only for that run's project and
 3. `_stream`: persist assistant texts and tool calls, publish text deltas over the WebSocket, and track
    context size from usage events.
 4. `_finish` → `_after_run`: route results (answer to the asker; for an assignment's turn either keep
-   the assignment open for its job or close it: report to the requester's inbox plus a ticket comment,
-   wake the requester), then `maybe_compress`. After every run `_settle` makes sure an open assignment
+   the assignment open for its job or close it: report to the requester's inbox, wake the requester;
+   the report stays with the assignment, which the ticket shows, and is no comment), then `maybe_compress`. After every run `_settle` makes sure an open assignment
    that waits for nothing any more gets the turn that finishes it (also after a restart).
 
 Queued runs start in this order: nested `ask_agent` runs, then chat messages from the user, then work

@@ -104,8 +104,8 @@ def test_an_assignment_that_restarts_keep_cutting_off_is_reported_to_the_manager
     assert spec.bridge.tools and "Do the work" in spec.prompt and "interrupted by a restart" in spec.prompt
     assert "delegate" in {t.name for t in spec.bridge.tools}  # it went to the manager
     detail = client.get(f"/api/tasks/{ticket['id']}").json()
-    assert detail["assignments"][0]["status"] == "failed"
-    assert "interrupted by a restart" in detail["comments"][-1]["body"]
+    assert detail["assignments"][0]["status"] == "failed" and "restart" in detail["assignments"][0]["result"]
+    assert detail["comments"] == []  # the assignment on the ticket says it
 
 
 def test_interrupted_manager_turn_is_reported_to_itself(client, project):
@@ -267,8 +267,8 @@ def test_ticket_handoff_and_delegation_flow(client, project):
     (assignment,) = client.get(f"/api/projects/{pid}/assignments").json()
     assert assignment["result"] == "API done on branch feat/api" and assignment["task_id"] == ticket["id"]
     detail = client.get(f"/api/tasks/{ticket['id']}").json()
-    assert any("Assignment #1" in c["body"] for c in detail["comments"])
     assert detail["assignments"][0]["status"] == "done"
+    assert detail["comments"] == []  # the report stays with its assignment: it is not repeated as a comment
 
     # Manager was woken up with the report in its inbox.
     wake_msg = next(m for m in conversation(client, manager["id"])["messages"] if m["meta"].get("trigger") == "wake")

@@ -207,7 +207,8 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
         state = f"{target.slug} has to wait for a free slot: {use}. Don't start further agents until one finishes."
     else:
         state = f"{use[0].upper()}{use[1:]}." + ("" if capacity.free else " That is the limit: don't start further agents until one finishes.")
-    return f"Assignment #{assignment.id} queued for {target.slug}{effort}. {state}"
+    split = await board_service.split_hint(ctx.session, task) if task else ""
+    return f"Assignment #{assignment.id} queued for {target.slug}{effort}. {state}{split}"
 
 
 @tool("list_assignments", "List work orders, optionally by ticket, agent or status.", ListAssignmentsArgs)
