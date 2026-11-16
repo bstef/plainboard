@@ -588,6 +588,8 @@
     "githubToken": "GitHub token",
     "gitName": "Git author name",
     "gitEmail": "Git author email",
+    "general": "General",
+    "generalHint": "For all projects and agents, from the moment you save.",
     "defaults": "Defaults",
     "defaultsHint": "Used for new agents. Every agent can override them.",
     "defaultProvider": "Provider",

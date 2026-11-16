@@ -159,6 +159,29 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <SecretsEditor projectId={null} />
         </Section>
 
+        {/* What holds for the whole installation, at once: not a default that an agent could override. */}
+        <Section title={t("settings.general")} description={t("settings.generalHint")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t("settings.maxParallel")} hint={t("settings.maxParallelHint")}>
+              <Input type="number" min={0} max={20} value={values.max_parallel_runs ?? 3} onChange={(e) => set({ max_parallel_runs: Number(e.target.value) })} />
+            </Field>
+            <Field label={t("settings.managerParallel")} hint={t("settings.managerParallelHint")}>
+              <Input type="number" min={0} max={20} value={values.manager_parallel_limit ?? 6} onChange={(e) => set({ manager_parallel_limit: Number(e.target.value) })} />
+            </Field>
+            <Field label={t("settings.timezone")}>
+              <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
+            </Field>
+          </div>
+          <div className="space-y-1">
+            <Toggle checked={values.update_check ?? true} onChange={(v) => set({ update_check: v })} label={t("settings.updateCheck")} />
+            <p className="text-fg-3">
+              {t("settings.updateCheckHint")}
+              {meta.data?.version && ` ${t("settings.versionRunning", { commit: meta.data.version.commit })}`}
+              {meta.data?.version?.behind ? ` ${t("update.how", { count: meta.data.version.behind })}` : meta.data?.version?.behind === 0 ? ` ${t("settings.versionCurrent")}` : ""}
+            </p>
+          </div>
+        </Section>
+
         <Section title={t("settings.defaults")} description={t("settings.defaultsHint")}>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t("settings.defaultProvider")}>
@@ -195,23 +218,6 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             <Field label={t("settings.keepRecent")}>
               <Input type="number" min={0} max={50} value={values.default_keep_recent ?? 6} onChange={(e) => set({ default_keep_recent: Number(e.target.value) })} />
             </Field>
-            <Field label={t("settings.maxParallel")} hint={t("settings.maxParallelHint")}>
-              <Input type="number" min={0} max={20} value={values.max_parallel_runs ?? 3} onChange={(e) => set({ max_parallel_runs: Number(e.target.value) })} />
-            </Field>
-            <Field label={t("settings.managerParallel")} hint={t("settings.managerParallelHint")}>
-              <Input type="number" min={0} max={20} value={values.manager_parallel_limit ?? 6} onChange={(e) => set({ manager_parallel_limit: Number(e.target.value) })} />
-            </Field>
-            <Field label={t("settings.timezone")}>
-              <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
-            </Field>
-          </div>
-          <div className="mt-3 space-y-1">
-            <Toggle checked={values.update_check ?? true} onChange={(v) => set({ update_check: v })} label={t("settings.updateCheck")} />
-            <p className="text-fg-3">
-              {t("settings.updateCheckHint")}
-              {meta.data?.version && ` ${t("settings.versionRunning", { commit: meta.data.version.commit })}`}
-              {meta.data?.version?.behind ? ` ${t("update.how", { count: meta.data.version.behind })}` : meta.data?.version?.behind === 0 ? ` ${t("settings.versionCurrent")}` : ""}
-            </p>
           </div>
         </Section>
         <ErrorText error={error} />
