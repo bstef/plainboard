@@ -19,6 +19,7 @@ class Config(BaseSettings):
     max_upload_mb: int = 50
     scheduler_interval_seconds: float = 20.0
     job_watch_interval_seconds: float = 10.0
+    limits_interval_seconds: float = 900.0  # how often the plan limits of all subscriptions are read
     landing_interval_seconds: float = 30.0  # how often trains of finished branches are looked at
     # A train waits this long for further branches after the first one is ready: members often
     # finish within minutes of each other, and whoever misses a train waits a whole check run.

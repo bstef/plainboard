@@ -10,6 +10,7 @@ const stroke = { red: "text-you", amber: "text-fg", indigo: "text-fg-2" };
 const bar = { red: "bg-you", amber: "bg-fg", indigo: "bg-fg-2" };
 const percent = (used: number) => Math.round(used * 100);
 const fromUnix = (seconds: number) => new Date(seconds * 1000).toISOString();
+const STALE_AFTER = 45 * 60; // seconds
 
 /** Plan limits (5-hour, weekly) as one small ring per account, filled to the fullest window; click
  * for the windows, resets and forecast. Sits under every composer, so usage is always in view. */
@@ -67,12 +68,18 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
   const slowDown = forecasts.some((f) => f.status === "over");
   const ringTone = tone(highest) === "indigo" && slowDown ? "amber" : tone(highest);
   const ringLabel = t("chat.limits.ring", { percent: percent(highest) });
-  const label = (account ? `${account.label}: ${ringLabel}` : ringLabel) + (slowDown ? ` · ${t("chat.limits.slowDown")}` : "");
+  // The limits are read every 15 minutes. A value much older than that could not be read: say so
+  // instead of showing it like a current one.
+  const stale = !!account?.updated_at && Date.now() / 1000 - account.updated_at > STALE_AFTER;
+  const label =
+    (account ? `${account.label}: ${ringLabel}` : ringLabel) +
+    (slowDown ? ` · ${t("chat.limits.slowDown")}` : "") +
+    (stale ? ` · ${t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at!)) })}` : "");
 
   return (
     <div ref={ref} className="relative shrink-0">
       <button type="button" onClick={() => setOpen(!open)} aria-label={label} aria-expanded={open} title={label} className="flex h-6 items-center gap-1.5 rounded-sm px-1 text-fg-3 hover:bg-sunk hover:text-fg touch:h-9">
-        <svg viewBox="0 0 20 20" className="size-4 shrink-0 -rotate-90" aria-hidden>
+        <svg viewBox="0 0 20 20" className={clsx("size-4 shrink-0 -rotate-90", stale && "opacity-40")} aria-hidden>
           <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" className="text-line-2" />
           <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" pathLength={100} strokeDasharray={`${Math.min(percent(highest), 100)} 100`} className={stroke[ringTone]} />
         </svg>

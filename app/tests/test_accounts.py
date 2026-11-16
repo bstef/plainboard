@@ -1,4 +1,5 @@
 from conftest import agents_by_slug, idle, wait_for
+from plainboard.orchestration.limits_watcher import LimitsWatcher
 from plainboard_protocol import LimitWindow
 from test_orchestration import chat, make_dev, runner
 
@@ -55,6 +56,21 @@ def test_limits_are_read_for_every_subscription(client, project):
     assert [w["name"] for w in limits_of(client, found["Codex"]["id"])["windows"]] == ["codex_seven_day"]
     assert all(creds.codex_account == "default" for provider, creds in runner(client).limit_calls if provider == "codex")  # the API key has no plan
     assert limits_of(client, key_account["id"])["available"] is False
+
+
+def test_limits_are_read_without_anyone_looking(client, project):
+    """A subscription that no agent uses, with the UI closed: the watcher reads its limits anyway."""
+    claude = accounts(client)["Claude"]
+    client.patch(f"/api/accounts/{claude['id']}", json={"auth_mode": "oauth_token"})
+    runner(client).limit_windows = [LimitWindow(name="seven_day", utilization=0.3)]
+    watcher = LimitsWatcher(client.app_ref.state.runs, 0.05)
+    client.portal.call(watcher.start)
+    try:
+        wait_for(lambda: runner(client).limit_calls)  # no request for the limits, no turn
+    finally:
+        client.portal.call(watcher.stop)
+    wait_for(lambda: limits_of(client, claude["id"])["windows"])
+    assert limits_of(client, claude["id"])["windows"][0]["utilization"] == 0.3
 
 
 def test_turns_go_to_the_subscription_with_room(client, project):
