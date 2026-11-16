@@ -412,15 +412,31 @@
   }
 }
 
-/* The chat: what you wrote is a bubble at the right, an agent's answer is plain text under its
-   name, events are small notes. No rules between them. */
+/* The chat: what you wrote is a bubble at the right, an agent's answer is plain text at the left,
+   events are small notes. No rules between them. A chat is between two, so the side says who
+   wrote: no name on every message, and the time sits small under it instead of opposite the name. */
 [data-design="classic"] [data-part="msg"] {
-  border-bottom: 0;
-  padding-block: 6px;
-}
-[data-design="classic"] [data-part="msg"][data-role="user"] {
   display: flex;
   flex-direction: column;
+  border-bottom: 0;
+  padding-block: 7px;
+}
+[data-design="classic"] [data-part="msg"] [data-part="msg-head"] {
+  order: 1;
+  margin: 2px 0 0;
+}
+[data-design="classic"] [data-part="msg"] [data-part="msg-head"] b {
+  display: none;
+}
+[data-design="classic"] [data-part="msg"][data-role="agent"] time {
+  margin-left: 0;
+  padding-left: 0;
+}
+[data-design="classic"] [data-part="msg"][data-role="error"] {
+  flex-direction: row;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"],
+[data-design="classic"] [data-part="msg"][data-role="queued"] {
   width: fit-content;
   max-width: min(85%, 46rem);
   margin: 8px 16px 8px auto;
@@ -429,12 +445,16 @@
   background: var(--accent);
   color: #fff;
 }
-[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] {
-  order: 1;
-  margin: 2px 0 0;
+/* Not sent yet: the same bubble, outlined instead of filled. Its head (waiting for whom, delete)
+   stays on top. */
+[data-design="classic"] [data-part="msg"][data-role="queued"] {
+  background: var(--sunk);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
-[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] b {
-  display: none;
+[data-design="classic"] [data-part="msg"][data-role="queued"] [data-part="msg-head"] {
+  order: 0;
+  margin: 0 0 2px;
 }
 [data-design="classic"] [data-part="msg"][data-role="user"] time {
   color: rgb(255 255 255 / 0.75);

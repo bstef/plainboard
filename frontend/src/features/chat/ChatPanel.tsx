@@ -163,7 +163,7 @@ export function ChatPanel({
           message ? (
             <MessageItem key={message.id} message={message} agent={agent} details={details} />
           ) : r && (
-          <div key={`run-${r.id}`} data-part="msg" data-role="user" className={clsx(CHAT_ROW, "bg-sunk")}>
+          <div key={`run-${r.id}`} data-part="msg" data-role="queued" className={clsx(CHAT_ROW, "bg-sunk")}>
             <Head name={t("chat.you")}>
               <span className="mk mk-plan self-center" />
               <span className="min-w-0 flex-1 truncate text-fg-3">{t("chat.waiting", { name: agent.name })}</span>
