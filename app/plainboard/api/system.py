@@ -11,7 +11,7 @@ from ..models import TaskStatus
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
 from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PublicApiKeyIn, SettingsOut, SettingsUpdate
 from ..services import access_keys as access_key_service
-from ..services import inspect as inspect_service
+from ..services import db_read as db_read_service
 from ..services import limits as limits_service
 from ..services import settings as settings_service
 from ..services import version as version_service
@@ -66,13 +66,13 @@ async def revoke_access_key(key_id: int, session: Session) -> None:
 @router.get("/inspect/schema")
 async def inspect_schema() -> list[dict[str, Any]]:
     """The database's tables, their sizes and readable columns."""
-    return await inspect_service.schema()
+    return await db_read_service.schema()
 
 
 @router.get("/inspect/query")
 async def inspect_query(sql: str, limit: int = Query(default=200, ge=1), cell_chars: int = Query(default=2000, ge=0)) -> dict[str, Any]:
     """One SELECT on the database, read-only. Credentials read as NULL."""
-    return await inspect_service.query(sql, limit, cell_chars)
+    return await db_read_service.query(sql, limit, cell_chars)
 
 
 @router.get("/limits", response_model=LimitsOut)

@@ -18,8 +18,9 @@ COPY app/tests /src/app/tests
 FROM backend AS final
 COPY --from=frontend /frontend/dist /app/static
 # The commit this image is built from, so the app can say when a newer one exists (services/version.py).
-# Empty when the build context has no git data: then there is no notice.
-RUN --mount=type=bind,target=/ctx python /src/app/plainboard/services/version.py /ctx/.git > /app/commit
+# Empty when the build context has no git data: then there is no notice. -I: the script's own folder is not
+# on the import path, so a module next to it (secrets.py, settings.py) can never stand in for Python's own.
+RUN --mount=type=bind,target=/ctx python -I /src/app/plainboard/services/version.py /ctx/.git > /app/commit
 RUN useradd --create-home --uid 1000 plainboard && mkdir -p /data /uploads && chown plainboard:plainboard /data /uploads
 USER plainboard
 EXPOSE 8080
