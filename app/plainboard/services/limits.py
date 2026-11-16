@@ -90,10 +90,17 @@ async def _stored(session: AsyncSession) -> tuple[Setting, dict]:
     return row, (json.loads(row.value) if row.value else {}).get("accounts", {})
 
 
-async def record(session: AsyncSession, account_key: str, windows: list[LimitWindow]) -> None:
+async def record(session: AsyncSession, account_key: str, windows: list[LimitWindow], complete: bool = False) -> None:
+    """Store a report of an account's limits. ``complete``: the report lists every window the
+    account has, so one it leaves out is gone (a plan that dropped its 5-hour limit) and is
+    forgotten, instead of being shown as an empty window for ever."""
     row, accounts = await _stored(session)
     stored = accounts.setdefault(account_key, {})
     known, growth = stored.get("windows", {}), stored.get("growth", {})
+    if complete:
+        reported = {w.name for w in windows}
+        known = {name: w for name, w in known.items() if name in reported}
+        growth = {name: g for name, g in growth.items() if name in reported}
     now = time.time()
     for window in windows:
         if WEEKLY_MARK in window.name:

@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 from pydantic import BaseModel
 
 from . import github
@@ -164,15 +164,16 @@ async def notify_run(run_id: str, body: RunNotice) -> dict[str, bool]:
     return {"delivered": True}
 
 
-@app.post("/providers/{name}/limits", response_model=list[LimitWindow])
-async def limits(name: str, credentials: Credentials) -> list[LimitWindow]:
-    """The plan limits of the account in ``credentials``; empty if they can't be read."""
+@app.post("/providers/{name}/limits", response_model=LimitsEvent)
+async def limits(name: str, credentials: Credentials) -> LimitsEvent:
+    """The plan limits of the account in ``credentials``; no windows if they can't be read."""
     provider = _signin_provider(name)
     try:
-        return await provider.limits(credentials)
+        windows = await provider.limits(credentials)
     except Exception as exc:
         log.warning("No limits from %s: %s", provider.name, exc)
-        return []
+        return LimitsEvent()
+    return LimitsEvent(windows=windows, complete=provider.limits_complete)
 
 
 @app.post("/complete", response_model=CompletionResult)

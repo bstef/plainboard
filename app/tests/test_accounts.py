@@ -37,6 +37,9 @@ def test_runs_report_plan_limits_per_account(client, project):
     body = limits_of(client, claude["id"])
     # The weekly window has reset; Claude's old 5-hour window is not shown any more.
     assert {w["name"]: w["utilization"] for w in body["windows"]} == {"seven_day_opus": 0.4, "seven_day": 0.0} and body["updated_at"]
+    # A report that lists all windows forgets the ones it leaves out: a plan that dropped a limit.
+    turn(client, pid, dev["id"], "LIMITS seven_day 0.1 3600 ALL")
+    assert [w["name"] for w in limits_of(client, claude["id"])["windows"]] == ["seven_day"]
     client.patch(f"/api/accounts/{claude['id']}", json={"auth_mode": "api_key"})
     body = limits_of(client, claude["id"])
     assert body["windows"] == [] and body["available"] is False

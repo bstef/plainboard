@@ -294,10 +294,14 @@ class LimitWindow(BaseModel):
 
 
 class LimitsEvent(BaseModel):
-    """Current state of the account's plan limits, for providers that have them."""
+    """Current state of the account's plan limits, for providers that have them. Also the answer
+    to a read of the limits."""
 
     type: Literal["limits"] = "limits"
     windows: list[LimitWindow] = Field(default_factory=list)
+    # These are all the windows the account has: one that is missing no longer exists (a plan that
+    # dropped a limit). False: only the windows that changed, the others stay as they were.
+    complete: bool = False
 
 
 class CompactionEvent(BaseModel):

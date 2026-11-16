@@ -130,7 +130,8 @@ def guess_tier(model_id: str) -> str:
 
 
 def limit_windows(snapshot: dict[str, Any] | None) -> list[LimitWindow]:
-    """The plan's windows (5-hour and weekly) from a Codex rate limit snapshot."""
+    """The plan's windows from a Codex rate limit snapshot: all it has. Larger plans have no 5-hour
+    window any more, so a snapshot may hold the weekly one alone."""
     windows = []
     for key in ("primary", "secondary"):
         window = (snapshot or {}).get(key)
@@ -410,7 +411,7 @@ class EventMapper:
         elif method == "account/rateLimits/updated":
             snapshot = params.get("rateLimits") or {}
             if snapshot.get("limitId") in (None, "codex") and (windows := limit_windows(snapshot)):
-                events.append(LimitsEvent(windows=windows))
+                events.append(LimitsEvent(windows=windows, complete=True))
         elif method == "error":
             if not params.get("willRetry"):
                 self.error = (params.get("error") or {}).get("message") or "Codex error"
@@ -565,6 +566,7 @@ class DeviceLogin:
 
 class CodexProvider(Provider):
     name = "codex"
+    limits_complete = True  # a rate limit snapshot holds every window of the plan
 
     def __init__(self) -> None:
         self._models: tuple[float, list[ModelInfo]] | None = None

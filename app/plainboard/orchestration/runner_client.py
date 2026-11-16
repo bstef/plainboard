@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitWindow, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, parse_event
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -64,13 +64,13 @@ class RunnerClient:
         except (httpx.HTTPError, ValueError):
             return False
 
-    async def limits(self, provider: str, credentials: Credentials) -> list[LimitWindow]:
-        """The plan limits of the account in ``credentials``; empty if they can't be read right now."""
+    async def limits(self, provider: str, credentials: Credentials) -> LimitsEvent:
+        """The plan limits of the account in ``credentials``; no windows if they can't be read right now."""
         try:
             resp = await self._client.post(f"/providers/{provider}/limits", json=credentials.model_dump(mode="json"), timeout=30)
-            return [LimitWindow.model_validate(w) for w in resp.json()]
+            return LimitsEvent.model_validate(resp.json())
         except (httpx.HTTPError, ValueError):
-            return []
+            return LimitsEvent()
 
     async def complete(self, spec: CompletionSpec) -> CompletionResult:
         try:

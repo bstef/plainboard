@@ -88,9 +88,9 @@ class FakeRunner:
             elif line == "HOLD":
                 while not self.released:
                     await asyncio.sleep(0.01)
-            elif line.startswith("LIMITS "):
-                _, name, used, resets_in = line.split()
-                yield LimitsEvent(windows=[LimitWindow(name=name, utilization=float(used), resets_at=int(time.time()) + int(resets_in))])
+            elif line.startswith("LIMITS "):  # "LIMITS name used resets_in [ALL]": ALL = the report is complete
+                _, name, used, resets_in, *rest = line.split()
+                yield LimitsEvent(windows=[LimitWindow(name=name, utilization=float(used), resets_at=int(time.time()) + int(resets_in))], complete=rest == ["ALL"])
             elif line.startswith("COMPACT "):
                 yield CompactionEvent(tokens_before=int(line.split()[1]))
         text = " | ".join(said) or "ok"
@@ -105,9 +105,9 @@ class FakeRunner:
     async def cancel(self, run_id: int) -> None:
         pass
 
-    async def limits(self, provider, credentials) -> list[LimitWindow]:
+    async def limits(self, provider, credentials) -> LimitsEvent:
         self.limit_calls.append((provider, credentials))
-        return [w for w in self.limit_windows if w.name.startswith("codex_") == (provider == "codex")]
+        return LimitsEvent(windows=[w for w in self.limit_windows if w.name.startswith("codex_") == (provider == "codex")], complete=provider == "codex")
 
     async def notify_run(self, run_id: int, text: str, urgent: bool = False) -> bool:
         self.notices.append((run_id, text))

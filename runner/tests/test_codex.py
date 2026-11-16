@@ -93,7 +93,10 @@ def test_rate_limits_become_codex_windows():
     windows = limit_windows({"primary": {"usedPercent": 40, "windowDurationMins": 300, "resetsAt": 1000}, "secondary": {"usedPercent": 100, "windowDurationMins": 10080}})
     assert [(w.name, w.utilization, w.resets_at, w.status) for w in windows] == [("codex_five_hour", 0.4, 1000, None), ("codex_seven_day", 1.0, None, "rejected")]
     events = EventMapper("th").map("account/rateLimits/updated", {"rateLimits": {"limitId": "codex", "primary": {"usedPercent": 5, "windowDurationMins": 300}}})
-    assert events[0].type == "limits" and events[0].windows[0].name == "codex_five_hour"
+    assert events[0].type == "limits" and events[0].windows[0].name == "codex_five_hour" and events[0].complete
+    # A larger plan has no 5-hour window: the snapshot holds the weekly one alone.
+    weekly = EventMapper("th").map("account/rateLimits/updated", {"rateLimits": {"limitId": "codex", "primary": None, "secondary": {"usedPercent": 30, "windowDurationMins": 10080}}})
+    assert [w.name for w in weekly[0].windows] == ["codex_seven_day"] and weekly[0].complete
     assert EventMapper("th").map("account/rateLimits/updated", {"rateLimits": {"limitId": "other", "primary": {"usedPercent": 5}}}) == []
 
 

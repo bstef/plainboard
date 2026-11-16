@@ -496,9 +496,9 @@ class RunManager:
             found = await asyncio.gather(
                 *(self.runner.limits(a.provider, settings_service.credentials(values, account=account_service.fields(a))) for a in accounts)
             )
-            for account, windows in zip(accounts, found):
-                if windows:
-                    await limits_service.record(s, account.key, windows)
+            for account, report in zip(accounts, found):
+                if report.windows:
+                    await limits_service.record(s, account.key, report.windows, complete=report.complete)
 
     async def wind_down(self, s: AsyncSession, agent: Agent, reason: str = "") -> bool:
         """Let an agent finish safely: drop what it has not started and tell its running turn to wrap up.
@@ -834,7 +834,7 @@ class RunManager:
                     await s.commit()
                     bus.publish(ctx.project_id, "conversation.updated", {"agent_id": ctx.agent_id, "context_tokens": event.context_tokens})
                 elif event.type == "limits" and ctx.account_key:
-                    await limits_service.record(s, ctx.account_key, event.windows)
+                    await limits_service.record(s, ctx.account_key, event.windows, complete=event.complete)
                 elif event.type == "compaction":
                     marker = self.context.provider_compacted(conv, event.tokens_before)
                     marker.run_id = ctx.run_id

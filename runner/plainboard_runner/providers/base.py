@@ -17,6 +17,8 @@ class Provider(ABC):
     """
 
     name: str
+    # The provider always reports all limit windows of an account at once (see LimitsEvent.complete).
+    limits_complete: bool = False
 
     @abstractmethod
     def info(self) -> ProviderInfo: ...
