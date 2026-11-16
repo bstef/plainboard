@@ -9,12 +9,12 @@ import type { Assignment, Attachment, Comment, Priority, TaskDetail, TaskStatus 
 import { AttachmentLink } from "../../components/AttachmentLink";
 import { Lightbox } from "../../components/Lightbox";
 import { Markdown, TicketText } from "../../components/Markdown";
-import { AgentDot, Badge, Button, ErrorText, IconButton, Input, Modal, Select, Spinner, Textarea } from "../../components/ui";
+import { AgentSquare, AgentDot, Badge, Button, ErrorText, IconButton, Input, Modal, Select, Spinner, Textarea } from "../../components/ui";
 import { formatBytes, formatDateTime, timeAgo } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
-import { statusColor, STATUSES } from "./Board";
+import { STATUSES } from "./Board";
 import { Decisions, isImage, reviewAttachmentIds } from "./Decisions";
-import { labelTone } from "./TaskCard";
+import { Label } from "./TaskCard";
 
 const PRIORITIES: Priority[] = ["low", "medium", "high", "urgent"];
 
@@ -91,13 +91,13 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
       width="max-w-4xl"
       title={
         <div className="flex items-center gap-2">
-          <span className="font-mono text-sm text-zinc-400">#{data.number}</span>
+          <span className="font-normal text-fg-3">#{data.number}</span>
           <TitleEditor value={data.title} onSave={(title) => patch({ title })} />
         </div>
       }
     >
       {data.archived_at && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-sm bg-sunk px-3 py-2 text-fg-2">
           <Archive className="size-4 shrink-0" />
           <span className="flex-1">{t("archive.archivedOn", { date: formatDateTime(data.archived_at) })}</span>
           <Button size="sm" icon={<ArchiveRestore className="size-3.5" />} onClick={() => patch({ archived: false })}>
@@ -117,22 +117,19 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
           <Assignments assignments={data.assignments} />
           <Comments key={taskId} taskId={taskId} comments={data.comments} total={data.comment_count} />
         </div>
-        <aside className="order-first space-y-4 text-sm md:order-none">
+        <aside className="order-first space-y-4 md:order-none">
           <Button variant="primary" className="w-full" icon={<Play className="size-3.5" />} onClick={handToManager} disabled={data.manager_active}>
             {data.manager_active ? t("ticket.withManager") : t("ticket.handToManager")}
           </Button>
-          <p className="-mt-2 text-xs text-zinc-500">{t("ticket.handToManagerHint")}</p>
+          <p className="-mt-2 text-fg-3">{t("ticket.handToManagerHint")}</p>
           <SideField label={t("ticket.status")}>
-            <div className="flex items-center gap-2">
-              <span className={clsx("size-2 shrink-0 rounded-full", statusColor[data.status])} />
-              <Select value={data.status} onChange={(e) => patch({ status: e.target.value as TaskStatus })}>
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {t(`taskStatus.${s}`)}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            <Select value={data.status} onChange={(e) => patch({ status: e.target.value as TaskStatus })}>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {t(`taskStatus.${s}`)}
+                </option>
+              ))}
+            </Select>
           </SideField>
           <SideField label={t("ticket.priority")}>
             <Select value={data.priority} onChange={(e) => patch({ priority: e.target.value as Priority })}>
@@ -146,7 +143,7 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
           <SideField label={t("ticket.labels")}>
             <LabelsEditor value={data.labels} onSave={(labels) => patch({ labels })} />
           </SideField>
-          <div className="space-y-1 border-t border-zinc-100 pt-3 text-xs text-zinc-500 dark:border-zinc-800">
+          <div className="space-y-1 border-t border-line pt-3 text-fg-3">
             <div>{t("ticket.created", { when: timeAgo(data.created_at) })}</div>
             <div>{t("ticket.updated", { when: timeAgo(data.updated_at) })}</div>
           </div>
@@ -189,12 +186,12 @@ function UserAction({ taskId, action }: { taskId: number; action: string }) {
   };
 
   return (
-    <section className="mb-6 space-y-2 rounded-lg bg-amber-50 p-3 ring-2 ring-amber-400 dark:bg-amber-950/40 dark:ring-amber-500">
-      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-200">
+    <section className="mb-6 space-y-2 rounded-sm bg-you-bg p-3 ring-1 ring-you">
+      <h3 className="flex items-center gap-1.5 font-semibold text-you-fg">
         <UserRound className="size-4" />
         {t("ticket.userAction")}
       </h3>
-      <p className="text-sm whitespace-pre-wrap">
+      <p className="whitespace-pre-wrap">
         <TicketText text={action} />
       </p>
       <Textarea rows={2} aria-label={t("ticket.userActionNote")} placeholder={t("ticket.userActionNote")} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -209,7 +206,7 @@ function UserAction({ taskId, action }: { taskId: number; action: string }) {
 function SideField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-1">
-      <div className="text-xs font-medium text-zinc-500">{label}</div>
+      <div className="font-medium text-fg-3">{label}</div>
       {children}
     </div>
   );
@@ -218,7 +215,7 @@ function SideField({ label, children }: { label: string; children: ReactNode }) 
 function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
     <div className="mb-2 flex items-center justify-between">
-      <h3 className="text-xs font-semibold tracking-wide text-zinc-500 uppercase">{children}</h3>
+      <h3 className="caps text-fg-2">{children}</h3>
       {right}
     </div>
   );
@@ -233,7 +230,7 @@ function TitleEditor({ value, onSave }: { value: string; onSave: (v: string) => 
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft.trim() && draft !== value && onSave(draft.trim())}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className="min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 outline-none hover:bg-zinc-50 focus:bg-zinc-50 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800"
+      className="min-w-0 flex-1 rounded-sm bg-transparent px-1 py-0.5 outline-none hover:bg-sunk focus:bg-sunk"
     />
   );
 }
@@ -264,7 +261,7 @@ function CustomerTexts({ title, description, onSave }: { title: string; descript
         onChange={(e) => setDraftDescription(e.target.value)}
         onBlur={() => draftDescription !== description && onSave({ customer_description: draftDescription })}
       />
-      <p className="text-xs text-zinc-500">{t("ticket.customerHint")}</p>
+      <p className="text-fg-3">{t("ticket.customerHint")}</p>
     </section>
   );
 }
@@ -290,7 +287,7 @@ function DescriptionEditor({ value, onSave }: { value: string; onSave: (v: strin
       </SectionTitle>
       {editing ? (
         <div className="space-y-2">
-          <Textarea autoFocus={!!value} rows={8} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t("ticket.descriptionPlaceholder")} className="font-mono text-[13px]" />
+          <Textarea autoFocus={!!value} rows={8} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={t("ticket.descriptionPlaceholder")} className="font-mono" />
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -314,7 +311,7 @@ function DescriptionEditor({ value, onSave }: { value: string; onSave: (v: strin
           </div>
         </div>
       ) : (
-        <div onDoubleClick={() => setEditing(true)} className="rounded-md">
+        <div onDoubleClick={() => setEditing(true)} className="rounded-sm">
           <Markdown>{value}</Markdown>
         </div>
       )}
@@ -336,10 +333,10 @@ function LabelsEditor({ value, onSave }: { value: string[]; onSave: (v: string[]
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {value.map((label) => (
-            <span key={label} className={clsx("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium", labelTone(project.label_colors, label))}>
-              {label}
-              <button onClick={() => onSave(value.filter((l) => l !== label))} aria-label={t("common.remove")}>
-                <X className="size-3" />
+            <span key={label} className="inline-flex items-center gap-1 rounded-sm py-px pr-0.5 pl-1.5 ring-1 ring-line-2 ring-inset">
+              <Label colors={project.label_colors} label={label} className="text-fg" />
+              <button type="button" onClick={() => onSave(value.filter((l) => l !== label))} aria-label={t("common.remove")} className="rounded-sm p-0.5 text-fg-3 hover:bg-sunk hover:text-fg">
+                <X className="size-3.5" />
               </button>
             </span>
           ))}
@@ -395,32 +392,32 @@ function Attachments({
         }}
         onDragLeave={() => setOver(false)}
         onDrop={onDrop}
-        className={clsx("rounded-lg border border-dashed p-2 transition-colors", over ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20" : "border-zinc-200 dark:border-zinc-800")}
+        className={clsx("rounded-sm border border-dashed p-2 transition-colors", over ? "border-fg bg-sunk" : "border-line")}
       >
         {attachments.length === 0 ? (
-          <p className="py-3 text-center text-xs text-zinc-400">{t("ticket.dropFiles")}</p>
+          <p className="py-3 text-center text-fg-3">{t("ticket.dropFiles")}</p>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {attachments.map((a) => (
-              <div key={a.id} className="group relative overflow-hidden rounded-md ring-1 ring-zinc-200 dark:ring-zinc-800">
+              <div key={a.id} className="group relative overflow-hidden rounded-sm ring-1 ring-line">
                 {isImage(a) ? (
                   <button type="button" onClick={() => onView(a.id)} className="block w-full cursor-zoom-in">
                     <img src={`/api/attachments/${a.id}`} alt={a.filename} className="h-24 w-full object-cover" />
                   </button>
                 ) : (
-                  <AttachmentLink file={a} className="flex h-24 w-full items-center justify-center bg-zinc-50 dark:bg-zinc-800/60">
-                    <FileText className="size-8 text-zinc-300" />
+                  <AttachmentLink file={a} className="flex h-24 w-full items-center justify-center bg-sunk">
+                    <FileText className="size-8 text-line-2" />
                   </AttachmentLink>
                 )}
-                <AttachmentLink file={a} className="block w-full truncate px-2 py-1 text-xs">
-                  {a.filename} <span className="text-zinc-400">· {formatBytes(a.size)}</span>
+                <AttachmentLink file={a} className="block w-full truncate px-2 py-1">
+                  {a.filename} <span className="text-fg-3">· {formatBytes(a.size)}</span>
                 </AttachmentLink>
                 {reviewIds.has(a.id) && (
                   <Badge tone="amber" className="absolute top-1 left-1">
                     {t("ticket.forReview")}
                   </Badge>
                 )}
-                <IconButton label={t("common.delete")} onClick={() => remove(a)} className="absolute top-1 right-1 bg-white/90 opacity-0 group-hover:opacity-100 dark:bg-zinc-900/90">
+                <IconButton label={t("common.delete")} onClick={() => remove(a)} className="absolute top-1 right-1 bg-bg opacity-0 group-hover:opacity-100">
                   <Trash2 className="size-3.5" />
                 </IconButton>
               </div>
@@ -442,17 +439,17 @@ function Assignments({ assignments }: { assignments: Assignment[] }) {
   return (
     <section>
       <SectionTitle>{t("ticket.assignments")}</SectionTitle>
-      <ul className="divide-y divide-zinc-100 rounded-lg ring-1 ring-zinc-200 dark:divide-zinc-800 dark:ring-zinc-800">
+      <ul className="divide-y divide-line rounded-sm ring-1 ring-line">
         {assignments.map((a) => {
           const agent = agentById(a.agent_id);
           const expanded = open === a.id;
           return (
-            <li key={a.id} className="text-sm">
-              <button onClick={() => setOpen(expanded ? null : a.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                {expanded ? <ChevronDown className="size-3.5 text-zinc-400" /> : <ChevronRight className="size-3.5 text-zinc-400" />}
+            <li key={a.id}>
+              <button onClick={() => setOpen(expanded ? null : a.id)} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-sunk">
+                {expanded ? <ChevronDown className="size-3.5 text-fg-3" /> : <ChevronRight className="size-3.5 text-fg-3" />}
                 {agent && <AgentDot color={agent.color} status={a.status === "running" ? "running" : undefined} />}
                 <span className="font-medium">{agent?.name ?? "?"}</span>
-                <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">{a.title}</span>
+                <span className="min-w-0 flex-1 truncate text-fg-2">{a.title}</span>
                 {a.effort && (
                   <Badge tone="sky" className="hidden sm:inline-flex">
                     {t("ticket.effort", { effort: a.effort })}
@@ -461,15 +458,15 @@ function Assignments({ assignments }: { assignments: Assignment[] }) {
                 <Badge tone={assignmentTone[a.status]}>{t(`assignment.${a.status}`)}</Badge>
               </button>
               {expanded && (
-                <div className="space-y-3 border-t border-zinc-100 bg-zinc-50/60 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+                <div className="space-y-3 border-t border-line bg-sunk px-4 py-3">
                   <div>
-                    <div className="mb-1 text-xs font-medium text-zinc-500">{t("ticket.instructions")}</div>
-                    <Markdown className="text-[13px]">{a.instructions}</Markdown>
+                    <div className="mb-1 font-medium text-fg-3">{t("ticket.instructions")}</div>
+                    <Markdown>{a.instructions}</Markdown>
                   </div>
                   {a.result && (
                     <div>
-                      <div className="mb-1 text-xs font-medium text-zinc-500">{t("ticket.result")}</div>
-                      <Markdown className="text-[13px]">{a.result}</Markdown>
+                      <div className="mb-1 font-medium text-fg-3">{t("ticket.result")}</div>
+                      <Markdown>{a.result}</Markdown>
                     </div>
                   )}
                   <div className="flex gap-2">
@@ -555,17 +552,18 @@ function Comments({ taskId, comments, total }: { taskId: number; comments: Comme
           const author = c.author_kind === "agent" ? (agent?.name ?? t("ticket.agent")) : c.author_kind === "system" ? t("ticket.system") : t("ticket.you");
           return (
             <div key={c.id} className="flex gap-2.5">
-              <div
-                className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                style={{ background: agent?.color ?? (c.author_kind === "system" ? "#a1a1aa" : "#52525b") }}
-              >
-                {author[0]?.toUpperCase()}
-              </div>
+              {agent ? (
+                <AgentSquare agent={agent} className="mt-px" />
+              ) : (
+                <span className="mt-px inline-flex size-[18px] shrink-0 items-center justify-center rounded-sm text-[11.5px] leading-none font-extrabold ring-1 ring-line-2 ring-inset">
+                  {author[0]?.toUpperCase()}
+                </span>
+              )}
               <div className="min-w-0 flex-1">
-                <div className="text-xs text-zinc-500">
-                  <span className="font-medium text-zinc-700 dark:text-zinc-300">{author}</span> · {timeAgo(c.created_at)}
+                <div className="text-fg-3">
+                  <span className="font-medium text-fg">{author}</span> · {timeAgo(c.created_at)}
                 </div>
-                <Markdown className="text-[13px]">{c.body}</Markdown>
+                <Markdown>{c.body}</Markdown>
               </div>
             </div>
           );
@@ -584,7 +582,7 @@ function Comments({ taskId, comments, total }: { taskId: number; comments: Comme
             <Send className="size-4" />
           </IconButton>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-you-fg">{error}</p>}
       </div>
     </section>
   );

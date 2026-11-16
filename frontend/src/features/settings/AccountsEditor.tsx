@@ -48,7 +48,7 @@ export function AccountsEditor({ provider }: { provider: string }) {
       {mine.map((account) => (
         <AccountCard key={account.id} account={account} onChange={run} />
       ))}
-      {mine.length > 1 && <p className="text-xs text-zinc-500">{t("accounts.rotationHint")}</p>}
+      {mine.length > 1 && <p className="text-fg-3">{t("accounts.rotationHint")}</p>}
       <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => run(() => api.post("/accounts", { provider, auth_mode: MODES[provider][0] }))}>
         {t("accounts.add")}
       </Button>
@@ -82,7 +82,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
   };
 
   return (
-    <div className={clsx("space-y-3 rounded-lg p-3 ring-1 ring-zinc-200 dark:ring-zinc-800", !account.enabled && "opacity-60")}>
+    <div className={clsx("space-y-3 rounded-sm p-3 ring-1 ring-line", !account.enabled && "opacity-60")}>
       <div className="flex items-center gap-2">
         <Input
           aria-label={t("accounts.label")}
@@ -91,7 +91,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
           onChange={(e) => setLabel(e.target.value)}
           onBlur={() => label.trim() && label !== account.label && patch({ label })}
         />
-        <Toggle checked={account.enabled} onChange={(enabled) => patch({ enabled })} label={<span className="text-xs">{t("accounts.enabled")}</span>} />
+        <Toggle checked={account.enabled} onChange={(enabled) => patch({ enabled })} label={<span>{t("accounts.enabled")}</span>} />
         <IconButton label={t("accounts.delete")} onClick={remove}>
           <Trash2 className="size-3.5" />
         </IconButton>
@@ -102,18 +102,18 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
             key={mode}
             onClick={() => mode !== account.auth_mode && patch({ auth_mode: mode })}
             className={clsx(
-              "rounded-lg px-3 py-2 text-left text-xs ring-1 transition-colors",
-              account.auth_mode === mode ? "bg-indigo-50 ring-indigo-400 dark:bg-indigo-950/40" : "ring-zinc-200 hover:bg-zinc-50 dark:ring-zinc-800 dark:hover:bg-zinc-800",
+              "rounded-sm px-3 py-2 text-left ring-1 transition-colors",
+              account.auth_mode === mode ? "bg-sunk ring-fg" : "ring-line hover:bg-sunk",
             )}
           >
             <div className="font-medium">{t(`${MODE_TEXTS[account.provider]}.${mode}`)}</div>
-            <div className="text-zinc-500">{t(`${MODE_TEXTS[account.provider]}.${mode}Hint`)}</div>
+            <div className="text-fg-3">{t(`${MODE_TEXTS[account.provider]}.${mode}Hint`)}</div>
           </button>
         ))}
       </div>
       {secretLabel && (
         <div className="space-y-1">
-          <span className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t(secretLabel)}</span>
+          <span className="block font-medium text-fg-2">{t(secretLabel)}</span>
           <div className="flex gap-2">
             <Input type="password" autoComplete="off" placeholder="••••••••" value={secret} onChange={(e) => setSecret(e.target.value)} />
             <Button size="md" variant="primary" onClick={saveSecret} disabled={!secret}>
@@ -125,7 +125,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
               </Button>
             )}
           </div>
-          <span className="block text-xs text-zinc-500">
+          <span className="block text-fg-3">
             {account.secret_set ? t("settings.secretSet") : account.secret_from_env ? t("settings.secretFromEnv") : t("settings.secretUnset")}
             {account.auth_mode === "oauth_token" && (
               <>
@@ -137,13 +137,13 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
         </div>
       )}
       {account.auth_mode === "runner_login" && (
-        <p className="rounded-md bg-zinc-50 p-3 text-xs text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
+        <p className="rounded-sm bg-sunk p-3 text-fg-2">
           {t("settings.runnerLoginHint")} <code className="font-mono">docker compose exec -it runner claude</code>
         </p>
       )}
       {account.provider === "codex" && account.auth_mode === "chatgpt" && <CodexSignIn accountId={account.id} />}
       {account.auth_mode !== "api_key" && (
-        <p className="text-xs text-amber-700 dark:text-amber-400">{t(account.provider === "codex" ? "settings.codexOwnLoginNotice" : "settings.ownLoginNotice")}</p>
+        <p className="text-fg-2">{t(account.provider === "codex" ? "settings.codexOwnLoginNotice" : "settings.ownLoginNotice")}</p>
       )}
       <div className="flex items-center gap-3">
         <Button size="sm" onClick={test}>

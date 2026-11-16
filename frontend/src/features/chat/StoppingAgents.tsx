@@ -47,14 +47,14 @@ export function StoppingAgents() {
   const working = rows.filter((row) => row.busy).length;
 
   return (
-    <div role="status" className="mb-2 rounded-lg bg-zinc-100 px-2.5 py-2 text-xs dark:bg-zinc-800/60">
-      <p className="font-medium">
+    <div role="status" className="mb-2 rounded-sm px-2.5 py-2 ring-1 ring-line-2 ring-inset">
+      <p className="font-semibold">
         {working > 0 ? t("chat.stopping.active", { count: rows.length, done: rows.length - working }) : t("chat.stopping.finished", { count: rows.length })}
       </p>
       <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
         {rows.map((row) => (
-          <li key={row.key} className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-            {row.busy ? <Loader2 className="size-3 shrink-0 animate-spin text-indigo-500" /> : <Check className="size-3 shrink-0 text-green-600 dark:text-green-500" />}
+          <li key={row.key} className="flex items-center gap-1.5 text-fg-2">
+            {row.busy ? <Loader2 className="size-4 shrink-0 animate-spin text-fg" /> : <Check className="size-4 shrink-0 text-ok" />}
             <span>
               {row.agent?.name} · {row.state}
             </span>

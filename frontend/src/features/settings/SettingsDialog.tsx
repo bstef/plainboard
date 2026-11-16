@@ -15,7 +15,7 @@ import { SecretsEditor } from "./SecretsEditor";
 export function CheckBadge({ result }: { result: CheckResult | null }) {
   if (!result) return null;
   return (
-    <span className={clsx("flex min-w-0 items-center gap-1 text-xs", result.ok ? "text-emerald-600" : "text-red-600")}>
+    <span className={clsx("flex min-w-0 items-center gap-1", result.ok ? "text-ok" : "text-you-fg")}>
       {result.ok ? <CheckCircle2 className="size-3.5 shrink-0" /> : <XCircle className="size-3.5 shrink-0" />}
       <span className="truncate" title={result.detail}>
         {result.detail}
@@ -247,9 +247,9 @@ function SshKeyEditor({ publicKey }: { publicKey: string }) {
     <Field group label={t("settings.sshKey")} hint={t("settings.sshKeyHint")}>
       <div className="space-y-2">
         {publicKey ? (
-          <code className="block rounded-md bg-zinc-50 px-2 py-1.5 font-mono text-xs break-all ring-1 ring-zinc-200 dark:bg-zinc-800/40 dark:ring-zinc-700">{publicKey}</code>
+          <code className="block rounded-sm bg-sunk px-2 py-1.5 font-mono break-all ring-1 ring-line">{publicKey}</code>
         ) : (
-          <p className="text-xs text-zinc-500">{t("settings.sshKeyNone")}</p>
+          <p className="text-fg-3">{t("settings.sshKeyNone")}</p>
         )}
         <div className="flex flex-wrap gap-2">
           {publicKey && (
@@ -266,12 +266,12 @@ function SshKeyEditor({ publicKey }: { publicKey: string }) {
             </Button>
           )}
         </div>
-        <details className="text-xs text-zinc-500">
+        <details className="text-fg-3">
           <summary className="cursor-pointer">{t("settings.sshKeyOwn")}</summary>
           <div className="mt-2 space-y-2">
             <Textarea
               rows={3}
-              className="font-mono text-xs"
+              className="font-mono"
               autoComplete="off"
               spellCheck={false}
               aria-label={t("settings.sshKeyOwn")}
@@ -294,8 +294,8 @@ function Section({ title, description, children }: { title: string; description:
   return (
     <section className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <p className="text-xs text-zinc-500">{description}</p>
+        <h3 className="font-semibold">{title}</h3>
+        <p className="text-fg-3">{description}</p>
       </div>
       {children}
     </section>

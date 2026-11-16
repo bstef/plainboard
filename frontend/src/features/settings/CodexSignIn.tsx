@@ -35,14 +35,14 @@ export function CodexSignIn({ accountId }: { accountId: number }) {
   const data = account.data;
   const problem = error ?? data?.login_error ?? (account.error ? errorMessage(account.error) : null);
   return (
-    <div className="space-y-2 rounded-md bg-zinc-50 p-3 text-xs text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
+    <div className="space-y-2 rounded-sm bg-sunk p-3 text-fg-2">
       {data?.login_code ? (
         <>
           <p>{t("settings.codexDeviceCode")}</p>
-          <a href={data.login_url ?? "#"} target="_blank" rel="noreferrer" className="block font-medium break-all text-indigo-600 underline dark:text-indigo-400">
+          <a href={data.login_url ?? "#"} target="_blank" rel="noreferrer" className="block font-medium break-all text-fg underline">
             {data.login_url}
           </a>
-          <p className="font-mono text-lg font-semibold tracking-widest text-zinc-900 select-all dark:text-zinc-100">{data.login_code}</p>
+          <p className="font-mono font-semibold tracking-widest text-fg select-all">{data.login_code}</p>
           <div className="flex items-center gap-3">
             <span className="animate-pulse">{t("settings.codexWaiting")}</span>
             <Button size="sm" variant="ghost" onClick={() => act("logout")} loading={busy}>
@@ -58,7 +58,7 @@ export function CodexSignIn({ accountId }: { accountId: number }) {
           </Button>
         </div>
       )}
-      {problem && <p className="text-red-600">{problem}</p>}
+      {problem && <p className="text-you-fg">{problem}</p>}
     </div>
   );
 }

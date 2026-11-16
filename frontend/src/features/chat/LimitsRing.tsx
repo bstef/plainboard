@@ -6,12 +6,12 @@ import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types"
 import { timeAgo } from "../../lib/format";
 
 const tone = (used: number) => (used >= 0.9 ? "red" : used >= 0.75 ? "amber" : "indigo");
-const stroke = { red: "text-red-500", amber: "text-amber-500", indigo: "text-indigo-500" };
-const bar = { red: "bg-red-500", amber: "bg-amber-500", indigo: "bg-indigo-500" };
+const stroke = { red: "text-you-fg", amber: "text-fg", indigo: "text-fg-2" };
+const bar = { red: "bg-you", amber: "bg-fg", indigo: "bg-fg-2" };
 const percent = (used: number) => Math.round(used * 100);
 const fromUnix = (seconds: number) => new Date(seconds * 1000).toISOString();
 
-/** Plan limits (5-hour, weekly) as one ring per account; click for details. */
+/** Plan limits (5-hour, weekly) as a percentage and a bar per account; click for details. */
 export function LimitsRing() {
   const { data } = useLimits();
   if (!data) return null;
@@ -21,6 +21,28 @@ export function LimitsRing() {
     <>
       {known.map((account) => (
         <Ring key={account.account_id} account={account} />
+      ))}
+    </>
+  );
+}
+
+/** Every account's limits written out, for where there is room (the chat's context column). */
+export function LimitsList() {
+  const { t } = useTranslation();
+  const { data } = useLimits();
+  if (!data) return null;
+  const known = data.accounts.filter((a) => a.windows.length);
+  if (!known.length) return <p className="px-2.5 py-2 text-fg-3">{t(data.accounts.some((a) => a.available) ? "chat.limits.unknown" : "chat.limits.noPlan")}</p>;
+  return (
+    <>
+      {known.map((account) => (
+        <div key={account.account_id} className="space-y-3 border-b border-line px-2.5 py-2.5">
+          {known.length > 1 && <p className="font-semibold">{account.label}</p>}
+          {account.windows.map((window) => (
+            <LimitRow key={window.name} window={window} forecast={account.forecasts.find((f) => f.name === window.name)} />
+          ))}
+          {account.updated_at && <p className="text-fg-3">{t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at)) })}</p>}
+        </div>
       ))}
     </>
   );
@@ -48,21 +70,21 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
 
   return (
     <div ref={ref} className="relative shrink-0">
-      <button onClick={() => setOpen(!open)} aria-label={label} aria-expanded={open} title={label} className="flex h-6 items-center gap-1 rounded-full px-1 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-        <svg viewBox="0 0 20 20" className="size-4 -rotate-90" aria-hidden>
-          <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" className="text-zinc-200 dark:text-zinc-700" />
-          <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" pathLength={100} strokeDasharray={`${Math.min(percent(highest), 100)} 100`} className={stroke[ringTone]} />
-        </svg>
-        {account && <span className="max-w-24 truncate text-[11px] text-zinc-500">{account.label}</span>}
+      <button type="button" onClick={() => setOpen(!open)} aria-label={label} aria-expanded={open} title={label} className="flex h-6 items-center gap-1.5 rounded-sm px-1 text-fg-3 hover:bg-sunk hover:text-fg">
+        {account && <span className="max-w-24 truncate">{account.label}</span>}
+        <span className={clsx(ringTone !== "indigo" && "font-semibold", stroke[ringTone])}>{percent(highest)}%</span>
+        <span className="h-1 w-9 bg-line" aria-hidden>
+          <span className={clsx("block h-full", bar[ringTone])} style={{ width: `${Math.min(percent(highest), 100)}%` }} />
+        </span>
       </button>
       {open && (
-        <div className="absolute right-0 bottom-full z-20 mb-2 w-64 space-y-3 rounded-xl border border-zinc-200 bg-white p-3 text-xs shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="absolute right-0 bottom-full z-20 mb-2 w-64 max-w-[calc(100vw-1.5rem)] space-y-3 rounded-sm bg-bg p-3 shadow-lg ring-1 ring-line-2">
           {account && <p className="font-semibold">{account.label}</p>}
           {windows.map((window) => (
             <LimitRow key={window.name} window={window} forecast={forecasts.find((f) => f.name === window.name)} />
           ))}
-          {!windows.length && <p className="text-zinc-500">{t(available ? "chat.limits.unknown" : "chat.limits.noPlan")}</p>}
-          {account?.updated_at && <p className="text-zinc-500">{t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at)) })}</p>}
+          {!windows.length && <p className="text-fg-3">{t(available ? "chat.limits.unknown" : "chat.limits.noPlan")}</p>}
+          {account?.updated_at && <p className="text-fg-3">{t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at)) })}</p>}
         </div>
       )}
     </div>
@@ -70,9 +92,9 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
 }
 
 const forecastTone = {
-  ok: "text-emerald-700 dark:text-emerald-400",
-  tight: "text-amber-700 dark:text-amber-400",
-  over: "text-red-700 dark:text-red-400",
+  ok: "text-ok",
+  tight: "text-fg",
+  over: "text-you-fg",
 };
 
 function Forecast({ forecast }: { forecast: LimitForecast }) {
@@ -86,8 +108,8 @@ function Forecast({ forecast }: { forecast: LimitForecast }) {
   return (
     <div className="mt-1.5 space-y-0.5">
       <p className={clsx("font-medium", forecastTone[forecast.status])}>{headline}</p>
-      <p className="text-zinc-500">{t("chat.limits.forecast.pace", { daily: percent(forecast.daily), budget: percent(forecast.budget) })}</p>
-      <p className="text-zinc-500">{forecast.basis_days ? t("chat.limits.forecast.basisDays", { count: forecast.basis_days }) : t("chat.limits.forecast.basisWeek")}</p>
+      <p className="text-fg-3">{t("chat.limits.forecast.pace", { daily: percent(forecast.daily), budget: percent(forecast.budget) })}</p>
+      <p className="text-fg-3">{forecast.basis_days ? t("chat.limits.forecast.basisDays", { count: forecast.basis_days }) : t("chat.limits.forecast.basisWeek")}</p>
     </div>
   );
 }
@@ -100,10 +122,10 @@ function LimitRow({ window, forecast }: { window: LimitWindow; forecast?: LimitF
         <span>{t(`chat.limits.${window.name}`, { defaultValue: window.name })}</span>
         <span>{percent(window.utilization)}%</span>
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-        <div className={clsx("h-full rounded-full", bar[tone(window.utilization)])} style={{ width: `${Math.min(percent(window.utilization), 100)}%` }} />
+      <div className="mt-1 h-1.5 bg-line">
+        <div className={clsx("h-full", bar[tone(window.utilization)])} style={{ width: `${Math.min(percent(window.utilization), 100)}%` }} />
       </div>
-      {window.resets_at && <p className="mt-1 text-zinc-500">{t("chat.limits.resets", { when: timeAgo(fromUnix(window.resets_at)) })}</p>}
+      {window.resets_at && <p className="mt-1 text-fg-3">{t("chat.limits.resets", { when: timeAgo(fromUnix(window.resets_at)) })}</p>}
       {forecast && <Forecast forecast={forecast} />}
     </div>
   );

@@ -14,13 +14,14 @@ import {
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { Archive, Plus, Search } from "lucide-react";
+import { Archive, ChevronDown, Plus, Search } from "lucide-react";
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useTasks } from "../../api/queries";
 import type { Task, TaskStatus } from "../../api/types";
 import { Button, IconButton, Input, Spinner } from "../../components/ui";
+import { useMediaQuery, useStored } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { ArchiveDialog } from "./ArchiveDialog";
 import { TaskCard } from "./TaskCard";
@@ -35,12 +36,16 @@ export function Board() {
   const { project } = useShell();
   const qc = useQueryClient();
   const tasks = useTasks(project.id);
+  // Side by side from here; below, the statuses stack and can be folded.
+  const columnsLayout = useMediaQuery("(min-width: 768px)");
+  const [shut, setShut] = useStored<TaskStatus[]>("plainboard.boardShut", ["backlog", "done"]);
   const [filter, setFilter] = useState("");
   const [activeId, setActiveId] = useState<number | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [adding, setAdding] = useState<TaskStatus | null>(null);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    // Long-press to drag on touch screens, so horizontal swiping still scrolls the board.
+    // Long-press to drag on touch screens, so swiping still scrolls the board.
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
@@ -102,24 +107,42 @@ export function Board() {
   }
 
   const active = activeId !== null ? tasks.data?.find((x) => x.id === activeId) : undefined;
+  const empty = (tasks.data ?? []).length === 0;
+  // While filtering, or while dragging, every status stays open: nothing matching may hide.
+  const folded = (status: TaskStatus) => !columnsLayout && !filter.trim() && activeId === null && adding !== status && shut.includes(status);
+  const toggle = (status: TaskStatus) => setShut(shut.includes(status) ? shut.filter((s) => s !== status) : [...shut, status]);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-3 px-3 pt-3 pb-2 sm:px-4">
-        <div className="relative w-full sm:w-64">
-          <Search className="pointer-events-none absolute top-2 left-2.5 size-4 text-zinc-400" />
-          <Input className="pl-8" placeholder={t("board.filter")} value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <div className="flex h-12 shrink-0 items-center gap-2 px-4">
+        <h1 className="mr-2 font-extrabold max-sm:hidden">{t("nav.board")}</h1>
+        <div className="relative min-w-0 flex-1 sm:max-w-56">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-fg-3" />
+          <Input type="search" className="pl-8" placeholder={t("board.filter")} aria-label={t("board.filter")} value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
-        <p className="hidden flex-1 text-xs text-zinc-500 lg:block">{t("board.hint")}</p>
-        <Button size="sm" variant="ghost" className="ml-auto shrink-0" icon={<Archive className="size-3.5" />} onClick={() => setArchiveOpen(true)}>
-          {t("archive.title")}
+        <div className="hidden flex-1 sm:block" />
+        <Button variant="ghost" className="max-sm:w-11 max-sm:px-0" icon={<Archive className="size-4" />} aria-label={t("archive.title")} onClick={() => setArchiveOpen(true)}>
+          <span className="max-sm:hidden">{t("archive.title")}</span>
+        </Button>
+        <Button variant="primary" className="max-sm:w-11 max-sm:px-0" icon={<Plus className="size-4" />} aria-label={t("board.addTicket")} onClick={() => setAdding("backlog")}>
+          <span className="max-sm:hidden">{t("board.addTicket")}</span>
         </Button>
       </div>
       {archiveOpen && <ArchiveDialog onClose={() => setArchiveOpen(false)} />}
+      {empty && adding === null && <p className="mx-4 mb-3 max-w-prose text-fg-2">{t("board.hint")}</p>}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
-        <div className="scroll-thin flex min-h-0 flex-1 snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-3 sm:snap-none sm:px-4 sm:pb-4">
+        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t border-line md:grid md:auto-cols-[minmax(172px,1fr)] md:grid-flow-col md:grid-rows-[minmax(0,1fr)] md:overflow-x-auto md:overflow-y-hidden md:border-t md:border-line">
           {STATUSES.map((status) => (
-            <Column key={status} status={status} tasks={columns[status]} />
+            <Column
+              key={status}
+              status={status}
+              tasks={columns[status]}
+              folded={folded(status)}
+              foldable={!columnsLayout}
+              onToggle={() => toggle(status)}
+              adding={adding === status}
+              setAdding={(on) => setAdding(on ? status : null)}
+            />
           ))}
         </div>
         <DragOverlay dropAnimation={null}>{active ? <TaskCard task={active} overlay /> : null}</DragOverlay>
@@ -128,12 +151,27 @@ export function Board() {
   );
 }
 
-function Column({ status, tasks }: { status: TaskStatus; tasks: Task[] }) {
+function Column({
+  status,
+  tasks,
+  folded,
+  foldable,
+  onToggle,
+  adding,
+  setAdding,
+}: {
+  status: TaskStatus;
+  tasks: Task[];
+  folded: boolean;
+  foldable: boolean;
+  onToggle: () => void;
+  adding: boolean;
+  setAdding: (on: boolean) => void;
+}) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: columnKey(status) });
   const { project } = useShell();
   const qc = useQueryClient();
-  const [adding, setAdding] = useState(false);
 
   const archiveDone = async () => {
     await api.post(`/projects/${project.id}/tasks/archive`);
@@ -141,40 +179,40 @@ function Column({ status, tasks }: { status: TaskStatus; tasks: Task[] }) {
   };
 
   return (
-    <section className="flex w-[85vw] shrink-0 snap-center flex-col rounded-xl bg-zinc-100/70 sm:w-auto sm:max-w-80 sm:min-w-60 sm:flex-1 sm:shrink dark:bg-zinc-900/60">
-      <header className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
-        <span className={clsx("size-2 rounded-full", statusColor[status])} />
-        <h2 className="text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">{t(`taskStatus.${status}`)}</h2>
-        <span className="text-xs text-zinc-400">{tasks.length}</span>
-        <div className="flex-1" />
+    <section className="flex min-h-0 min-w-0 flex-col md:border-r md:border-line md:last:border-r-0">
+      {/* Title (folds on phones), then fixed cells from the right: add, count; archive sits before them. */}
+      <header className="sticky top-0 z-10 flex h-11 shrink-0 items-center border-b-2 border-fg bg-bg pr-1 pl-4 md:static md:mx-2.5 md:h-[38px] md:px-0 md:touch:h-11">
+        {foldable ? (
+          <button type="button" onClick={onToggle} aria-expanded={!folded} className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left">
+            <h2 className="caps truncate">{t(`taskStatus.${status}`)}</h2>
+            <ChevronDown className={clsx("size-4 shrink-0 text-fg-3 transition-transform", folded && "-rotate-90")} />
+          </button>
+        ) : (
+          <h2 className="caps min-w-0 flex-1 truncate">{t(`taskStatus.${status}`)}</h2>
+        )}
         {status === "done" && tasks.length > 0 && (
           <IconButton label={t("archive.archiveDone")} onClick={archiveDone}>
             <Archive className="size-4" />
           </IconButton>
         )}
-        <IconButton label={t("board.addTicket")} onClick={() => setAdding(true)}>
+        <span className="w-7 shrink-0 text-right text-fg-3">{tasks.length}</span>
+        <IconButton label={t("board.addTicket")} onClick={() => setAdding(true)} className="ml-1 md:-mr-1.5">
           <Plus className="size-4" />
         </IconButton>
       </header>
-      <div ref={setNodeRef} className={clsx("scroll-thin flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2", isOver && "rounded-lg bg-indigo-50/60 dark:bg-indigo-950/20")}>
-        {adding && <NewTicket status={status} onDone={() => setAdding(false)} />}
-        <SortableContext items={tasks.map((x) => taskKey(x.id))} strategy={verticalListSortingStrategy}>
-          {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} />
-          ))}
-        </SortableContext>
-      </div>
+      {!folded && (
+        <div ref={setNodeRef} className={clsx("min-h-6 md:scroll-thin md:min-h-0 md:flex-1 md:overflow-y-auto", isOver && "bg-sunk")}>
+          {adding && <NewTicket status={status} onDone={() => setAdding(false)} />}
+          <SortableContext items={tasks.map((x) => taskKey(x.id))} strategy={verticalListSortingStrategy}>
+            {tasks.map((task) => (
+              <TaskCard key={task.id} task={task} done={status === "done"} />
+            ))}
+          </SortableContext>
+        </div>
+      )}
     </section>
   );
 }
-
-export const statusColor: Record<TaskStatus, string> = {
-  backlog: "bg-zinc-400",
-  todo: "bg-sky-500",
-  in_progress: "bg-indigo-500",
-  review: "bg-amber-500",
-  done: "bg-emerald-500",
-};
 
 function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void }) {
   const { t } = useTranslation();
@@ -202,7 +240,7 @@ function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void 
   };
 
   return (
-    <div className="rounded-lg bg-white p-2 shadow-sm ring-1 ring-indigo-300 dark:bg-zinc-800 dark:ring-indigo-700">
+    <div className="border-b border-line bg-sunk px-4 py-2.5 ring-2 ring-fg ring-inset md:px-2.5">
       <textarea
         autoFocus
         rows={2}
@@ -211,9 +249,10 @@ function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void 
         onKeyDown={onKey}
         onBlur={() => !title.trim() && onDone()}
         placeholder={t("board.newTicketPlaceholder")}
-        className="w-full resize-none bg-transparent text-sm outline-none placeholder:text-zinc-400"
+        aria-label={t("board.newTicketPlaceholder")}
+        className="block w-full resize-none bg-transparent outline-none"
       />
-      <p className="text-[11px] text-zinc-400">{t("board.newTicketKeys")}</p>
+      <p className="text-fg-3 touch:hidden">{t("board.newTicketKeys")}</p>
     </div>
   );
 }

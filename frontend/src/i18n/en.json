@@ -22,7 +22,10 @@
     "stats": "Stats",
     "chat": "Chat",
     "settings": "Settings",
-    "togglePanel": "Toggle chat panel"
+    "togglePanel": "Toggle chat panel",
+    "more": "More",
+    "theme": "Switch theme",
+    "views": "Views"
   },
   "status": {
     "runnerDown": "Runner not reachable",
@@ -318,6 +321,13 @@
       "team": "team",
       "pinned_notes": "pinned notes",
       "memory": "memory"
+    },
+    "you": "You",
+    "aside": {
+      "nothingWaits": "Nothing waits for you.",
+      "delegated": "Handed out",
+      "noAssignments": "No assignments yet.",
+      "limits": "Plan limits"
     }
   },
   "todos": {
@@ -542,7 +552,7 @@
     "contextLimit": "Compress at (tokens)",
     "keepRecent": "Keep recent messages",
     "maxParallel": "Parallel agents",
-    "maxParallelHint": "0 pauses all new work.",
+    "maxParallelHint": "Counts the members. 0 pauses them; the manager still answers.",
     "timezone": "Timezone",
     "ownLoginNotice": "Uses your own Claude account login. Whether this is allowed for third-party tools depends on Anthropic's terms for your plan; an API key is the officially supported option.",
     "sshKey": "SSH key for all repositories",
@@ -580,5 +590,17 @@
     "delete": "Delete secret",
     "confirmDelete": "Delete secret {{name}}?",
     "updated": "updated {{when}}"
+  },
+  "shell": {
+    "runningNow": "Running now",
+    "openChat": "Open chat with {{name}}",
+    "forYou": "{{n}} for you",
+    "planning": "planning"
+  },
+  "time": {
+    "now": "<1m",
+    "minutes": "{{n}}m",
+    "hours": "{{n}}h",
+    "days": "{{n}}d"
   }
 }

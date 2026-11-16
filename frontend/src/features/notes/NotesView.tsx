@@ -37,50 +37,50 @@ export function NotesView() {
 
   return (
     <div className="flex h-full">
-      <aside className={clsx("flex w-full shrink-0 flex-col border-zinc-200 md:w-72 md:border-r dark:border-zinc-800", detail && "max-md:hidden")}>
-        <div className="flex items-center gap-2 p-3">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute top-2 left-2.5 size-4 text-zinc-400" />
+      <aside className={clsx("flex w-full shrink-0 flex-col border-line md:w-72 md:border-r", detail && "max-md:hidden")}>
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2.5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-fg-3" />
             <Input className="pl-8" placeholder={t("notes.search")} value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
           <Button variant="primary" size="md" icon={<Plus className="size-4" />} onClick={() => open("new")} aria-label={t("notes.new")} />
         </div>
-        <ul className="scroll-thin flex-1 overflow-y-auto px-2 pb-3">
+        <ul className="scroll-thin flex-1 overflow-y-auto">
           {list.map((n) => (
             <li key={n.id}>
               <button
                 onClick={() => open(n.id)}
                 className={clsx(
-                  "w-full rounded-md px-2.5 py-2 text-left",
-                  selected === n.id ? "bg-zinc-100 dark:bg-zinc-800" : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+                  "w-full border-b border-line px-2.5 py-2 text-left",
+                  selected === n.id ? "bg-sunk" : "hover:bg-sunk",
                 )}
               >
-                <div className="flex items-center gap-1.5 text-sm font-medium">
-                  {n.pinned && <Pin className="size-3 shrink-0 text-indigo-500" />}
+                <div className="flex items-center gap-1.5 font-medium">
+                  {n.pinned && <Pin className="size-3 shrink-0 text-fg" />}
                   <span className="truncate">{n.title}</span>
                 </div>
-                <div className="truncate text-xs text-zinc-500">
+                <div className="truncate text-fg-3">
                   {(agentById(n.created_by_agent_id)?.name ?? t("ticket.you")) + " · " + timeAgo(n.updated_at)}
                 </div>
               </button>
             </li>
           ))}
-          {notes.data && list.length === 0 && <li className="px-2 py-6 text-center text-xs text-zinc-400">{t("notes.empty")}</li>}
+          {notes.data && list.length === 0 && <li className="px-2 py-6 text-center text-fg-3">{t("notes.empty")}</li>}
         </ul>
-        <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-800" title={t("notes.budgetHint")}>
-          <div className="mb-1 flex justify-between text-[11px] text-zinc-500">
+        <div className="border-t border-line px-3 py-2" title={t("notes.budgetHint")}>
+          <div className="mb-1 flex justify-between text-fg-3">
             <span>{t("notes.budget")}</span>
-            <span className={clsx("tabular-nums", pinnedChars > budget && "text-amber-600")}>
+            <span className={clsx("tabular-nums", pinnedChars > budget && "text-you-fg")}>
               {pinnedChars.toLocaleString()} / {budget.toLocaleString()}
             </span>
           </div>
-          <div className="h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-            <div className={clsx("h-full rounded-full", pinnedChars > budget ? "bg-amber-500" : "bg-indigo-500")} style={{ width: `${Math.min(100, (pinnedChars / budget) * 100)}%` }} />
+          <div className="h-1 bg-line">
+            <div className={clsx("h-full", pinnedChars > budget ? "bg-you" : "bg-fg-2")} style={{ width: `${Math.min(100, (pinnedChars / budget) * 100)}%` }} />
           </div>
         </div>
       </aside>
       <section className={clsx("min-w-0 flex-1 flex-col", detail ? "flex" : "max-md:hidden md:flex")}>
-        <button onClick={() => setDetail(false)} className="flex items-center gap-1 px-4 pt-3 text-sm text-zinc-500 md:hidden">
+        <button onClick={() => setDetail(false)} className="flex items-center gap-1 px-4 pt-3 text-fg-3 md:hidden">
           <ChevronLeft className="size-4" /> {t("notes.back")}
         </button>
         <div className="min-h-0 flex-1">
@@ -151,17 +151,17 @@ function NoteEditor({ note, onSaved, onDeleted }: { note?: Note; onSaved: (n: No
 
   return (
     <div className="scroll-thin h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-4 px-4 py-4 sm:px-8 sm:py-6">
-        <div className="flex items-center gap-3">
+      <div className="max-w-3xl space-y-4 px-4 pb-6">
+        <div className="flex min-h-12 items-center gap-3 border-b border-line">
           {editing ? (
-            <Input autoFocus value={title} placeholder={t("notes.titlePlaceholder")} onChange={(e) => setTitle(e.target.value)} className="h-10 text-lg font-semibold" />
+            <Input autoFocus value={title} placeholder={t("notes.titlePlaceholder")} onChange={(e) => setTitle(e.target.value)} className="h-10 font-semibold" />
           ) : (
-            <h1 className="flex-1 text-xl font-semibold">{note?.title}</h1>
+            <h1 className="min-w-0 flex-1 font-extrabold break-words">{note?.title}</h1>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Toggle checked={pinned} onChange={togglePin} label={t("notes.pinned")} />
-          <span className="hidden text-xs text-zinc-500 sm:inline">{t("notes.pinnedHint")}</span>
+          <span className="hidden text-fg-3 sm:inline">{t("notes.pinnedHint")}</span>
           <div className="flex-1" />
           {editing ? (
             <>
@@ -179,7 +179,7 @@ function NoteEditor({ note, onSaved, onDeleted }: { note?: Note; onSaved: (n: No
         </div>
         <ErrorText error={error} />
         {editing ? (
-          <Textarea rows={20} value={content} onChange={(e) => setContent(e.target.value)} placeholder={t("notes.contentPlaceholder")} className="font-mono text-[13px]" />
+          <Textarea rows={20} value={content} onChange={(e) => setContent(e.target.value)} placeholder={t("notes.contentPlaceholder")} className="font-mono" />
         ) : (
           <Markdown>{note?.content || ""}</Markdown>
         )}

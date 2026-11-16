@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useMcpServers } from "../../api/queries";
 import type { McpServer } from "../../api/types";
-import { Badge, Button, EmptyState, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from "../../components/ui";
+import { Badge, Button, EmptyState, ErrorText, Field, Input, Modal, PageHead, Select, Textarea, Toggle } from "../../components/ui";
 import { useShell } from "../layout/shell-context";
 
 const toLines = (map: Record<string, string>) =>
@@ -29,37 +29,35 @@ export function ToolsView() {
   const [editing, setEditing] = useState<McpServer | "new" | null>(null);
 
   return (
-    <div className="scroll-thin h-full overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-6">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold">{t("tools.title")}</h1>
-            <p className="text-sm text-zinc-500">{t("tools.subtitle")}</p>
-          </div>
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing("new")}>
-            {t("tools.add")}
-          </Button>
-        </div>
+    <div className="flex h-full flex-col">
+      <PageHead title={t("tools.title")}>
+        <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing("new")}>
+          {t("tools.add")}
+        </Button>
+      </PageHead>
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+      <div className="max-w-5xl px-4 pt-3 pb-6">
+        <p className="mb-4 text-fg-2">{t("tools.subtitle")}</p>
         {servers.data?.length === 0 ? (
           <EmptyState icon={<Plug className="size-10" />} title={t("tools.empty")}>
             {t("tools.emptyHint")}
           </EmptyState>
         ) : (
-          <ul className="divide-y divide-zinc-100 rounded-xl bg-white ring-1 ring-zinc-200 dark:divide-zinc-800 dark:bg-zinc-900 dark:ring-zinc-800">
+          <ul className="divide-y divide-line border-t-2 border-b border-t-fg border-b-line">
             {servers.data?.map((s) => (
               <li key={s.id}>
-                <button onClick={() => setEditing(s)} className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                  <div className="text-zinc-400">{s.transport === "stdio" ? <Terminal className="size-4" /> : <Globe className="size-4" />}</div>
+                <button onClick={() => setEditing(s)} className="flex w-full items-center gap-4 px-4 py-3 text-left hover:bg-sunk">
+                  <div className="text-fg-3">{s.transport === "stdio" ? <Terminal className="size-4" /> : <Globe className="size-4" />}</div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-sm font-medium">
+                    <div className="flex items-center gap-2 font-medium">
                       {s.name}
                       <Badge>{s.transport}</Badge>
                       {s.project_id === null && <Badge tone="sky">{t("tools.global")}</Badge>}
                       {!s.enabled && <Badge tone="red">{t("tools.disabled")}</Badge>}
                     </div>
-                    <div className="truncate font-mono text-xs text-zinc-500">{s.transport === "stdio" ? [s.command, ...s.args].join(" ") : s.url}</div>
+                    <div className="truncate font-mono text-fg-3">{s.transport === "stdio" ? [s.command, ...s.args].join("") : s.url}</div>
                   </div>
-                  <div className="hidden text-xs text-zinc-500 sm:block">
+                  <div className="hidden text-fg-3 sm:block">
                     {s.all_agents ? t("tools.allAgents") : s.agent_ids.map((id) => agentById(id)?.name ?? id).join(", ") || t("tools.noAgents")}
                   </div>
                 </button>
@@ -67,6 +65,7 @@ export function ToolsView() {
             ))}
           </ul>
         )}
+      </div>
       </div>
       {editing && <McpEditor server={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} />}
     </div>
@@ -161,10 +160,10 @@ function McpEditor({ server, onClose }: { server?: McpServer; onClose: () => voi
               <Input value={form.command} onChange={(e) => set({ command: e.target.value })} placeholder="npx" className="font-mono" />
             </Field>
             <Field label={t("tools.args")} hint={t("tools.argsHint")}>
-              <Textarea rows={3} value={form.args} onChange={(e) => set({ args: e.target.value })} placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/workspaces"} className="font-mono text-[13px]" />
+              <Textarea rows={3} value={form.args} onChange={(e) => set({ args: e.target.value })} placeholder={"-y\n@modelcontextprotocol/server-filesystem\n/workspaces"} className="font-mono" />
             </Field>
             <Field label={t("tools.env")} hint={t("tools.secretsHint")}>
-              <Textarea rows={3} value={form.env} onChange={(e) => set({ env: e.target.value })} placeholder="API_KEY=..." className="font-mono text-[13px]" />
+              <Textarea rows={3} value={form.env} onChange={(e) => set({ env: e.target.value })} placeholder="API_KEY=..." className="font-mono" />
             </Field>
           </>
         ) : (
@@ -173,12 +172,12 @@ function McpEditor({ server, onClose }: { server?: McpServer; onClose: () => voi
               <Input value={form.url} onChange={(e) => set({ url: e.target.value })} placeholder="https://example.com/mcp" className="font-mono" />
             </Field>
             <Field label={t("tools.headers")} hint={t("tools.secretsHint")}>
-              <Textarea rows={3} value={form.headers} onChange={(e) => set({ headers: e.target.value })} placeholder="Authorization=Bearer ..." className="font-mono text-[13px]" />
+              <Textarea rows={3} value={form.headers} onChange={(e) => set({ headers: e.target.value })} placeholder="Authorization=Bearer ..." className="font-mono" />
             </Field>
           </>
         )}
         <Toggle checked={form.all_agents} onChange={(all_agents) => set({ all_agents })} label={t("tools.allAgentsToggle")} />
-        {!form.all_agents && <p className="-mt-2 pl-11 text-xs text-zinc-500">{t("tools.selectAgentsHint")}</p>}
+        {!form.all_agents && <p className="-mt-2 pl-11 text-fg-3">{t("tools.selectAgentsHint")}</p>}
         <Toggle checked={form.enabled} onChange={(enabled) => set({ enabled })} label={t("tools.enabled")} />
         {!server && <Toggle checked={form.global_scope} onChange={(global_scope) => set({ global_scope })} label={t("tools.globalToggle")} />}
         <ErrorText error={error} />

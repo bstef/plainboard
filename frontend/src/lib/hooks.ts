@@ -15,7 +15,7 @@ export function useStored<T>(key: string, initial: T) {
   return [value, setValue] as const;
 }
 
-function useMediaQuery(query: string): boolean {
+export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onChange) => {
       const mql = window.matchMedia(query);
@@ -26,5 +26,5 @@ function useMediaQuery(query: string): boolean {
   );
 }
 
-/** Desktop layout (top navigation + side chat panel) from Tailwind's `lg` breakpoint. */
+/** Desktop layout (sidebar + side chat panel) from Tailwind's `lg` breakpoint. */
 export const useIsDesktop = () => useMediaQuery("(min-width: 1024px)");

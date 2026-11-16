@@ -3,13 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#161614" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%234f46e5'/><rect x='7' y='8' width='5' height='16' rx='1.5' fill='white'/><rect x='14' y='8' width='5' height='11' rx='1.5' fill='white' opacity='.8'/><rect x='21' y='8' width='5' height='7' rx='1.5' fill='white' opacity='.6'/></svg>" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='3' fill='%23161614'/><rect x='7' y='8' width='5' height='16' fill='%23f1f0ea'/><rect x='14' y='8' width='5' height='11' fill='%23f1f0ea'/><rect x='21' y='8' width='5' height='7' fill='%23f1f0ea'/></svg>" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>PlainBoard</title>
+    <script>
+      // Before first paint, so the page never flashes in the wrong theme (see src/lib/theme.ts).
+      (function () {
+        var t = localStorage.getItem("plainboard.theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "carbon" : "stone";
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

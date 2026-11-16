@@ -8,13 +8,13 @@ import { useStreamingText } from "../../api/events";
 import { qk, useConversation, useRuns } from "../../api/queries";
 import type { Attachment, Conversation } from "../../api/types";
 import { Markdown } from "../../components/Markdown";
-import { AgentDot, IconButton, Select, Spinner } from "../../components/ui";
+import { AgentSquare, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
 import { useStored } from "../../lib/hooks";
+import { useNow } from "../../lib/time";
 import { useShell } from "../layout/shell-context";
 import { LimitsRing } from "./LimitsRing";
-import { MessageItem } from "./MessageItem";
-import { OpenQuestions } from "./OpenQuestions";
+import { CHAT_ROW, Head, MessageItem } from "./MessageItem";
 import { StoppingAgents } from "./StoppingAgents";
 
 export function ChatPanel({
@@ -23,12 +23,15 @@ export function ChatPanel({
   onClose,
   onExpand,
   variant = "panel",
+  limits = true,
 }: {
   agentId: number;
   onSelectAgent: (id: number) => void;
   onClose?: () => void;
   onExpand?: () => void;
   variant?: "panel" | "page";
+  /** Show the compact plan limits under the composer (off where they are listed next to the chat). */
+  limits?: boolean;
 }) {
   const { t } = useTranslation();
   const { project, agents, agentById } = useShell();
@@ -102,24 +105,18 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col" onDragOver={onDragOver} onDrop={onDrop}>
-      <header className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 sm:px-4 dark:border-zinc-800">
+      <header className="flex h-12 shrink-0 items-center gap-0.5 border-b border-line pr-2 pl-3">
         <div className="min-w-0 flex-1">
           <Select
             value={agentId}
             onChange={(e) => onSelectAgent(Number(e.target.value))}
             aria-label={t("chat.selectAgent")}
             trigger={
-              <span className="flex items-center gap-2">
-                <AgentDot color={agent.color} status={agent.status} />
-                <span className="block min-w-0">
-                  <span className="flex items-center gap-1 text-sm font-semibold">
-                    <span className="truncate">{agent.name}</span>
-                    <ChevronDown className="size-3.5 shrink-0 text-zinc-400" />
-                  </span>
-                  <span className="block truncate text-xs text-zinc-500">
-                    {agent.role} · {agent.model}
-                  </span>
-                </span>
+              <span className="flex h-8 items-center gap-2" title={`${agent.role} · ${agent.model}`}>
+                <AgentSquare agent={agent} />
+                <span className="truncate font-extrabold">{agent.name}</span>
+                <ChevronDown className="size-3.5 shrink-0 text-fg-3" />
+                <span className="min-w-0 flex-1 truncate text-fg-3">{agent.role}</span>
               </span>
             }
           >
@@ -131,7 +128,7 @@ export function ChatPanel({
           </Select>
         </div>
         {details && <ContextGauge used={conversation.data?.context_tokens ?? agent.context_tokens} limit={agent.context_limit_tokens} base={agent.base_context_tokens} />}
-        <IconButton label={details ? t("chat.hideDetails") : t("chat.showDetails")} onClick={() => setDetails(!details)} className={clsx(details && "text-indigo-600 dark:text-indigo-400")}>
+        <IconButton label={details ? t("chat.hideDetails") : t("chat.showDetails")} onClick={() => setDetails(!details)} className={clsx(details && "bg-sunk text-fg")}>
           {details ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
         </IconButton>
         <ChatMenu
@@ -152,43 +149,44 @@ export function ChatPanel({
         )}
       </header>
 
-      <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6">
-        <div className={clsx("space-y-3", column)}>
+      <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className={column}>
         {conversation.isLoading && (
           <div className="flex justify-center py-8">
             <Spinner />
           </div>
         )}
         {conversation.data?.has_more && (
-          <div className="flex justify-center">
-            <button onClick={loadOlder} className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200" disabled={loadingOlder}>
-              {loadingOlder ? t("common.loading") : t("chat.loadOlder")}
-            </button>
-          </div>
+          <button type="button" onClick={loadOlder} className="block w-full border-b border-line px-4 py-2 text-center text-fg-2 hover:bg-sunk hover:text-fg" disabled={loadingOlder}>
+            {loadingOlder ? t("common.loading") : t("chat.loadOlder")}
+          </button>
         )}
         {!conversation.isLoading && messages.length === 0 && !queued.length && <ChatIntro isManager={agent.is_manager} />}
         {timeline.map(({ message, run: r }) =>
           message ? (
             <MessageItem key={message.id} message={message} agent={agent} details={details} />
           ) : r && (
-          <div key={`run-${r.id}`} className="flex items-center justify-end gap-1">
-            <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id)} className="shrink-0 text-zinc-400 hover:text-red-600">
-              <Trash2 className="size-4" />
-            </IconButton>
-            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-indigo-600/60 px-3.5 py-2 text-sm whitespace-pre-wrap text-white">
-              {r.input_text}
-              {r.attachment_ids.length > 0 && (
-                <span className="flex items-center gap-1 text-xs text-indigo-100">
-                  <Paperclip className="size-3" />
-                  {t("chat.fileCount", { count: r.attachment_ids.length })}
-                </span>
-              )}
-            </div>
+          <div key={`run-${r.id}`} className={clsx(CHAT_ROW, "bg-sunk")}>
+            <Head name={t("chat.you")}>
+              <span className="mk mk-plan self-center" />
+              <span className="min-w-0 flex-1 truncate text-fg-3">{t("chat.waiting", { name: agent.name })}</span>
+              <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id)} className="-my-1 self-center">
+                <Trash2 className="size-4" />
+              </IconButton>
+            </Head>
+            <div className="break-words whitespace-pre-wrap text-fg-2">{r.input_text}</div>
+            {r.attachment_ids.length > 0 && (
+              <span className="mt-1 flex items-center gap-1 text-fg-3">
+                <Paperclip className="size-4" />
+                {t("chat.fileCount", { count: r.attachment_ids.length })}
+              </span>
+            )}
           </div>
         ),
         )}
         {running && streaming && (
-          <div className="text-sm">
+          <div className={CHAT_ROW}>
+            <Head name={agent.name} />
             <Markdown>{streaming}</Markdown>
           </div>
         )}
@@ -209,6 +207,8 @@ export function ChatPanel({
               : undefined
         }
         statusTitle={activeRuns.length === 0 ? agent.job_commands.join("\n") : undefined}
+        runningSince={running ? (running.started_at ?? running.created_at) : undefined}
+        limits={limits}
         files={files}
         onFilesChange={setFiles}
       />
@@ -219,8 +219,8 @@ export function ChatPanel({
 function ChatIntro({ isManager }: { isManager: boolean }) {
   const { t } = useTranslation();
   return (
-    <div className="mx-auto max-w-xs space-y-2 py-10 text-center text-sm text-zinc-500">
-      <p className="font-medium text-zinc-700 dark:text-zinc-300">{isManager ? t("chat.introManagerTitle") : t("chat.introAgentTitle")}</p>
+    <div className="mx-auto max-w-xs space-y-2 px-4 py-10 text-center text-fg-2">
+      <p className="font-extrabold text-fg">{isManager ? t("chat.introManagerTitle") : t("chat.introAgentTitle")}</p>
       <p>{isManager ? t("chat.introManager") : t("chat.introAgent")}</p>
     </div>
   );
@@ -229,16 +229,13 @@ function ChatIntro({ isManager }: { isManager: boolean }) {
 function ContextGauge({ used, limit, base }: { used: number; limit: number; base: number }) {
   const { t } = useTranslation();
   const ratio = limit ? Math.min(1, used / limit) : 0;
-  const color = ratio < 0.6 ? "bg-emerald-500" : ratio < 0.9 ? "bg-amber-500" : "bg-red-500";
   return (
-    <div className="hidden flex-col items-end gap-1 sm:flex" title={t("chat.contextTitle", { used: formatTokens(used), limit: formatTokens(limit), base: formatTokens(base) })}>
-      <span className="text-[10px] text-zinc-500 tabular-nums">
-        {formatTokens(used)} / {formatTokens(limit)}
-      </span>
-      <span className="h-1 w-16 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-        <span className={clsx("block h-full rounded-full transition-all", color)} style={{ width: `${Math.max(2, ratio * 100)}%` }} />
-      </span>
-    </div>
+    <span
+      className={clsx("mr-1.5 hidden whitespace-nowrap sm:inline", ratio < 0.9 ? "text-fg-3" : "font-semibold text-fg")}
+      title={t("chat.contextTitle", { used: formatTokens(used), limit: formatTokens(limit), base: formatTokens(base) })}
+    >
+      {formatTokens(used)} / {formatTokens(limit)}
+    </span>
   );
 }
 
@@ -270,11 +267,11 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
         <MoreHorizontal className="size-4" />
       </IconButton>
       {open && (
-        <div className="absolute top-8 right-0 z-40 w-64 rounded-lg bg-white p-1 text-sm shadow-lg ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
+        <div className="absolute top-full right-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
           <MenuItem label={t("chat.compressNow")} hint={t("chat.compressHint")} busy={busy === "compress"} disabled={disabled} onClick={() => action("compress")} />
           <MenuItem label={t("chat.resetSession")} hint={t("chat.resetHint")} busy={busy === "reset-session"} disabled={disabled} onClick={() => action("reset-session")} />
-          <div className="border-t border-zinc-100 px-2 py-1.5 text-xs text-zinc-500 dark:border-zinc-800">{t("chat.context", { context })} · {t("chat.totalCost", { cost: formatCost(cost) })}</div>
-          {note && <div className="px-2 pb-1.5 text-xs text-amber-600">{note}</div>}
+          <div className="border-t border-line px-2 py-1.5 text-fg-3">{t("chat.context", { context })} · {t("chat.totalCost", { cost: formatCost(cost) })}</div>
+          {note && <div className="px-2 pb-1.5 text-you-fg">{note}</div>}
         </div>
       )}
     </div>
@@ -283,13 +280,23 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
 
 function MenuItem({ label, hint, onClick, busy, disabled }: { label: string; hint: string; onClick: () => void; busy: boolean; disabled: boolean }) {
   return (
-    <button onClick={onClick} disabled={disabled || busy} className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800">
-      <div className="flex items-center gap-1.5 font-medium">
-        {busy && <Loader2 className="size-3 animate-spin" />}
+    <button type="button" onClick={onClick} disabled={disabled || busy} className="block w-full rounded-sm px-2 py-1.5 text-left hover:bg-sunk disabled:opacity-50">
+      <div className="flex items-center gap-1.5 font-semibold">
+        {busy && <Loader2 className="size-4 animate-spin" />}
         {label}
       </div>
-      <div className="text-xs text-zinc-500">{hint}</div>
+      <div className="text-fg-3">{hint}</div>
     </button>
+  );
+}
+
+/** Minutes and seconds since a turn started, counting on screen. */
+function Elapsed({ since }: { since: string }) {
+  const seconds = Math.max(0, Math.floor((useNow(1000) - Date.parse(since)) / 1000));
+  return (
+    <time className="shrink-0 font-normal text-fg-3">
+      {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+    </time>
   );
 }
 
@@ -306,10 +313,10 @@ function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
   return (
     <div className="relative max-w-40" title={name}>
       {preview ? (
-        <img src={preview} alt={name} className="size-16 rounded-lg object-cover ring-1 ring-zinc-200 dark:ring-zinc-800" />
+        <img src={preview} alt={name} className="size-16 rounded-sm object-cover ring-1 ring-line-2" />
       ) : (
-        <div className="flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 pr-7 pl-2 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-          <Paperclip className="size-3 shrink-0" />
+        <div className="flex h-8 items-center gap-1.5 rounded-sm pr-8 pl-2 text-fg ring-1 ring-line-2 ring-inset">
+          <Paperclip className="size-4 shrink-0 text-fg-3" />
           <span className="truncate">{name}</span>
         </div>
       )}
@@ -317,9 +324,9 @@ function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
         type="button"
         onClick={onRemove}
         aria-label={t("chat.removeFile", { name })}
-        className={clsx("absolute flex size-5 items-center justify-center rounded-full text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100", preview ? "top-0.5 right-0.5 bg-white/90 dark:bg-zinc-900/90" : "top-1.5 right-1")}
+        className={clsx("absolute flex size-6 items-center justify-center rounded-sm text-fg-2 hover:text-fg", preview ? "top-0.5 right-0.5 bg-bg" : "top-1 right-1")}
       >
-        <X className="size-3" />
+        <X className="size-4" />
       </button>
     </div>
   );
@@ -333,6 +340,8 @@ function Composer({
   className,
   status,
   statusTitle,
+  runningSince,
+  limits,
   files,
   onFilesChange,
 }: {
@@ -343,6 +352,8 @@ function Composer({
   className?: string;
   status?: string;
   statusTitle?: string;
+  runningSince?: string;
+  limits: boolean;
   files: File[];
   onFilesChange: (files: File[]) => void;
 }) {
@@ -407,14 +418,15 @@ function Composer({
   };
 
   return (
-    <div className="border-t border-zinc-100 p-3 dark:border-zinc-800">
+    <div className="shrink-0 border-t border-line px-3 pt-2.5 pb-3">
       <div className={className}>
-      {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mb-2 text-you-fg">{error}</p>}
       <StoppingAgents />
       {status && (
-        <div role="status" title={statusTitle || undefined} className="mb-2 flex items-center gap-2 px-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
-          <Loader2 className="size-3.5 shrink-0 animate-spin" />
-          <span className="truncate">{status}</span>
+        <div role="status" title={statusTitle || undefined} className="mb-2 flex items-center gap-2 font-semibold">
+          <span className={clsx("mk", runningId ? "mk-run motion-safe:animate-pulse" : "mk-plan")} />
+          <span className="min-w-0 flex-1 truncate">{status}</span>
+          {runningSince && <Elapsed since={runningSince} />}
         </div>
       )}
       {files.length > 0 && (
@@ -424,7 +436,7 @@ function Composer({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2 rounded-xl bg-zinc-50 p-1.5 ring-1 ring-zinc-200 focus-within:ring-2 focus-within:ring-indigo-500 dark:bg-zinc-950 dark:ring-zinc-800">
+      <div className="flex items-end gap-1 rounded-sm p-1 ring-1 ring-line-2 ring-inset focus-within:ring-2 focus-within:ring-fg">
         <input
           ref={picker}
           type="file"
@@ -435,7 +447,7 @@ function Composer({
             e.target.value = "";
           }}
         />
-        <IconButton label={t("chat.attachFiles")} disabled={disabled} onClick={() => picker.current?.click()} className="size-8 shrink-0 rounded-lg">
+        <IconButton label={t("chat.attachFiles")} disabled={disabled} onClick={() => picker.current?.click()} className="size-8 touch:size-11">
           <Paperclip className="size-4" />
         </IconButton>
         <textarea
@@ -447,10 +459,11 @@ function Composer({
           onKeyDown={onKey}
           onPaste={onPaste}
           placeholder={disabled ? t("chat.agentDisabled") : t("chat.placeholder", { name: agentName })}
-          className="scroll-thin max-h-[200px] min-h-8 flex-1 resize-none bg-transparent px-2 py-1.5 text-base outline-none placeholder:text-zinc-400 sm:text-sm"
+          aria-label={t("chat.placeholder", { name: agentName })}
+          className="scroll-thin max-h-[200px] min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1.5 outline-none touch:min-h-11 touch:py-2.5"
         />
         {runningId ? (
-          <IconButton label={t("chat.stop")} onClick={() => api.post(`/runs/${runningId}/cancel`)} className="size-8 rounded-lg bg-zinc-200 dark:bg-zinc-800">
+          <IconButton label={t("chat.stop")} onClick={() => api.post(`/runs/${runningId}/cancel`)} className="size-8 text-fg-2 ring-1 ring-line-2 ring-inset touch:size-11">
             <Square className="size-3.5 fill-current" />
           </IconButton>
         ) : null}
@@ -458,18 +471,21 @@ function Composer({
           onClick={send}
           disabled={(!text.trim() && !files.length) || disabled || sending}
           aria-label={t("chat.send")}
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition-colors hover:bg-indigo-500 disabled:bg-zinc-300 dark:disabled:bg-zinc-800"
+          className="plate flex size-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-fg-2 disabled:bg-line disabled:text-fg-3 touch:size-11"
         >
           <ArrowUp className="size-4" />
         </button>
       </div>
-      <div className="mt-1.5 flex items-center gap-2">
-        {runningId && <p className="min-w-0 text-[11px] text-zinc-400">{t("chat.queueHint")}</p>}
-        <div className="ml-auto flex items-center gap-2">
-          <OpenQuestions />
-          <LimitsRing />
+      {(runningId || limits) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {runningId && <p className="min-w-0 flex-1 basis-48 text-fg-3">{t("chat.queueHint")}</p>}
+          {limits && (
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2">
+              <LimitsRing />
+            </div>
+          )}
         </div>
-      </div>
+      )}
       </div>
     </div>
   );

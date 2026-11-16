@@ -187,7 +187,7 @@ export function ProjectDialog({
           </Field>
         )}
         <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
-        <p className="-mt-2 pl-11 text-xs text-zinc-500">{t("projects.autoWakeHint")}</p>
+        <p className="-mt-2 pl-11 text-fg-3">{t("projects.autoWakeHint")}</p>
         <Field label={t("projects.reviewDays")} hint={t("projects.reviewDaysHint")}>
           <Input
             type="number"
@@ -255,16 +255,16 @@ function PublicApiKeyEditor({ project }: { project: Project }) {
   return (
     <div className="space-y-2">
       {(keys.data?.length ?? 0) > 0 && (
-        <ul className="divide-y divide-zinc-100 rounded-lg ring-1 ring-zinc-200 dark:divide-zinc-800 dark:ring-zinc-800">
+        <ul className="divide-y divide-line rounded-sm ring-1 ring-line">
           {keys.data!.map((key) => (
             <li key={key.id} className="flex items-center gap-2 px-3 py-2">
-              <KeyRound className="size-3.5 shrink-0 text-zinc-400" />
+              <KeyRound className="size-3.5 shrink-0 text-fg-3" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
+                <div className="truncate font-medium">
                   {key.label || t("projects.publicApiUnnamed")}
-                  {key.hint && <span className="ml-1.5 font-mono text-xs font-normal text-zinc-400">…{key.hint}</span>}
+                  {key.hint && <span className="ml-1.5 font-mono font-normal text-fg-3">…{key.hint}</span>}
                 </div>
-                <div className="truncate text-xs text-zinc-500">
+                <div className="truncate text-fg-3">
                   {t("projects.publicApiCreated", { when: timeAgo(key.created_at) })} ·{" "}
                   {key.last_used_at ? t("projects.publicApiUsed", { when: timeAgo(key.last_used_at) }) : t("projects.publicApiNeverUsed")}
                 </div>
@@ -277,8 +277,8 @@ function PublicApiKeyEditor({ project }: { project: Project }) {
         </ul>
       )}
       {created?.key && (
-        <div className="space-y-1 rounded-lg bg-amber-50 p-3 dark:bg-amber-950/30">
-          <p className="text-xs text-amber-700 dark:text-amber-400">{t("projects.publicApiCopy")}</p>
+        <div className="space-y-1 rounded-sm bg-you-bg p-3">
+          <p className="text-you-fg">{t("projects.publicApiCopy")}</p>
           <div className="flex gap-2">
             <Input readOnly value={created.key} onFocus={(e) => e.target.select()} className="font-mono" />
             <Button size="md" onClick={copy}>

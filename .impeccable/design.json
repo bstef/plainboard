@@ -1,0 +1,587 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16T14:17:06.291Z",
+  "title": "Design System: PlainBoard",
+  "extensions": {
+    "themes": [
+      {
+        "id": "carbon",
+        "dark": true,
+        "selector": ":root, [data-theme=\"carbon\"]",
+        "browserBar": "#161614"
+      },
+      {
+        "id": "stone",
+        "dark": false,
+        "selector": "[data-theme=\"stone\"]",
+        "browserBar": "#f1f0ea"
+      }
+    ],
+    "colorMeta": {
+      "carbon-bg": {
+        "role": "neutral",
+        "displayName": "Ground (carbon)",
+        "canonical": "oklch(0.185 0.006 95)",
+        "cssVar": "--bg",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.008 95)",
+          "oklch(0.27 0.008 95)",
+          "oklch(0.38 0.008 95)",
+          "oklch(0.5 0.008 95)",
+          "oklch(0.61 0.008 95)",
+          "oklch(0.73 0.008 95)",
+          "oklch(0.84 0.008 95)",
+          "oklch(0.95 0.008 95)"
+        ]
+      },
+      "carbon-sunk": {
+        "role": "neutral",
+        "displayName": "Sunk (carbon)",
+        "canonical": "oklch(0.228 0.007 95)",
+        "cssVar": "--sunk",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.008 95)",
+          "oklch(0.27 0.008 95)",
+          "oklch(0.38 0.008 95)",
+          "oklch(0.5 0.008 95)",
+          "oklch(0.61 0.008 95)",
+          "oklch(0.73 0.008 95)",
+          "oklch(0.84 0.008 95)",
+          "oklch(0.95 0.008 95)"
+        ]
+      },
+      "carbon-line": {
+        "role": "neutral",
+        "displayName": "Rule (carbon)",
+        "canonical": "oklch(0.305 0.008 95)",
+        "cssVar": "--line",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.01 95)",
+          "oklch(0.27 0.01 95)",
+          "oklch(0.38 0.01 95)",
+          "oklch(0.5 0.01 95)",
+          "oklch(0.61 0.01 95)",
+          "oklch(0.73 0.01 95)",
+          "oklch(0.84 0.01 95)",
+          "oklch(0.95 0.01 95)"
+        ]
+      },
+      "carbon-line-2": {
+        "role": "neutral",
+        "displayName": "Strong rule (carbon)",
+        "canonical": "oklch(0.42 0.01 95)",
+        "cssVar": "--line-2",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "carbon-fg": {
+        "role": "neutral",
+        "displayName": "Text (carbon)",
+        "canonical": "oklch(0.935 0.014 95)",
+        "cssVar": "--fg",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "carbon-fg-2": {
+        "role": "neutral",
+        "displayName": "Secondary text (carbon)",
+        "canonical": "oklch(0.78 0.013 95)",
+        "cssVar": "--fg-2",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "carbon-fg-3": {
+        "role": "neutral",
+        "displayName": "Muted text (carbon)",
+        "canonical": "oklch(0.66 0.012 95)",
+        "cssVar": "--fg-3",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "carbon-you": {
+        "role": "primary",
+        "displayName": "Vermilion (carbon)",
+        "canonical": "oklch(0.71 0.19 38)",
+        "cssVar": "--you",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.19 38)",
+          "oklch(0.27 0.19 38)",
+          "oklch(0.38 0.19 38)",
+          "oklch(0.5 0.19 38)",
+          "oklch(0.61 0.19 38)",
+          "oklch(0.73 0.19 38)",
+          "oklch(0.84 0.19 38)",
+          "oklch(0.95 0.19 38)"
+        ]
+      },
+      "carbon-you-fg": {
+        "role": "primary",
+        "displayName": "Vermilion text (carbon)",
+        "canonical": "oklch(0.76 0.16 40)",
+        "cssVar": "--you-fg",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.17 38)",
+          "oklch(0.27 0.17 38)",
+          "oklch(0.38 0.17 38)",
+          "oklch(0.5 0.17 38)",
+          "oklch(0.61 0.17 38)",
+          "oklch(0.73 0.17 38)",
+          "oklch(0.84 0.17 38)",
+          "oklch(0.95 0.17 38)"
+        ]
+      },
+      "carbon-on-you": {
+        "role": "primary",
+        "displayName": "Text on vermilion (carbon)",
+        "canonical": "oklch(0.17 0.03 38)",
+        "cssVar": "--on-you",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.03 38)",
+          "oklch(0.27 0.03 38)",
+          "oklch(0.38 0.03 38)",
+          "oklch(0.5 0.03 38)",
+          "oklch(0.61 0.03 38)",
+          "oklch(0.73 0.03 38)",
+          "oklch(0.84 0.03 38)",
+          "oklch(0.95 0.03 38)"
+        ]
+      },
+      "carbon-ok": {
+        "role": "secondary",
+        "displayName": "Confirm green (carbon)",
+        "canonical": "oklch(0.76 0.14 155)",
+        "cssVar": "--ok",
+        "theme": "carbon",
+        "tonalRamp": [
+          "oklch(0.15 0.13 155)",
+          "oklch(0.27 0.13 155)",
+          "oklch(0.38 0.13 155)",
+          "oklch(0.5 0.13 155)",
+          "oklch(0.61 0.13 155)",
+          "oklch(0.73 0.13 155)",
+          "oklch(0.84 0.13 155)",
+          "oklch(0.95 0.13 155)"
+        ]
+      },
+      "stone-bg": {
+        "role": "neutral",
+        "displayName": "Ground (stone)",
+        "canonical": "oklch(0.957 0.008 95)",
+        "cssVar": "--bg",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.008 95)",
+          "oklch(0.27 0.008 95)",
+          "oklch(0.38 0.008 95)",
+          "oklch(0.5 0.008 95)",
+          "oklch(0.61 0.008 95)",
+          "oklch(0.73 0.008 95)",
+          "oklch(0.84 0.008 95)",
+          "oklch(0.95 0.008 95)"
+        ]
+      },
+      "stone-sunk": {
+        "role": "neutral",
+        "displayName": "Sunk (stone)",
+        "canonical": "oklch(0.925 0.01 95)",
+        "cssVar": "--sunk",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.008 95)",
+          "oklch(0.27 0.008 95)",
+          "oklch(0.38 0.008 95)",
+          "oklch(0.5 0.008 95)",
+          "oklch(0.61 0.008 95)",
+          "oklch(0.73 0.008 95)",
+          "oklch(0.84 0.008 95)",
+          "oklch(0.95 0.008 95)"
+        ]
+      },
+      "stone-line": {
+        "role": "neutral",
+        "displayName": "Rule (stone)",
+        "canonical": "oklch(0.86 0.012 95)",
+        "cssVar": "--line",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.01 95)",
+          "oklch(0.27 0.01 95)",
+          "oklch(0.38 0.01 95)",
+          "oklch(0.5 0.01 95)",
+          "oklch(0.61 0.01 95)",
+          "oklch(0.73 0.01 95)",
+          "oklch(0.84 0.01 95)",
+          "oklch(0.95 0.01 95)"
+        ]
+      },
+      "stone-line-2": {
+        "role": "neutral",
+        "displayName": "Strong rule (stone)",
+        "canonical": "oklch(0.72 0.014 95)",
+        "cssVar": "--line-2",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "stone-fg": {
+        "role": "neutral",
+        "displayName": "Text (stone)",
+        "canonical": "oklch(0.2 0.01 95)",
+        "cssVar": "--fg",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "stone-fg-2": {
+        "role": "neutral",
+        "displayName": "Secondary text (stone)",
+        "canonical": "oklch(0.38 0.012 95)",
+        "cssVar": "--fg-2",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "stone-fg-3": {
+        "role": "neutral",
+        "displayName": "Muted text (stone)",
+        "canonical": "oklch(0.49 0.012 95)",
+        "cssVar": "--fg-3",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.012 95)",
+          "oklch(0.27 0.012 95)",
+          "oklch(0.38 0.012 95)",
+          "oklch(0.5 0.012 95)",
+          "oklch(0.61 0.012 95)",
+          "oklch(0.73 0.012 95)",
+          "oklch(0.84 0.012 95)",
+          "oklch(0.95 0.012 95)"
+        ]
+      },
+      "stone-you": {
+        "role": "primary",
+        "displayName": "Vermilion (stone)",
+        "canonical": "oklch(0.56 0.2 35)",
+        "cssVar": "--you",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.19 38)",
+          "oklch(0.27 0.19 38)",
+          "oklch(0.38 0.19 38)",
+          "oklch(0.5 0.19 38)",
+          "oklch(0.61 0.19 38)",
+          "oklch(0.73 0.19 38)",
+          "oklch(0.84 0.19 38)",
+          "oklch(0.95 0.19 38)"
+        ]
+      },
+      "stone-you-fg": {
+        "role": "primary",
+        "displayName": "Vermilion text (stone)",
+        "canonical": "oklch(0.49 0.19 33)",
+        "cssVar": "--you-fg",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.17 38)",
+          "oklch(0.27 0.17 38)",
+          "oklch(0.38 0.17 38)",
+          "oklch(0.5 0.17 38)",
+          "oklch(0.61 0.17 38)",
+          "oklch(0.73 0.17 38)",
+          "oklch(0.84 0.17 38)",
+          "oklch(0.95 0.17 38)"
+        ]
+      },
+      "stone-on-you": {
+        "role": "primary",
+        "displayName": "Text on vermilion (stone)",
+        "canonical": "oklch(0.99 0.005 95)",
+        "cssVar": "--on-you",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.03 38)",
+          "oklch(0.27 0.03 38)",
+          "oklch(0.38 0.03 38)",
+          "oklch(0.5 0.03 38)",
+          "oklch(0.61 0.03 38)",
+          "oklch(0.73 0.03 38)",
+          "oklch(0.84 0.03 38)",
+          "oklch(0.95 0.03 38)"
+        ]
+      },
+      "stone-ok": {
+        "role": "secondary",
+        "displayName": "Confirm green (stone)",
+        "canonical": "oklch(0.47 0.12 155)",
+        "cssVar": "--ok",
+        "theme": "stone",
+        "tonalRamp": [
+          "oklch(0.15 0.13 155)",
+          "oklch(0.27 0.13 155)",
+          "oklch(0.38 0.13 155)",
+          "oklch(0.5 0.13 155)",
+          "oklch(0.61 0.13 155)",
+          "oklch(0.73 0.13 155)",
+          "oklch(0.84 0.13 155)",
+          "oklch(0.95 0.13 155)"
+        ]
+      }
+    },
+    "derivedColors": [
+      {
+        "name": "you-bg",
+        "value": "color-mix(in oklab, var(--you) 11%, var(--bg))",
+        "purpose": "Tint behind a row or panel that waits for the user."
+      },
+      {
+        "name": "sq-hue",
+        "value": "oklch(var(--sq-l) var(--sq-c) var(--h))",
+        "purpose": "Label square. carbon: --sq-l 0.74, --sq-c 0.12. stone: --sq-l 0.56, --sq-c 0.15."
+      }
+    ],
+    "typographyMeta": {
+      "body": {
+        "displayName": "Body",
+        "purpose": "Everything. 16px on touch screens and below 640px."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "View title, dialog title, brand, headings in chat prose."
+      },
+      "label": {
+        "displayName": "Caps head",
+        "purpose": "Column and section heads, uppercase, on a 2px rule."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code and tool calls, 0.9em on fine pointers from 640px."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-lg",
+        "value": "0 10px 24px -10px rgb(0 0 0 / 0.55)",
+        "purpose": "Overlays only: dialogs, menus, select list, dragged ticket."
+      }
+    ],
+    "motion": [
+      {
+        "name": "transition-colors",
+        "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Tailwind default colour transition on buttons and navigation."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px",
+        "purpose": "Dialogs leave full screen; button labels appear."
+      },
+      {
+        "name": "md",
+        "value": "768px",
+        "purpose": "Board columns side by side."
+      },
+      {
+        "name": "lg",
+        "value": "1024px",
+        "purpose": "Desktop shell: sidebar and chat panel."
+      },
+      {
+        "name": "sidebar",
+        "value": "1280px",
+        "purpose": "Labelled sidebar when the chat panel is closed."
+      },
+      {
+        "name": "sidebar-with-chat",
+        "value": "1440px",
+        "purpose": "Labelled sidebar while the chat panel is open."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Reversed plate. The one strong action of a group.",
+      "html": "<button class=\"ds-btn-primary\">Add ticket</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: 2px; white-space: nowrap; cursor: pointer; transition: background-color 150ms, color 150ms; font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; background: var(--fg); color: var(--bg); font-weight: 600; } .ds-btn-primary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; } @media (max-width: 639px), (pointer: coarse) { .ds-btn-primary { height: 44px; } } .ds-btn-primary:hover { background: var(--fg-2); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default button: outlined, sinks on hover.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: 2px; white-space: nowrap; cursor: pointer; transition: background-color 150ms, color 150ms; font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; background: transparent; color: var(--fg); font-weight: 500; box-shadow: inset 0 0 0 1px var(--line-2); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; } @media (max-width: 639px), (pointer: coarse) { .ds-btn-secondary { height: 44px; } } .ds-btn-secondary:hover { background: var(--sunk); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Text-only action in bars.",
+      "html": "<button class=\"ds-btn-ghost\">Archive</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: 2px; white-space: nowrap; cursor: pointer; transition: background-color 150ms, color 150ms; font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; background: transparent; color: var(--fg-2); font-weight: 500; } .ds-btn-ghost:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; } @media (max-width: 639px), (pointer: coarse) { .ds-btn-ghost { height: 44px; } } .ds-btn-ghost:hover { background: var(--sunk); color: var(--fg); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Transparent field with an inset outline; focus thickens it to the text colour.",
+      "html": "<input class=\"ds-input\" placeholder=\"Filter\" />",
+      "css": ".ds-input { width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: 2px; background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-2); font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-input::placeholder { color: var(--fg-3); opacity: 1; } .ds-input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--fg); } @media (max-width: 639px), (pointer: coarse) { .ds-input { height: 44px; font-size: 16px; } }"
+    },
+    {
+      "name": "View Navigation",
+      "kind": "nav",
+      "description": "Sidebar views; the current one is a reversed plate.",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav-item ds-nav-current\" aria-current=\"page\">Board</button><button class=\"ds-nav-item\">Chat</button><button class=\"ds-nav-item\">Team</button></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 1px; width: 168px; } .ds-nav-item { display: flex; align-items: center; height: 32px; padding: 0 8px; border: 0; border-radius: 2px; background: transparent; color: var(--fg-2); text-align: left; cursor: pointer; transition: background-color 150ms, color 150ms; font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-nav-item:hover { background: var(--sunk); color: var(--fg); } .ds-nav-item:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; } .ds-nav-current, .ds-nav-current:hover { background: var(--fg); color: var(--bg); font-weight: 600; }"
+    },
+    {
+      "name": "For You Plate",
+      "kind": "custom",
+      "refersTo": "for-you-plate",
+      "description": "The one vermilion element of a screen: how many tickets wait for the user.",
+      "html": "<button class=\"ds-foryou\"><span class=\"ds-foryou-mark\"></span>2 for you</button>",
+      "css": ".ds-foryou { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 0; border-radius: 2px; background: var(--you); color: var(--on-you); text-transform: uppercase; letter-spacing: 0.045em; white-space: nowrap; cursor: pointer; font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-weight: 800; } .ds-foryou-mark { width: 9px; height: 9px; background: var(--on-you); transform: rotate(45deg) scale(0.86); } .ds-foryou:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; } @media (pointer: coarse) { .ds-foryou { height: 40px; } }"
+    },
+    {
+      "name": "Ticket Row",
+      "kind": "custom",
+      "description": "A ticket as a ruled row: state mark in a fixed cell, number and title, labels below.",
+      "html": "<div class=\"ds-col\"><div class=\"ds-col-head\"><span>In progress</span><span class=\"ds-col-count\">2</span></div><div class=\"ds-row\"><span class=\"ds-mk ds-mk-run\"></span><div><div class=\"ds-row-title\"><span class=\"ds-row-num\">#41</span>Land finished branches together</div><div class=\"ds-row-meta\"><span class=\"ds-sq\"></span>backend</div></div></div><div class=\"ds-row ds-row-you\"><span class=\"ds-mk ds-mk-you\"></span><div><div class=\"ds-row-title\"><span class=\"ds-row-num\">#42</span>Pick the git host</div><b class=\"ds-plate-you\">Decision</b></div></div><div class=\"ds-row\"><span class=\"ds-mk ds-mk-done\"></span><div><div class=\"ds-row-title\"><span class=\"ds-row-num\">#40</span>Measure waits</div></div></div></div>",
+      "css": ".ds-col { width: 260px; color: var(--fg); font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-col-head { display: flex; align-items: center; height: 38px; border-bottom: 2px solid var(--fg); text-transform: uppercase; letter-spacing: 0.045em; font-weight: 600; } .ds-col-count { margin-left: auto; color: var(--fg-3); font-weight: 400; } .ds-row { display: grid; grid-template-columns: 9px minmax(0, 1fr); column-gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; } .ds-row:hover { background: var(--sunk); } .ds-row-you, .ds-row-you:hover { background: color-mix(in oklab, var(--you) 11%, var(--bg)); } .ds-row-title { font-weight: 500; } .ds-row-num { margin-right: 6px; font-weight: 400; color: var(--fg-3); } .ds-row-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--fg-2); } .ds-sq { width: 7px; height: 7px; border-radius: 1px; background: oklch(var(--sq-l) var(--sq-c) 250); } .ds-plate-you { display: inline-block; margin-top: 4px; padding: 0 6px; border-radius: 2px; background: var(--you); color: var(--on-you); text-transform: uppercase; letter-spacing: 0.045em; font-weight: 800; } .ds-mk { display: inline-block; width: 9px; height: 9px; margin-top: 6px; } .ds-mk-run { border-radius: 50%; background: var(--fg); } .ds-mk-you { background: var(--you); transform: rotate(45deg) scale(0.86); } .ds-mk-done { width: 10px; height: 6px; border-left: 2px solid var(--ok); border-bottom: 2px solid var(--ok); transform: rotate(-45deg) translate(1px, -2px); }"
+    },
+    {
+      "name": "Chat Row",
+      "kind": "custom",
+      "description": "Chat as ruled rows: name left, time right; the user's own rows are sunk.",
+      "html": "<div class=\"ds-chat\"><div class=\"ds-chat-row\"><div class=\"ds-chat-head\"><b>Manager</b><time>09:14</time></div>Both branches are checked and landed.</div><div class=\"ds-chat-row ds-chat-own\"><div class=\"ds-chat-head\"><b>You</b><time>09:15</time></div>Good. Start the next ticket.</div></div>",
+      "css": ".ds-chat { width: 320px; color: var(--fg); font: 400 14.5px/1.4 \"Sofia Sans Semi Condensed Variable\", \"Arial Narrow\", system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-chat-row { padding: 10px 16px; border-bottom: 1px solid var(--line); } .ds-chat-own { background: var(--sunk); } .ds-chat-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; } .ds-chat-head b { font-weight: 600; } .ds-chat-head time { margin-left: auto; color: var(--fg-3); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Railway Timetable",
+    "overview": "The board is a timetable: fixed columns, ruled rows, one type size. It shows who works on what and for how long, and puts what waits for the user first. It refuses the card-grid dashboard on a grey ground. The source of truth is `frontend/src/index.css`; shared controls live in `frontend/src/components/ui.tsx`.",
+    "keyCharacteristics": [
+      "Two named themes, `carbon` (dark) and `stone` (light), each one block of tokens.",
+      "One type size. Rank comes from weight, case, reversal and rule.",
+      "Hairline rules instead of cards. Flat surfaces, 2px corners.",
+      "Vermilion means \"this waits for you\". Green only confirms."
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Only Rule",
+        "body": "Components use the semantic colours above, never a Tailwind palette colour (`zinc-500`, `red-600`) and never a hex value.",
+        "section": "colors"
+      },
+      {
+        "name": "The For You Rule",
+        "body": "Vermilion is reserved for what waits for the user or needs them: an open decision, a to-do, an error, a limit reached. Nothing else uses it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Confirm Rule",
+        "body": "Green only confirms that something is done or passed. It never decorates and never marks an action.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Size Rule",
+        "body": "There is one type size. Do not add `text-sm`, `text-lg` or pixel sizes. Rank by weight, case, reversal and rule. Priority follows the same rule: low is muted, high is 600, urgent is caps at 800.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Rule",
+        "body": "A surface at rest has no shadow. If it does not float above the page, it gets a rule, not a shadow.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Fixed Cell Rule",
+        "body": "State is a 9px mark in a fixed first cell of the row (`.mk`): filled circle = working, hollow circle = queued or in the background, vermilion diamond = waits for you, green check = done, empty = idle. State is never told by row colour alone or by a badge.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do build lists as ruled rows: `border-b border-line`, hover `bg-sunk`.",
+      "Do reuse `ui.tsx`, `.caps`, `.plate` and `.mk*` before writing new classes.",
+      "Do add touch sizes with `pointer-coarse:`.",
+      "Do add a theme like this: copy a token block in `index.css` and name it `[data-theme=\"<id>\"]`, list it in `THEMES` in `lib/theme.ts` with its `dark` flag and browser bar colour, and add the id to the pre-paint script in `frontend/index.html`. The `dark:` variant in `index.css` only matches `carbon`; extend it for another dark theme."
+    ],
+    "donts": [
+      "Don't use palette colours or hex values in components.",
+      "Don't use vermilion for emphasis, branding or a primary action.",
+      "Don't use green for anything that is not a confirmation.",
+      "Don't change the type size to show rank.",
+      "Don't wrap content in cards with borders, radius and shadow.",
+      "Don't add a shadow to anything that is not an overlay, or a radius other than 2px."
+    ]
+  }
+}

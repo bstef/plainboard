@@ -28,23 +28,23 @@ export function TodoDialog({ agent, onClose }: { agent: Agent; onClose: () => vo
 
   return (
     <Modal open onClose={onClose} width="max-w-3xl" title={t("todos.title", { name: agent.name })}>
-      <div className="mb-4 flex gap-1 rounded-lg bg-zinc-100 p-1 text-sm dark:bg-zinc-800/60">
+      <div className="mb-4 flex gap-1 rounded-sm bg-sunk p-1">
         {STATES.map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setState(s)}
             className={clsx(
-              "flex-1 rounded-md px-3 py-1.5 font-medium transition-colors",
-              state === s ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200",
+              "flex-1 rounded-sm px-3 py-1.5 font-medium transition-colors",
+              state === s ? "bg-bg" : "text-fg-3 hover:text-fg",
             )}
           >
             {t(`todos.${s}`)}
-            {s === "open" && agent.open_todos > 0 && <span className="ml-1.5 text-xs text-zinc-400">{agent.open_todos}</span>}
+            {s === "open" && agent.open_todos > 0 && <span className="ml-1.5 text-fg-3">{agent.open_todos}</span>}
           </button>
         ))}
       </div>
-      {state === "open" ? <NewTodo agentId={agent.id} /> : <p className="mb-3 text-xs text-zinc-500">{t("todos.doneHint")}</p>}
+      {state === "open" ? <NewTodo agentId={agent.id} /> : <p className="mb-3 text-fg-3">{t("todos.doneHint")}</p>}
       <TodoList key={state} agentId={agent.id} state={state} />
     </Modal>
   );
@@ -75,7 +75,7 @@ function NewTodo({ agentId }: { agentId: number }) {
   };
 
   return (
-    <div className="mb-4 space-y-2 rounded-lg p-3 ring-1 ring-zinc-200 dark:ring-zinc-800">
+    <div className="mb-4 space-y-2 rounded-sm p-3 ring-1 ring-line">
       <Input value={title} placeholder={t("todos.newTitle")} maxLength={300} onChange={(e) => setTitle(e.target.value)} />
       {title && (
         <>
@@ -87,7 +87,7 @@ function NewTodo({ agentId }: { agentId: number }) {
           </div>
         </>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-you-fg">{error}</p>}
     </div>
   );
 }
@@ -166,21 +166,21 @@ function TodoItem({ todo }: { todo: Todo }) {
   };
 
   return (
-    <div className="rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+    <div className="rounded-sm px-2 py-1.5 hover:bg-sunk">
       <div className="flex items-start gap-2">
         <button
           type="button"
           aria-label={done ? t("todos.reopen") : t("todos.markDone")}
           title={done ? t("todos.reopen") : t("todos.markDone")}
           onClick={() => patch({ done: !done })}
-          className={clsx("mt-0.5 shrink-0", done ? "text-green-600" : "text-zinc-400 hover:text-indigo-600")}
+          className={clsx("mt-0.5 shrink-0", done ? "text-ok" : "text-fg-3 hover:text-fg")}
         >
           {done ? <CheckCircle2 className="size-4.5" /> : <Circle className="size-4.5" />}
         </button>
-        <button type="button" onClick={() => setOpen(!open)} className="min-w-0 flex-1 text-left text-sm">
-          <span className={clsx(done && "text-zinc-500 line-through")}>{todo.title}</span>
-          {todo.description.trim() && !open && <FileText className="ml-1.5 inline size-3.5 text-zinc-400" />}
-          {todo.done_at && <span className="ml-2 text-xs text-zinc-400">{t("todos.doneOn", { when: timeAgo(todo.done_at) })}</span>}
+        <button type="button" onClick={() => setOpen(!open)} className="min-w-0 flex-1 text-left">
+          <span className={clsx(done && "text-fg-3 line-through")}>{todo.title}</span>
+          {todo.description.trim() && !open && <FileText className="ml-1.5 inline size-3.5 text-fg-3" />}
+          {todo.done_at && <span className="ml-2 text-fg-3">{t("todos.doneOn", { when: timeAgo(todo.done_at) })}</span>}
         </button>
       </div>
       {open && (
@@ -200,8 +200,8 @@ function TodoItem({ todo }: { todo: Todo }) {
             </div>
           ) : (
             <>
-              {todo.description.trim() && <Markdown className="text-[13px]">{todo.description}</Markdown>}
-              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              {todo.description.trim() && <Markdown>{todo.description}</Markdown>}
+              <div className="flex flex-wrap items-center gap-2 text-fg-3">
                 <span className="flex-1">
                   {creator ? t("todos.byAgent", { name: creator.name }) : t("todos.byUser")} · {timeAgo(todo.created_at)}
                 </span>
@@ -221,7 +221,7 @@ function TodoItem({ todo }: { todo: Todo }) {
               </div>
             </>
           )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-you-fg">{error}</p>}
         </div>
       )}
     </div>

@@ -143,17 +143,17 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
             <Input placeholder={t("team.rolePlaceholder")} value={form.role} onChange={(e) => set({ role: e.target.value })} />
           </Field>
           <Field label={t("team.color")}>
-            <input type="color" value={form.color || agent?.color || "#6366f1"} onChange={(e) => set({ color: e.target.value })} className="h-8 w-12 cursor-pointer rounded-md bg-transparent" />
+            <input type="color" value={form.color || agent?.color || "#6366f1"} onChange={(e) => set({ color: e.target.value })} className="h-8 w-12 cursor-pointer rounded-sm bg-transparent" />
           </Field>
         </div>
         <Field label={t("team.area")} hint={t("team.areaHint")}>
           <Textarea rows={3} value={form.description} onChange={(e) => set({ description: e.target.value })} />
         </Field>
         <Field label={t("team.instructions")} hint={t("team.instructionsHint")}>
-          <Textarea rows={4} value={form.instructions} onChange={(e) => set({ instructions: e.target.value })} className="font-mono text-[13px]" />
+          <Textarea rows={4} value={form.instructions} onChange={(e) => set({ instructions: e.target.value })} className="font-mono" />
         </Field>
 
-        <fieldset className="grid gap-4 rounded-lg bg-zinc-50 p-4 sm:grid-cols-2 dark:bg-zinc-800/40">
+        <fieldset className="grid gap-4 rounded-sm bg-sunk p-4 sm:grid-cols-2">
           <legend className="sr-only">{t("team.modelSection")}</legend>
           <Field label={t("team.provider")}>
             <Select
@@ -169,7 +169,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
                 });
               }}
             >
-              {(meta.data?.providers ?? [{ name: form.provider, label: form.provider }]).map((p) => (
+              {(meta.data?.providers?.length ? meta.data.providers : [{ name: form.provider, label: form.provider }]).map((p) => (
                 <option key={p.name} value={p.name}>
                   {p.label}
                 </option>
@@ -210,7 +210,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
           </Field>
         </fieldset>
 
-        <fieldset className="grid gap-4 rounded-lg bg-zinc-50 p-4 sm:grid-cols-2 dark:bg-zinc-800/40">
+        <fieldset className="grid gap-4 rounded-sm bg-sunk p-4 sm:grid-cols-2">
           <legend className="sr-only">{t("team.contextSection")}</legend>
           <Field
             label={t("team.contextLimit")}
@@ -218,7 +218,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
               <>
                 {t("team.contextLimitHint")}
                 {agent?.base_context_tokens ? (
-                  <span className={clsx("block", form.context_limit_tokens < agent.base_context_tokens + 4000 && "text-amber-600")}>
+                  <span className={clsx("block", form.context_limit_tokens < agent.base_context_tokens + 4000 && "text-you-fg")}>
                     {t("team.baseContext", { tokens: formatTokens(agent.base_context_tokens) })}
                   </span>
                 ) : null}
@@ -245,7 +245,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
               {!form.all_repos && (
                 <div className="flex flex-wrap gap-3 pl-11">
                   {repos.data!.map((r) => (
-                    <label key={r.id} className="flex items-center gap-1.5 text-sm">
+                    <label key={r.id} className="flex items-center gap-1.5">
                       <input
                         type="checkbox"
                         checked={form.repository_ids.includes(r.id)}
@@ -265,7 +265,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
           <Field group label={t("team.mcpServers")} hint={t("team.mcpServersHint")}>
             <div className="flex flex-wrap gap-3 pt-1">
               {selectableServers.map((s) => (
-                <label key={s.id} className="flex items-center gap-1.5 text-sm">
+                <label key={s.id} className="flex items-center gap-1.5">
                   <input
                     type="checkbox"
                     checked={form.mcp_server_ids.includes(s.id)}

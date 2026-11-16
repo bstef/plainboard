@@ -1,13 +1,16 @@
 import clsx from "clsx";
-import { AlertTriangle, BarChart3, CalendarClock, FolderKanban, MessageSquare, NotebookPen, PanelRight, Plug, Settings, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, Moon, NotebookPen, PanelRight, Plug, Settings, Sun, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
 import { useAccounts, useAgents, useMeta, useProjects } from "../../api/queries";
+import type { Project } from "../../api/types";
 import { Button, EmptyState, IconButton, Spinner } from "../../components/ui";
-import { useIsDesktop, useStored } from "../../lib/hooks";
+import { useIsDesktop, useMediaQuery, useStored } from "../../lib/hooks";
+import { THEMES, useTheme } from "../../lib/theme";
 import { Logo } from "../auth/Login";
 import { Board } from "../board/Board";
+import { ForYou } from "../board/ForYou";
 import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
 import { ChatView } from "../chat/ChatView";
@@ -19,6 +22,7 @@ import { SettingsDialog } from "../settings/SettingsDialog";
 import { StatsView } from "../stats/StatsView";
 import { TeamView } from "../team/TeamView";
 import { ToolsView } from "../tools/ToolsView";
+import { RunningNow } from "./RunningNow";
 import { ShellContext, type ShellApi } from "./shell-context";
 
 export type View = "board" | "chat" | "team" | "notes" | "schedules" | "tools" | "stats";
@@ -32,14 +36,13 @@ const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "tools", icon: (c) => <Plug className={c} /> },
   { id: "stats", icon: (c) => <BarChart3 className={c} /> },
 ];
+/** The phone's bottom bar holds this many views; the rest sit behind "More". */
+const PHONE_TABS = 4;
 
 export function Shell() {
   const { t } = useTranslation();
   const projects = useProjects();
-  const isDesktop = useIsDesktop();
   const [projectId, setProjectId] = useStored<number | null>("plainboard.project", null);
-  const [view, setView] = useStored<View>("plainboard.view", "board");
-  const [panelOpen, setPanelOpen] = useStored<boolean>("plainboard.chatOpen", true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectDialog, setProjectDialog] = useState<"new" | "edit" | null>(null);
 
@@ -57,85 +60,35 @@ export function Shell() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-2 sm:gap-3 sm:px-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-2 pl-1 font-semibold tracking-tight">
-          <Logo />
-          <span className="hidden xl:inline">PlainBoard</span>
-        </div>
-        {project && (
-          <ProjectSwitcher
-            projects={projects.data ?? []}
-            current={project}
-            onSelect={setProjectId}
-            onNew={() => setProjectDialog("new")}
-            onEdit={() => setProjectDialog("edit")}
-          />
-        )}
-        {project && isDesktop && (
-          <nav className="flex items-center gap-0.5">
-            {VIEWS.map((v) => (
-              <button
-                key={v.id}
-                onClick={() => setView(v.id)}
-                className={clsx(
-                  "flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors",
-                  view === v.id
-                    ? "bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50"
-                    : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-                )}
-              >
-                {v.icon("size-4")}
-                {t(`nav.${v.id}`)}
-              </button>
-            ))}
-          </nav>
-        )}
-        <div className="flex-1" />
-        <StatusHints onOpenSettings={() => setSettingsOpen(true)} />
-        <IconButton label={t("nav.settings")} onClick={() => setSettingsOpen(true)}>
-          <Settings className="size-4" />
-        </IconButton>
-        {project && isDesktop && view !== "chat" && (
-          <IconButton
-            label={t("nav.togglePanel")}
-            onClick={() => setPanelOpen(!panelOpen)}
-            className={clsx(panelOpen && "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50")}
-          >
-            <PanelRight className="size-4" />
-          </IconButton>
-        )}
-      </header>
-
+    <>
       {project ? (
-        <ProjectWorkspace key={project.id} projectId={project.id} view={view} setView={setView} panelOpen={panelOpen} setPanelOpen={setPanelOpen} isDesktop={isDesktop} />
+        <ProjectWorkspace
+          key={project.id}
+          projects={projects.data ?? []}
+          project={project}
+          onSelectProject={setProjectId}
+          onNewProject={() => setProjectDialog("new")}
+          onEditProject={() => setProjectDialog("edit")}
+          onSettings={() => setSettingsOpen(true)}
+        />
       ) : (
-        <EmptyState icon={<FolderKanban className="size-10" />} title={t("projects.none")}>
-          <p className="mb-4">{t("projects.noneHint")}</p>
-          <Button variant="primary" onClick={() => setProjectDialog("new")}>
-            {t("projects.create")}
-          </Button>
-        </EmptyState>
+        <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
+          <header className="flex h-12 shrink-0 items-center gap-2 px-4">
+            <Brand />
+            <div className="flex-1" />
+            <ThemeButton />
+            <IconButton label={t("nav.settings")} onClick={() => setSettingsOpen(true)}>
+              <Settings className="size-4" />
+            </IconButton>
+          </header>
+          <EmptyState icon={<FolderKanban className="size-10" />} title={t("projects.none")}>
+            <p className="mb-4">{t("projects.noneHint")}</p>
+            <Button variant="primary" onClick={() => setProjectDialog("new")}>
+              {t("projects.create")}
+            </Button>
+          </EmptyState>
+        </div>
       )}
-
-      {project && !isDesktop && (
-        <nav className="flex shrink-0 justify-around border-t border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-zinc-800 dark:bg-zinc-900">
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id)}
-              className={clsx(
-                "flex min-w-0 flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium",
-                view === v.id ? "text-indigo-600 dark:text-indigo-400" : "text-zinc-500",
-              )}
-            >
-              {v.icon("size-5")}
-              <span className="truncate">{t(`nav.${v.id}`)}</span>
-            </button>
-          ))}
-        </nav>
-      )}
-
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {projectDialog && (
         <ProjectDialog
@@ -145,55 +98,86 @@ export function Shell() {
           onDeleted={() => setProjectId(null)}
         />
       )}
+    </>
+  );
+}
+
+function Brand({ wide = true }: { wide?: boolean }) {
+  return (
+    <div className="flex items-center gap-2 font-extrabold">
+      <Logo />
+      {wide && <span>PlainBoard</span>}
     </div>
   );
 }
 
-function StatusHints({ onOpenSettings }: { onOpenSettings: () => void }) {
+/** Steps through the themes; follows the system until first used. */
+function ThemeButton({ className }: { className?: string }) {
+  const { t } = useTranslation();
+  const [theme, setTheme] = useTheme();
+  const index = THEMES.findIndex((x) => x.id === theme);
+  return (
+    <IconButton label={t("nav.theme")} className={className} onClick={() => setTheme(THEMES[(index + 1) % THEMES.length].id)}>
+      {THEMES[index]?.dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </IconButton>
+  );
+}
+
+/** A problem only the user can fix: with its text in the sidebar, as an icon elsewhere. */
+function StatusHints({ onOpenSettings, wide }: { onOpenSettings: () => void; wide: boolean }) {
   const { t } = useTranslation();
   const meta = useMeta();
   const accounts = useAccounts();
-  if (meta.data && !meta.data.runner_ok) {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-amber-600" title={t("status.runnerDown")}>
-        <AlertTriangle className="size-3.5" /> <span className="hidden sm:inline">{t("status.runnerDown")}</span>
-      </span>
-    );
-  }
-  if (accounts.data && !accounts.data.some((a) => a.enabled)) {
-    return (
-      <button onClick={onOpenSettings} className="flex items-center gap-1.5 text-xs text-amber-600 hover:underline" title={t("status.noCredentials")}>
-        <AlertTriangle className="size-3.5" /> <span className="hidden sm:inline">{t("status.noCredentials")}</span>
-      </button>
-    );
-  }
-  return null;
+  const runnerDown = meta.data && !meta.data.runner_ok;
+  const noCredentials = !runnerDown && accounts.data && !accounts.data.some((a) => a.enabled);
+  if (!runnerDown && !noCredentials) return null;
+  const text = t(runnerDown ? "status.runnerDown" : "status.noCredentials");
+  const body = (
+    <>
+      <AlertTriangle className="size-4 shrink-0" />
+      {wide && <span className="min-w-0">{text}</span>}
+    </>
+  );
+  const cls = clsx("flex shrink-0 items-center gap-2 rounded-sm text-left text-you-fg", wide ? "mx-2 mb-2 bg-you-bg px-2 py-1.5" : "mx-auto mb-1 size-8 justify-center");
+  return noCredentials ? (
+    <button type="button" onClick={onOpenSettings} className={clsx(cls, "hover:underline")} title={text}>
+      {body}
+    </button>
+  ) : (
+    <div role="status" className={cls} title={text}>
+      {body}
+    </div>
+  );
 }
 
-const MIN_PANEL = 360;
+const MIN_PANEL = 340;
 
 function ProjectWorkspace({
-  projectId,
-  view,
-  setView,
-  panelOpen,
-  setPanelOpen,
-  isDesktop,
+  projects,
+  project,
+  onSelectProject,
+  onNewProject,
+  onEditProject,
+  onSettings,
 }: {
-  projectId: number;
-  view: View;
-  setView: (v: View) => void;
-  panelOpen: boolean;
-  setPanelOpen: (v: boolean) => void;
-  isDesktop: boolean;
+  projects: Project[];
+  project: Project;
+  onSelectProject: (id: number) => void;
+  onNewProject: () => void;
+  onEditProject: () => void;
+  onSettings: () => void;
 }) {
-  const projects = useProjects();
-  const project = projects.data!.find((p) => p.id === projectId)!;
-  const agents = useAgents(projectId);
-  const [chatAgentId, setChatAgentId] = useStored<number | null>(`plainboard.chatAgent.${projectId}`, null);
-  const [panelWidth, setPanelWidth] = useStored<number>("plainboard.panelWidth", Math.round(window.innerWidth * 0.42));
+  const { t } = useTranslation();
+  const isDesktop = useIsDesktop();
+  const xl = useMediaQuery("(min-width: 1280px)");
+  const roomy = useMediaQuery("(min-width: 1440px)");
+  const [view, setView] = useStored<View>("plainboard.view", "board");
+  const [panelOpen, setPanelOpen] = useStored<boolean>("plainboard.chatOpen", true);
+  const agents = useAgents(project.id);
+  const [chatAgentId, setChatAgentId] = useStored<number | null>(`plainboard.chatAgent.${project.id}`, null);
+  const [panelWidth, setPanelWidth] = useStored<number>("plainboard.panelWidth", 380);
   const [openTaskId, setOpenTaskId] = useState<number | null>(null);
-  useProjectEvents(projectId);
+  useProjectEvents(project.id);
 
   const manager = agents.data?.find((a) => a.is_manager);
   const chatAgent = agents.data?.find((a) => a.id === chatAgentId) ?? manager;
@@ -230,36 +214,175 @@ function ProjectWorkspace({
 
   const showPanel = isDesktop && panelOpen && view !== "chat" && activeChatId !== null;
   const width = Math.min(Math.max(MIN_PANEL, panelWidth), Math.round(window.innerWidth * 0.75));
+  // The labelled sidebar needs room next to board and chat; otherwise it is an icon rail.
+  const wide = xl && (!showPanel || roomy);
+  const switcher = (variant: "side" | "rail" | "bar") => (
+    <ProjectSwitcher variant={variant} projects={projects} current={project} onSelect={onSelectProject} onNew={onNewProject} onEdit={onEditProject} />
+  );
 
   return (
     <ShellContext.Provider value={api}>
-      <div className="flex min-h-0 flex-1">
-        <main className="min-w-0 flex-1 overflow-hidden">
-          {view === "board" && <Board />}
-          {view === "chat" && activeChatId !== null && <ChatView agentId={activeChatId} onSelectAgent={setChatAgentId} />}
-          {view === "team" && <TeamView />}
-          {view === "notes" && <NotesView />}
-          {view === "schedules" && <SchedulesView />}
-          {view === "tools" && <ToolsView />}
-          {view === "stats" && <StatsView />}
-        </main>
-        {showPanel && (
-          <>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              onPointerDown={startResize}
-              className="group relative w-px shrink-0 cursor-col-resize bg-zinc-200 dark:bg-zinc-800"
-            >
-              <span className="absolute inset-y-0 -left-1.5 w-3 group-hover:bg-indigo-500/20" />
+      <div className="flex h-full">
+        {isDesktop && (
+          <aside className={clsx("flex shrink-0 flex-col border-r border-line", wide ? "w-46" : "w-[50px]")}>
+            <div className={clsx("flex h-12 shrink-0 items-center", wide ? "px-3.5" : "justify-center")}>
+              <Brand wide={wide} />
             </div>
-            <aside style={{ width }} className="flex shrink-0 flex-col bg-white dark:bg-zinc-900">
-              <ChatPanel agentId={activeChatId!} onSelectAgent={setChatAgentId} onClose={() => setPanelOpen(false)} onExpand={() => setView("chat")} />
-            </aside>
-          </>
+            <div className="shrink-0 px-2 pb-2.5">{switcher(wide ? "side" : "rail")}</div>
+            <div className="shrink-0 px-2 pb-2.5 empty:hidden">
+              <ForYou variant={wide ? "side" : "rail"} />
+            </div>
+            <StatusHints onOpenSettings={onSettings} wide={wide} />
+            <nav aria-label={t("nav.views")} className="flex shrink-0 flex-col gap-px px-2">
+              {VIEWS.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setView(v.id)}
+                  title={wide ? undefined : t(`nav.${v.id}`)}
+                  aria-label={t(`nav.${v.id}`)}
+                  aria-current={view === v.id ? "page" : undefined}
+                  className={clsx(
+                    "flex h-8 items-center gap-2.5 rounded-sm transition-colors",
+                    wide ? "px-2" : "justify-center",
+                    view === v.id ? "plate" : "text-fg-2 hover:bg-sunk hover:text-fg",
+                  )}
+                >
+                  {v.icon("size-4 shrink-0")}
+                  {wide && <span className="truncate">{t(`nav.${v.id}`)}</span>}
+                </button>
+              ))}
+            </nav>
+            {wide ? (
+              <div className="mt-5 flex min-h-0 flex-1 flex-col">
+                <RunningNow variant="table" />
+              </div>
+            ) : (
+              <div className="flex-1" />
+            )}
+            <div className={clsx("flex shrink-0 gap-0.5 p-2", wide ? "items-center justify-end" : "flex-col items-center")}>
+              <ThemeButton />
+              <IconButton label={t("nav.settings")} onClick={onSettings}>
+                <Settings className="size-4" />
+              </IconButton>
+              {view !== "chat" && (
+                <IconButton label={t("nav.togglePanel")} aria-pressed={panelOpen} onClick={() => setPanelOpen(!panelOpen)} className={clsx(panelOpen && "bg-sunk text-fg")}>
+                  <PanelRight className="size-4" />
+                </IconButton>
+              )}
+            </div>
+          </aside>
         )}
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          {!isDesktop && (
+            <header className="shrink-0 px-2 pt-[env(safe-area-inset-top)]">
+              <div className="flex h-13 items-center gap-2">
+                {switcher("bar")}
+                <div className="flex-1" />
+                <StatusHints onOpenSettings={onSettings} wide={false} />
+                <ForYou />
+              </div>
+            </header>
+          )}
+          {!isDesktop && view === "board" && <RunningNow variant="strip" />}
+
+          <div className="flex min-h-0 flex-1">
+            <main className="min-w-0 flex-1 overflow-hidden">
+              {view === "board" && <Board />}
+              {view === "chat" && activeChatId !== null && <ChatView agentId={activeChatId} onSelectAgent={setChatAgentId} />}
+              {view === "team" && <TeamView />}
+              {view === "notes" && <NotesView />}
+              {view === "schedules" && <SchedulesView />}
+              {view === "tools" && <ToolsView />}
+              {view === "stats" && <StatsView />}
+            </main>
+            {showPanel && (
+              <>
+                <div role="separator" aria-orientation="vertical" onPointerDown={startResize} className="group relative w-px shrink-0 cursor-col-resize bg-line">
+                  <span className="absolute inset-y-0 -left-1.5 z-10 w-3 group-hover:bg-fg/15" />
+                </div>
+                <aside style={{ width }} className="flex shrink-0 flex-col">
+                  <ChatPanel agentId={activeChatId!} onSelectAgent={setChatAgentId} onClose={() => setPanelOpen(false)} onExpand={() => setView("chat")} />
+                </aside>
+              </>
+            )}
+          </div>
+
+          {!isDesktop && <PhoneTabs view={view} setView={setView} onSettings={onSettings} />}
+        </div>
       </div>
       {openTaskId !== null && <TaskModal taskId={openTaskId} onClose={() => setOpenTaskId(null)} />}
     </ShellContext.Provider>
+  );
+}
+
+/** Bottom navigation on phones: the main views, and a sheet with the rest. */
+function PhoneTabs({ view, setView, onSettings }: { view: View; setView: (v: View) => void; onSettings: () => void }) {
+  const { t } = useTranslation();
+  const [more, setMore] = useState(false);
+  const [theme, setTheme] = useTheme();
+  const themeIndex = THEMES.findIndex((x) => x.id === theme);
+  const tabs = VIEWS.slice(0, PHONE_TABS);
+  const rest = VIEWS.slice(PHONE_TABS);
+  const tab = (active: boolean) =>
+    clsx(
+      "relative flex min-h-[58px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5",
+      active ? "font-semibold text-fg before:absolute before:inset-x-[22%] before:-top-px before:h-0.5 before:bg-fg" : "text-fg-3",
+    );
+  const item = "flex h-12 w-full items-center gap-3 rounded-sm px-3 text-left";
+  const go = (v: View) => {
+    setView(v);
+    setMore(false);
+  };
+
+  return (
+    <>
+      {more && (
+        <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setMore(false)}>
+          <div
+            role="menu"
+            className="absolute inset-x-0 bottom-[calc(58px+env(safe-area-inset-bottom))] border-t-2 border-fg bg-bg p-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {rest.map((v) => (
+              <button key={v.id} type="button" role="menuitem" onClick={() => go(v.id)} className={clsx(item, view === v.id ? "plate" : "text-fg")}>
+                {v.icon("size-5 shrink-0")}
+                {t(`nav.${v.id}`)}
+              </button>
+            ))}
+            <div className="my-2 border-t border-line" />
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setMore(false);
+                onSettings();
+              }}
+            >
+              <Settings className="size-5 shrink-0" />
+              {t("nav.settings")}
+            </button>
+            <button type="button" role="menuitem" className={item} onClick={() => setTheme(THEMES[(themeIndex + 1) % THEMES.length].id)}>
+              {THEMES[themeIndex]?.dark ? <Sun className="size-5 shrink-0" /> : <Moon className="size-5 shrink-0" />}
+              {t("nav.theme")}
+            </button>
+          </div>
+        </div>
+      )}
+      <nav aria-label={t("nav.views")} className="relative z-40 flex shrink-0 border-t border-line-2 bg-bg pb-[env(safe-area-inset-bottom)]">
+        {tabs.map((v) => (
+          <button key={v.id} type="button" onClick={() => go(v.id)} aria-current={view === v.id && !more ? "page" : undefined} className={tab(view === v.id && !more)}>
+            {v.icon("size-5")}
+            <span className="max-w-full truncate">{t(`nav.${v.id}`)}</span>
+          </button>
+        ))}
+        <button type="button" aria-haspopup="menu" aria-expanded={more} onClick={() => setMore(!more)} className={tab(more || rest.some((v) => v.id === view))}>
+          <Menu className="size-5" />
+          <span className="max-w-full truncate">{t("nav.more")}</span>
+        </button>
+      </nav>
+    </>
   );
 }

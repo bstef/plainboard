@@ -39,8 +39,10 @@ Claude login); the provider layer is ready for others such as OpenAI.
 - **Notes stay tidy**: one note per topic (similar titles are rejected in favour of updating), list
   views show each note's age and size, pinned notes have a fixed token budget, and the manager is
   reminded to consolidate as the collection grows.
-- **Responsive**: desktop with a resizable chat panel or a full-page chat; phones get a bottom
-  navigation, swipeable board columns and full-screen dialogs.
+- **Responsive**: desktop with a sidebar, a resizable chat panel or a full-page chat; phones get a
+  bottom navigation, the board's statuses stacked and foldable, and full-screen dialogs.
+- **Themes**: dark (Carbon) and light (Stone), following your system until you switch. A theme is one
+  block of colour tokens, so adding your own is a few lines (see `DESIGN.md`).
 - **Clean chat by default**: only messages, with events as subtle one-line notes. The eye icon in the
   chat header shows agent activity (tool calls, compressions, context gauge, full event cards).
 

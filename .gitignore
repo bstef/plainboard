@@ -6,3 +6,7 @@ __pycache__/
 *.tsbuildinfo
 .env
 .venv/
+
+# Impeccable: review screenshots and mock rounds are local
+.impeccable/review/
+.impeccable/mocks/

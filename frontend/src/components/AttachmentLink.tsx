@@ -85,7 +85,7 @@ function MarkdownViewer({ file, onClose }: { file: FileRef; onClose: () => void 
             href={`/api/attachments/${file.id}?inline=false`}
             aria-label={t("common.download")}
             title={t("common.download")}
-            className="shrink-0 rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="shrink-0 rounded-sm p-1 text-fg-3 hover:bg-sunk"
           >
             <Download className="size-4" />
           </a>

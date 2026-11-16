@@ -62,9 +62,13 @@ token that is valid only while the run lasts and only for that run's project and
 
 ### Run lifecycle (`orchestration/run_manager.py`)
 1. `enqueue` creates a `Run(queued)`. The dispatcher starts it when the agent is idle and fewer than
-   `max_parallel_runs` member runs are active. Managers' runs don't count (they are short, and the
-   team waits for them), and nested `ask_agent` runs bypass the limit, so a run that is waiting can
-   never starve the run it waits for. A manager can change `max_parallel_runs` itself
+   `max_parallel_runs` member runs are active. The limit is about members only: a manager's run
+   starts as soon as the manager is free, also at limit 0 (which pauses the members), because the
+   user and the team wait for it. Nested `ask_agent` runs bypass the limit, so a run that is waiting
+   can never starve the run it waits for. A wait inside a turn never holds back an answer either:
+   when the user writes to an agent whose turn sits in `wait_job` or `ask_agent`, that wait ends
+   (`_end_waits`; the job goes on, the answer comes as an update), and a teammate's question ends a
+   wait for a job. A manager can change `max_parallel_runs` itself
    (`set_parallel_agents`), up to the user's `manager_parallel_limit` (0: not at all).
 2. `_prepare`: link a wake-up to the agent's open assignment, consume the inbox, store the user
    message, start a new context for a member's assignment on another ticket, build the turn
@@ -170,8 +174,12 @@ an API key is signed in to a separate Codex home.
 The UI picks up models from `/api/meta`. If the provider has no server-side sessions, return no
 `session_id`: the context manager then rebuilds every turn from summary + recent messages.
 
-**Add a ticket status.** Extend `TaskStatus` (backend), `Status` in `schemas.py`, `STATUSES` and
-`statusColor` in `frontend/src/features/board/Board.tsx`, and the `taskStatus` texts in `en.json`.
+**Add a ticket status.** Extend `TaskStatus` (backend), `Status` in `schemas.py`, `STATUSES` in
+`frontend/src/features/board/Board.tsx`, and the `taskStatus` texts in `en.json`.
+
+**Add a theme.** A theme is one block of colour tokens in `frontend/src/index.css` (`[data-theme="…"]`).
+Copy a block, name it, and list it in `THEMES` in `frontend/src/lib/theme.ts`. Components use only the
+semantic colours (`bg-bg`, `text-fg-2`, `border-line`, …), never a palette colour; `DESIGN.md` has the rules.
 
 **Add a UI language.** Copy `frontend/src/i18n/en.json` to `<code>.json` and register it in `i18n/index.ts`.
 

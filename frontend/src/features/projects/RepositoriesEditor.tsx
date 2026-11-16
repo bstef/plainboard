@@ -86,7 +86,7 @@ function AccessFields({ draft, onChange }: { draft: RepoDraft; onChange: (patch:
           {draft.ssh_public_key ? (
             <Field group label={t("projects.repoSshPublicKey")} hint={t("projects.repoSshPublicKeyHint")}>
               <div className="flex items-start gap-2">
-                <code className="min-w-0 flex-1 rounded-md bg-white px-2 py-1.5 font-mono text-xs break-all ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700">
+                <code className="min-w-0 flex-1 rounded-sm bg-bg px-2 py-1.5 font-mono break-all ring-1 ring-line">
                   {draft.ssh_public_key}
                 </code>
                 <Button size="sm" icon={copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} onClick={copy}>
@@ -95,19 +95,19 @@ function AccessFields({ draft, onChange }: { draft: RepoDraft; onChange: (patch:
               </div>
             </Field>
           ) : (
-            <p className="text-xs text-zinc-500">{t("projects.repoSshOnSave")}</p>
+            <p className="text-fg-3">{t("projects.repoSshOnSave")}</p>
           )}
           {draft.ssh_public_key && (
-            <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+            <label className="flex items-center gap-2 text-fg-2">
               <input type="checkbox" checked={draft.new_ssh_key} onChange={(e) => onChange({ new_ssh_key: e.target.checked })} />
               {t("projects.repoSshNew")}
             </label>
           )}
-          <details className="text-xs text-zinc-500">
+          <details className="text-fg-3">
             <summary className="cursor-pointer">{t("projects.repoSshOwn")}</summary>
             <Textarea
               rows={3}
-              className="mt-2 font-mono text-xs"
+              className="mt-2 font-mono"
               autoComplete="off"
               spellCheck={false}
               aria-label={t("projects.repoSshOwn")}
@@ -156,19 +156,19 @@ export function RepositoriesEditor({
   return (
     <div className="space-y-2">
       {repos.length > 0 && (
-        <ul className="divide-y divide-zinc-100 rounded-lg ring-1 ring-zinc-200 dark:divide-zinc-800 dark:ring-zinc-800">
+        <ul className="divide-y divide-line rounded-sm ring-1 ring-line">
           {repos.map((repo) => (
             <li key={repo.key} className="flex items-center gap-2 px-3 py-2">
-              <GitBranch className="size-3.5 shrink-0 text-zinc-400" />
+              <GitBranch className="size-3.5 shrink-0 text-fg-3" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
+                <div className="truncate font-medium">
                   {repo.name || t("projects.repoAutoName")}
-                  {repo.default_branch && <span className="ml-1.5 text-xs font-normal text-zinc-400">@{repo.default_branch}</span>}
+                  {repo.default_branch && <span className="ml-1.5 font-normal text-fg-3">@{repo.default_branch}</span>}
                   {repo.auth !== "default" && (
-                    <span className="ml-1.5 text-xs font-normal text-zinc-400">· {t(repo.auth === "ssh" ? "projects.repoAccessBadgeSsh" : "projects.repoAccessBadgeToken")}</span>
+                    <span className="ml-1.5 font-normal text-fg-3">· {t(repo.auth === "ssh" ? "projects.repoAccessBadgeSsh" : "projects.repoAccessBadgeToken")}</span>
                   )}
                 </div>
-                <div className="truncate font-mono text-xs text-zinc-500">{repo.url}</div>
+                <div className="truncate font-mono text-fg-3">{repo.url}</div>
               </div>
               {repo.ssh_public_key && (
                 <IconButton label={t("projects.repoSshCopyKey")} onClick={() => navigator.clipboard.writeText(repo.ssh_public_key)}>
@@ -202,7 +202,7 @@ export function RepositoriesEditor({
         </ul>
       )}
       {editing ? (
-        <div className="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/40">
+        <div className="space-y-2 rounded-sm bg-sunk p-3">
           <Input autoFocus placeholder="https://github.com/owner/repo.git" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} className="font-mono" />
           <div className="grid gap-2 sm:grid-cols-2">
             <Input placeholder={t("projects.repoNamePlaceholder")} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
@@ -210,7 +210,7 @@ export function RepositoriesEditor({
           </div>
           <Input placeholder={t("projects.repoDescriptionPlaceholder")} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
           <Input placeholder={t("projects.repoCheckPlaceholder")} value={editing.check_command} onChange={(e) => setEditing({ ...editing, check_command: e.target.value })} className="font-mono" />
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{t("projects.repoCheckHint")}</p>
+          <p className="text-fg-3">{t("projects.repoCheckHint")}</p>
           <AccessFields draft={editing} onChange={(patch) => setEditing({ ...editing, ...patch })} />
           <div className="flex gap-2">
             <Button size="sm" variant="primary" onClick={submit} disabled={!editing.url.trim()}>
@@ -253,7 +253,7 @@ export function RepositoriesEditor({
           </Button>
         </div>
       )}
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-you-fg">{error}</p>}
     </div>
   );
 }

@@ -79,20 +79,20 @@ export function GitHubRepoPicker({
   };
 
   return (
-    <div className="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800/40">
+    <div className="space-y-2 rounded-sm bg-sunk p-3">
       {result.isLoading ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-zinc-500">
+        <div className="flex items-center gap-2 py-4 text-fg-3">
           <Spinner /> {t("projects.loadingGithub")}
         </div>
       ) : !result.data?.ok ? (
-        <p className="text-sm text-amber-600">{result.data?.detail === "No GitHub token configured" ? t("projects.githubNoToken") : result.data?.detail || String(result.error ?? "")}</p>
+        <p className="text-you-fg">{result.data?.detail === "No GitHub token configured" ? t("projects.githubNoToken") : result.data?.detail || String(result.error ?? "")}</p>
       ) : (
         <>
           <div className="relative">
-            <Search className="pointer-events-none absolute top-2 left-2.5 size-4 text-zinc-400" />
+            <Search className="pointer-events-none absolute top-2 left-2.5 size-4 text-fg-3" />
             <Input autoFocus className="pl-8" placeholder={t("projects.searchGithub", { count: available.length })} value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
-          <ul className="scroll-thin max-h-64 overflow-y-auto rounded-md bg-white ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
+          <ul className="scroll-thin max-h-64 overflow-y-auto rounded-sm bg-bg ring-1 ring-line">
             {visible.map((r) => {
               const checked = selected.has(r.full_name);
               return (
@@ -100,28 +100,28 @@ export function GitHubRepoPicker({
                   <button
                     type="button"
                     onClick={() => toggle(r.full_name)}
-                    className={clsx("flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800", checked && "bg-indigo-50/60 dark:bg-indigo-950/30")}
+                    className={clsx("flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-sunk", checked && "bg-sunk")}
                   >
                     <span
                       className={clsx(
-                        "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded ring-1",
-                        checked ? "bg-indigo-600 text-white ring-indigo-600" : "ring-zinc-300 dark:ring-zinc-600",
+                        "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm ring-1",
+                        checked ? "plate ring-fg" : "ring-line-2",
                       )}
                     >
                       {checked && <Check className="size-3" />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <span className="flex items-center gap-1.5 font-medium">
                         <span className="truncate">{r.full_name}</span>
-                        {r.private && <Lock className="size-3 shrink-0 text-zinc-400" aria-label={t("projects.private")} />}
+                        {r.private && <Lock className="size-3 shrink-0 text-fg-3" aria-label={t("projects.private")} />}
                       </span>
-                      {r.description && <span className="block truncate text-xs text-zinc-500">{r.description}</span>}
+                      {r.description && <span className="block truncate text-fg-3">{r.description}</span>}
                     </span>
                   </button>
                 </li>
               );
             })}
-            {visible.length === 0 && <li className="px-3 py-4 text-center text-xs text-zinc-400">{t("projects.noGithubMatches")}</li>}
+            {visible.length === 0 && <li className="px-3 py-4 text-center text-fg-3">{t("projects.noGithubMatches")}</li>}
           </ul>
         </>
       )}

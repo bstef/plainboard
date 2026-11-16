@@ -48,16 +48,16 @@ export function OwnNotesDialog({ agent, onClose }: { agent: Agent; onClose: () =
 
   return (
     <Modal open onClose={onClose} width="max-w-2xl" title={t("ownNotes.title", { name: agent.name })}>
-      <p className="mb-3 text-xs text-zinc-500">{t("ownNotes.hint")}</p>
-      <div className="mb-4 space-y-2 rounded-lg p-3 ring-1 ring-zinc-200 dark:ring-zinc-800">
+      <p className="mb-3 text-fg-3">{t("ownNotes.hint")}</p>
+      <div className="mb-4 space-y-2 rounded-sm p-3 ring-1 ring-line">
         <Textarea rows={2} value={text} maxLength={MAX_NOTE} placeholder={t("ownNotes.new", { name: agent.name })} onChange={(e) => setText(e.target.value)} />
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-zinc-500">{t("ownNotes.used", { used, budget: BUDGET })}</span>
+          <span className="text-fg-3">{t("ownNotes.used", { used, budget: BUDGET })}</span>
           <Button size="sm" variant="primary" icon={<Plus className="size-3.5" />} loading={busy} disabled={!text.trim()} onClick={add}>
             {t("ownNotes.add")}
           </Button>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-you-fg">{error}</p>}
       </div>
       {notes.isPending ? (
         <div className="flex justify-center py-6">
@@ -106,7 +106,7 @@ function NoteItem({ note }: { note: OwnNote }) {
   };
 
   return (
-    <div className="rounded-lg px-2 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+    <div className="rounded-sm px-2 py-2 hover:bg-sunk">
       {editing ? (
         <div className="space-y-2">
           <Textarea rows={3} value={text} maxLength={MAX_NOTE} onChange={(e) => setText(e.target.value)} />
@@ -121,8 +121,8 @@ function NoteItem({ note }: { note: OwnNote }) {
         </div>
       ) : (
         <>
-          <p className="text-sm break-words whitespace-pre-wrap">{note.text}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-zinc-500">
+          <p className="break-words whitespace-pre-wrap">{note.text}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-fg-3">
             <span className="flex-1">
               {creator ? t("ownNotes.byAgent", { name: creator.name }) : t("ownNotes.byUser")} · {timeAgo(note.updated_at)}
             </span>
@@ -143,7 +143,7 @@ function NoteItem({ note }: { note: OwnNote }) {
           </div>
         </>
       )}
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-you-fg">{error}</p>}
     </div>
   );
 }

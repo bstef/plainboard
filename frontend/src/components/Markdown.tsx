@@ -81,7 +81,7 @@ function TicketLink({ number, children, className }: { number: number; children:
         e.stopPropagation();
         openTask(task.id);
       }}
-      className={className ?? "font-medium text-indigo-600 hover:underline dark:text-indigo-400"}
+      className={className ?? "font-medium text-fg hover:underline"}
     >
       {children}
     </button>
@@ -110,7 +110,7 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="inline-block max-w-full cursor-zoom-in align-top">
-        <img src={src} alt={alt} className="max-h-80 max-w-full rounded-md" />
+        <img src={src} alt={alt} className="max-h-80 max-w-full rounded-sm" />
       </button>
       {open && <Lightbox images={[{ src, alt }]} onClose={() => setOpen(false)} />}
     </>

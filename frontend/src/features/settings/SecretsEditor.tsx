@@ -41,7 +41,7 @@ export function SecretsEditor({ projectId }: { projectId: number | null }) {
       {(secrets.data ?? []).map((secret) => (
         <SecretRow key={secret.id} secret={secret} onChange={run} />
       ))}
-      <div className="grid gap-2 rounded-lg p-2 ring-1 ring-zinc-200 sm:grid-cols-[1fr_1fr] dark:ring-zinc-800">
+      <div className="grid gap-2 rounded-sm p-2 ring-1 ring-line sm:grid-cols-[1fr_1fr]">
         <Input placeholder="NPM_TOKEN" className="font-mono" value={draft.name} onChange={(e) => setDraft({ ...draft, name: toName(e.target.value) })} />
         <Input type="password" autoComplete="off" placeholder={t("secrets.value")} value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />
         <Input className="sm:col-span-2" placeholder={t("secrets.description")} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
@@ -66,11 +66,11 @@ function SecretRow({ secret, onChange }: { secret: Secret; onChange: (action: ()
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 ring-1 ring-zinc-200 dark:ring-zinc-800">
-      <KeyRound className="size-3.5 shrink-0 text-zinc-400" />
+    <div className="flex flex-wrap items-center gap-2 rounded-sm px-2 py-1.5 ring-1 ring-line">
+      <KeyRound className="size-3.5 shrink-0 text-fg-3" />
       <div className="min-w-0 flex-1">
-        <div className="truncate font-mono text-xs font-medium">{secret.name}</div>
-        <div className="truncate text-xs text-zinc-500">
+        <div className="truncate font-mono font-medium">{secret.name}</div>
+        <div className="truncate text-fg-3">
           {secret.description ? `${secret.description} · ` : ""}
           {t("secrets.updated", { when: timeAgo(secret.updated_at) })}
         </div>

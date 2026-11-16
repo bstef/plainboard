@@ -19,7 +19,7 @@ function ControlButton({ label, onClick, autoFocus, className, children }: { lab
         e.stopPropagation();
         onClick();
       }}
-      className={`flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/75 focus-visible:outline-2 focus-visible:outline-white ${className ?? ""}`}
+      className={`flex size-10 items-center justify-center rounded-sm bg-black/50 text-white transition-colors hover:bg-black/75 focus-visible:outline-white ${className ?? ""}`}
     >
       {children}
     </button>
@@ -61,12 +61,12 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
         e.stopPropagation();
         onClose();
       }}
-      className="fixed inset-0 z-[70] flex flex-col bg-zinc-950/90 pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-0 z-[70] flex flex-col bg-black/90 pb-[env(safe-area-inset-bottom)]"
     >
-      <div className="flex shrink-0 items-center gap-3 p-3 text-sm text-zinc-100">
+      <div className="flex shrink-0 items-center gap-3 p-3 text-line-2">
         <span className="min-w-0 flex-1 truncate">
           {image.alt}
-          {many && <span className="ml-2 text-zinc-400">{t("lightbox.position", { current: current + 1, total: images.length })}</span>}
+          {many && <span className="ml-2 text-fg-3">{t("lightbox.position", { current: current + 1, total: images.length })}</span>}
         </span>
         <a
           href={image.src}
@@ -75,7 +75,7 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
           aria-label={t("lightbox.openOriginal")}
           title={t("lightbox.openOriginal")}
           onClick={(e) => e.stopPropagation()}
-          className="flex size-10 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/75 focus-visible:outline-2 focus-visible:outline-white"
+          className="flex size-10 items-center justify-center rounded-sm bg-black/50 text-white transition-colors hover:bg-black/75 focus-visible:outline-white"
         >
           <ExternalLink className="size-4" />
         </a>
@@ -84,7 +84,7 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
         </ControlButton>
       </div>
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-3 pb-3">
-        <img src={image.src} alt={image.alt} onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded object-contain" />
+        <img src={image.src} alt={image.alt} onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-sm object-contain" />
         {many && (
           <>
             <ControlButton label={t("lightbox.previous")} onClick={() => step(-1)} className="absolute left-3 top-1/2 -translate-y-1/2">

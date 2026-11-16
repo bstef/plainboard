@@ -1,6 +1,6 @@
 // Only shows a page when the server cannot be reached. The app itself is never cached: it is useless
 // without its server, and a cached build could outlive an update.
-const CACHE = "plainboard-offline-1";
+const CACHE = "plainboard-offline-2";
 const OFFLINE_PAGE = "/offline.html";
 
 self.addEventListener("install", (event) => {

@@ -1,59 +1,57 @@
 import clsx from "clsx";
 import { Shield } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AgentDot, AgentSquare } from "../../components/ui";
 import { formatTokens } from "../../lib/format";
-import { useIsDesktop } from "../../lib/hooks";
+import { useIsDesktop, useMediaQuery } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
+import { ChatAside } from "./ChatAside";
 import { ChatPanel } from "./ChatPanel";
 
-/** Full-page chat: agent list + large conversation (agent switcher in the header on phones). */
+/** Full-page chat: agent list, large conversation and, where there is room, what surrounds it
+ * (see ChatAside). On phones the agent switcher is in the header. */
 export function ChatView({ agentId, onSelectAgent }: { agentId: number; onSelectAgent: (id: number) => void }) {
   const { t } = useTranslation();
   const { agents } = useShell();
   const isDesktop = useIsDesktop();
+  const aside = useMediaQuery("(min-width: 1280px)");
+  const agent = agents.find((a) => a.id === agentId);
 
   return (
     <div className="flex h-full">
       {isDesktop && (
-        <aside className="scroll-thin flex w-64 shrink-0 flex-col overflow-y-auto border-r border-zinc-200 bg-zinc-50/60 p-2 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="px-2 pt-1 pb-2 text-xs font-semibold tracking-wide text-zinc-500 uppercase">{t("chat.conversations")}</div>
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => onSelectAgent(agent.id)}
-              className={clsx(
-                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left",
-                agent.id === agentId ? "bg-white shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900",
-              )}
-            >
-              <span className="relative flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white" style={{ background: agent.color }}>
-                {agent.name[0]?.toUpperCase()}
-                {agent.status !== "idle" && (
-                  <span
-                    className={clsx(
-                      "absolute -right-1 -bottom-1 size-3 rounded-full ring-2 ring-white dark:ring-zinc-950",
-                      agent.status === "running" ? "animate-pulse bg-emerald-500" : agent.status === "background" ? "bg-sky-400" : "bg-amber-400",
-                    )}
-                    title={[t(`agentStatus.${agent.status}`), ...(agent.status === "background" ? agent.job_commands : [])].join("\n")}
-                  />
-                )}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1 truncate text-sm font-medium">
-                  {agent.name}
-                  {agent.is_manager && <Shield className="size-3 shrink-0 text-indigo-500" />}
+        <aside className="flex w-56 shrink-0 flex-col border-r border-line 2xl:w-60">
+          <h2 className="caps mx-2.5 flex h-12 shrink-0 items-center border-b-2 border-fg">{t("chat.conversations")}</h2>
+          <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+            {agents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => onSelectAgent(agent.id)}
+                aria-current={agent.id === agentId ? "true" : undefined}
+                title={[t(`agentStatus.${agent.status}`), ...(agent.status === "background" ? agent.job_commands : [])].join("\n")}
+                className={clsx("grid w-full grid-cols-[9px_auto_minmax(0,1fr)] items-center gap-x-2 border-b border-line px-2.5 py-2 text-left", agent.id === agentId ? "bg-sunk" : "hover:bg-sunk")}
+              >
+                <AgentDot status={agent.status} />
+                <AgentSquare agent={agent} />
+                <span className="min-w-0">
+                  <span className={clsx("flex items-center gap-1.5", agent.id === agentId ? "font-extrabold" : "font-medium")}>
+                    <span className="truncate">{agent.name}</span>
+                    {agent.is_manager && <Shield className="size-3.5 shrink-0 text-fg-3" aria-label={t("team.manager")} />}
+                  </span>
+                  <span className="block truncate text-fg-3">
+                    {agent.role || "—"} · {formatTokens(agent.context_tokens)}
+                  </span>
                 </span>
-                <span className="block truncate text-xs text-zinc-500">
-                  {agent.role || "—"} · {formatTokens(agent.context_tokens)}
-                </span>
-              </span>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
         </aside>
       )}
-      <section className="flex min-w-0 flex-1 flex-col bg-white dark:bg-zinc-900">
-        <ChatPanel agentId={agentId} onSelectAgent={onSelectAgent} variant="page" />
+      <section className="flex min-w-0 flex-1 flex-col">
+        <ChatPanel agentId={agentId} onSelectAgent={onSelectAgent} variant="page" limits={!aside} />
       </section>
+      {aside && agent && <ChatAside agent={agent} />}
     </div>
   );
 }
