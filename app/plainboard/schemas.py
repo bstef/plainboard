@@ -461,6 +461,9 @@ class DecisionOut(ORM):
 
 
 class TaskDetail(TaskOut):
+    # Where the ticket stands, kept by PlainBoard from the reports ("" while it has only a few).
+    state: str = ""
+    state_updated_at: UTCDateTime | None = None
     comments: list[CommentOut] = Field(default_factory=list)
     attachments: list[AttachmentOut] = Field(default_factory=list)
     assignments: list[AssignmentOut] = Field(default_factory=list)

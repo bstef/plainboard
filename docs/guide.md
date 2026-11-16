@@ -139,6 +139,9 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   ticket lists. The manager is woken up once per batch of reports (turn off per project with
   *auto-wake*), starts what comes next and moves the ticket to *Done* (*Review* only if you have to
   look at something).
+- A ticket with several reports shows **where it stands**: done, open, decided, tried and dropped.
+  PlainBoard writes that from the reports with the small model and gives it to every agent that
+  works on the ticket, so nothing is done twice and nothing that failed is tried again.
 - Comments are only what someone meant to say: yours, a decision, a branch that reached the main
   branch. Reports and repairs are not repeated there. A ticket that has collected ten assignments is
   no longer one piece of work: the manager is told so when it orders more, and splits the rest into

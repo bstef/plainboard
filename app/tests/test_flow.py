@@ -795,3 +795,42 @@ def test_the_manager_pauses_and_resumes_the_whole_team_in_one_call_each(client, 
     team = agents_by_slug(client, pid)
     assert tool_results(client, manager["id"])[-1].startswith("Resumed dev1, dev2.")
     assert team["dev1"]["enabled"] and not team["off"]["enabled"]  # whoever was off before stays off
+
+
+def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(client, project):
+    pid = project["id"]
+    make_member(client, pid)
+    manager = manager_of(client, pid)
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Make Home fast", "description": "Back to Home takes 4 s", "status": "in_progress"}).json()
+    fake = runner(client)
+
+    def order(title: str, report: str) -> None:
+        chat(client, manager["id"], delegate("dev", title, f"SAY {report}", ticket_number=1))
+        wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in assignments(client, pid)))
+
+    order("Measure", "3.4 s from the text page, measured on the X4")
+    order("Cache the layout", "tried caching the layout: no gain, dropped")
+    assert client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "" and not fake.completions  # two reports say it themselves
+    order("Cut the service calls", "26 calls cost 1.31 s; cut to 19 on branch fw/home-calls")
+    wait_for(lambda: client.get(f"/api/tasks/{ticket['id']}").json()["state"])
+    # PlainBoard wrote it from the reports, with the small model; no agent spent a step on it.
+    (spec,) = fake.completions
+    assert "nothing is done twice" in spec.system_prompt and "Tried and dropped" in spec.system_prompt
+    assert "Ticket #1: Make Home fast" in spec.prompt and "State so far:\n(none yet)" in spec.prompt
+    assert "Assignment #2 (Dev, done): Cache the layout\ntried caching the layout: no gain, dropped" in spec.prompt and "26 calls cost 1.31 s" in spec.prompt
+    detail = client.get(f"/api/tasks/{ticket['id']}").json()
+    assert detail["state"] == "SUMMARY #1" and detail["state_updated_at"] and detail["comments"] == []
+
+    # The next piece of work on the ticket starts from it, and so does whoever reads the ticket.
+    order("Next cut", "down to 2.4 s")
+    prompt = next(s.prompt for s in reversed(fake.specs) if "Assignment #4 from Manager" in s.prompt)
+    assert "Where ticket #1 stands, from the reports so far." in prompt and "SUMMARY #1" in prompt and "don't redo what is done" in prompt
+    chat(client, manager["id"], 'TOOL get_task {"number": 1}')
+    wait_for(lambda: idle(client, pid))
+    text = tool_results(client, manager["id"])[-1]
+    assert "Where it stands (kept by PlainBoard from the reports up to assignment #3; newer ones are below):\nSUMMARY #1" in text and "#4 [done] Dev: Next cut" in text
+    assert len(fake.completions) == 1  # rewritten only when three more reports have come in
+    order("Fifth", "x")
+    order("Sixth", "y")
+    wait_for(lambda: len(fake.completions) == 2 and client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "SUMMARY #2")
+    assert "State so far:\nSUMMARY #1" in fake.completions[-1].prompt and "Assignment #6" in fake.completions[-1].prompt and "Assignment #3 " not in fake.completions[-1].prompt

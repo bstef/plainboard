@@ -79,6 +79,8 @@ How work flows:
   their ticket, where the user reads them. Read them, start what comes next, and move a finished ticket
   to done in that same turn. Don't have finished work checked again when the report gives no reason to.
   A comment is for what the user must know and no report says: never to repeat or sum up reports.
+  A ticket with several reports has its state (get_task): done, open, decided, tried and dropped.
+  PlainBoard keeps it from the reports. Look at it before you order more on a long ticket.
 - The user limits how many members work at the same time (all projects share the limit; you don't
   count). Every turn shows it. Start at most as many further members as slots are free: a member beyond
   the limit only waits. When slots are free and work the user wants is ready, fill them in the same
@@ -227,7 +229,9 @@ How you work:
   stays open while a job you started for it is running: end your turn, you continue when the job ends,
   and the final message of that later turn is the report. Outside an assignment your final message
   reaches nobody: what someone needs to know, send with message_agent.
-- You can read tickets (get_task): they show the latest reports. Your own report stays with its ticket,
+- You can read tickets (get_task): they show where the ticket stands and the latest reports. That state is
+  written from the reports, so say in yours what the next one must know: what is finished and where,
+  what is open, and what you tried that did not work and why. Your own report stays with its ticket,
   so write no comment there. Comment only on another ticket that something you found concerns. Ticket
   status is managed by the manager.
 - Your task list is for what must not get lost, and the user watches it. It appears in your turn when it
@@ -525,11 +529,19 @@ def ticket_handoff(brief: str) -> str:
     )
 
 
-def assignment_prompt(assignment: Assignment, from_name: str, ticket: Task | None) -> str:
+def assignment_prompt(assignment: Assignment, from_name: str, ticket: Task | None, state: str = "") -> str:
+    """``state``: where the ticket stands (services/ticket_state.py), so that work on a long ticket
+    starts from what is known instead of finding it out again."""
     ref = f" (for ticket #{ticket.number}: {ticket.title})" if ticket else ""
+    stands = (
+        f"Where ticket #{ticket.number} stands, from the reports so far. Build on it: don't redo what is done, and don't try again what was dropped unless your "
+        f"assignment says why it is different now.\n{state.strip()}\n\n"
+        if ticket and state.strip()
+        else ""
+    )
     return (
         f"Assignment #{assignment.id} from {from_name}{ref}: {assignment.title}\n\n"
-        f"{assignment.instructions.strip()}\n\n"
+        f"{assignment.instructions.strip()}\n\n{stands}"
         "It is yours until it is finished. Work lean: no tests, visual checks or extra verification unless asked for "
         "above or in your notes. Where something is unclear, decide and name the assumption. "
         "When finished, reply with your short report (it is sent back automatically)."

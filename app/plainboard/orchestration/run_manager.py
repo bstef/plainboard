@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from plainboard_protocol import JobSpec, JobState, ResultEvent, RunSpec, ToolBridgeSpec, ToolCallResult, WorkspaceSpec
+from plainboard_protocol import CompletionSpec, JobSpec, JobState, ResultEvent, RunSpec, ToolBridgeSpec, ToolCallResult, WorkspaceSpec
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -56,6 +56,7 @@ from ..schemas import AssignmentOut, MessageOut, RunOut, TaskUpdate
 from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import decisions as decision_service
+from ..services import ticket_state
 from ..services import flow_log
 from ..services import jobs as job_service
 from ..services import mcp as mcp_service
@@ -133,6 +134,7 @@ class RunManager:
         self._cancel_requested: set[int] = set()
         self._limits_asked = 0.0
         self._limits_task: asyncio.Task[None] | None = None
+        self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
         self._wake = asyncio.Event()
         self._dispatcher: asyncio.Task[None] | None = None
 
@@ -398,7 +400,8 @@ class RunManager:
             s,
             target,
             RunTrigger.ASSIGNMENT,
-            prompts.assignment_prompt(assignment, from_name, task),
+            # A repair is about its branches, not about the ticket's history.
+            prompts.assignment_prompt(assignment, from_name, task, "" if landing_id or train_id else await ticket_state.text_for(s, assignment.task_id)),
             task_id=assignment.task_id,
             assignment_id=assignment.id,
             source_agent_id=caller.id if caller else None,
@@ -515,6 +518,38 @@ class RunManager:
         await self.runner.cancel(run_id)
         asyncio.get_running_loop().call_later(CANCEL_GRACE_SECONDS, self._force_cancel, run_id)
         return True
+
+    def refresh_ticket_state(self, task_id: int) -> None:
+        """Rewrite where a ticket stands if enough new reports have come in. In the background: no
+        agent waits for it, and a failure only means it is tried again with the next report."""
+        running = self._state_tasks.get(task_id)
+        if running is None or running.done():
+            self._state_tasks[task_id] = asyncio.create_task(self._refresh_ticket_state(task_id), name=f"ticket-state-{task_id}")
+
+    async def _refresh_ticket_state(self, task_id: int) -> None:
+        try:
+            async with self._sm() as s:
+                task = await s.get(Task, task_id)
+                reports = await ticket_state.due(s, task) if task else []
+                if not task or not reports:
+                    return
+                manager = await agent_service.get_manager(s, task.project_id)
+                account = await account_service.pick(s, manager.provider, manager)
+                credentials = settings_service.credentials(await settings_service.get_all(s), account=account_service.fields(account))
+                before = await ticket_state.text_for(s, task.id)
+                names = await board_service.agent_names(s, task.project_id)
+                spec = CompletionSpec(provider=manager.provider, model=manager.summary_model, system_prompt=ticket_state.SYSTEM, prompt=ticket_state.prompt(task, before, reports, names), credentials=credentials)
+                await s.commit()  # no transaction is held while the model writes
+                result = await self.runner.complete(spec)
+                if not result.text.strip():
+                    return
+                state = await ticket_state.store(s, task, result.text, reports[-1].id)
+                await flow_log.record(s, task.project_id, "ticket.state_written", task_id=task.id, reports=len(reports), until=state.until_assignment_id, chars=len(state.text), cost_usd=result.cost_usd)
+                await board_service.publish_task_id(s, task.id)
+        except Exception:
+            log.exception("Could not write the state of ticket %s", task_id)
+        finally:
+            self._state_tasks.pop(task_id, None)
 
     def refresh_limits(self) -> None:
         """Ask for the plan limits in the background, at most every five minutes, and only accounts
@@ -1025,6 +1060,8 @@ class RunManager:
         bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
         # The report stays with the assignment, which the ticket shows: it is not repeated as a comment.
         ticket = await s.get(Task, assignment.task_id) if assignment.task_id else None
+        if ticket:
+            self.refresh_ticket_state(ticket.id)
         if ok and (assignment.landing_id or assignment.train_id):
             return  # repair for landing: PlainBoard puts the branches on the next train, nobody has to read this
         ref = f", ticket #{ticket.number}" if ticket else ""

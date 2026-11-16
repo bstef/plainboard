@@ -114,6 +114,14 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
           <DescriptionEditor value={data.description} onSave={(description) => patch({ description })} />
           <CustomerTexts title={data.customer_title} description={data.customer_description} onSave={patch} />
           <Attachments attachments={data.attachments} reviewIds={reviewAttachmentIds(data.decisions)} onUpload={upload} onView={setViewing} />
+          {data.state && (
+            <section>
+              <SectionTitle right={data.state_updated_at && <span className="text-fg-3">{timeAgo(data.state_updated_at)}</span>}>{t("ticket.state")}</SectionTitle>
+              <div className="rounded-sm bg-sunk px-3 py-2" title={t("ticket.stateHint")}>
+                <Markdown>{data.state}</Markdown>
+              </div>
+            </section>
+          )}
           <Assignments assignments={data.assignments} />
           <Comments key={taskId} taskId={taskId} comments={data.comments} total={data.comment_count} />
         </div>

@@ -208,6 +208,9 @@ export interface Decision {
 }
 
 export interface TaskDetail extends Task {
+  /** Where the ticket stands, kept by PlainBoard from the reports; "" while it has only a few. */
+  state: string;
+  state_updated_at: string | null;
   comments: Comment[];
   attachments: Attachment[];
   assignments: Assignment[];

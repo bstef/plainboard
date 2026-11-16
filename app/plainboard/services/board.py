@@ -36,7 +36,7 @@ from ..models import (
     utcnow,
 )
 from ..schemas import AssignmentOut, AttachmentOut, CommentOut, DecisionOut, PublicBoard, PublicTask, TaskCreate, TaskDetail, TaskOut, TaskUpdate
-from . import flow_log
+from . import flow_log, ticket_state
 from .errors import NotFound, ServiceError
 from .timing import duration
 from .util import truncate
@@ -457,6 +457,8 @@ async def task_detail(session: AsyncSession, task: Task) -> TaskDetail:
     (base,) = await task_outs(session, [task])
     detail = TaskDetail.model_validate({**dict(base), "comments": [], "attachments": [], "assignments": [], "decisions": []})
     detail.decisions = [DecisionOut.model_validate(d) for d in await list_decisions(session, task.id)]
+    if state := await ticket_state.get(session, task.id):
+        detail.state, detail.state_updated_at = state.text, state.updated_at
     # Only the newest comments; older ones are paged in via GET /tasks/{id}/comments.
     detail.comments = [CommentOut.model_validate(c) for c in await recent_comments(session, task.id, UI_COMMENT_PAGE)]
     detail.attachments = [AttachmentOut.model_validate(a) for a in await list_attachments(session, task.id)]
@@ -616,8 +618,9 @@ async def ticket_text(session: AsyncSession, task: Task, comment_limit: int = CO
     comments = await recent_comments(session, task.id, comment_limit)
     total = await count_comments(session, task.id)
     brief = ticket_brief(task, await list_attachments(session, task.id), comments, names, runner_path, decisions, comment_total=total)
+    stands = ticket_state.lines(await ticket_state.get(session, task.id))
     work = await work_lines(session, task, names)
-    return brief + ("\n\n" + "\n".join(work) if work else "")
+    return "\n\n".join(part for part in (brief, "\n".join(stands), "\n".join(work)) if part)
 
 
 BRIEF_ASSIGNMENTS = 5  # finished assignments an agent sees with a ticket; older ones: list_assignments

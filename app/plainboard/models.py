@@ -269,6 +269,17 @@ class Task(Timestamps, Base):
     created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
 
 
+class TicketState(Base):
+    """Where a ticket stands, written by PlainBoard from the reports of its assignments
+    (services/ticket_state.py): one text that is replaced, not a list that grows."""
+
+    __tablename__ = "ticket_states"
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
+    text: Mapped[str] = mapped_column(Text, default="")
+    until_assignment_id: Mapped[int] = mapped_column(Integer, default=0)  # the last report it includes
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class TaskTransition(Base):
     """A ticket entering a status, for the statistics. Keeps the number, so it outlives the ticket."""
 
