@@ -810,6 +810,17 @@ class CheckOut(BaseModel):
     detail: str
 
 
+class ExportIn(BaseModel):
+    passphrase: str = ""  # seals the credentials into the file; without one they stay behind
+    chats: bool = True
+
+
+class ImportOut(BaseModel):
+    project: ProjectOut
+    counts: dict[str, int]  # what came along, by table
+    missing: list[str]  # credentials that did not, to enter again
+
+
 class PauseMoving(BaseModel):
     """Something that still moves while everything is being paused."""
 

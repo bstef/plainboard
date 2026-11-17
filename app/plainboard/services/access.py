@@ -111,6 +111,7 @@ RULES: tuple[Rule, ...] = (
     _project("/schedules", write=Need.MEMBER),
     _project("/browser", read=Need.MEMBER),  # the browser window is driven, not only watched
     _project("/previews", write=Need.MEMBER),  # which servers run; a member stops one
+    _project("/export", read=Need.OWNER),  # the whole project as a file, credentials included
     _project("/secrets", read=Need.OWNER),
     _project("/public-api-keys", read=Need.OWNER),
     _of("/api/agents/{agent_id}", "agent_id", Agent),

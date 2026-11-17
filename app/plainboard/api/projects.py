@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+import os
+import tempfile
+
+from fastapi import APIRouter, File, Form, UploadFile
+from fastapi.responses import FileResponse
 from plainboard_protocol import ProviderInfo
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from ..models import ACTIVE_RUN_STATUSES, ProjectRole, Run
 from ..orchestration.runner_client import RunnerError
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, PreviewOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ExportIn, ImportOut, PreviewOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
 from ..services import jobs as job_service
@@ -14,6 +19,7 @@ from ..services import preview as preview_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
+from ..services import transfer as transfer_service
 from ..services.errors import ServiceError
 from ..services import users as user_service
 from .deps import Runner, Runs, Session, Who
@@ -37,6 +43,28 @@ async def create_project(body: ProjectCreate, session: Session, who: Who) -> Pro
     if who.user is not None:  # whoever creates a project owns it
         await user_service.set_member(session, project.id, who.user.id, ProjectRole.OWNER)
     return project_service.to_out(project, ProjectRole.OWNER)
+
+
+@router.post("/projects/import", response_model=ImportOut, status_code=201)
+async def import_project(session: Session, who: Who, file: UploadFile = File(...), passphrase: str = Form("")) -> ImportOut:
+    """A project from the file another PlainBoard made (``export``). Whoever brings it in owns it."""
+    result = await transfer_service.import_project(session, file.file, passphrase=passphrase)
+    if who.user is not None:
+        await user_service.set_member(session, result.project.id, who.user.id, ProjectRole.OWNER)
+    return ImportOut(project=project_service.to_out(result.project, ProjectRole.OWNER), counts=result.counts, missing=result.missing)
+
+
+@router.post("/projects/{project_id}/export")
+async def export_project(project_id: int, body: ExportIn, session: Session) -> FileResponse:
+    """The whole project as one file, to take it to another PlainBoard (services/transfer.py)."""
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as out:
+        try:
+            name = await transfer_service.export_project(session, project_id, out, passphrase=body.passphrase, chats=body.chats)
+        except BaseException:
+            out.close()
+            os.unlink(out.name)
+            raise
+    return FileResponse(out.name, filename=name, media_type="application/zip", background=BackgroundTask(os.unlink, out.name))
 
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)

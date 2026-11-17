@@ -15,6 +15,7 @@ How to set PlainBoard up, use it, and find every setting. For the design of the 
 - [People and roles](#people-and-roles)
 - [A folder on your machine](#a-folder-on-your-machine)
 - [Updating](#updating)
+- [Moving a project to another PlainBoard](#moving-a-project-to-another-plainboard)
 - [On a server](#on-a-server)
 - [Preview](#preview)
 - [Browser window](#browser-window)
@@ -218,6 +219,28 @@ so). Nothing is lost: every agent goes on with what it had open.
 Without the pause an update works too: agents that are in the middle of a turn go on by themselves
 afterwards, but a job that is running in the runner is lost when the runner restarts.
 Built from a clone instead: `git pull`, then `docker compose up -d --build`.
+
+## Moving a project to another PlainBoard
+
+A project can be taken along as one file, e.g. from your machine to a server.
+
+1. On the old PlainBoard: **Project settings → Move to another PlainBoard → Download the project
+   file**. Best while the project is at rest (**PlainBoard settings → Pause everything**), and after
+   the agents have pushed their work: the code is not in the file, it comes from git again.
+2. On the new one: **New project → Or bring a project from another PlainBoard**, choose the file.
+   You become the project's owner.
+
+The file carries the project's settings, the team with its notes, task lists and schedules, the
+repositories, the board with its whole history (comments, questions, assignments and their reports),
+the notes and, if you want, the chats. Credentials (GitHub tokens, SSH keys, secrets, the environment
+of MCP servers) travel only if you give a passphrase: they are sealed with it, and the same passphrase
+opens them on the other side. Without one they stay behind, and the import lists what to enter again.
+
+Left behind is what belongs to the installation or to the moment: users and roles, subscriptions,
+running work (what was open is closed and ordered again from there), the agents' working folders and
+the statistics. Nothing starts by itself after the import: check the subscription and the
+repositories' access, then tell the manager to go on. The old project stays as it is; delete it
+there when the new one works.
 
 ## On a server
 

@@ -21,7 +21,7 @@ MANAGER_DESCRIPTION = (
 )
 
 
-async def _unique_slug(session: AsyncSession, name: str) -> str:
+async def unique_slug(session: AsyncSession, name: str) -> str:
     base = slugify(name, "project")
     slug, n = base, 2
     while await session.scalar(select(Project.id).where(Project.slug == slug)) is not None:
@@ -34,7 +34,7 @@ async def create(session: AsyncSession, data: ProjectCreate) -> Project:
         await account_service.get(session, data.account_id)
     project = Project(
         name=data.name,
-        slug=await _unique_slug(session, data.name),
+        slug=await unique_slug(session, data.name),
         description=data.description,
         workspace_path=normalize_workspace_path(data.workspace_path),
         github_token_enc=encrypt(data.github_token),

@@ -6,6 +6,7 @@ import { qk, useAccounts, useMe, useMeta, useRepositories, useSettings } from ".
 import type { Agent, Project } from "../../api/types";
 import { Field, Input, Select, Textarea, Toggle } from "../../components/ui";
 import { MembersEditor } from "../projects/MembersEditor";
+import { ImportProject } from "../projects/MoveProject";
 import { RepositoriesEditor, toBody, toDraft } from "../projects/RepositoriesEditor";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { ModelSelect } from "../team/AgentEditor";
@@ -82,6 +83,20 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
           <Field label={t("projects.description")} hint={t("newProject.basics.descriptionHint")}>
             <Textarea rows={6} value={basics.description} onChange={(e) => setBasics({ ...basics, description: e.target.value })} />
           </Field>
+          {/* The other way to a project: bring one along from another PlainBoard. Only before this one exists. */}
+          {!project && (
+            <details className="border-t border-line pt-4">
+              <summary className="cursor-pointer font-medium">{t("move.importTitle")}</summary>
+              <div className="pt-3">
+                <ImportProject
+                  onOpen={(imported) => {
+                    onCreated(imported);
+                    onClose();
+                  }}
+                />
+              </div>
+            </details>
+          )}
         </div>
       ),
     },

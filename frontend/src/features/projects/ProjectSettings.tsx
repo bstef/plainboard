@@ -12,6 +12,7 @@ import { useShell } from "../layout/shell-context";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
+import { ExportProject } from "./MoveProject";
 import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
 
 const days = (value: string, max: number) => Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
@@ -220,6 +221,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
         </div>
       ),
     },
+    { id: "move", label: t("move.label"), description: t("move.description"), content: <ExportProject project={project} /> },
     {
       id: "advanced",
       label: t("projectSettings.advanced.label"),
