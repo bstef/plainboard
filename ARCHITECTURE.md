@@ -67,14 +67,16 @@ token that is valid only while the run lasts and only for that run's project and
 | Own notes (`AgentNote`) | `services/own_notes.py`, `tools/knowledge.py`, `features/team/OwnNotesDialog.tsx` | What one member must not forget (the user's lasting wishes, corrections). Private to the member and always in its prompt (section `own_notes`), so they survive compression and resets. Members write them with `remember`/`forget`; the user edits them in the team view. All notes of a member share `own_notes.BUDGET_CHARS`. The prompt cache stays valid: the frozen system prompt never changes, a change by the user arrives once as a briefing update, and what the member wrote itself is not sent again (`knowledge._mark_seen`). The manager reads and edits them (`member_notes`, `edit_member_note`); the member gets the change as a briefing update. A note the member or the manager wrote that is unchanged for 3 days is put up for review, and again every 7 days while it is kept (`own_notes.take_due_for_review`, run by the scheduler): an inbox line in the member's next turn, no extra turn. Notes from the user are never put up. |
 
 ### Run lifecycle (`orchestration/run_manager.py`)
-1. `enqueue` creates a `Run(queued)`. The dispatcher starts it when the agent is idle and fewer than
-   `max_parallel_runs` member runs are active. The limit is about members only: a manager's run
+1. `enqueue` creates a `Run(queued)`. The dispatcher starts it when the agent is idle and fewer member
+   runs of its project are active than the project's limit (`projects.parallel_limit`: the project's own
+   `parallel_agents`, else the setting `max_parallel_runs`). Every project counts by itself, so one busy
+   project never leaves another one waiting. The limit is about members only: a manager's run
    starts as soon as the manager is free, also at limit 0 (which pauses the members), because the
    user and the team wait for it. Nested `ask_agent` runs bypass the limit, so a run that is waiting
    can never starve the run it waits for. A wait inside a turn never holds back an answer either:
    when the user writes to an agent whose turn sits in `wait_job` or `ask_agent`, that wait ends
    (`_end_waits`; the job goes on, the answer comes as an update), and a teammate's question ends a
-   wait for a job. A manager can change `max_parallel_runs` itself
+   wait for a job. A manager can change the number of its own project
    (`set_parallel_agents`), up to the user's `manager_parallel_limit` (0: not at all).
 2. `_prepare`: link a wake-up to the agent's open assignment, consume the inbox, store the user
    message, start a new context for a member's assignment on another ticket, build the turn

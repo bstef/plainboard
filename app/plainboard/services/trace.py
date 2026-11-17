@@ -44,7 +44,7 @@ from ..models import (
     Train,
     utcnow,
 )
-from . import settings as settings_service
+from . import projects as project_service
 
 VERSION = 1
 BATCH = 500
@@ -75,7 +75,7 @@ async def rows(session: AsyncSession, project_id: int, days: int) -> AsyncIterat
         "generated_at": utcnow().isoformat() + "Z",
         "days": days,
         "since": since.isoformat() + "Z",
-        "max_parallel_runs": int(await settings_service.get(session, "max_parallel_runs")),
+        "max_parallel_runs": await project_service.parallel_limit(session, project),
         "note": "One object per line; `type` names the table. Times are UTC. Rows that describe the project (agents, notes, tickets) are complete, the rest is of the period. "
         "A message of kind tool keeps the call's input up to 1500 characters and its result up to 2000; what was ordered, sent and answered is complete in assignment, update and run.",
     }

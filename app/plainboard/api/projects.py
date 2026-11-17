@@ -34,9 +34,11 @@ async def get_project(project_id: int, session: Session) -> ProjectOut:
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectOut)
-async def update_project(project_id: int, body: ProjectUpdate, session: Session) -> ProjectOut:
+async def update_project(project_id: int, body: ProjectUpdate, session: Session, runs: Runs) -> ProjectOut:
     project = await project_service.get(session, project_id)
-    return project_service.to_out(await project_service.update(session, project, body))
+    out = project_service.to_out(await project_service.update(session, project, body))
+    runs.recheck()  # more parallel agents: waiting turns may start now
+    return out
 
 
 @router.delete("/projects/{project_id}", status_code=204)

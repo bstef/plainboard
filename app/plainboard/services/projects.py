@@ -10,6 +10,7 @@ from ..security import decrypt, encrypt
 from . import agents as agent_service
 from . import repositories as repo_service
 from . import schedules as schedule_service
+from . import settings as settings_service
 from .errors import NotFound, ServiceError
 from .util import slugify
 
@@ -34,6 +35,7 @@ async def create(session: AsyncSession, data: ProjectCreate) -> Project:
         description=data.description,
         workspace_path=normalize_workspace_path(data.workspace_path),
         github_token_enc=encrypt(data.github_token),
+        parallel_agents=data.parallel_agents,
     )
     session.add(project)
     await session.commit()
@@ -60,6 +62,26 @@ async def update(session: AsyncSession, project: Project, data: ProjectUpdate) -
     await session.commit()
     bus.publish(project.id, "project.updated", to_out(project))
     return project
+
+
+async def parallel_limit(session: AsyncSession, project: Project) -> int:
+    """How many members of this project work at the same time: its own number, else the one from
+    the settings. Every project counts by itself; 0 pauses its members."""
+    if project.parallel_agents is not None:
+        return project.parallel_agents
+    return int(await settings_service.get(session, "max_parallel_runs"))
+
+
+async def set_parallel_by_manager(session: AsyncSession, project: Project, count: int) -> None:
+    """A manager changes how many members of its project work at once, within the range the user allows."""
+    limit = int(await settings_service.get(session, "manager_parallel_limit"))
+    if limit < 1:
+        raise ServiceError("The user has not allowed managers to change this. Ask the user (Settings).")
+    if not 1 <= count <= limit:
+        raise ServiceError(f"Must be between 1 and {limit}. The user can raise that limit in Settings.")
+    project.parallel_agents = count
+    await session.commit()
+    bus.publish(project.id, "project.updated", to_out(project))
 
 
 async def set_label_color(session: AsyncSession, project: Project, label: str, color: str | None) -> None:

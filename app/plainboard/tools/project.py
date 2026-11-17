@@ -25,9 +25,8 @@ async def get_project(ctx: ToolContext, _args) -> str:
     p = ctx.project
     workspace = f"shared folder '{p.workspace_path}'" if p.workspace_path else "one directory per agent"
     repos = ", ".join(r.name for r in await repo_service.list_for_project(ctx.session, p.id)) or "-"
-    values = await settings_service.get_all(ctx.session)
-    limit = int(values["manager_parallel_limit"])
-    parallel = f"{values['max_parallel_runs']} ({f'you may set 1-{limit}' if limit >= 1 else 'only the user can change it'}; all projects share it)"
+    limit = int(await settings_service.get(ctx.session, "manager_parallel_limit"))
+    parallel = f"{await project_service.parallel_limit(ctx.session, p)} ({f'you may set 1-{limit}' if limit >= 1 else 'only the user can change it'}; this project only)"
     shares = await preview_service.shares_for_project(ctx.session, p.id)
     shared = "; ".join(f"{s.port} {s.access} until {s.expires_at:%Y-%m-%d}" for s in shares) or "none (all private)"
     return (
@@ -48,12 +47,12 @@ class ParallelArgs(BaseModel):
 
 @tool(
     "set_parallel_agents",
-    "How many agents work at the same time, across all projects. More finishes sooner but uses the token quota faster. Range: see get_project.",
+    "How many agents of this project work at the same time. More finishes sooner but uses the token quota faster. Range: see get_project.",
     ParallelArgs,
     roles=(MANAGER,),
 )
 async def set_parallel_agents(ctx: ToolContext, args: ParallelArgs) -> str:
-    await settings_service.set_parallel_by_manager(ctx.session, args.count)
+    await project_service.set_parallel_by_manager(ctx.session, ctx.project, args.count)
     ctx.runs.recheck()
     return f"Up to {args.count} agents now work at the same time."
 

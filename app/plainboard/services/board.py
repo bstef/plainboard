@@ -304,9 +304,10 @@ class Capacity:
 
 
 async def capacity(session: AsyncSession, project_id: int, limit: int, *, except_run_id: int, waiting: set[int] | frozenset[int] = frozenset()) -> Capacity:
-    """``waiting``: turns that only wait for a job right now (RunManager.waiting_for_job): they take no slot."""
+    """The project's own use of its limit; other projects count by themselves.
+    ``waiting``: turns that only wait for a job right now (RunManager.waiting_for_job): they take no slot."""
     members = select(Agent.id).where(~Agent.is_manager)
-    top_level = (Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id, Run.agent_id.in_(members))
+    top_level = (Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id, Run.agent_id.in_(members))
     rows = [(a, st, p) for run_id, a, st, p in (await session.execute(select(Run.id, Run.agent_id, Run.status, Run.project_id).where(*top_level))).all() if run_id not in waiting]
     running = {agent_id for agent_id, status, _project in rows if status == RunStatus.RUNNING}
     open_assignment = set(await session.scalars(select(Assignment.agent_id).where(Assignment.status == AssignmentStatus.RUNNING)))

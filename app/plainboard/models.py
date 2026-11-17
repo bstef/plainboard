@@ -133,6 +133,8 @@ class Project(Timestamps, Base):
     setup_script: Mapped[str] = mapped_column(Text, default="")
     github_token_enc: Mapped[str | None] = mapped_column(Text)
     auto_wake_manager: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Members of this project working at the same time. Unset: the number from the settings (`max_parallel_runs`).
+    parallel_agents: Mapped[int | None] = mapped_column(Integer)
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never

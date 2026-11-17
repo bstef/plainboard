@@ -13,8 +13,8 @@ from ..models import ACTIVE_RUN_STATUSES, Agent, Assignment, Run, Task
 from ..schemas import AgentCreate, AgentUpdate, ToolsetName
 from ..services import agents as agent_service
 from ..services import board as board_service
+from ..services import projects as project_service
 from ..services import repositories as repo_service
-from ..services import settings as settings_service
 from ..services.errors import NotFound
 from ..orchestration.context import render_message
 from ..orchestration.runner_client import RunnerError
@@ -196,7 +196,7 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     was_busy = bool(await ctx.session.scalar(select(Run.id).where(Run.agent_id == target.id, Run.status.in_(ACTIVE_RUN_STATUSES)).limit(1)))
     assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort)
     effort = f" (effort {args.effort})" if args.effort else ""
-    limit = int(await settings_service.get(ctx.session, "max_parallel_runs"))
+    limit = await project_service.parallel_limit(ctx.session, ctx.project)
     capacity = await board_service.capacity(ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id, waiting=ctx.runs.waiting_for_job())
     use = f"{capacity.working} of {limit} parallel agents in use"
     if not target.enabled:

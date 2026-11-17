@@ -147,6 +147,8 @@
     "private": "Private",
     "autoArchive": "Archive done tickets after (days)",
     "autoArchiveHint": "Archived tickets leave the board but keep their history and links. 0 = never.",
+    "parallel": "Parallel agents",
+    "parallelHint": "Members of this project that work at the same time. Empty: the number from the settings ({{count}}). 0 pauses them; the manager still answers.",
     "reviewDays": "Move tickets from review to done after (days)",
     "reviewDaysHint": "Only tickets nobody touched in that time. Tickets with a task or question for you stay. 0 = never.",
     "repoAccess": "Access",
@@ -630,8 +632,8 @@
     "summaryModel": "Summary model",
     "contextLimit": "Compress at (tokens)",
     "keepRecent": "Keep recent messages",
-    "maxParallel": "Parallel agents",
-    "maxParallelHint": "Counts the members that work. One that only waits for its job takes no place. 0 pauses them; the manager still answers.",
+    "maxParallel": "Parallel agents per project",
+    "maxParallelHint": "Each project counts its own members that work; a project can have its own number. One that only waits for its job takes no place. 0 pauses them; the manager still answers.",
     "timezone": "Timezone",
     "ownLoginNotice": "Uses your own Claude account login. Whether this is allowed for third-party tools depends on Anthropic's terms for your plan; an API key is the officially supported option.",
     "sshKey": "SSH key for all repositories",
@@ -645,7 +647,7 @@
     "sshKeyOwn": "Or use your own private key",
     "sshKeyOwnSave": "Use this key",
     "managerParallel": "Managers may set up to",
-    "managerParallelHint": "A manager can change the number of parallel agents itself, up to this value. 0: only you can change it."
+    "managerParallelHint": "A manager can change the number of parallel agents of its project itself, up to this value. 0: only you can change it."
   },
   "archive": {
     "title": "Archive",

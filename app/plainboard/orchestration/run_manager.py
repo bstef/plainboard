@@ -1,8 +1,8 @@
 """Run orchestration: queue, dispatch, execution, inter-agent communication and run lifecycle.
 
 Rules:
-- One run per agent at a time; runs of different members execute in parallel up to
-  ``max_parallel_runs``. The limit is about members only: a manager's turn starts as soon as the
+- One run per agent at a time; runs of different members execute in parallel up to the project's
+  limit (``projects.parallel_limit``; every project counts by itself). The limit is about members only: a manager's turn starts as soon as the
   manager is free, also at limit 0, because the user and the team wait for it.
   Nested runs (an agent waiting on ``ask_agent``) bypass the limit so a waiting agent can never
   starve the run it waits for.
@@ -718,9 +718,11 @@ class RunManager:
 
     async def _dispatch_once(self) -> None:
         async with self._sm() as s:
-            configured = await settings_service.get(s, "max_parallel_runs")
-            max_parallel = 3 if configured is None else int(configured)  # 0 pauses the members
             queued = (await s.scalars(select(Run).where(Run.status == RunStatus.QUEUED).order_by(Run.id))).all()
+            # Every project has its own limit, and counts its own members only. 0 pauses them.
+            default = int(await settings_service.get(s, "max_parallel_runs")) if queued else 0
+            limits = {pid: default if own is None else own for pid, own in (await s.execute(select(Project.id, Project.parallel_agents))).all()} if queued else {}
+            project_of = dict((await s.execute(select(Run.id, Run.project_id).where(Run.id.in_(list(self._running))))).all()) if queued and self._running else {}
             managers = set(await s.scalars(select(Agent.id).where(Agent.is_manager))) if queued else set()
             # A paused agent keeps its assignments in the queue; only its turn to wrap up still runs.
             paused = set(await s.scalars(select(Agent.id).where(~Agent.enabled))) if queued else set()
@@ -741,21 +743,27 @@ class RunManager:
                 return 3, run.id
 
             candidates = [
-                (r.id, r.agent_id, r.parent_run_id is not None, r.agent_id in managers)
+                (r.id, r.agent_id, r.project_id, r.parent_run_id is not None, r.agent_id in managers)
                 for r in sorted(queued, key=order)
                 if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied) and not (r.agent_id in paused and r.assignment_id and not r.stop_requested_at)
             ]
-        for run_id, agent_id, nested, manager in candidates:
+        in_use: dict[int, int] = {}  # project -> its members at work
+        for run_id in self._running.keys() - self._unlimited - self.waiting_for_job():
+            if (project_id := project_of.get(run_id)) is not None:
+                in_use[project_id] = in_use.get(project_id, 0) + 1
+        for run_id, agent_id, project_id, nested, manager in candidates:
             if agent_id in self._busy_agents or run_id in self._running:
                 continue
             # The limit is about members. A manager's turn never waits for a slot, not even at limit 0:
             # the user gets an answer, and the members' reports get read.
             unlimited = nested or manager
-            if not unlimited and len(self._running.keys() - self._unlimited - self.waiting_for_job()) >= max_parallel:
+            if not unlimited and in_use.get(project_id, 0) >= limits.get(project_id, 0):
                 continue
             self._busy_agents.add(agent_id)
             if unlimited:
                 self._unlimited.add(run_id)
+            else:
+                in_use[project_id] = in_use.get(project_id, 0) + 1
             self._running[run_id] = asyncio.create_task(self._execute(run_id, agent_id), name=f"run-{run_id}")
 
     # ------------------------------------------------------------------ execution
@@ -872,7 +880,7 @@ class RunManager:
             values = await settings_service.get_all(s)
             board = ""
             if agent.is_manager:
-                limit = int(values["max_parallel_runs"])
+                limit = await project_service.parallel_limit(s, project)
                 capacity = await board_service.capacity(s, project.id, limit, except_run_id=run.id, waiting=self.waiting_for_job())
                 team = [a for a in await agent_service.list_for_project(s, project.id) if a.enabled and not a.is_manager]
                 open_todos = await todo_service.open_stats(s, [a.id for a in team])

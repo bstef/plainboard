@@ -144,6 +144,7 @@ class ProjectCreate(BaseModel):
     description: str = ""
     workspace_path: WorkspacePath = None
     github_token: str | None = None
+    parallel_agents: int | None = Field(default=None, ge=0, le=20)
     repositories: list[RepositoryCreate] = Field(default_factory=list)
 
 
@@ -154,6 +155,7 @@ class ProjectUpdate(BaseModel):
     setup_script: str | None = None
     github_token: str | None = None  # "" clears the override
     auto_wake_manager: bool | None = None
+    parallel_agents: int | None = Field(default=None, ge=0, le=20)  # null: the number from the settings again
     auto_archive_days: int | None = Field(default=None, ge=0, le=3650)
     review_days: int | None = Field(default=None, ge=0, le=365)
 
@@ -166,6 +168,7 @@ class ProjectOut(ORM):
     workspace_path: str | None
     has_github_token: bool = False
     auto_wake_manager: bool
+    parallel_agents: int | None = None
     auto_archive_days: int
     review_days: int = 3
     label_colors: dict[str, str] = Field(default_factory=dict)

@@ -12,6 +12,7 @@ export interface Project {
   workspace_path: string | null;
   has_github_token: boolean;
   auto_wake_manager: boolean;
+  parallel_agents: number | null;
   auto_archive_days: number;
   review_days: number;
   label_colors: Record<string, string>;

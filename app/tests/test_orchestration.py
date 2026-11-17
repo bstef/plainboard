@@ -1303,13 +1303,42 @@ def test_manager_sets_parallel_agents_within_the_users_limit(client, project):
     chat(client, manager["id"], 'TOOL set_parallel_agents {"count": 5}\nTOOL set_parallel_agents {"count": 7}\nTOOL get_project')
     wait_for(lambda: idle(client, pid))
     results = [m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool"]
-    assert client.get("/api/settings").json()["values"]["max_parallel_runs"] == 5
-    assert any("between 1 and 6" in r for r in results) and any("Parallel agents: 5 (you may set 1-6" in r for r in results)
+    # The manager sets it for its own project; the number for projects without one stays.
+    assert client.get(f"/api/projects/{pid}").json()["parallel_agents"] == 5 and client.get("/api/settings").json()["values"]["max_parallel_runs"] == 3
+    assert any("between 1 and 6" in r for r in results) and any("Parallel agents: 5 (you may set 1-6; this project only)" in r for r in results)
 
     client.put("/api/settings", json={"values": {"manager_parallel_limit": 0}})
     chat(client, manager["id"], 'TOOL set_parallel_agents {"count": 2}')
     wait_for(lambda: idle(client, pid))
-    assert client.get("/api/settings").json()["values"]["max_parallel_runs"] == 5
+    assert client.get(f"/api/projects/{pid}").json()["parallel_agents"] == 5
+
+
+def test_the_limit_of_parallel_agents_counts_per_project(client, project):
+    """Two projects worked at the same time shared one limit: a busy project left the other one waiting."""
+    one = project["id"]
+    two = client.post("/api/projects", json={"name": "Second Project"}).json()["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 1}})
+    a, b, c = make_dev(client, one), make_dev(client, one, name="Ops"), make_dev(client, two, name="Dev")
+    working = lambda pid: sorted(r["agent_id"] for r in runs_of(client, pid) if r["status"] == "running")
+
+    chat(client, a["id"], "HOLD")
+    wait_for(lambda: working(one) == [a["id"]])
+    chat(client, b["id"], "HOLD")
+    chat(client, c["id"], "HOLD")
+    wait_for(lambda: working(two) == [c["id"]])  # the other project has its own slot
+    assert working(one) == [a["id"]]  # its teammate waits for the project's only one
+
+    # A project with its own number: only that project gets more.
+    assert client.patch(f"/api/projects/{one}", json={"parallel_agents": 2}).json()["parallel_agents"] == 2
+    wait_for(lambda: working(one) == sorted([a["id"], b["id"]]))
+    assert client.get(f"/api/projects/{two}").json()["parallel_agents"] is None
+
+    # The manager's view counts its own project only.
+    manager = agents_by_slug(client, two)["manager"]
+    chat(client, manager["id"], "SAY ok")
+    wait_for(lambda: any("Parallel members: 1 of 1 working" in s.prompt for s in runner(client).specs))
+    runner(client).released = True
+    wait_for(lambda: idle(client, one) and idle(client, two))
 
 
 def test_manager_sees_and_stops_preview_servers_of_the_team(client, project):

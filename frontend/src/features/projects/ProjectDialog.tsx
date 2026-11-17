@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useRepositories } from "../../api/queries";
+import { checks, qk, useRepositories, useSettings } from "../../api/queries";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import type { CheckResult, Project, Repository } from "../../api/types";
 import { Button, ErrorText, Field, Input, Modal, Textarea, Toggle } from "../../components/ui";
@@ -61,6 +61,7 @@ export function ProjectDialog({
     workspace_path: project?.workspace_path ?? "",
     github_token: "",
     auto_wake_manager: project?.auto_wake_manager ?? true,
+    parallel_agents: project?.parallel_agents ?? null,
     auto_archive_days: project?.auto_archive_days ?? 14,
     review_days: project?.review_days ?? 3,
   });
@@ -70,6 +71,7 @@ export function ProjectDialog({
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
   // Existing project: repositories are saved immediately. New project: collected and sent on create.
   const savedRepos = useRepositories(project?.id ?? 0);
+  const defaultParallel = useSettings().data?.values.max_parallel_runs ?? 3;
   const [draftRepos, setDraftRepos] = useState<RepoDraft[]>([]);
   const repoList = project ? (savedRepos.data ?? []).map(toDraft) : draftRepos;
   const refreshRepos = () => project && qc.invalidateQueries({ queryKey: qk.repos(project.id) });
@@ -191,6 +193,17 @@ export function ProjectDialog({
         )}
         <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
         <p className="-mt-2 pl-11 text-fg-3">{t("projects.autoWakeHint")}</p>
+        <Field label={t("projects.parallel")} hint={t("projects.parallelHint", { count: Number(defaultParallel) })}>
+          <Input
+            type="number"
+            min={0}
+            max={20}
+            className="w-28"
+            value={form.parallel_agents ?? ""}
+            placeholder={String(defaultParallel)}
+            onChange={(e) => set({ parallel_agents: e.target.value === "" ? null : Math.max(0, Math.min(20, Math.round(Number(e.target.value) || 0))) })}
+          />
+        </Field>
         <Field label={t("projects.reviewDays")} hint={t("projects.reviewDaysHint")}>
           <Input
             type="number"
