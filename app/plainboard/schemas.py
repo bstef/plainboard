@@ -40,6 +40,7 @@ class RepositoryCreate(BaseModel):
     description: str = ""
     check_command: str = Field(default="", max_length=2000)  # decides whether finished branches may land
     quick_check_command: str = Field(default="", max_length=2000)  # run on a branch when it is handed over
+    land_first: bool = False  # merge finished branches at once, check the base branch afterwards
     agent_ids: list[int] | None = None  # explicit access for agents restricted to selected repos
     auth: RepoAuth = "default"
     token: str | None = None  # write-only
@@ -54,6 +55,7 @@ class RepositoryUpdate(BaseModel):
     description: str | None = None
     check_command: str | None = Field(default=None, max_length=2000)
     quick_check_command: str | None = Field(default=None, max_length=2000)
+    land_first: bool | None = None
     agent_ids: list[int] | None = None
     auth: RepoAuth | None = None
     token: str | None = None  # write-only; empty keeps the stored one
@@ -122,6 +124,7 @@ class RepositoryOut(ORM):
     description: str
     check_command: str = ""
     quick_check_command: str = ""
+    land_first: bool = False
     agent_ids: list[int] = Field(default_factory=list)
     auth: RepoAuth = "default"
     token_user: str = ""

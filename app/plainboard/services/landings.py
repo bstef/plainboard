@@ -6,6 +6,11 @@ PlainBoard merges all branches that are ready into one train and has it checked 
 time per repository, so the number of check runs follows the clock and not the number of changes.
 The watcher (orchestration/landing.py) does this without any model.
 
+A repository can also land first and check after (``repository.land_first``): everything that is
+ready is merged into the base branch at once, the checks run on the base branch afterwards, and a
+failure is repaired there by one assignment. Nothing waits for a check run then, and a failure
+takes nothing back; the price is a base branch that is red for a while.
+
 How a train is checked depends on the repository:
 - its check command (``repository.check_command``): PlainBoard runs it on the merged branches and
   pushes to the base branch if it succeeds. Plain git, any host.
@@ -21,19 +26,20 @@ from plainboard_protocol import RepoSpec
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Landing, LandingStatus, Repository, Train, TrainStatus
+from ..models import Landing, LandingStatus, Repository, Task, Train, TrainStatus
+from .util import truncate
 from . import repositories as repo_service
 
 GITHUB_URL = re.compile(r"github\.com[:/]+([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
 MAX_FAILED_ROUNDS = 3  # after this many, the author stops getting it back and the manager decides
 MAX_TRAIN = 12  # branches on one train, while trains pass
 SIZE_WINDOW = 8  # trains whose results decide the size of the next one
-# A branch that changes these changes the checks themselves: a mistake in it fails everything it is
-# checked with, so it is checked alone. (Where a pull request's checks decide.)
-CHECK_PATHS = [".github/"]
+MAX_BATCH = 30  # branches merged in one go where they land before their checks
+BASE_CHECK_MAX_SECONDS = 3600  # checks of the base branch that take longer are not waited for
 ACTIVE = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK)
 RUNNING_TRAINS = (TrainStatus.CHECKING, TrainStatus.BLOCKED)
 COMMAND, GITHUB = "command", "github"
+UNCHECKED = "none"  # a batch of a repository that has no checks PlainBoard could look at
 
 
 def github_slug(repo: Repository) -> str | None:
@@ -47,6 +53,12 @@ def mode(repo: Repository) -> str | None:
     if repo.check_command.strip():
         return COMMAND
     return GITHUB if github_slug(repo) else None
+
+
+def can_land(repo: Repository) -> bool:
+    """Whether PlainBoard brings this repository's branches to the base branch. Landing first needs
+    nothing but git; landing after the checks needs checks it can look at."""
+    return repo.land_first or mode(repo) is not None
 
 
 UNAVAILABLE = (
@@ -79,7 +91,11 @@ async def hand_over(session: AsyncSession, repo: Repository, branch: str, head_s
         session.add(landing)
     elif fresh_start:
         landing.failures, landing.failed_sha = 0, ""
-    landing.agent_id, landing.head_sha, landing.title = agent_id, head_sha, branch[:300]
+    if landing.agent_id is None or not fresh_start:
+        landing.agent_id = agent_id  # a manager that hands over someone's branch again does not become its author
+    landing.head_sha = head_sha
+    if not (landing.title or "").startswith(f"{branch} carrying "):
+        landing.title = branch[:300]
     landing.task_id = task_id or landing.task_id
     # On a train already: its result decides. Being repaired: it goes on when the repair is finished,
     # together with the branches it failed with.
@@ -110,13 +126,47 @@ async def train_size(session: AsyncSession, repository_id: int) -> int:
     probability p, n * (1 - p) ** n land per check run. p is measured on the trains of new branches
     that ran lately (every failed one had at least one such branch), and the size is the n that
     lands most. No failures: as many as fit."""
-    lately = select(Train).where(Train.repository_id == repository_id, Train.group_no.is_(None), Train.size > 0, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
+    lately = select(Train).where(
+        Train.repository_id == repository_id, Train.group_no.is_(None), Train.direct.is_(False), Train.size > 0, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED))
+    )
     trains = list(await session.scalars(lately.order_by(Train.id.desc()).limit(SIZE_WINDOW)))
     failed = sum(t.status == TrainStatus.FAILED for t in trains)
     if not failed:
         return MAX_TRAIN
     p = min(failed / sum(t.size for t in trains), 0.9)
     return max(2, max(range(1, MAX_TRAIN + 1), key=lambda n: n * (1 - p) ** n))
+
+
+async def carry(session: AsyncSession, carrier: Landing, train_id: int) -> list[Landing]:
+    """The repair of a failed train handed over a branch of its own instead of one of the train's:
+    that branch carries them. They are no longer landed on their own, so nothing is checked again
+    unchanged and nobody is told that the repair changed nothing. Returns what it carries."""
+    train = await session.get(Train, train_id)
+    if train is None or train.direct or carrier.train_id == train_id:
+        return []
+    group = list(await session.scalars(select(Landing).where(Landing.train_id == train_id, Landing.status == LandingStatus.BACK, Landing.id != carrier.id).order_by(Landing.id)))
+    if not group:
+        return []
+    numbers = dict((await session.execute(select(Task.id, Task.number).where(Task.id.in_([m.task_id for m in group if m.task_id])))).all())
+    for member in group:
+        member.status, member.group_no = LandingStatus.CLOSED, None
+    listed = ", ".join(m.branch + (f" (#{numbers[m.task_id]})" if m.task_id in numbers else "") for m in group)
+    carrier.title = truncate(f"{carrier.branch} carrying {listed}", 300)
+    await session.commit()
+    return group
+
+
+async def red_streak(session: AsyncSession, train: Train) -> list[Train]:
+    """The batches right before this one whose checks failed on the base branch, newest first: how
+    long the base branch has been red. One without a result does not end it."""
+    earlier = select(Train).where(Train.repository_id == train.repository_id, Train.direct, Train.id < train.id).order_by(Train.id.desc()).limit(30)
+    streak = []
+    for other in await session.scalars(earlier):
+        if other.status == TrainStatus.LANDED:
+            break
+        if other.status == TrainStatus.FAILED:
+            streak.append(other)
+    return streak
 
 
 async def next_group(session: AsyncSession, repository_id: int) -> int:

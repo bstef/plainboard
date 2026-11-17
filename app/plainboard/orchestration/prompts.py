@@ -39,6 +39,12 @@ Time here is the opposite of what human teams are used to, and your instincts ab
     command (update_repository check_command, e.g. the script its CI runs); without one, on GitHub,
     the checks of one pull request for the train. If a member reports that PlainBoard cannot land a
     repository's branches, set that command.
+  - Where check runs are long and often fail, waiting for green before every merge is what slows the
+    team: branches queue, go stale and conflict. A repository can land first instead
+    (update_repository land_first=true): finished branches are merged at once, the checks run on the
+    base branch afterwards, once for all that landed, and a failure is repaired there by one
+    assignment. The base branch is then red for a while. Right for a development branch; not for a
+    branch that is released from. list_repositories shows how each one lands.
   - What a minute can check must never cost a train. Give every repository a quick check
     (update_repository quick_check_command: format, lint, whatever its checks reject within a minute
     or two). PlainBoard runs it the moment a branch is handed over, and its author fixes what it finds
@@ -271,8 +277,8 @@ GIT_GUIDE = """\
 git and the GitHub CLI (gh) are authenticated when a GitHub token is configured. For repository changes:
 work on a feature branch started from origin/<default> (or from the unlanded branch your work builds on),
 commit with clear messages and push the branch once, when the change is complete. Then call merge_when_green
-with the branch: PlainBoard checks it together with the other finished branches, merges what passes and gives
-a failing branch back to its author. That ends your part: open no pull request, start no checks and don't
+with the branch: PlainBoard lands it together with the other finished branches, with one check run for all of
+them, and what fails comes back as an assignment. That ends your part: open no pull request, start no checks and don't
 merge yourself. Only if merge_when_green says it cannot land branches of that repository, open a merge or
 pull request and name it in your report. Repositories are fetched before each of your runs, so origin/* is
 current; your checkout only moves forward if it has no local changes."""
@@ -596,7 +602,7 @@ def train_repair_instructions(repo: str, base: str, branches: list[str], evidenc
         f"{evidence}\n\n"
         "Each may be fine on its own; several can fail at once, each for its own reason, and some only fail together. "
         "Make them pass together, in one go:\n"
-        f"1. Read every failure once. Then take one of the branches and merge origin/{base} and the others into it.\n"
+        f"1. Read every failure once. Then take one of the branches (or a new branch) and merge origin/{base} and the others into it.\n"
         "2. A branch that needs more than a small fix (a redesign, a decision): don't merge it. Give it back to its author with "
         "return_branch, so the others land without it.\n"
         "3. Fix everything else on that one branch, run the checks that failed on it once (the part that shows the failure, not the "
@@ -605,6 +611,22 @@ def train_repair_instructions(repo: str, base: str, branches: list[str], evidenc
         "request and wait for no checks. If the cause is outside the branches (a check that fails at random, a broken base branch), "
         "change nothing and say so in your report.\n"
         f"This is failed round {round_no} of {max_rounds}; after that the manager decides how to go on."
+    )
+
+
+def base_red_instructions(repo: str, base: str, branches: list[str], evidence: str, round_no: int, max_rounds: int) -> str:
+    listed = "\n".join(f"- {b}" for b in branches) or "- (nothing new landed: it failed before)"
+    return (
+        f"{base} of {repo} does not pass its checks. These branches landed on it together, right before the checks ran:\n{listed}\n\n"
+        f"{evidence}\n\n"
+        "Nothing is taken back: repair it forward, in one go.\n"
+        f"1. Read every failure once. Start a new branch from origin/{base}.\n"
+        "2. Fix all of it there and run the checks that failed once (the part that shows the failure, not the whole suite). A number in a "
+        "budget or limit file that only the checks measure: take it from the failed log.\n"
+        "3. Push the branch and hand it over with merge_when_green. It lands like any other branch, and the checks run again with it.\n"
+        "A failure that does not come from the repository (a check that fails at random, a service that is down) you don't fix: say so in "
+        "your report. Open no pull request and wait for no checks.\n"
+        f"This is repair {round_no} of {max_rounds} for this failure; after that the manager decides how to go on."
     )
 
 

@@ -53,6 +53,7 @@ export interface Repository {
   description: string;
   check_command: string;
   quick_check_command: string;
+  land_first: boolean;
   agent_ids: number[];
   auth: RepoAuth;
   token_user: string;

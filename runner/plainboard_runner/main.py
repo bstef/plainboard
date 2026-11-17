@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
 from pydantic import BaseModel
 
 from . import github
@@ -240,6 +240,15 @@ async def github_pull_request(ref: PullRequestRef) -> PullRequestState:
     """State and checks of a pull request, for the app's watcher."""
     try:
         return await github.pull_request(ref.credentials, ref.repo, ref.number)
+    except (WorkspaceError, ValueError) as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
+
+
+@app.post("/github/commit-checks")
+async def github_commit_checks(ref: CommitRef) -> list[PullRequestCheck]:
+    """The checks of a commit on a branch, for a base branch that is checked after branches landed on it."""
+    try:
+        return await github.commit_checks(ref.credentials, ref.repo, ref.sha)
     except (WorkspaceError, ValueError) as exc:
         raise HTTPException(502, str(exc)[:600]) from exc
 

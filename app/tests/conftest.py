@@ -57,7 +57,7 @@ class FakeRunner:
         # Landing: what the git host would say.
         self.branches: dict[str, str] = {}  # branch -> head commit on the remote
         self.conflicting: set[str] = set()  # branches that cannot be merged onto the base
-        self.changes_checks: set[str] = set()  # branches that change the checks themselves
+        self.commit_checks_of: dict[str, list] = {}  # commit -> the checks GitHub ran for it on the base branch
         self.on_base: set[str] = set()  # branches the base branch already contains
         self.train_specs: list = []
         self.train_results: list[TrainResult] = []
@@ -141,7 +141,6 @@ class FakeRunner:
     async def assemble_train(self, spec) -> TrainResult:
         self.train_specs.append(spec)
         result = TrainResult(base=spec.base or "main", head_sha=f"train-{len(self.train_specs)}")
-        alone = False
         for branch in spec.members:
             if branch not in self.branches:
                 result.missing.append(branch)
@@ -151,11 +150,8 @@ class FakeRunner:
                 result.landed.append(branch)
             elif branch in self.conflicting:
                 result.conflicts.append(branch)
-            elif spec.alone_paths and (alone or (branch in self.changes_checks and result.merged)):
-                result.held.append(branch)
             else:
                 result.merged[branch] = self.branches[branch]
-                alone = bool(spec.alone_paths) and branch in self.changes_checks
         if spec.github and result.merged:
             result.number, result.url = 100 + len(self.train_specs), f"https://github.com/{spec.github}/pull/{100 + len(self.train_specs)}"
             self.pulls[(spec.github, result.number)] = PullRequestState(
@@ -163,6 +159,9 @@ class FakeRunner:
             )
         self.train_results.append(result)
         return result
+
+    async def commit_checks(self, credentials, repo: str, sha: str) -> list:
+        return list(self.commit_checks_of.get(sha, []))
 
     async def check_train(self, spec) -> JobState:
         self.check_specs.append(spec)

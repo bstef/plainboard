@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -142,6 +142,11 @@ class RunnerClient:
         """State and checks of a GitHub pull request (``repo`` is owner/name)."""
         body = {"credentials": credentials.model_dump(mode="json"), "repo": repo, "number": number}
         return PullRequestState.model_validate((await self._github("/github/pull-request", body, 90)).json())
+
+    async def commit_checks(self, credentials: Credentials, repo: str, sha: str) -> list[PullRequestCheck]:
+        """The checks GitHub ran for a commit that was pushed to a branch."""
+        body = {"credentials": credentials.model_dump(mode="json"), "repo": repo, "sha": sha}
+        return [PullRequestCheck.model_validate(c) for c in (await self._github("/github/commit-checks", body, 120)).json()]
 
     async def merge_pull_request(
         self, credentials: Credentials, repo: str, number: int, *, methods: list[str] | None = None, key: str | None = None, remote: RepoSpec | None = None, delete_branches: dict[str, str] | None = None

@@ -170,7 +170,8 @@ class PullRequestRef(BaseModel):
 
 class PullRequestCheck(BaseModel):
     name: str
-    state: Literal["pass", "fail", "pending"]
+    # cancelled: ended without a result (e.g. a newer push replaced the run); only for a commit's checks.
+    state: Literal["pass", "fail", "pending", "cancelled"]
     link: str = ""
 
 
@@ -182,6 +183,14 @@ class PullRequestState(BaseModel):
     url: str = ""
     title: str = ""
     checks: list[PullRequestCheck] = Field(default_factory=list)
+
+
+class CommitRef(BaseModel):
+    """A commit on GitHub whose checks are wanted (``repo`` is owner/name)."""
+
+    credentials: Credentials
+    repo: str = Field(pattern=r"^[\w.-]+/[\w.-]+$")
+    sha: str = Field(pattern=r"^[0-9a-f]{7,64}$")
 
 
 TRAIN_KEY = r"^[\w.-]{1,80}$"
@@ -200,9 +209,6 @@ class TrainSpec(BaseModel):
     members: list[str]  # branches, in the order they are merged
     # Leave a branch out while its head is still this commit: it failed like this before.
     skip_unchanged: dict[str, str] = Field(default_factory=dict)
-    # A branch that changes anything under these paths is checked alone: first in line it is the
-    # whole train, later in line it is left for the next one (TrainResult.held).
-    alone_paths: list[str] = Field(default_factory=list)
     # owner/name on GitHub: push the train's branch and open a pull request, whose checks check the
     # train. None: the train is checked by a command in the clone and never pushed as a branch.
     github: str | None = Field(default=None, pattern=r"^[\w.-]+/[\w.-]+$")
@@ -220,7 +226,6 @@ class TrainResult(BaseModel):
     missing: list[str] = Field(default_factory=list)  # not on the remote
     unchanged: list[str] = Field(default_factory=list)  # left out: see TrainSpec.skip_unchanged
     landed: list[str] = Field(default_factory=list)  # already contained in the base branch
-    held: list[str] = Field(default_factory=list)  # left for the next train: see TrainSpec.alone_paths
 
 
 class TrainCheckSpec(BaseModel):

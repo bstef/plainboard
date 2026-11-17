@@ -646,6 +646,22 @@ async def test_how_far_the_running_plainboard_is_behind_its_upstream():
         await github.upstream(Credentials(), "acme/limited", "main", "abc1234", transport=transport)
 
 
+def test_the_checks_of_a_commit_on_a_branch():
+    from plainboard_runner.github import parse_check_runs
+
+    checks = parse_check_runs(
+        [
+            {"name": "Tests", "status": "completed", "conclusion": "failure", "html_url": "l1"},
+            {"name": "Tests", "status": "in_progress", "conclusion": None, "html_url": "l2"},  # re-run: the last one counts
+            {"name": "Lint", "status": "completed", "conclusion": "success", "html_url": "l3"},
+            {"name": "Docs", "status": "completed", "conclusion": "skipped"},
+            {"name": "Firmware", "status": "completed", "conclusion": "cancelled", "html_url": "l4"},  # a newer push replaced the run: no result
+            {"name": "Size", "status": "completed", "conclusion": "timed_out"},
+        ]
+    )
+    assert [(c.name, c.state, c.link) for c in checks] == [("Tests", "pending", "l2"), ("Lint", "pass", "l3"), ("Docs", "pass", ""), ("Firmware", "cancelled", "l4"), ("Size", "fail", "")]
+
+
 class FakeUsageClient:
     """Stands in for the SDK client: answers the usage request with nothing, like a subscription
     signed in with a token, and reports the limits with a turn's first answer."""

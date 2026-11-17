@@ -23,7 +23,8 @@ from .util import truncate
 FROM_REPORTS = 3  # a ticket with fewer reports needs no state: the reports themselves say it
 EVERY = 3  # rewritten when this many new reports have come in
 REPORT_CHARS = 2500  # of each report that goes into it
-STATE_CHARS = 1800
+STATE_CHARS = 2500  # asked for
+STORED_CHARS = 6000  # kept: a state that runs over is not cut in the middle of what matters
 
 SYSTEM = f"""You keep the state of one ticket for a team of AI agents and its user. You get the ticket, its state so far and the reports of work that was finished since. Write the new state: what someone who starts on this ticket now must know, so that nothing is done twice and nothing that failed is tried again.
 
@@ -31,12 +32,12 @@ Rules:
 - Only facts from the state so far and the reports. No guesses, no advice, no praise.
 - Keep exact names: branches, pull requests, files, commits, measured numbers, assignment numbers (#123).
 - Replace what is outdated: a measurement that was repeated, an open point that is done now. The newer report wins.
-- Plain text in these four parts, each a short list. Leave a part out when it is empty.
-Done: what is finished, and where it is (on the main branch, on a branch that has not landed, only measured).
+- Plain text in these four parts, in this order, each a short list. Leave a part out when it is empty.
 Open: what is still to do or unclear, the most important first.
-Decided: decisions of the user or the team that still hold.
 Tried and dropped: approaches that did not work, each with the reason in a few words.
-- At most {STATE_CHARS} characters. English."""
+Decided: decisions of the user or the team that still hold.
+Done: what is finished, and where it is (on the base branch, on a branch that has not landed, only measured). The shortest part: one line per result, old steps merged.
+- At most {STATE_CHARS} characters in all: shorten Done first. English."""
 
 REPORTED = (AssignmentStatus.DONE, AssignmentStatus.FAILED)
 
@@ -72,7 +73,7 @@ def prompt(task: Task, state: str, reports: list[Assignment], names: dict[int, s
 
 async def store(session: AsyncSession, task: Task, text: str, until_assignment_id: int) -> TicketState:
     state = await get(session, task.id) or TicketState(task_id=task.id)
-    state.text, state.until_assignment_id, state.updated_at = truncate(text.strip(), STATE_CHARS + 400), until_assignment_id, utcnow()
+    state.text, state.until_assignment_id, state.updated_at = truncate(text.strip(), STORED_CHARS), until_assignment_id, utcnow()
     session.add(state)
     await session.commit()
     return state

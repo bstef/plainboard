@@ -17,6 +17,12 @@ agent pushes its branch and hands it over (merge_when_green). On a timer, withou
   halves does not work here: several branches fail at once, each for its own reason, and some only
   pass together. Meanwhile the next train leaves with what is new.
 - After a few failed rounds the manager decides.
+
+A repository that lands first (``repository.land_first``) does it the other way round: what is
+ready is merged into the base branch at once, and the checks run on the base branch afterwards,
+once for everything that landed. Their result takes nothing back. If they fail, one agent repairs
+the base branch on a branch of its own, which lands like any other. The next batch lands when the
+checks of the last one are over, so a check run is never replaced by a newer push.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime
 
-from plainboard_protocol import Credentials, PullRequestState, RepoSpec, TrainCheckSpec, TrainLandSpec, TrainSpec
+from plainboard_protocol import Credentials, PullRequestCheck, PullRequestState, RepoSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -61,6 +67,19 @@ def checks_result(state: PullRequestState, age: float) -> str:
         return "failed"
     if not state.checks and age < NO_CHECKS_GRACE_SECONDS:
         return "pending"
+    return "passed"
+
+
+def base_result(checks: list[PullRequestCheck], age: float) -> str:
+    """The checks of a base branch that got its branches first: pending | failed | passed | none.
+    none: no result will come (the repository runs no checks on a push, or a newer push replaced the run)."""
+    pending = any(c.state == "pending" for c in checks)
+    if age < NO_CHECKS_GRACE_SECONDS or (pending and age < landing_service.BASE_CHECK_MAX_SECONDS):
+        return "pending"
+    if any(c.state == "fail" for c in checks):
+        return "failed"
+    if not checks or pending or any(c.state == "cancelled" for c in checks):
+        return "none"
     return "passed"
 
 
@@ -134,8 +153,9 @@ class LandingWatcher:
             redact=secret_service.redactor(env),
         )
         train = await landing_service.running_train(s, repo.id)
-        if train is None or await self._watch(s, r, train, now):
-            await self._depart(s, r, now)
+        if train is not None and not await (self._watch_base(s, r, train, now) if train.direct else self._watch(s, r, train, now)):
+            return
+        await (self._land_first(s, r, now) if repo.land_first else self._depart(s, r, now))
 
     # ------------------------------------------------------------------ a train on its way
 
@@ -271,6 +291,7 @@ class LandingWatcher:
         spent = [m for m in members if m.failures >= landing_service.MAX_FAILED_ROUNDS]
         members = [m for m in members if m not in spent]
         fixer = await self._fixer(s, members) if members else None
+        nobody = bool(members) and fixer is None
         if fixer is None:
             spent, members = [*spent, *members], []
         if spent:
@@ -278,7 +299,7 @@ class LandingWatcher:
             for member in spent:
                 member.status, member.train_id, member.group_no = LandingStatus.STUCK, None, None
             await s.commit()
-            await flow_log.record(s, r.project.id, "train.given_up", train_id=train.id, branches=[m.branch for m in spent], repaired=len(members), nobody_available=fixer is None)
+            await flow_log.record(s, r.project.id, "train.given_up", train_id=train.id, branches=[m.branch for m in spent], repaired=len(members), nobody_available=nobody)
             why = "and none of their authors is available" if fixer is None and not any(m.failures >= landing_service.MAX_FAILED_ROUNDS for m in spent) else f"{landing_service.MAX_FAILED_ROUNDS} times now"
             others = f" The other {len(members)} branch{'es' if len(members) != 1 else ''} of that train {'are' if len(members) != 1 else 'is'} being repaired without {'them' if len(spent) != 1 else 'it'}." if members else ""
             await self._tell_manager(
@@ -322,25 +343,14 @@ class LandingWatcher:
         }
         return min(authors, key=lambda a: (a.id in busy, -counts[a.id], a.id))
 
-    async def _back(self, s: AsyncSession, r: Repo, landing: Landing, what: str, title: str, instructions: str) -> None:
-        await give_back(s, self._runs, r.repo, r.project, landing, what, title, instructions)
+    async def _back(self, s: AsyncSession, r: Repo, landing: Landing, what: str, title: str, instructions: str, *, counts: bool = True) -> None:
+        await give_back(s, self._runs, r.repo, r.project, landing, what, title, instructions, counts=counts)
 
     # ------------------------------------------------------------------ the next train
 
     async def _depart(self, s: AsyncSession, r: Repo, now: datetime) -> None:
         """Assemble the next train from what is ready, and start its check."""
-        ready = select(Landing).where(Landing.repository_id == r.repo.id)
-        for landing in list(await s.scalars(ready.where(Landing.status == LandingStatus.BACK))):
-            if not await open_repair(s, landing):  # repaired: it goes on the next train by itself
-                landing.status = LandingStatus.WAITING
-        await s.commit()
-        waiting = list(await s.scalars(ready.where(Landing.status == LandingStatus.WAITING).order_by(Landing.id)))
-        for landing in [w for w in waiting if not w.branch]:  # handed over as a pull request number, before trains
-            state = await self._runs.runner.pull_request(r.credentials, r.slug, landing.number) if r.slug and landing.number else None
-            landing.branch = state.branch if state and state.state == "open" else ""
-            if not landing.branch:
-                landing.status = LandingStatus.CLOSED
-        waiting = [w for w in waiting if w.branch]
+        waiting = await self._ready(s, r)
         # Branches that were repaired together go first and on their own: what fails then is theirs.
         groups = {w.group_no for w in waiting if w.group_no is not None}
         group = min(groups) if groups else None
@@ -377,8 +387,6 @@ class LandingWatcher:
             members=[p.branch for p in pick],
             # A group failed together: a branch of it that needed no change still belongs on the train.
             skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha} if group is None else {},
-            # A repaired group passes or fails together anyway: nothing of it rides alone.
-            alone_paths=landing_service.CHECK_PATHS if group is None and r.mode == landing_service.GITHUB else [],
             github=r.slug if r.mode == landing_service.GITHUB else None,
             title="Land " + truncate(", ".join(p.branch for p in pick), 200),
             body=body,
@@ -398,11 +406,30 @@ class LandingWatcher:
         await s.commit()
         await flow_log.record(
             s, r.project.id, "train.departed" if on_train else "train.empty", train_id=train.id if on_train else None, branches=[p.branch for p in on_train],
-            ready=len(waiting), size_limit=size, held=list(result.held), repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
+            ready=len(waiting), size_limit=size, repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
             missing=list(result.missing), unchanged=list(result.unchanged),
         )  # fmt: skip
 
-        # What could not go on the train.
+        await self._left_out(s, r, result, by_branch, tickets, now)
+
+    async def _ready(self, s: AsyncSession, r: Repo) -> list[Landing]:
+        """What can go to the base branch next: handed over, or repaired since it came back."""
+        ready = select(Landing).where(Landing.repository_id == r.repo.id)
+        for landing in list(await s.scalars(ready.where(Landing.status == LandingStatus.BACK))):
+            if not await open_repair(s, landing):  # repaired: it goes on by itself
+                landing.status = LandingStatus.WAITING
+        await s.commit()
+        waiting = list(await s.scalars(ready.where(Landing.status == LandingStatus.WAITING).order_by(Landing.id)))
+        for landing in [w for w in waiting if not w.branch]:  # handed over as a pull request number, before trains
+            state = await self._runs.runner.pull_request(r.credentials, r.slug, landing.number) if r.slug and landing.number else None
+            landing.branch = state.branch if state and state.state == "open" else ""
+            if not landing.branch:
+                landing.status = LandingStatus.CLOSED
+        await s.commit()
+        return [w for w in waiting if w.branch]
+
+    async def _left_out(self, s: AsyncSession, r: Repo, result: TrainResult, by_branch: dict[str, Landing], tickets: dict[int, Task | None], now: datetime) -> None:
+        """What could not be merged with the others."""
         for branch in result.landed:
             landing = by_branch[branch]
             landing.status, landing.merged_at, landing.group_no = LandingStatus.MERGED, now, None
@@ -412,14 +439,151 @@ class LandingWatcher:
             await self._tell_manager(s, r, f"{await self._label(s, landing)} is on {result.base} in {r.repo.name} already. Move the ticket this finishes to done.")
         for branch in result.conflicts:
             landing = by_branch[branch]
-            landing.head_sha = landing.head_sha or ""
-            await self._back(s, r, landing, f"conflicts with {result.base} or a branch that lands before it", f"Resolve the conflicts of branch {branch}", prompts.conflict_instructions(branch, result.base))
+            # A conflict is no failed check: it does not use up a round. Unchanged, it is not tried again.
+            landing.failed_sha = landing.head_sha or ""
+            await self._back(
+                s, r, landing, f"conflicts with {result.base} or a branch that lands before it", f"Resolve the conflicts of branch {branch}", prompts.conflict_instructions(branch, result.base), counts=False
+            )  # fmt: skip
         for branch, why in [*((b, "is not on the remote any more") for b in result.missing), *((b, "still fails, and nothing new was pushed since") for b in result.unchanged)]:
             landing = by_branch[branch]
             landing.status, landing.group_no = LandingStatus.STUCK, None
             await s.commit()
             await flow_log.record(s, r.project.id, "landing.stuck", landing_id=landing.id, task_id=landing.task_id, branch=branch, why=why)
             await self._tell_manager(s, r, f"Not landed in {r.repo.name}: {await self._label(s, landing)} {why}. Read the report on its ticket and decide how to go on; merge_when_green puts it on a train again.")
+
+    # ------------------------------------------------------------------ land first, check after
+
+    async def _land_first(self, s: AsyncSession, r: Repo, now: datetime) -> None:
+        """Merge everything that is ready into the base branch now. The checks run on the base
+        branch afterwards (_watch_base) and take nothing back."""
+        waiting = await self._ready(s, r)
+        pick = waiting[: landing_service.MAX_BATCH]
+        if not pick or (self.linger > 0 and (now - min(p.updated_at for p in pick)).total_seconds() < self.linger):
+            return
+        train = Train(project_id=r.project.id, repository_id=r.repo.id, mode=r.mode or landing_service.UNCHECKED, direct=True, status=TrainStatus.CHECKING, created_at=now)
+        s.add(train)
+        await s.flush()
+        tickets = {p.id: await self._ticket(s, p) for p in pick}
+        spec = TrainSpec(
+            credentials=r.credentials,
+            key=r.key,
+            remote=r.remote,
+            base=r.repo.default_branch or None,
+            branch=f"plainboard/land-{train.id}",
+            members=[p.branch for p in pick],
+            skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha},
+        )
+        result = await self._runs.runner.assemble_train(spec)
+        by_branch = {p.branch: p for p in pick}
+        landed = [by_branch[b] for b in result.merged if b in by_branch]
+        pushed = None
+        if landed:
+            heads = {m.branch: result.merged[m.branch] for m in landed}
+            pushed = await self._runs.runner.land_train(TrainLandSpec(credentials=r.credentials, key=r.key, remote=r.remote, base=result.base, head_sha=result.head_sha, delete_branches=heads))
+        if pushed is None or not pushed.ok:
+            await s.delete(train)
+            await s.commit()
+            if pushed is not None and base_moved(pushed.detail):
+                return  # someone else pushed to the base branch meanwhile: merged again with the next look
+            if pushed is not None:
+                for landing in landed:
+                    landing.status, landing.group_no = LandingStatus.STUCK, None
+                await s.commit()
+                listing = "; ".join([await label(s, m) for m in landed])
+                await flow_log.record(s, r.project.id, "train.stuck", branches=[m.branch for m in landed], what=truncate(pushed.detail, 300))
+                await self._tell_manager(
+                    s, r, f"Not landed in {r.repo.name}: {listing} could not be pushed to {result.base}: {truncate(pushed.detail, 300)} Fix the cause, then hand them over again with merge_when_green."
+                )
+        else:
+            for landing in landed:
+                landing.status, landing.train_id, landing.head_sha, landing.merged_at, landing.group_no = LandingStatus.MERGED, train.id, result.merged[landing.branch], now, None
+            train.branch, train.base, train.head_sha, train.size = spec.branch, result.base, result.head_sha, len(landed)
+            if r.mode == landing_service.COMMAND:
+                train.job_id = secrets.token_hex(8)
+                await self._runs.runner.check_train(TrainCheckSpec(credentials=r.credentials, key=r.key, id=train.job_id, command=r.repo.check_command.strip()))
+            elif r.mode is None:
+                train.status, train.finished_at = TrainStatus.LANDED, now  # nothing checks this repository
+            await s.commit()
+            timing_service.forget_cache()
+            await flow_log.record(
+                s, r.project.id, "train.landed", train_id=train.id, branches=[m.branch for m in landed], direct=True, ready=len(waiting), mode=train.mode,
+                conflicts=list(result.conflicts), missing=list(result.missing), unchanged=list(result.unchanged),
+            )  # fmt: skip
+            for landing in landed:
+                if ticket := tickets[landing.id]:
+                    await board_service.add_comment(s, ticket, f"Branch {landing.branch} is on {result.base}.", author_kind="system")
+            listing = "; ".join([await label(s, m) for m in landed])
+            checks = "This repository has no checks." if r.mode is None else f"Its checks run on {result.base} now, once for all of this; PlainBoard has a failure repaired."
+            await self._tell_manager(s, r, f"Landed on {result.base} in {r.repo.name}: {listing}. {checks} Move the tickets this finishes to done.")
+        await self._left_out(s, r, result, by_branch, tickets, now)
+
+    async def _watch_base(self, s: AsyncSession, r: Repo, train: Train, now: datetime) -> bool:
+        """A batch that landed before its checks: look at the checks of the base branch at that
+        commit. True once they are over or will not come, so the next batch can land."""
+        failed: list[str] = []
+        evidence = ""
+        if train.mode == landing_service.COMMAND:
+            state = (await self._runs.runner.job_status([train.job_id or ""])).get(train.job_id or "")
+            if state is not None and state.running:
+                return False
+            result = "none" if state is None else "passed" if state.exit_code == 0 else "failed"
+            if state is not None and result == "failed":
+                failed = ["check command"]
+                evidence = f"Check command: {r.repo.check_command.strip()}\nIt ended with exit code {state.exit_code}. Last output:\n{r.redact(state.tail)}\nFull log: {state.log_path}"  # type: ignore[operator]
+        else:
+            checks = await self._runs.runner.commit_checks(r.credentials, r.slug, train.head_sha) if r.slug else []
+            result = base_result(checks, (now - train.created_at).total_seconds())
+            if result == "pending":
+                return False
+            bad = [c for c in checks if c.state == "fail"]
+            failed = [c.name for c in bad]
+            listed = "\n".join(f"- {c.name}" + (f": {c.link}" if c.link else "") for c in bad[:20])
+            evidence = f"Failed checks of {train.base} at {train.head_sha[:10]}:\n{listed}\nRead the failed logs once: the links, or gh run view <run id> --log-failed."
+        self._finished(train, now)
+        train.status = {"failed": TrainStatus.FAILED, "passed": TrainStatus.LANDED}.get(result, TrainStatus.ABORTED)
+        train.failed_checks = "\n".join(failed)
+        await s.commit()
+        await flow_log.record(s, r.project.id, {"failed": "base.red", "passed": "base.green"}.get(result, "base.unchecked"), train_id=train.id, checks=failed, check_seconds=train.check_seconds)
+        if result == "failed":
+            await self._base_red(s, r, train, failed, evidence)
+        return True
+
+    async def _base_red(self, s: AsyncSession, r: Repo, train: Train, failed: list[str], evidence: str) -> None:
+        """The base branch does not pass its checks with what landed. Nothing is taken back: one
+        agent repairs it on a branch of its own, which lands like any other. A failure that is being
+        repaired already, or whose fix has not landed yet, orders nothing more."""
+        streak = await landing_service.red_streak(s, train)
+        ids = [t.id for t in streak]
+        repairs = list(await s.scalars(select(Assignment).where(Assignment.train_id.in_(ids)).order_by(Assignment.id.desc()))) if ids else []
+        known = {name for t in streak for name in t.failed_checks.split("\n")}
+        if repairs and set(failed) <= known:
+            last = repairs[0]
+            on_its_way = select(Landing.id).where(
+                Landing.repository_id == r.repo.id, Landing.agent_id == last.agent_id, Landing.status.in_(landing_service.ACTIVE), Landing.updated_at >= last.created_at
+            )
+            if last.status in (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING) or (last.finished_at and last.finished_at > train.created_at) or await s.scalar(on_its_way.limit(1)):
+                await flow_log.record(s, r.project.id, "base.still_red", train_id=train.id, assignment_id=last.id)
+                return  # its fix could not be in this batch yet
+            if any(t.escalated for t in streak):
+                return  # the manager has it
+        members = list(await s.scalars(select(Landing).where(Landing.train_id == train.id).order_by(Landing.id)))
+        fixer = await self._fixer(s, members) or (await self._fixer(s, list(await s.scalars(select(Landing).where(Landing.train_id.in_(ids))))) if ids else None)
+        names = ", ".join(failed[:8]) + (f" and {len(failed) - 8} more" if len(failed) > 8 else "")
+        if fixer is None or len(repairs) >= landing_service.MAX_FAILED_ROUNDS:
+            train.escalated = True
+            await s.commit()
+            why = "and nobody who wrote what landed is available" if fixer is None else f"and {len(repairs)} repairs have not made it pass"
+            await flow_log.record(s, r.project.id, "base.escalated", train_id=train.id, repairs=len(repairs))
+            await self._tell_manager(
+                s, r,
+                f"{train.base} of {r.repo.name} does not pass its checks ({names}), {why}. Nothing was taken back: what landed is on {train.base}. "
+                "Decide how to go on: delegate the repair with what you know, or change the check that keeps failing.",
+            )
+            return
+        branches = [await label(s, m) for m in members]
+        instructions = prompts.base_red_instructions(r.repo.name, train.base, branches, evidence, len(repairs) + 1, landing_service.MAX_FAILED_ROUNDS)
+        repair = await self._runs.delegate(s, None, fixer, f"Make {train.base} of {r.repo.name} pass its checks again", instructions, None, train_id=train.id)
+        await flow_log.record(s, r.project.id, "base.repair_ordered", train_id=train.id, agent_id=fixer.id, assignment_id=repair.id, round=len(repairs) + 1, checks=failed)
 
     async def _unrepaired(self, s: AsyncSession, r: Repo, pick: list[Landing]) -> bool:
         """Whether a group comes back from its repair exactly as it failed: the same branches, none
@@ -469,7 +633,8 @@ async def label(s: AsyncSession, landing: Landing) -> str:
     author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
     ticket = await s.get(Task, landing.task_id) if landing.task_id else None
     about = ", ".join(part for part in (author.name if author else "", f"ticket #{ticket.number}" if ticket else "") if part)
-    return landing.branch + (f" ({about})" if about else "")
+    name = landing.title if (landing.title or "").startswith(f"{landing.branch} carrying ") else landing.branch  # a branch that carries others says which
+    return name + (f" ({about})" if about else "")
 
 
 async def tell_manager(s: AsyncSession, runs: RunManager, project: Project, text: str) -> None:
@@ -491,11 +656,13 @@ async def give_back(
     landing.train_id, landing.group_no = None, None
     author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
     ticket = await s.get(Task, landing.task_id) if landing.task_id else None
-    if landing.failures >= landing_service.MAX_FAILED_ROUNDS or author is None or not author.enabled:
+    # A manager does not repair: a branch it handed over itself has no author who could.
+    available = author is not None and author.enabled and not author.is_manager
+    if landing.failures >= landing_service.MAX_FAILED_ROUNDS or not available:
         landing.status = LandingStatus.STUCK
         await s.commit()
         await flow_log.record(s, project.id, "landing.stuck", landing_id=landing.id, task_id=landing.task_id, branch=landing.branch, why=what, failures=landing.failures)
-        why = f"{landing.failures} times now" if author and author.enabled else "and its author is not available"
+        why = f"{landing.failures} times now" if available else "and it has no author who could repair it (you handed it over): delegate that to the member who knows it"
         await tell_manager(
             s, runs, project,
             f"Not landed in {repo.name}: {await label(s, landing)} {what}, {why}. PlainBoard has stopped for this branch. "

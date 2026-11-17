@@ -197,12 +197,12 @@ async def overview(session: AsyncSession, project_id: int, hours: int = 24, now:
         names = dict((await session.execute(select(Assignment.id, Agent.name).join(Agent, Agent.id == Assignment.agent_id).where(Assignment.id.in_([a for a, _c in loops])))).all())
         out.loops = sorted(((a, names.get(a, "?"), count, command) for (a, command), count in loops.items()), key=lambda item: item[2], reverse=True)
 
-    for status, size, seconds, mode in await session.execute(
-        select(Train.status, Train.size, Train.check_seconds, Train.mode).where(Train.project_id == project_id, Train.finished_at >= since, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
+    for status, size, seconds, direct in await session.execute(
+        select(Train.status, Train.size, Train.check_seconds, Train.direct).where(Train.project_id == project_id, Train.finished_at >= since, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
     ):
         out.check_rounds += 1
         out.check_failed += status == TrainStatus.FAILED
-        out.branches_landed += size if status == TrainStatus.LANDED else 0
+        out.branches_landed += size if status == TrainStatus.LANDED or direct else 0  # landed first: on the base branch whatever the checks said
         out.waiting += seconds
         out.check_median += seconds  # summed here, averaged below
     if out.check_rounds:

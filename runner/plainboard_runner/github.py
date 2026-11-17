@@ -79,6 +79,30 @@ async def merge(credentials: Credentials, repo: str, number: int, methods: tuple
     return CheckResult(ok=False, detail=error[-600:])
 
 
+async def commit_checks(credentials: Credentials, repo: str, sha: str) -> list[PullRequestCheck]:
+    """The check runs of a commit (what a push to a branch started), the latest per name. For a base
+    branch that got its branches before the checks."""
+    out = await run_cmd(
+        ["gh", "api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100", "--paginate", "--jq", ".check_runs[] | {name, status, conclusion, html_url}"],
+        cwd=None, env=git_env(credentials), timeout=90,
+    )  # fmt: skip
+    return parse_check_runs([json.loads(line) for line in out.splitlines() if line.strip()])
+
+
+def parse_check_runs(items: list[dict[str, Any]]) -> list[PullRequestCheck]:
+    checks: dict[str, PullRequestCheck] = {}
+    for item in items:
+        conclusion = (item.get("conclusion") or "").upper()
+        if (item.get("status") or "").upper() != "COMPLETED":
+            state = "pending"
+        elif conclusion in PASSED:
+            state = "pass"
+        else:
+            state = "cancelled" if conclusion in ("CANCELLED", "STALE") else "fail"
+        checks[item.get("name") or "check"] = PullRequestCheck(name=item.get("name") or "check", state=state, link=item.get("html_url") or "")  # type: ignore[arg-type]
+    return list(checks.values())
+
+
 API = "https://api.github.com"
 
 

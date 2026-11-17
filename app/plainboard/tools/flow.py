@@ -48,14 +48,18 @@ async def _repository(ctx: ToolContext, name: str) -> Repository:
 
 
 def quick_check_script(folder: str, branch: str, head: str, command: str) -> str:
-    """The quick check on exactly ``head``: in the clone if it is on that commit with nothing
-    uncommitted, else in a worktree that is thrown away afterwards."""
+    """The quick check on exactly ``head``: where the agent has that commit checked out with nothing
+    uncommitted (its clone or one of its worktrees: the build cache is warm there), else in a
+    worktree that is thrown away afterwards."""
     q = shlex.quote
     return "\n".join(
         [
             f"cd {q(folder)} || exit {NOT_AS_PUSHED}",
-            f'if git diff --quiet HEAD 2>/dev/null && [ "$(git rev-parse HEAD 2>/dev/null)" = "{head}" ]; then',
-            f"(\n{command.strip()}\n)",
+            "where=$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r tree; do",
+            f'if [ "$(git -C "$tree" rev-parse HEAD 2>/dev/null)" = "{head}" ] && git -C "$tree" diff --quiet HEAD 2>/dev/null; then printf "%s" "$tree"; break; fi',
+            "done)",
+            'if [ -n "$where" ]; then',
+            f'(\ncd "$where" || exit {NOT_AS_PUSHED}\n{command.strip()}\n)',
             "exit $?",
             "fi",
             f"git cat-file -e {head}^{{commit}} 2>/dev/null || git fetch -q origin {q(branch)} || exit {NOT_AS_PUSHED}",
@@ -108,12 +112,12 @@ async def _quick_check(ctx: ToolContext, repo: Repository, branch: str, head: st
 
 @tool(
     "merge_when_green",
-    "Hand your pushed, finished branch to PlainBoard: it runs the repository's quick check at once, then checks the branch together with the other finished branches (one check run for all) and merges what passes. Then finish: open no pull request, start no checks, wait for none.",
+    "Hand your pushed, finished branch to PlainBoard: it runs the repository's quick check at once, then lands the branch together with the other finished branches, with one check run for all of them. Then finish: open no pull request, start no checks, wait for none.",
     MergeWhenGreenArgs,
 )
 async def merge_when_green(ctx: ToolContext, args: MergeWhenGreenArgs) -> str:
     repo = await _repository(ctx, args.repository)
-    if landing_service.mode(repo) is None:
+    if not landing_service.can_land(repo):
         raise ToolError(landing_service.UNAVAILABLE.format(name=repo.name))
     branch = args.branch.strip().removeprefix("origin/")
     if not branch or branch == (repo.default_branch or ""):
@@ -134,11 +138,27 @@ async def merge_when_green(ctx: ToolContext, args: MergeWhenGreenArgs) -> str:
     # The manager hands over what others wrote, from a clone that is elsewhere: its call is a decision, not a check.
     quick = await _quick_check(ctx, repo, branch, head) if repo.quick_check_command.strip() and not ctx.agent.is_manager else ""
     landing = await landing_service.hand_over(ctx.session, repo, branch, head, agent_id=ctx.agent.id, task_id=task_id, fresh_start=ctx.agent.is_manager)
+    # Repairing a failed train with a branch of one's own: that branch carries the train's branches.
+    repairing = await ctx.session.get(Assignment, ctx.run.assignment_id) if ctx.run.assignment_id else None
+    carried = await landing_service.carry(ctx.session, landing, repairing.train_id) if repairing and repairing.train_id else []
     timing_service.forget_cache()
     await flow_log.record(
         ctx.session, ctx.project.id, "landing.handed_over", landing_id=landing.id, agent_id=ctx.agent.id, run_id=ctx.run.run_id, assignment_id=ctx.run.assignment_id,
         task_id=task_id, repository=repo.name, branch=branch, head=head, status=str(landing.status), quick_check=quick.strip(), again=before is not None,
+        carries=[c.branch for c in carried], land_first=repo.land_first,
     )  # fmt: skip
+    base = repo.default_branch or "the base branch"
+    if carried:
+        return (
+            f"Branch {branch} is with PlainBoard now.{quick} It carries {', '.join(c.branch for c in carried)}: they land with it and are not checked on their own any more. "
+            "Your part is done: open no pull request, start no checks and wait for none. Finish and report."
+        )
+    if repo.land_first and landing.status == LandingStatus.WAITING:
+        return (
+            f"Branch {branch} is with PlainBoard now.{quick} It is merged into {base} with the other finished branches within minutes; the full checks run on {base} "
+            "afterwards, once for all of them. If they fail, PlainBoard has that repaired; you may get it as an assignment. If your branch conflicts you get it back. "
+            "Your part is done: open no pull request, start no checks and wait for none. Finish and report."
+        )
     if landing.status == LandingStatus.TRAIN:
         return f"Branch {branch} is being checked already. Commits pushed since then are not part of that check: hand the branch over again when it has landed."
     if landing.status == LandingStatus.BACK:

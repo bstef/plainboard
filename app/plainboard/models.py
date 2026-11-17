@@ -186,6 +186,10 @@ class Repository(Timestamps, Base):
     # The fast part of the checks (format, lint, ...). PlainBoard runs it on a branch at the moment
     # its author hands it over, in the author's clone: what it catches never costs a check run.
     quick_check_command: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Land first, check after: finished branches are merged into the base branch at once (after the
+    # quick check), and the checks run on the base branch afterwards; a red base is repaired by one
+    # assignment. For a development branch. Off: nothing lands before its checks passed (trains).
+    land_first: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")
@@ -403,6 +407,11 @@ class Train(Timestamps, Base):
     size: Mapped[int] = mapped_column(Integer, default=0)  # branches on it
     check_seconds: Mapped[int] = mapped_column(Integer, default=0)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Its branches were pushed to the base branch before the checks (Repository.land_first): the
+    # checks are those of the base branch at head_sha, and their result changes nothing about what landed.
+    direct: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    failed_checks: Mapped[str] = mapped_column(Text, default="", server_default="")  # names, one per line
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # the manager was told the base stays red
 
 
 class FlowEvent(Base):

@@ -215,9 +215,9 @@ def land_tick(client) -> None:
     client.portal.call(client.app_ref.state.landing.tick)
 
 
-def team_with_branches(client, pid: int, branches: list[str], *, url: str = "https://gitlab.com/acme/api.git", check_command: str = "./ci.sh") -> FakeRunner:
+def team_with_branches(client, pid: int, branches: list[str], *, url: str = "https://gitlab.com/acme/api.git", check_command: str = "./ci.sh", land_first: bool = False) -> FakeRunner:
     """One member per branch; each has pushed its branch and hands it over."""
-    assert client.post(f"/api/projects/{pid}/repositories", json={"url": url, "check_command": check_command}).status_code == 201
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": url, "check_command": check_command, "land_first": land_first}).status_code == 201
     fake = runner(client)
     for index, branch in enumerate(branches):
         member = make_member(client, pid, f"Dev{index + 1}")
@@ -505,12 +505,13 @@ def test_the_quick_check_runs_at_hand_over_and_a_failure_never_reaches_a_train(c
 
     # PlainBoard runs it in the member's clone, on exactly the commit that is handed over.
     result = hand_over_and_end_with(1, "Diff in src/home.rs at line 12")
-    # On exactly the commit that is handed over: in the clone if it is on it, else in a worktree of its own
-    # (agents work in worktrees, so their clone usually is somewhere else).
+    # On exactly the commit that is handed over: where the member has it checked out (its clone or a worktree
+    # of its own, with a warm build cache), else in a worktree that is thrown away afterwards.
     command = fake.job_specs[-1].command
-    assert command.startswith('cd api || exit 97\nif git diff --quiet HEAD 2>/dev/null && [ "$(git rev-parse HEAD 2>/dev/null)" = "abc1234def" ]; then\n(\ncargo fmt --check\n)\nexit $?\nfi\n')
-    assert 'git worktree add -q --detach "$tmp/tree" abc1234def || exit 97' in command and '(\ncd "$tmp/tree" || exit 97\ncargo fmt --check\n)' in command
-    assert "git fetch -q origin feat-a" in command and command.endswith('git worktree remove --force "$tmp/tree" >/dev/null 2>&1; rm -rf "$tmp"\nexit $rc')
+    assert command.startswith("cd api || exit 97" + chr(10) + "where=$(git worktree list --porcelain") and '= "abc1234def" ] && git -C "$tree" diff --quiet HEAD' in command
+    assert '(' + chr(10) + 'cd "$where" || exit 97' + chr(10) + 'cargo fmt --check' + chr(10) + ')' in command
+    assert 'git worktree add -q --detach "$tmp/tree" abc1234def || exit 97' in command and '(' + chr(10) + 'cd "$tmp/tree" || exit 97' + chr(10) + 'cargo fmt --check' + chr(10) + ')' in command
+    assert "git fetch -q origin feat-a" in command and command.endswith('git worktree remove --force "$tmp/tree" >/dev/null 2>&1; rm -rf "$tmp"' + chr(10) + 'exit $rc')
     assert "Not handed over: the quick check of api failed" in result and "Diff in src/home.rs at line 12" in result
     land_tick(client)
     assert not fake.train_specs  # the member fixes it in the same turn; no check run was spent on it
@@ -740,27 +741,6 @@ def test_trains_get_shorter_while_they_fail_and_longer_again_when_they_pass(clie
     assert events == [12, 12, 5, 10]
 
 
-def test_a_branch_that_changes_the_checks_is_checked_alone(client, project):
-    pid = project["id"]
-    fake = team_with_branches(client, pid, ["feat-a", "ci-faster", "feat-c"], url="https://github.com/acme/api.git", check_command="")
-    fake.changes_checks = {"ci-faster"}
-
-    def checks_pass() -> None:
-        key = ("acme/api", fake.train_results[-1].number)
-        fake.pulls[key] = fake.pulls[key].model_copy(update={"checks": [PullRequestCheck(name="ci / test", state="pass")]})
-        land_tick(client)
-        wait_for(lambda: idle(client, pid))
-
-    land_tick(client)
-    assert fake.train_specs[-1].alone_paths == [".github/"]
-    assert list(fake.train_results[-1].merged) == ["feat-a", "feat-c"] and fake.train_results[-1].held == ["ci-faster"]
-    checks_pass()
-    # A mistake in it would fail every branch it is checked with: now it can only fail itself.
-    assert fake.train_specs[-1].members == ["ci-faster"] and list(fake.train_results[-1].merged) == ["ci-faster"]
-    checks_pass()
-    assert len(fake.merged) == 2
-
-
 def test_a_turn_that_waits_for_its_job_takes_no_slot(client, project):
     pid = project["id"]
     assert client.put("/api/settings", json={"values": {"max_parallel_runs": 1}}).status_code == 200
@@ -834,3 +814,139 @@ def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(c
     order("Sixth", "y")
     wait_for(lambda: len(fake.completions) == 2 and client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "SUMMARY #2")
     assert "State so far:\nSUMMARY #1" in fake.completions[-1].prompt and "Assignment #6" in fake.completions[-1].prompt and "Assignment #3 " not in fake.completions[-1].prompt
+
+
+# --- land first, check after -----------------------------------------------------------------
+
+
+def land_tick_at(client, when) -> None:
+    client.portal.call(client.app_ref.state.landing.tick, when)
+
+
+def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(client, project):
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    assert "within minutes; the full checks run on the base branch afterwards" in runs_of(client, pid)[0]["result_text"]
+    start = utcnow() - timedelta(hours=1)
+    land_tick_at(client, start)
+    wait_for(lambda: idle(client, pid) and "Landed on main in api: feat-a (Dev1); feat-b (Dev2)." in last_update(fake))
+    # On the base branch at once: no pull request, and no check run anybody waits for.
+    (landed,) = fake.land_specs
+    assert landed.head_sha == "train-1" and sorted(landed.delete_branches) == ["feat-a", "feat-b"] and fake.train_specs[-1].github is None and not fake.pulls
+    assert "Its checks run on main now, once for all of this" in last_update(fake)
+
+    # While those checks run, what gets ready waits: a newer push would replace the run and no result would ever come.
+    hand_over(client, pid, fake, "Dev3", "feat-c")
+    fake.commit_checks_of["train-1"] = [PullRequestCheck(name="Tests", state="pending"), PullRequestCheck(name="Lint", state="pass")]
+    land_tick_at(client, start + timedelta(minutes=10))
+    assert len(fake.land_specs) == 1
+
+    # They fail. Nothing is taken back and nothing stops: one member repairs the base branch, and the next batch lands.
+    fake.commit_checks_of["train-1"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/1"), PullRequestCheck(name="Lint", state="pass")]
+    now = utcnow()
+    land_tick_at(client, now)
+    wait_for(lambda: idle(client, pid) and repairs(client, pid) and repairs(client, pid)[0]["status"] == "done")
+    (repair,) = repairs(client, pid)
+    assert repair["title"] == "Make main of api pass its checks again" and repair["agent_id"] == agents_by_slug(client, pid)["dev1"]["id"]
+    prompt = next(s.prompt for s in fake.specs if "Nothing is taken back" in s.prompt)
+    assert "- feat-a (Dev1)\n- feat-b (Dev2)" in prompt and "- Tests: https://ci/1" in prompt and "Nothing is taken back: repair it forward" in prompt and "repair 1 of 3" in prompt
+    assert [sorted(spec.delete_branches) for spec in fake.land_specs] == [["feat-a", "feat-b"], ["feat-c"]]
+    assert "does not pass" not in last_update(fake)  # the manager is not needed for this
+
+    # The fix is a branch like any other. The batch that landed meanwhile is red for the same reason: no second repair.
+    fake.branches["fix-tests"] = "sha-fix"
+    chat(client, agents_by_slug(client, pid)["dev1"]["id"], "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "fix-tests"}))
+    wait_for(lambda: idle(client, pid))
+    fake.commit_checks_of["train-2"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/2")]
+    land_tick_at(client, now + timedelta(minutes=30))
+    wait_for(lambda: idle(client, pid))
+    assert len(repairs(client, pid)) == 1 and sorted(fake.land_specs[-1].delete_branches) == ["fix-tests"]
+
+    # Still red with the fix on it: the next repair. Green after that one: nothing more.
+    fake.commit_checks_of["train-3"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/3")]
+    land_tick_at(client, now + timedelta(minutes=60))
+    wait_for(lambda: idle(client, pid) and len(repairs(client, pid)) == 2)
+    assert "repair 2 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
+    events = [e["kind"] for e in flow_events(client, pid) if e["kind"].startswith(("base.", "train."))]
+    assert events == ["train.landed", "base.red", "base.repair_ordered", "train.landed", "base.red", "base.still_red", "train.landed", "base.red", "base.repair_ordered"]
+    report = client.get(f"/api/projects/{pid}/work-report?days=1").json()
+    assert report["time"]["branches_landed"] == 4 and report["time"]["landing_check_runs_failed"] == 3
+
+
+def test_land_first_with_a_check_command_and_without_any_checks(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a"], land_first=True)
+    land_tick(client)
+    # Pushed to the base branch first, then the repository's own check command runs on what landed.
+    assert sorted(fake.land_specs[-1].delete_branches) == ["feat-a"] and [c.command for c in fake.check_specs] == ["./ci.sh"]
+    fake.jobs[fake.check_specs[-1].id] = JobState(running=False, exit_code=1, log_path="/jobs/check.log", tail="FAILED test_x")
+    land_tick(client)
+    wait_for(lambda: idle(client, pid) and repairs(client, pid))
+    assert "FAILED test_x" in next(s.prompt for s in fake.specs if "Nothing is taken back" in s.prompt)
+
+    # A repository PlainBoard has no checks for can land first too: plain git is enough.
+    repo = client.get(f"/api/projects/{pid}/repositories").json()[0]
+    assert repo["land_first"] is True
+    assert client.patch(f"/api/repositories/{repo['id']}", json={"check_command": ""}).status_code == 200
+    hand_over(client, pid, fake, "Late", "feat-z")
+    assert "is with PlainBoard now" in runs_of(client, pid)[0]["result_text"]
+    land_tick(client)
+    wait_for(lambda: idle(client, pid) and "feat-z (Late). This repository has no checks." in last_update(fake))
+
+
+# --- what the second night showed (2026-11-17) -------------------------------------------------
+
+
+def landing_row(client, branch: str) -> dict:
+    found = client.get("/api/inspect/query", params={"sql": f"select status, failures, agent_id from landings where branch = '{branch}' order by id desc limit 1"}).json()
+    return dict(zip(found["columns"], found["rows"][0]))
+
+
+def test_a_conflict_uses_up_no_round_and_a_branch_the_manager_hands_over_keeps_its_author(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b"])
+    dev2, manager = agents_by_slug(client, pid)["dev2"], manager_of(client, pid)
+    fake.conflicting = {"feat-b"}
+    land_tick(client)
+    wait_for(lambda: idle(client, pid) and assignments(client, pid))
+    assert assignments(client, pid)[0]["title"] == "Resolve the conflicts of branch feat-b" and landing_row(client, "feat-b")["failures"] == 0
+    finish_check(client, fake)  # feat-a lands; feat-b comes back unchanged, so it is not merged again: the manager decides
+    wait_for(lambda: idle(client, pid) and "feat-b (Dev2) still fails, and nothing new was pushed since" in last_update(fake))
+
+    # The manager hands it over again. It does not become the author: the next conflict goes to Dev2 again.
+    chat(client, manager["id"], "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "feat-b"}))
+    wait_for(lambda: idle(client, pid))
+    land_tick(client)
+    wait_for(lambda: idle(client, pid) and len(assignments(client, pid)) == 2)
+    assert {a["agent_id"] for a in assignments(client, pid)} == {dev2["id"]} and landing_row(client, "feat-b") == {"status": "back", "failures": 0, "agent_id": dev2["id"]}
+
+    # A branch only the manager ever handed over has nobody to give it back to: the manager hears that, and gets no assignment.
+    fake.branches["old-work"] = "sha-old"
+    fake.conflicting.add("old-work")
+    chat(client, manager["id"], "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "old-work"}))
+    wait_for(lambda: idle(client, pid))
+    land_tick(client)
+    wait_for(lambda: idle(client, pid) and "old-work (Manager) conflicts with main" in last_update(fake))
+    assert "it has no author who could repair it" in last_update(fake) and len(assignments(client, pid)) == 2
+
+
+def test_a_repair_may_hand_over_a_branch_of_its_own_that_carries_the_trains_branches(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b"])
+    land_tick(client)
+    # The member that repairs the train merges both into a new branch and hands that one over (scripted through the check's output).
+    fake.branches["merge/both"] = "sha-merge"
+    carrier = "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "merge/both"})
+    fake.jobs[fake.check_specs[-1].id] = JobState(running=False, exit_code=1, log_path="/jobs/check.log", tail=carrier)
+    land_tick(client)
+    wait_for(lambda: idle(client, pid) and assignments(client, pid) and assignments(client, pid)[0]["status"] == "done")
+    assert "It carries feat-a, feat-b: they land with it" in tool_results(client, agents_by_slug(client, pid)["dev1"]["id"])[-1]
+    assert landing_row(client, "feat-a")["status"] == "closed"
+
+    # That is a repair: the carrier is checked, and nobody is told that the repair changed nothing.
+    land_tick(client)
+    assert fake.train_specs[-1].members == ["merge/both"] and "changed none of them" not in last_update(fake)
+    finish_check(client, fake)
+    wait_for(lambda: idle(client, pid) and "Landed on main in api: merge/both carrying feat-a, feat-b (Dev1)" in last_update(fake))

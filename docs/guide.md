@@ -151,12 +151,16 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   a time, so check runs follow the clock instead of the number of changes. If a train fails, one
   member gets its branches and the failures as one assignment and makes them pass together; a branch
   that needs more goes back to its author. Trains are as long as pays: while they pass, up to twelve
-  branches; when they fail, fewer, so one bad branch takes fewer with it. A branch that changes the
-  checks themselves is checked alone. A repository's **quick check** (e.g.
+  branches; when they fail, fewer, so one bad branch takes fewer with it. A repository's **quick check** (e.g.
   `cargo fmt --check && cargo clippy`) runs the moment a branch is handed over, so format and lint
   never cost a check run. A repository's **check command** (e.g. `./scripts/ci.sh`) decides whether a train may land;
   this works with any git host. Without one, on GitHub, the checks of one pull request for the train
   decide.
+- **Land first, check after** (per repository, in the project settings): for a development branch
+  whose checks take long and often fail. Finished branches are merged at once, the checks run on
+  the base branch afterwards, once for everything that landed, and if they fail one agent repairs
+  the base branch. Nothing waits for a check run and a failure takes nothing back; the base branch
+  can be red for a while, so don't use it for a branch you release from.
 - Time is measured and shown to the agents where they decide (how long a command took, work against
   waiting per assignment), because a model has no clock.
 - **Your decisions**: the manager can ask you on a ticket, e.g. to choose between two design

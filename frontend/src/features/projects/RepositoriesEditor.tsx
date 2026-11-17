@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/client";
 import type { RepoAuth } from "../../api/types";
-import { Button, Field, IconButton, Input, Select, Textarea } from "../../components/ui";
+import { Button, Field, IconButton, Input, Select, Textarea, Toggle } from "../../components/ui";
 import { GitHubRepoPicker } from "./GitHubRepoPicker";
 
 export interface RepoDraft {
@@ -14,6 +14,7 @@ export interface RepoDraft {
   description: string;
   check_command: string;
   quick_check_command: string;
+  land_first: boolean;
   auth: RepoAuth;
   token: string; // write-only: empty keeps the stored one
   token_user: string;
@@ -34,6 +35,7 @@ export const emptyRepo = (): RepoDraft => ({
   description: "",
   check_command: "",
   quick_check_command: "",
+  land_first: false,
   auth: "default",
   token: "",
   token_user: "",
@@ -215,6 +217,8 @@ export function RepositoriesEditor({
           <p className="text-fg-3">{t("projects.repoCheckHint")}</p>
           <Input placeholder={t("projects.repoQuickCheckPlaceholder")} value={editing.quick_check_command} onChange={(e) => setEditing({ ...editing, quick_check_command: e.target.value })} className="font-mono" />
           <p className="text-fg-3">{t("projects.repoQuickCheckHint")}</p>
+          <Toggle checked={editing.land_first} onChange={(land_first) => setEditing({ ...editing, land_first })} label={t("projects.repoLandFirst")} />
+          <p className="text-fg-3">{t("projects.repoLandFirstHint")}</p>
           <AccessFields draft={editing} onChange={(patch) => setEditing({ ...editing, ...patch })} />
           <div className="flex gap-2">
             <Button size="sm" variant="primary" onClick={submit} disabled={!editing.url.trim()}>
