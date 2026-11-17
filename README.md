@@ -12,7 +12,7 @@ and PlainBoard lands the finished work.
 [![CI](https://github.com/hthoene/plainboard/actions/workflows/ci.yml/badge.svg)](https://github.com/hthoene/plainboard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[Quick start](#quick-start) · [How it works](#how-it-works) · [Configure](#configure) · [Guide](docs/guide.md) · [Architecture](ARCHITECTURE.md)
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Where things are](#where-things-are) · [Guide](docs/guide.md) · [Architecture](ARCHITECTURE.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/board-dark.png">
@@ -20,6 +20,29 @@ and PlainBoard lands the finished work.
 </picture>
 
 </div>
+
+## Quick start
+
+You need Docker and git.
+
+```bash
+git clone https://github.com/hthoene/plainboard.git
+cd plainboard
+docker compose up -d --build
+```
+
+Open <http://localhost:8080>. The first start builds two images, which takes a few minutes.
+
+There is nothing to configure in files. PlainBoard asks for what it needs:
+
+1. **Create your account.**
+2. **Answer six short questions**, each with a recommendation: which subscription or
+   [API key](https://console.anthropic.com/) the agents run on, which models, how they reach your
+   code, how many work at once.
+3. **Create your first project** and tell the manager what you want.
+
+To update: `git pull`, then the same `docker compose up -d --build`. PlainBoard tells you in the
+sidebar when a newer version exists.
 
 ## What you get
 
@@ -77,28 +100,6 @@ and PlainBoard lands the finished work.
   </picture>
 </p>
 
-## Quick start
-
-You need Docker with Docker Compose.
-
-```bash
-git clone https://github.com/hthoene/plainboard.git
-cd plainboard
-docker compose up -d --build
-```
-
-The first start builds the two images, which takes a few minutes. Then open <http://localhost:8080>.
-PlainBoard walks you through the rest:
-
-1. **Create your account.**
-2. **Go through the basic settings**, one decision per step with a recommendation: the subscription
-   or [API key](https://console.anthropic.com/) the agents run on, the models, and how they reach
-   your code.
-3. **Create your first project** and tell the manager what you want.
-
-Everything can be changed later: **PlainBoard settings** (the gear) for the installation,
-**Project settings** in the navigation for a project.
-
 ## How it works
 
 ```mermaid
@@ -118,22 +119,22 @@ flowchart LR
   model. A quick check (format, lint) runs the moment a branch is handed over; if a train still
   fails, one agent makes its branches pass together. Work goes on by itself after a restart.
 
-## Configure
+## Where things are
 
-Everything is optional. Copy `.env.example` to `.env` for the settings below.
-
-| You want to | How |
+| You want to | Go to |
 | --- | --- |
-| Let agents work in a folder on your machine | Set `PLAINBOARD_WORKSPACES_DIR` and name a sub folder as the project's **Shared folder** (Project settings → Advanced) |
-| Run it on a server | Set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD` (the setup password: asked once, when the first admin account is created in the browser), behind a reverse proxy with TLS |
-| Work with others | Add people in **PlainBoard settings → People**, then give them a role in a project (**Project settings → Members**): viewer, member or owner. Projects they are not a member of don't exist for them |
-| Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard sign-in; apps that break there open in the **Browser** view, a browser next to the agents |
-| Show progress on your website | Create a key under **Project settings → Public API** |
-| Use several subscriptions | Add more under **PlainBoard settings → Subscriptions**; agents move to the one with the most room, and a project can name its own |
-| Update | `git pull`, then `docker compose up -d --build`. PlainBoard shows a notice in the sidebar when a newer version exists |
-| Change the look | The palette button: two designs, each light and dark. Your own is one stylesheet, see [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Change a subscription, the models, access to your code | The gear: **PlainBoard settings** |
+| Change a project: its repositories, secrets, members | **Project settings** in the navigation |
+| Change an agent: its model, instructions, tools | **Team** |
+| Work with others | **PlainBoard settings → People**, then **Project settings → Members**: viewer, member or owner |
+| Look at what agents built | The link an agent posts (`/preview/<port>/`), or the **Browser** view |
+| Show progress on your website | **Project settings → Public API** |
+| Change the look | The palette button: two designs, each light and dark |
+| Run it on a server | `.env`: `PLAINBOARD_BIND=0.0.0.0` and a setup password, behind a reverse proxy with TLS |
+| Let agents work in a folder on your machine | `.env`: `PLAINBOARD_WORKSPACES_DIR`, then **Project settings → Advanced → Shared folder** |
 
-The [guide](docs/guide.md) has the details for each of these.
+`.env` is optional: copy `.env.example`, which explains each line. The [guide](docs/guide.md) walks
+through the first project, lists every setting and has the details.
 
 ## Good to know
 

@@ -75,7 +75,7 @@
   },
   "status": {
     "runnerDown": "Runner not reachable",
-    "noCredentials": "Add an account in Settings"
+    "noCredentials": "No subscription yet: add one in the PlainBoard settings"
   },
   "update": {
     "available": "Update available",
@@ -148,7 +148,7 @@
     "pickFromGithub": "Choose from GitHub",
     "addRepoByUrl": "Add a repository",
     "loadingGithub": "Loading your GitHub repositories…",
-    "githubNoToken": "Add a GitHub token in Settings (or in this project) to choose repositories from GitHub. Without one, add repositories by URL.",
+    "githubNoToken": "To choose from GitHub, add a GitHub token: PlainBoard settings → Code access, or Project settings → Advanced. Without one, add the repository by its address.",
     "searchGithub": "Search {{count}} repositories…",
     "noGithubMatches": "No matching repositories",
     "addSelected": "Add {{count}} selected",
@@ -378,7 +378,7 @@
         "basisWeek": "Based on this week so far"
       },
       "unknown": "No usage known yet. It appears after the next agent turn at the latest.",
-      "noPlan": "You are signed in with an API key, which has no plan limits. Add a subscription in Settings to see them here."
+      "noPlan": "You are signed in with an API key, which has no plan limits. Add a subscription under PlainBoard settings → Subscriptions to see them here."
     },
     "menu": "Conversation options",
     "compressNow": "Compress context now",
@@ -597,7 +597,7 @@
     "enabled": "Active",
     "delete": "Delete account",
     "confirmDelete": "Delete account \"{{name}}\"? A ChatGPT sign-in on the runner is signed out.",
-    "rotationHint": "Each agent stays on its account until it reaches 95 %, then moves to the subscription with the most room. The last 5 % of every subscription are used once all are that full, API keys only after that. You can pin an agent to an account in the team editor."
+    "rotationHint": "Each agent stays on its subscription until that reaches 95 %, then moves to the one with the most room. The last 5 % of every subscription are used once all are that full, API keys only after that. A project or an agent can be given one of its own: Project settings → Team, or the agent in Team."
   },
   "settings": {
     "updateCheck": "Tell me when a newer PlainBoard is available",
@@ -744,7 +744,7 @@
     "add": "Add someone…",
     "remove": "Remove",
     "none": "Nobody yet. Only admins see this project.",
-    "nobodyElse": "Everyone with an account is a member. An admin adds further people in Settings.",
+    "nobodyElse": "Everyone with an account is a member. An admin adds further people under PlainBoard settings → People.",
     "readOnly": "You are a viewer of this project: you can read everything and change nothing."
   },
   "wizard": {

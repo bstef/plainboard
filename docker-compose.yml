@@ -1,7 +1,12 @@
-# PlainBoard - start with:  docker compose up -d --build   then open http://localhost:8080
-# Optional configuration: copy .env.example to .env
+# PlainBoard. Start and update with the same command:
+#
+#   docker compose up -d --build
+#
+# Then open http://localhost:8080. Everything else is set in the browser.
+# The few things that are not (a server, a folder of your machine) are explained in .env.example.
 
 services:
+  # The web UI and everything PlainBoard does by itself.
   app:
     build:
       context: .
@@ -14,9 +19,8 @@ services:
       PLAINBOARD_PASSWORD: ${PLAINBOARD_PASSWORD:-}
       PLAINBOARD_RUNNER_URL: http://runner:8090
       PLAINBOARD_INTERNAL_URL: http://app:8080
-      # Where newer versions of PlainBoard come from (for the "update available" notice).
       PLAINBOARD_UPDATE_REPOSITORY: ${PLAINBOARD_UPDATE_REPOSITORY:-hthoene/plainboard}
-      # Optional credential fallbacks (usually entered in the UI under Settings). Prefixed on
+      # Fallbacks for credentials that are normally entered in the browser. Prefixed in .env on
       # purpose, so keys that happen to be exported in your shell are never picked up silently.
       CLAUDE_CODE_OAUTH_TOKEN: ${PLAINBOARD_CLAUDE_CODE_OAUTH_TOKEN:-}
       ANTHROPIC_API_KEY: ${PLAINBOARD_ANTHROPIC_API_KEY:-}
@@ -29,25 +33,22 @@ services:
       runner:
         condition: service_healthy
 
+  # Where the agents work: their shell, their tools, your code. Only the app talks to it.
   runner:
     build:
       context: .
       dockerfile: runner/Dockerfile
       args:
-        # 0 leaves Chromium (the browser window, about 700 MB) out of the image.
         PLAINBOARD_BROWSER: ${PLAINBOARD_BROWSER:-1}
     image: plainboard-runner
     restart: unless-stopped
-    # Not published: only the app talks to the runner.
     volumes:
-      # Named volume by default. Set PLAINBOARD_WORKSPACES_DIR to a host folder (e.g. D:/Code)
-      # to let agents work directly on local project folders.
       - ${PLAINBOARD_WORKSPACES_DIR:-workspaces}:/workspaces
       - uploads:/uploads:ro
       - agent-home:/home/agent
 
 volumes:
-  data:
+  data: # the database and the key your secrets are encrypted with: back this up
   uploads:
   workspaces:
   agent-home:

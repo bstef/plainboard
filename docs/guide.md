@@ -1,12 +1,20 @@
 # PlainBoard guide
 
-The details behind the [README](../README.md). For the design of the code see
+How to set PlainBoard up, use it, and find every setting. For the design of the code see
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-- [Accounts and sign-in](#accounts-and-sign-in)
-- [Repositories](#repositories)
-- [Working on local folders](#working-on-local-folders)
-- [Running on a server](#running-on-a-server)
+**Getting going**
+- [First start](#first-start)
+- [Your first project](#your-first-project)
+- [Everyday use](#everyday-use)
+- [Every setting and where it is](#every-setting-and-where-it-is)
+
+**Details**
+- [Subscriptions](#subscriptions)
+- [Repositories and finished work](#repositories-and-finished-work)
+- [People and roles](#people-and-roles)
+- [A folder on your machine](#a-folder-on-your-machine)
+- [On a server](#on-a-server)
 - [Preview](#preview)
 - [Browser window](#browser-window)
 - [Public API](#public-api)
@@ -14,10 +22,106 @@ The details behind the [README](../README.md). For the design of the code see
 - [Token efficiency](#token-efficiency)
 - [The team, notes and chat](#the-team-notes-and-chat)
 
-## Accounts and sign-in
+## First start
 
-The set-up at the first start asks for these; later they are under **PlainBoard settings →
-Subscriptions** (the gear).
+```bash
+git clone https://github.com/hthoene/plainboard.git
+cd plainboard
+docker compose up -d --build
+```
+
+Open <http://localhost:8080>. PlainBoard asks you to create your account, then goes through six
+steps. Each is one decision, says what it recommends, and can be changed later in
+**PlainBoard settings**.
+
+| Step | What it asks | Can you skip it? |
+|---|---|---|
+| Subscriptions | Which subscription or API key the agents run on. The connection is tested when you continue. | No: agents need one |
+| Models | Which models managers, members and summaries use | No, but the recommendation is one click |
+| Code access | A GitHub token or an SSH key, and the name on the agents' commits | Yes, if you add access per project later or use no git host |
+| Pace | How many agents work at the same time | Yes: 3 is a good start |
+| Secrets | Keys and tokens your agents need, e.g. for a package registry | Yes |
+| People | Further people who may sign in | Yes: you can work alone |
+
+## Your first project
+
+After the set-up PlainBoard opens **New project**. It has five steps, and the project exists after
+the first one, so closing early loses nothing.
+
+1. **Project**: a name, and a few sentences on what is being built. The manager reads them on every
+   turn.
+2. **Code**: the git repositories the agents work in. A project can start without one.
+3. **Team**: every project starts with a manager. Its model, the subscription and the number of
+   agents come from your settings; change them here only if this project differs.
+4. **Secrets**: keys and tokens for this project only.
+5. **People**: who works on it with you, if anyone.
+
+Then tell the manager what you want, in the chat next to the board. It writes the tickets, creates
+the agents it needs, hands out the work and reports back.
+
+## Everyday use
+
+- **Say what you want.** Write to the manager. Or add a ticket yourself and hand it over: open it and
+  click **Hand to manager**, or drag it to *In Progress*. You never assign a ticket to an agent.
+- **Watch the board.** A ticket shows which agent works on it and for how long. *Running now* lists
+  everyone who is working.
+- **Answer what waits for you.** When an agent needs a decision, or something only you can do, the
+  ticket is marked and counted in the **for you** plate. Pick an option, answer in your own words, or
+  discuss it in the chat.
+- **Review only what needs you.** Finished tickets go to *Done*. One lands in *Review* only when you
+  have to look at something.
+- **Talk to anyone.** Every agent has its own chat; the **Chat** view lists them all. You can stop an
+  agent from its chat.
+- **Keep an eye on the quota.** The ring under the message field shows how full each subscription
+  is.
+
+## Every setting and where it is
+
+There are two places for settings, and a few things live in their own view.
+
+**PlainBoard settings** (the gear at the bottom of the sidebar; on a phone under *More*). For the
+whole installation. Everyone finds their own account here; the rest is for admins.
+
+| Section | What is in it |
+|---|---|
+| Your account | Your name, your password, signing out |
+| People | Who may sign in, who is an admin, who may create projects |
+| Subscriptions | Claude and Codex subscriptions and API keys |
+| Models | The models and the thinking effort new agents start with; when long chats are summarised |
+| Code access | GitHub token, SSH key, the name and address on the agents' commits |
+| Pace | How many agents work at the same time per project; how far a manager may raise that |
+| Secrets | Keys and tokens for the agents of all projects |
+| General | Time zone, the notice about newer versions |
+| Read access | Keys that can read everything and change nothing |
+
+**Project settings** (in the navigation; on a phone under *More*). For one project, for its owners.
+
+| Section | What is in it |
+|---|---|
+| General | The project's name and description |
+| Repositories | The repositories. Click one for its address, base branch, checks and access |
+| Team | How many agents work at once, which subscription they run on, whether the manager is told when work is finished |
+| Board | When tickets leave *Review* and when done tickets are archived |
+| Secrets | Keys and tokens for this project's agents only |
+| Members | Who sees the project, as viewer, member or owner |
+| Public API | Keys for showing progress on a website |
+| Advanced | A GitHub token for this project, a shared folder, deleting the project |
+
+**In their own view**
+
+| Where | What |
+|---|---|
+| Team | Each agent: its role, model, effort, instructions, repositories, tools and subscription; its own notes and to-dos |
+| Tools | MCP servers |
+| Schedules | Work that starts by itself, once or regularly |
+| Notes | What all agents of the project should know |
+| Stats | How fast work lands, what slows it down, what it costs; the downloads |
+| The palette button | Design and light or dark, per browser |
+| `.env` (see `.env.example`) | Only what the browser cannot set: a server, another port, a folder of your machine |
+
+## Subscriptions
+
+The set-up asks for these; later they are under **PlainBoard settings → Subscriptions**.
 
 - **Claude**: paste an [Anthropic API key](https://console.anthropic.com/) and click
   **Test connection**. Alternatively use your own Claude login: a token from `claude setup-token`, or
@@ -25,57 +129,44 @@ Subscriptions** (the gear).
 - **Codex**: sign in with your ChatGPT subscription (a device code you enter on
   chatgpt.com) or paste an OpenAI API key. Then pick **Codex** as the provider of the agents that
   should run on it; the others stay on Claude.
-- Both sections take several accounts (**Add account**), e.g. two Claude subscriptions. Each agent
+- Both take several accounts (**Add account**), e.g. two Claude subscriptions. Each agent
   stays on its account while that one has room and then moves to the subscription with the most room
   left. The last 5 % of each subscription are used once all are that full; API keys only step in when
-  every subscription is used up. You can pin an agent to an account in the team editor.
+  every subscription is used up.
+- A project can name the subscription its agents run on (**Project settings → Team**), and an agent
+  can have its own (**Team**).
 - The plan limits of every subscription are shown under the chat's message field, one ring per
   subscription; a click shows the windows, their resets and a forecast.
 
-Credentials can also come from `.env` as fallbacks (see `.env.example`). The variables are prefixed
-with `PLAINBOARD_` on purpose, so keys that happen to be exported in your shell are never picked up
-silently.
+## Repositories and finished work
 
-## Repositories
+A project can have any number of git repositories (**Project settings → Repositories**). Each agent
+gets the repositories it has access to (all, or a selection) cloned into its workspace, one folder
+per repository. Without git everything works locally.
 
-A project can have any number of git repositories. Each agent gets the repositories it has access to
-(all, or a selection) cloned into its workspace, one folder per repository. The manager can add or
-remove repositories and change who has access. Without git everything works locally.
+**Access.** One access for all projects is under **PlainBoard settings → Code access**: a GitHub
+token (agents branch, push and open pull requests with `gh`), or one SSH key that you add to your
+account at any git host. A repository can have its own instead (click the repository): a token of
+any git host, or an SSH key that PlainBoard creates for you to add as a deploy key.
 
-- **PlainBoard settings → Code access**: paste a GitHub token (fine-grained or classic), and agents branch, push and
-  open pull requests with `gh`. Or create one SSH key for all repositories with an SSH address and
-  add it to your account at the git host.
-- A repository can also have its own access (**Project settings → Repositories**, click the repository): an access token (any git host,
-  e.g. a GitLab deploy token) or an SSH key that PlainBoard creates for you to add as a deploy key.
+**Finished work.** An agent hands over its finished branch and goes on. PlainBoard brings the
+branches to the base branch by itself. Per repository you decide when:
 
-## Working on local folders
+- **After the checks pass** (the default): all finished branches are merged, checked once together,
+  and only what passes reaches the base branch. Right for a branch you release from.
+- **At once, checked afterwards**: a branch is merged at once and the base branch is checked
+  afterwards; if that fails, an agent repairs it. Much faster where checks take long or often fail,
+  but the base branch can be broken for a while: right for a development branch.
 
-Set `PLAINBOARD_WORKSPACES_DIR` in `.env` to a folder on your machine, e.g.
-
-```
-PLAINBOARD_WORKSPACES_DIR=D:/Code
-```
-
-and set the project's **Shared folder** (Project settings → Advanced) to a sub folder (e.g. `my-app`). All agents of that project
-work directly in `D:/Code/my-app` and you see every change immediately. Project repositories are
-cloned into sub folders there (e.g. `D:/Code/my-app/backend`) if they don't exist yet. On Linux hosts
-the folder must be writable by UID 1000.
-
-## Running on a server
-
-By default workspaces live in a Docker volume and every agent gets its own clones of the
-repositories it may use (branches and pull requests, no conflicts between parallel agents). To expose
-PlainBoard, set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD`, ideally behind a reverse proxy
-with TLS. Browsers offer to install PlainBoard as an app only over HTTPS or on `localhost`.
+Two commands make this work, both optional. The **quick check** (formatting, lint, a minute or two)
+runs the moment a branch is handed over, and a failure goes straight back to that agent. The **full
+check** (your test suite or CI script) decides whether work may stay; without one, on GitHub, the
+checks of a pull request decide.
 
 ## People and roles
 
-The first time you open a new PlainBoard it asks you to create the admin account, and then walks you
-through the basic settings: subscriptions, models, code access, pace, secrets. On a server it asks
-for `PLAINBOARD_PASSWORD` once at that point (the setup password), so nobody else can claim it.
-
-Add further people in **PlainBoard settings → People**. They see nothing until they are a member of a project
-(**Project settings → Members**):
+Add further people in **PlainBoard settings → People**. They see nothing until they are a member of
+a project (**Project settings → Members**):
 
 | Role | Can |
 |---|---|
@@ -90,6 +181,28 @@ on. Where several people work in a project, agents see who wrote a message or a 
 
 Know the limit: all agents share one runner container. Someone who can chat with agents can have
 them read whatever the runner holds, also of other projects. Give roles to people you trust.
+
+## A folder on your machine
+
+Set `PLAINBOARD_WORKSPACES_DIR` in `.env` to a folder on your machine, e.g.
+
+```
+PLAINBOARD_WORKSPACES_DIR=D:/Code
+```
+
+and set the project's **Shared folder** (Project settings → Advanced) to a sub folder (e.g. `my-app`). All agents of that project
+work directly in `D:/Code/my-app` and you see every change immediately. Project repositories are
+cloned into sub folders there (e.g. `D:/Code/my-app/backend`) if they don't exist yet. On Linux hosts
+the folder must be writable by UID 1000.
+
+## On a server
+
+By default workspaces live in a Docker volume and every agent gets its own clones of the
+repositories it may use (branches and pull requests, no conflicts between parallel agents). To reach
+PlainBoard from other machines, set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD` in `.env`
+(`.env.example` explains both) and put a reverse proxy with TLS in front. The password is the setup
+password: it is asked once, when the first account is created in the browser, so nobody else can
+claim a new server. Browsers offer to install PlainBoard as an app only over HTTPS or on `localhost`.
 
 ## Preview
 
@@ -146,7 +259,7 @@ curl -H "Authorization: Bearer pb_..." https://your-plainboard/api/public/tasks
 
 `status` is `backlog`, `todo`, `in_progress`, `review` or `done`. The endpoint allows calls from any
 website, and responses may be cached for 60 seconds. The server must be reachable from where you call
-it (see [Running on a server](#running-on-a-server)).
+it (see [On a server](#on-a-server)).
 
 ## How work flows
 
@@ -162,8 +275,8 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
 - An assignment is one piece of work with one report: it stays open while a job the member started
   for it is running, and the report is sent when it is really finished, with the time it took (work
   against waiting). Reports go to the manager's inbox and stay with their assignment, which the
-  ticket lists. The manager is woken up once per batch of reports (turn off per project with
-  *auto-wake*), starts what comes next and moves the ticket to *Done* (*Review* only if you have to
+  ticket lists. The manager is woken up once per batch of reports (turn off per project under
+  **Project settings → Team**), starts what comes next and moves the ticket to *Done* (*Review* only if you have to
   look at something).
 - A ticket with several reports shows **where it stands**: done, open, decided, tried and dropped.
   PlainBoard writes that from the reports with the small model and gives it to every agent that
@@ -182,7 +295,7 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   never cost a check run. A repository's **check command** (e.g. `./scripts/ci.sh`) decides whether a train may land;
   this works with any git host. Without one, on GitHub, the checks of one pull request for the train
   decide.
-- **Land first, check after** (per repository, in the project settings): for a development branch
+- **At once, checked afterwards** (per repository, see [Repositories and finished work](#repositories-and-finished-work)): for a development branch
   whose checks take long and often fail. Finished branches are merged at once, the checks run on
   the base branch afterwards, once for everything that landed, and if they fail one agent repairs
   the base branch. Nothing waits for a check run and a failure takes nothing back; the base branch
@@ -203,14 +316,14 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
 - **Compression**: when an agent's context exceeds *Compress at (tokens)*, older messages are
   summarised with the *summary model* (Claude Haiku 5.5 by default). The session restarts with system
   prompt + summary + the last *N* messages verbatim. Chats can grow without limit; the UI always
-  shows the full history. The limit must be below the model's context window (default: 120,000);
+  shows the full history. The limit must be below the model's context window (default: 350,000);
   otherwise Claude Code compacts first, using its own threshold. A lower limit makes every turn
   cheaper and faster.
 - **Coordinator toolset** for the manager: a short custom prompt instead of the full Claude Code
   prompt, plus board tools and a shell for small tasks that would cost more to delegate.
 - **Inbox instead of extra runs**: reports, job results and messages between agents are prepended to
   an agent's next turn; wake-ups are coalesced. Waiting for CI costs no turn at all.
-- **Read access** (Settings): a key that can read everything through the API and change nothing,
+- **Read access** (PlainBoard settings): a key that can read everything through the API and change nothing,
   for someone or something that analyses how your agents work. Chats, tickets, runs, the full log
   and the database (`/api/inspect/query?sql=select ...`) are readable with it, passwords and tokens
   are not. From a checkout of PlainBoard: put the address and the key into `.remote.env` and use
