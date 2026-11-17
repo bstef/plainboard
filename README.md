@@ -87,15 +87,17 @@ cd plainboard
 docker compose up -d --build
 ```
 
-Open <http://localhost:8080>, then:
+The first start builds the two images, which takes a few minutes. Then open <http://localhost:8080>.
+PlainBoard walks you through the rest:
 
-1. **Settings → Claude**: paste an [Anthropic API key](https://console.anthropic.com/) and test the
-   connection. Your own Claude login works too.
-2. **Create a project** and tell the manager what you want, or add tickets and drag them to
-   *In Progress*.
+1. **Create your account.**
+2. **Go through the basic settings**, one decision per step with a recommendation: the subscription
+   or [API key](https://console.anthropic.com/) the agents run on, the models, and how they reach
+   your code.
+3. **Create your first project** and tell the manager what you want.
 
-Optional: sign in to **Codex** with a ChatGPT subscription or an OpenAI key, and add a **GitHub**
-token so agents can push branches and open pull requests. Both are under Settings.
+Everything can be changed later: **PlainBoard settings** (the gear) for the installation,
+**Project settings** in the navigation for a project.
 
 ## How it works
 
@@ -122,12 +124,12 @@ Everything is optional. Copy `.env.example` to `.env` for the settings below.
 
 | You want to | How |
 | --- | --- |
-| Let agents work in a folder on your machine | Set `PLAINBOARD_WORKSPACES_DIR` and the project's **Local folder** |
+| Let agents work in a folder on your machine | Set `PLAINBOARD_WORKSPACES_DIR` and name a sub folder as the project's **Shared folder** (Project settings → Advanced) |
 | Run it on a server | Set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD` (the setup password: asked once, when the first admin account is created in the browser), behind a reverse proxy with TLS |
 | Work with others | Add people in **PlainBoard settings → People**, then give them a role in a project (**Project settings → Members**): viewer, member or owner. Projects they are not a member of don't exist for them |
 | Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard sign-in; apps that break there open in the **Browser** view, a browser next to the agents |
 | Show progress on your website | Create a key under **Project settings → Public API** |
-| Use several subscriptions | Add more accounts under Settings; agents move to the one with the most room |
+| Use several subscriptions | Add more under **PlainBoard settings → Subscriptions**; agents move to the one with the most room, and a project can name its own |
 | Update | `git pull`, then `docker compose up -d --build`. PlainBoard shows a notice in the sidebar when a newer version exists |
 | Change the look | The palette button: two designs, each light and dark. Your own is one stylesheet, see [ARCHITECTURE.md](ARCHITECTURE.md) |
 

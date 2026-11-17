@@ -16,10 +16,13 @@ The details behind the [README](../README.md). For the design of the code see
 
 ## Accounts and sign-in
 
-- **Settings → Claude**: paste an [Anthropic API key](https://console.anthropic.com/) and click
+The set-up at the first start asks for these; later they are under **PlainBoard settings →
+Subscriptions** (the gear).
+
+- **Claude**: paste an [Anthropic API key](https://console.anthropic.com/) and click
   **Test connection**. Alternatively use your own Claude login: a token from `claude setup-token`, or
   `claude login` inside the runner container.
-- **Settings → Codex**: sign in with your ChatGPT subscription (a device code you enter on
+- **Codex**: sign in with your ChatGPT subscription (a device code you enter on
   chatgpt.com) or paste an OpenAI API key. Then pick **Codex** as the provider of the agents that
   should run on it; the others stay on Claude.
 - Both sections take several accounts (**Add account**), e.g. two Claude subscriptions. Each agent
@@ -39,10 +42,10 @@ A project can have any number of git repositories. Each agent gets the repositor
 (all, or a selection) cloned into its workspace, one folder per repository. The manager can add or
 remove repositories and change who has access. Without git everything works locally.
 
-- **Settings → GitHub**: paste a GitHub token (fine-grained or classic), and agents branch, push and
+- **PlainBoard settings → Code access**: paste a GitHub token (fine-grained or classic), and agents branch, push and
   open pull requests with `gh`. Or create one SSH key for all repositories with an SSH address and
   add it to your account at the git host.
-- A repository can also have its own access in the project dialog: an access token (any git host,
+- A repository can also have its own access (**Project settings → Repositories**, click the repository): an access token (any git host,
   e.g. a GitLab deploy token) or an SSH key that PlainBoard creates for you to add as a deploy key.
 
 ## Working on local folders
@@ -53,7 +56,7 @@ Set `PLAINBOARD_WORKSPACES_DIR` in `.env` to a folder on your machine, e.g.
 PLAINBOARD_WORKSPACES_DIR=D:/Code
 ```
 
-and set the project's **Local folder** to a sub folder (e.g. `my-app`). All agents of that project
+and set the project's **Shared folder** (Project settings → Advanced) to a sub folder (e.g. `my-app`). All agents of that project
 work directly in `D:/Code/my-app` and you see every change immediately. Project repositories are
 cloned into sub folders there (e.g. `D:/Code/my-app/backend`) if they don't exist yet. On Linux hosts
 the folder must be writable by UID 1000.
