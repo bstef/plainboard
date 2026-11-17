@@ -1,0 +1,255 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { api, errorMessage } from "../../api/client";
+import { checks, qk, useAccounts, useRepositories, useSettings } from "../../api/queries";
+import type { CheckResult, Project } from "../../api/types";
+import { ApiKeyEditor } from "../../components/ApiKeyEditor";
+import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
+import { Button, ErrorText, Field, Input, PageHead, Select, Textarea, Toggle } from "../../components/ui";
+import { useStored } from "../../lib/hooks";
+import { useShell } from "../layout/shell-context";
+import { SecretsEditor } from "../settings/SecretsEditor";
+import { CheckBadge } from "../settings/SettingsDialog";
+import { MembersEditor } from "./MembersEditor";
+import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
+
+const days = (value: string, max: number) => Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
+
+/** Everything about one project that is not daily work, as a view of its own: found in the
+ * navigation, one section per subject, every setting with its name and what it does. */
+export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => void; onDeleted: () => void }) {
+  const { t } = useTranslation();
+  const { project, isOwner } = useShell();
+  const qc = useQueryClient();
+  const [current, setCurrent] = useStored<string>("plainboard.projectSection", "general");
+  const settings = useSettings();
+  const accounts = useAccounts();
+  const repos = useRepositories(project.id);
+  const defaultParallel = Number(settings.data?.values.max_parallel_runs ?? 3);
+  const [form, setForm] = useState({
+    name: project.name,
+    description: project.description,
+    workspace_path: project.workspace_path ?? "",
+    github_token: "",
+    auto_wake_manager: project.auto_wake_manager,
+    parallel_agents: project.parallel_agents,
+    account_id: project.account_id,
+    auto_archive_days: project.auto_archive_days,
+    review_days: project.review_days,
+  });
+  const [check, setCheck] = useState<CheckResult | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+  const stored: Record<string, unknown> = { ...project, workspace_path: project.workspace_path ?? "", github_token: "" };
+  const dirty = (...keys: (keyof typeof form)[]) => keys.some((k) => form[k] !== stored[k]);
+  const save = async (...keys: (keyof typeof form)[]) => {
+    const body: Record<string, unknown> = Object.fromEntries(keys.map((k) => [k, form[k]]));
+    if ("workspace_path" in body) body.workspace_path = form.workspace_path.trim() || null;
+    if ("github_token" in body && !form.github_token) delete body.github_token;
+    await api.patch<Project>(`/projects/${project.id}`, body);
+    set({ github_token: "" });
+    await qc.invalidateQueries({ queryKey: qk.projects });
+  };
+  const refreshRepos = () => qc.invalidateQueries({ queryKey: qk.repos(project.id) });
+  const remove = async () => {
+    if (!confirm(t("projects.confirmDelete", { name: project.name }))) return;
+    setError(null);
+    try {
+      await api.del(`/projects/${project.id}`);
+      await qc.invalidateQueries({ queryKey: qk.projects });
+      onDeleted();
+    } catch (err) {
+      setError(err);
+    }
+  };
+
+  if (!isOwner) {
+    return (
+      <div className="flex h-full flex-col">
+        <PageHead title={t("projectSettings.title")} />
+        <p className="p-4 text-fg-2">{t("projectSettings.ownersOnly")}</p>
+      </div>
+    );
+  }
+
+  const sections: SettingsSection[] = [
+    {
+      id: "general",
+      label: t("projectSettings.general.label"),
+      description: t("projectSettings.general.description"),
+      content: (
+        <div className="space-y-4">
+          <Field label={t("projects.name")}>
+            <Input value={form.name} onChange={(e) => set({ name: e.target.value })} />
+          </Field>
+          <Field label={t("projects.description")} hint={t("projects.descriptionHint")}>
+            <Textarea rows={7} value={form.description} onChange={(e) => set({ description: e.target.value })} />
+          </Field>
+          <SaveRow dirty={dirty("name", "description") && form.name.trim() !== ""} onSave={() => save("name", "description")} />
+        </div>
+      ),
+    },
+    {
+      id: "repositories",
+      label: t("projectSettings.repositories.label"),
+      description: t("projectSettings.repositories.description"),
+      content: (
+        <div className="space-y-4">
+          <RepositoriesEditor
+            repos={(repos.data ?? []).map(toDraft)}
+            projectId={project.id}
+            onAdd={async (d) => {
+              await api.post(`/projects/${project.id}/repositories`, toBody(d));
+              refreshRepos();
+            }}
+            onSave={async (d) => {
+              await api.patch(`/repositories/${d.key}`, { ...toBody(d), new_ssh_key: d.new_ssh_key });
+              refreshRepos();
+            }}
+            onRemove={async (d) => {
+              await api.del(`/repositories/${d.key}`);
+              refreshRepos();
+            }}
+          />
+          {repos.data?.length === 0 && <p className="text-fg-3">{t("projectSettings.repositories.none")}</p>}
+          {(repos.data?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  setCheck({ ok: true, detail: t("settings.testing") });
+                  try {
+                    setCheck(await checks.projectGithub(project.id));
+                  } catch (err) {
+                    setCheck({ ok: false, detail: errorMessage(err) });
+                  }
+                }}
+              >
+                {t("projectSettings.repositories.test")}
+              </Button>
+              <CheckBadge result={check} />
+            </div>
+          )}
+          <SavedAtOnce />
+        </div>
+      ),
+    },
+    {
+      id: "team",
+      label: t("projectSettings.team.label"),
+      description: t("projectSettings.team.description"),
+      content: (
+        <div className="space-y-4">
+          <Field label={t("projects.parallel")} hint={t("projects.parallelHint", { count: defaultParallel })}>
+            <Input
+              type="number"
+              min={0}
+              max={20}
+              className="w-28"
+              value={form.parallel_agents ?? ""}
+              placeholder={String(defaultParallel)}
+              onChange={(e) => set({ parallel_agents: e.target.value === "" ? null : days(e.target.value, 20) })}
+            />
+          </Field>
+          <Field label={t("newProject.team.subscription")} hint={t("newProject.team.subscriptionHint")}>
+            <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">{t("newProject.team.subscriptionAuto")}</option>
+              {(accounts.data ?? [])
+                .filter((a) => a.enabled)
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <div className="space-y-1">
+            <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
+            <p className="text-fg-3">{t("projects.autoWakeHint")}</p>
+          </div>
+          <SaveRow dirty={dirty("parallel_agents", "account_id", "auto_wake_manager")} onSave={() => save("parallel_agents", "account_id", "auto_wake_manager")}>
+            <Button variant="ghost" onClick={onOpenTeam}>
+              {t("projectSettings.team.open")}
+            </Button>
+          </SaveRow>
+        </div>
+      ),
+    },
+    {
+      id: "board",
+      label: t("projectSettings.board.label"),
+      description: t("projectSettings.board.description"),
+      content: (
+        <div className="space-y-4">
+          <Field label={t("projects.reviewDays")} hint={t("projects.reviewDaysHint")}>
+            <Input type="number" min={0} max={365} className="w-28" value={form.review_days} onChange={(e) => set({ review_days: days(e.target.value, 365) })} />
+          </Field>
+          <Field label={t("projects.autoArchive")} hint={t("projects.autoArchiveHint")}>
+            <Input type="number" min={0} max={3650} className="w-28" value={form.auto_archive_days} onChange={(e) => set({ auto_archive_days: days(e.target.value, 3650) })} />
+          </Field>
+          <SaveRow dirty={dirty("review_days", "auto_archive_days")} onSave={() => save("review_days", "auto_archive_days")} />
+        </div>
+      ),
+    },
+    {
+      id: "secrets",
+      label: t("projectSettings.secrets.label"),
+      description: t("projectSettings.secrets.description"),
+      content: (
+        <div className="space-y-4">
+          <SecretsEditor projectId={project.id} />
+          <SavedAtOnce />
+        </div>
+      ),
+    },
+    {
+      id: "members",
+      label: t("projectSettings.members.label"),
+      description: t("projectSettings.members.description"),
+      content: <MembersEditor projectId={project.id} />,
+    },
+    {
+      id: "publicApi",
+      label: t("projectSettings.publicApi.label"),
+      description: t("projects.publicApiHint"),
+      content: (
+        <div className="space-y-4">
+          <ApiKeyEditor path={`/projects/${project.id}/public-api-keys`} revokePath="/public-api-keys" placeholder={t("projects.publicApiLabel")} />
+          <SavedAtOnce />
+        </div>
+      ),
+    },
+    {
+      id: "advanced",
+      label: t("projectSettings.advanced.label"),
+      description: t("projectSettings.advanced.description"),
+      content: (
+        <div className="space-y-4">
+          <Field label={t("projects.githubToken")} hint={project.has_github_token ? t("projects.githubTokenSet") : t("projects.githubTokenHint")}>
+            <Input type="password" autoComplete="off" value={form.github_token} onChange={(e) => set({ github_token: e.target.value })} />
+          </Field>
+          <Field label={t("projects.localFolder")} hint={t("projects.localFolderHint")}>
+            <Input placeholder="my-app" value={form.workspace_path} onChange={(e) => set({ workspace_path: e.target.value })} />
+          </Field>
+          <SaveRow dirty={dirty("workspace_path") || form.github_token !== ""} onSave={() => save("workspace_path", "github_token")} />
+          <div className="space-y-2 pt-4">
+            <h3 className="font-semibold">{t("projectSettings.advanced.delete")}</h3>
+            <p className="text-fg-3">{t("projectSettings.advanced.deleteHint")}</p>
+            <Button variant="danger" onClick={remove}>
+              {t("projectSettings.advanced.deleteAction", { name: project.name })}
+            </Button>
+            <ErrorText error={error} />
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex h-full flex-col">
+      <PageHead title={t("projectSettings.title")} />
+      <SettingsLayout label={t("projectSettings.title")} sections={sections} current={current} onChange={setCurrent} />
+    </div>
+  );
+}

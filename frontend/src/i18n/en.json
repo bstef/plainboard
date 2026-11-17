@@ -34,11 +34,12 @@
     "stats": "Stats",
     "chat": "Chat",
     "browser": "Browser",
-    "settings": "Settings",
+    "settings": "PlainBoard settings",
     "togglePanel": "Toggle chat panel",
     "more": "More",
     "theme": "Design and theme",
-    "views": "Views"
+    "views": "Views",
+    "project": "Project settings"
   },
   "browser": {
     "address": "Address, e.g. localhost:5173",
@@ -121,36 +122,31 @@
     "settings": "Project settings",
     "name": "Name",
     "description": "Description",
-    "descriptionHint": "Shared context for every agent. Keep it short: it is part of every prompt.",
-    "localFolder": "Local folder (optional)",
-    "localFolderHint": "Folder inside the workspaces directory that all agents share, e.g. a bind-mounted project on your machine. Repositories are cloned into sub folders. Empty: each agent gets its own directory.",
-    "githubToken": "GitHub token override (optional)",
+    "descriptionHint": "What is being built, for whom, and what matters. Every agent reads it whenever it works, so keep it short.",
+    "localFolder": "Shared folder",
+    "localFolderHint": "Normally every agent works in its own copy of the code. Name a folder inside the workspaces directory here to have all agents work in the same one instead, for example a project folder of your own machine that is mounted there. Repositories are cloned into sub folders of it.",
+    "githubToken": "GitHub token for this project",
     "publicApi": "Public API",
     "publicApiHint": "Lets a website load tickets that have a customer title, with their customer texts and nothing else. Create one key per place that uses it, so you can revoke one without breaking the others.",
     "publicApiCreate": "Create key",
     "publicApiRevoke": "Revoke",
     "publicApiCopy": "Copy this key now, it is only shown once:",
-    "githubTokenHint": "Uses the global token from Settings if empty.",
+    "githubTokenHint": "Only if this project needs another GitHub account than the one in the PlainBoard settings. Empty: that one is used.",
     "githubTokenSet": "A project token is stored. Enter a new one to replace it.",
-    "autoWake": "Wake the manager when assignments finish",
-    "autoWakeHint": "Reports are batched into one manager turn. Turn off to review them only when you chat.",
+    "autoWake": "Tell the manager when work is finished",
+    "autoWakeHint": "The manager gets the reports of finished work by itself and goes on from there. Switched off, it looks at them only when you write to it.",
     "confirmDelete": "Delete project \"{{name}}\" with all tickets, agents and notes?",
-    "repositories": "Repositories (optional)",
-    "repositoriesHint": "Cloned into each agent's workspace (one folder per repository) on first use. Choose per agent which ones it gets. Leave empty to work locally without git.",
+    "repositories": "Repositories",
+    "repositoriesHint": "Every agent gets its own copy of each repository; in the team you choose which agent gets which.",
     "addRepo": "Add repository",
     "repoAutoName": "(name from URL)",
-    "repoNamePlaceholder": "Folder name (optional)",
-    "repoBranchPlaceholder": "Branch (optional)",
-    "repoDescriptionPlaceholder": "What's in it? Helps the manager route work (optional)",
-    "repoCheckPlaceholder": "Check command, e.g. ./scripts/ci.sh (optional)",
-    "repoCheckHint": "Decides whether finished branches may land. PlainBoard merges all finished branches, runs this once for all of them and pushes to the base branch if it succeeds: works with any git host. Empty: on GitHub, the checks of one pull request for the merged branches decide.",
-    "repoLandFirst": "Land first, check after",
-    "repoLandFirstHint": "Finished branches are merged into the base branch at once (after the quick check), and the checks run on the base branch afterwards, once for everything that landed. If they fail, one agent repairs the base branch. Much faster where checks take long and often fail, but the base branch can be red for a while: use it for a development branch, not for one you release from.",
-    "repoQuickCheckPlaceholder": "Quick check, e.g. cargo fmt --check && cargo clippy (optional)",
-    "repoQuickCheckHint": "The fast part of the checks: format, lint, anything that takes a minute or two. PlainBoard runs it on the pushed commit the moment a branch is handed over, where the agent has it checked out, so such failures come back at once instead of costing a check run for everyone.",
+    "repoCheckHint": "Decides whether work may stay: your test suite or CI script. Runs once for all finished branches together, with any git host. Empty: on GitHub, the checks of a pull request decide.",
+    "repoLandFirst": "At once, checked afterwards",
+    "repoLandFirstHint": "A finished branch is merged at once, after the quick check. The full check runs on the base branch afterwards, once for everything that arrived; if it fails, an agent repairs it. Much faster where checks take long or often fail, but the base branch can be broken for a while: right for a development branch, not for one you release from.",
+    "repoQuickCheckHint": "Runs the moment an agent hands over a branch: formatting, lint, whatever takes a minute or two. A failure goes straight back to that agent instead of costing everyone a full check. Empty: none.",
     "confirmRemoveRepo": "Remove repository \"{{name}}\" from the project? Existing clones stay on disk.",
     "pickFromGithub": "Choose from GitHub",
-    "addRepoByUrl": "Add by URL",
+    "addRepoByUrl": "Add a repository",
     "loadingGithub": "Loading your GitHub repositories…",
     "githubNoToken": "Add a GitHub token in Settings (or in this project) to choose repositories from GitHub. Without one, add repositories by URL.",
     "searchGithub": "Search {{count}} repositories…",
@@ -158,21 +154,21 @@
     "addSelected": "Add {{count}} selected",
     "private": "Private",
     "autoArchive": "Archive done tickets after (days)",
-    "autoArchiveHint": "Archived tickets leave the board but keep their history and links. 0 = never.",
-    "parallel": "Parallel agents",
-    "parallelHint": "Members of this project that work at the same time. Empty: the number from the settings ({{count}}). 0 pauses them; the manager still answers.",
-    "reviewDays": "Move tickets from review to done after (days)",
-    "reviewDaysHint": "Only tickets nobody touched in that time. Tickets with a task or question for you stay. 0 = never.",
-    "repoAccess": "Access",
-    "repoAccessDefault": "General (token or SSH key from Settings, or none)",
-    "repoAccessToken": "Own access token",
-    "repoAccessSsh": "SSH key (deploy key)",
-    "repoAccessDefaultHint": "HTTPS addresses use the GitHub token from Settings or this project; SSH addresses use the SSH key from Settings. Without either, public repositories still work.",
-    "repoAccessTokenHint": "A token only for this repository, from any git host over HTTPS: a GitHub token, a GitLab deploy or project token, Gitea, Bitbucket.",
+    "autoArchiveHint": "Archived tickets leave the board and keep their history and links. 0: never.",
+    "parallel": "Agents working at the same time",
+    "parallelHint": "How many members of this project work at once. Empty: the number from the PlainBoard settings ({{count}}). 0 pauses them; the manager still answers.",
+    "reviewDays": "Finish tickets left in review after (days)",
+    "reviewDaysHint": "A ticket in review that nobody touched for this long moves to done by itself. Tickets with a question or a task for you stay. 0: never.",
+    "repoAccess": "Access to this repository",
+    "repoAccessDefault": "The general access from the PlainBoard settings",
+    "repoAccessToken": "A token only for this repository",
+    "repoAccessSsh": "An SSH key only for this repository (deploy key)",
+    "repoAccessDefaultHint": "HTTPS addresses use the GitHub token from the PlainBoard settings or from this project; SSH addresses use the SSH key from the PlainBoard settings. Public repositories that are only read need neither.",
+    "repoAccessTokenHint": "A token for this repository alone, from any git host over HTTPS: GitHub, GitLab, Gitea, Bitbucket.",
     "repoToken": "Access token",
     "repoTokenStored": "Stored. Enter a new one to replace it.",
     "repoTokenUser": "User name (only if the host needs one)",
-    "repoAccessSshHint": "Works with every git host and needs no account token. Agents can clone and push; pull requests need a token.",
+    "repoAccessSshHint": "Works with every git host and needs no account token. Agents can clone and push; opening pull requests still takes a token.",
     "repoSshOnSave": "PlainBoard creates a key pair when you save and shows the public key in the list (key button). The address is changed to its SSH form.",
     "repoSshPublicKey": "Public key",
     "repoSshPublicKeyHint": "Add it at your git host. GitHub: repository → Settings → Deploy keys → Add deploy key, with write access. GitLab: Settings → Repository → Deploy keys.",
@@ -190,7 +186,26 @@
     "publicApiUsed": "last used {{when}}",
     "publicApiNeverUsed": "never used",
     "publicApiConfirmRevoke": "Revoke the key \"{{name}}\"? Whatever uses it stops working.",
-    "noneSharedHint": "No project has been shared with you yet. Ask an owner or an admin to add you."
+    "noneSharedHint": "No project has been shared with you yet. Ask an owner or an admin to add you.",
+    "repoNew": "New repository",
+    "repoEdit": "Repository",
+    "repoSave": "Save repository",
+    "repoUrl": "Git address",
+    "repoUrlHint": "The address you would clone it from, HTTPS or SSH.",
+    "repoBranch": "Base branch",
+    "repoBranchHint": "Where finished work ends up. Empty: the repository's default branch.",
+    "repoName": "Folder name",
+    "repoNameHint": "The folder agents find it in. Empty: taken from the address.",
+    "repoDescription": "What is in it",
+    "repoDescriptionHint": "One line. Helps the manager give the right work to the right agent.",
+    "repoLanding": "Finished work",
+    "repoLandingHint": "An agent hands over its finished branch and goes on with other work. PlainBoard brings the branches to the base branch by itself.",
+    "repoLandWhen": "When does a finished branch reach the base branch?",
+    "repoLandChecked": "After the checks pass",
+    "repoLandCheckedHint": "PlainBoard merges all finished branches, checks them once together, and only what passes reaches the base branch. Right for a branch you release from, and where checks are quick and reliable.",
+    "repoLandFirstBadge": "merges at once",
+    "repoQuickCheck": "Quick check (command)",
+    "repoCheck": "Full check (command)"
   },
   "board": {
     "filter": "Filter tickets…",
@@ -589,7 +604,7 @@
     "updateCheckHint": "Every few hours PlainBoard asks GitHub whether its repository has newer commits than the one that is running. Only that commit id is sent.",
     "versionRunning": "Running {{commit}}.",
     "versionCurrent": "That is the newest.",
-    "title": "Settings",
+    "title": "PlainBoard settings",
     "test": "Test connection",
     "testing": "Testing…",
     "clear": "Clear",
@@ -597,7 +612,7 @@
     "secretFromEnv": "Using value from environment",
     "secretUnset": "Not set",
     "claude": "Claude",
-    "claudeHint": "Agents with the Claude Agent provider run on Claude via the Claude Agent SDK. Add one or more Anthropic API keys or Claude logins.",
+    "claudeHint": "Subscriptions and API keys for agents that run on Claude.",
     "auth": {
       "api_key": "API key",
       "api_keyHint": "Recommended · Anthropic Console",
@@ -610,7 +625,7 @@
     "apiKey": "Anthropic API key",
     "runnerLoginHint": "Log in once inside the runner container; the login is kept in a volume:",
     "codex": "Codex",
-    "codexHint": "Agents with the Codex provider run on OpenAI models via the Codex CLI. Add one or more ChatGPT subscriptions or OpenAI API keys. Pick the provider per agent.",
+    "codexHint": "Subscriptions and API keys for agents that run on OpenAI models with Codex. Which one an agent uses is chosen per agent.",
     "codexAuth": {
       "chatgpt": "ChatGPT subscription",
       "chatgptHint": "Sign in with your ChatGPT plan",
@@ -626,8 +641,6 @@
     "codexWaiting": "Waiting for the sign-in…",
     "codexCancel": "Cancel",
     "codexOwnLoginNotice": "Uses your own ChatGPT account. Whether this is allowed for third-party tools depends on OpenAI's terms for your plan.",
-    "github": "GitHub",
-    "githubHint": "Optional. A token lets agents clone, push, open pull requests and use the gh CLI. Any GitHub token works (fine-grained or classic). Without one, give a repository its own token or SSH key in the project, or work without git.",
     "githubToken": "GitHub token",
     "gitName": "Git author name",
     "gitEmail": "Git author email",
@@ -635,21 +648,18 @@
     "readAccessHint": "A key with which a tool or a person can read everything here and change nothing: chats, tickets, runs, the full log and the database. Passwords and tokens stay hidden. It is sent as \"Authorization: Bearer <key>\" to the API. Revoke a key and it stops working at once.",
     "readAccessLabel": "Label, e.g. who or what reads with it",
     "general": "General",
-    "generalHint": "For all projects and agents, from the moment you save.",
-    "defaults": "Defaults",
-    "defaultsHint": "Used for new agents. Every agent can override them.",
     "defaultProvider": "Provider",
-    "defaultEffort": "Effort",
-    "managerModel": "Manager model",
-    "workerModel": "Agent model",
-    "summaryModel": "Summary model",
-    "contextLimit": "Compress at (tokens)",
-    "keepRecent": "Keep recent messages",
-    "maxParallel": "Parallel agents per project",
-    "maxParallelHint": "Each project counts its own members that work; a project can have its own number. One that only waits for its job takes no place. 0 pauses them; the manager still answers.",
-    "timezone": "Timezone",
+    "defaultEffort": "Thinking effort",
+    "managerModel": "Model for managers",
+    "workerModel": "Model for members",
+    "summaryModel": "Model for summaries",
+    "contextLimit": "Summarise a chat from (tokens)",
+    "keepRecent": "Latest messages kept as they are",
+    "maxParallel": "Agents working at the same time, per project",
+    "maxParallelHint": "How many members of one project work at once; a project can have its own number. An agent that only waits for a job does not count. 0 pauses the members; managers still answer.",
+    "timezone": "Time zone",
     "ownLoginNotice": "Uses your own Claude account login. Whether this is allowed for third-party tools depends on Anthropic's terms for your plan; an API key is the officially supported option.",
-    "sshKey": "SSH key for all repositories",
+    "sshKey": "SSH key",
     "sshKeyHint": "Used for every repository with an SSH address (git@host:owner/repo.git) that has no key of its own. Add the public key to your account at the git host, or to a separate machine user. Works with GitHub, GitLab and any other host; agents can clone and push with it.",
     "sshKeyNone": "No SSH key yet.",
     "sshKeyCreate": "Create SSH key",
@@ -659,8 +669,8 @@
     "sshKeyConfirmRemove": "Remove the SSH key? Repositories that use it can no longer be reached.",
     "sshKeyOwn": "Or use your own private key",
     "sshKeyOwnSave": "Use this key",
-    "managerParallel": "Managers may set up to",
-    "managerParallelHint": "A manager can change the number of parallel agents of its project itself, up to this value. 0: only you can change it."
+    "managerParallel": "Managers may raise it up to",
+    "managerParallelHint": "A manager can change the number for its own project, up to this. 0: only people can change it."
   },
   "archive": {
     "title": "Archive",
@@ -724,8 +734,6 @@
     "confirmDelete": "Delete {{name}}? What they wrote stays."
   },
   "members": {
-    "title": "Members",
-    "hint": "Who works in this project besides the admins. Changes apply at once.",
     "role": "Role",
     "roles": {
       "viewer": "Viewer",
@@ -829,6 +837,76 @@
       "title": "Who works on this with you?",
       "intro": "You own this project. Add others as viewers, members or owners, or leave it as it is to work alone.",
       "introAdmin": "Admins see every project. Add others as viewers, members or owners, or leave it as it is to work alone."
+    }
+  },
+  "settingsPage": {
+    "unsaved": "Not saved yet.",
+    "saved": "Saved.",
+    "atOnce": "Changes here are stored at once.",
+    "subscriptions": {
+      "label": "Subscriptions",
+      "description": "What the agents run on. Add every subscription or API key you want to use; with several, an agent takes the one with the most room left, and a project can name its own."
+    },
+    "models": {
+      "label": "Models",
+      "description": "What a new agent starts with. Every agent can be changed in its project's team; these only fill in the form.",
+      "providerHint": "Which kind of agent a new agent is.",
+      "keepRecentHint": "When a chat is summarised, this many of the latest messages stay as they are."
+    },
+    "code": {
+      "label": "Code access",
+      "description": "How agents reach your git repositories, in every project. A project or a single repository can have its own access instead.",
+      "tokenHint": "Lets agents clone, push and open pull requests on GitHub. Leave it empty if you don't use GitHub.",
+      "test": "Save and test"
+    },
+    "pace": {
+      "label": "Pace",
+      "description": "How many agents work at the same time. More finish sooner and use the subscriptions faster."
+    },
+    "general": {
+      "description": "Time zone and updates.",
+      "timezoneHint": "For schedules and for the times agents see."
+    }
+  },
+  "projectSettings": {
+    "title": "Project settings",
+    "ownersOnly": "Only owners of this project change its settings.",
+    "general": {
+      "label": "General",
+      "description": "The project's name, and what its agents should know about it."
+    },
+    "repositories": {
+      "label": "Repositories",
+      "description": "The code the agents work in, and how their finished work reaches it. Click a repository to change its settings.",
+      "none": "No repository yet. Without one, agents work in an empty folder.",
+      "test": "Test access"
+    },
+    "team": {
+      "label": "Team",
+      "description": "How this project's agents work together. Each agent's own model and instructions are in the Team view.",
+      "open": "Open the team"
+    },
+    "board": {
+      "label": "Board",
+      "description": "What happens to tickets by themselves."
+    },
+    "secrets": {
+      "label": "Secrets",
+      "description": "Keys and tokens for this project's agents only, as environment variables. Agents see the names, never the values. One with the same name as a general secret wins here."
+    },
+    "members": {
+      "label": "Members",
+      "description": "Who sees this project and what they may do. Admins always see it."
+    },
+    "publicApi": {
+      "label": "Public API"
+    },
+    "advanced": {
+      "label": "Advanced",
+      "description": "Rarely needed. Leave these empty unless you know you need them.",
+      "delete": "Delete this project",
+      "deleteHint": "Deletes the board with all tickets, the team with its chats, the notes and the schedules. The code in your repositories stays. This cannot be undone.",
+      "deleteAction": "Delete {{name}}"
     }
   }
 }

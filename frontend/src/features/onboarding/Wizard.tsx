@@ -85,7 +85,7 @@ export function Wizard({ heading, steps, doneLabel, onDone, onClose }: { heading
         <main className="scroll-thin min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-2xl space-y-5 px-4 py-6 sm:px-8 sm:py-8">
             <div className="space-y-1.5">
-              <h1 className="text-lg font-semibold">{step.title}</h1>
+              <h1 className="font-extrabold">{step.title}</h1>
               <p className="text-fg-2">{step.intro}</p>
             </div>
             {step.content}

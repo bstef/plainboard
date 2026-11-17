@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { AlertTriangle, AppWindow, ArrowUpCircle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, Users } from "lucide-react";
+import { AlertTriangle, AppWindow, ArrowUpCircle, BarChart3, CalendarClock, FolderKanban, Menu, MessageSquare, NotebookPen, Palette, PanelRight, Plug, Settings, SlidersHorizontal, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
@@ -17,7 +17,7 @@ import { ChatView } from "../chat/ChatView";
 import { LookDialog } from "./LookDialog";
 import { NotesView } from "../notes/NotesView";
 import { ProjectWizard } from "../onboarding/ProjectWizard";
-import { ProjectDialog } from "../projects/ProjectDialog";
+import { ProjectSettings } from "../projects/ProjectSettings";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
 import { SchedulesView } from "../schedules/SchedulesView";
 import { SettingsDialog } from "../settings/SettingsDialog";
@@ -27,7 +27,7 @@ import { ToolsView } from "../tools/ToolsView";
 import { RunningNow } from "./RunningNow";
 import { ShellContext, type ShellApi } from "./shell-context";
 
-export type View = "board" | "chat" | "team" | "notes" | "schedules" | "browser" | "tools" | "stats";
+export type View = "board" | "chat" | "team" | "notes" | "schedules" | "browser" | "tools" | "stats" | "project";
 
 const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "board", icon: (c) => <FolderKanban className={c} /> },
@@ -38,6 +38,8 @@ const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "browser", icon: (c) => <AppWindow className={c} /> },
   { id: "tools", icon: (c) => <Plug className={c} /> },
   { id: "stats", icon: (c) => <BarChart3 className={c} /> },
+  // The project's own settings: for its owners.
+  { id: "project", icon: (c) => <SlidersHorizontal className={c} /> },
 ];
 /** The phone's bottom bar holds this many views; the rest sit behind "More". */
 const PHONE_TABS = 4;
@@ -47,7 +49,7 @@ export function Shell() {
   const projects = useProjects();
   const [projectId, setProjectId] = useStored<number | null>("plainboard.project", null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [projectDialog, setProjectDialog] = useState<"new" | "edit" | null>(null);
+  const [newProject, setNewProject] = useState(false);
   const me = useMe();
   const mayCreate = !!me && (me.is_admin || me.may_create_projects);
 
@@ -60,7 +62,7 @@ export function Shell() {
   useEffect(() => {
     if (!offered && mayCreate && projects.data?.length === 0) {
       setOffered(true);
-      setProjectDialog("new");
+      setNewProject(true);
     }
   }, [offered, mayCreate, projects.data]);
 
@@ -80,8 +82,8 @@ export function Shell() {
           projects={projects.data ?? []}
           project={project}
           onSelectProject={setProjectId}
-          onNewProject={mayCreate ? () => setProjectDialog("new") : undefined}
-          onEditProject={project.role === "owner" ? () => setProjectDialog("edit") : undefined}
+          onNewProject={mayCreate ? () => setNewProject(true) : undefined}
+          onProjectDeleted={() => setProjectId(null)}
           onSettings={() => setSettingsOpen(true)}
         />
       ) : (
@@ -97,7 +99,7 @@ export function Shell() {
           <EmptyState icon={<FolderKanban className="size-10" />} title={t("projects.none")}>
             <p className="mb-4">{t(mayCreate ? "projects.noneHint" : "projects.noneSharedHint")}</p>
             {mayCreate && (
-              <Button variant="primary" onClick={() => setProjectDialog("new")}>
+              <Button variant="primary" onClick={() => setNewProject(true)}>
                 {t("projects.create")}
               </Button>
             )}
@@ -105,10 +107,7 @@ export function Shell() {
         </div>
       )}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      {projectDialog === "new" && <ProjectWizard onClose={() => setProjectDialog(null)} onCreated={(p) => setProjectId(p.id)} />}
-      {projectDialog === "edit" && project && (
-        <ProjectDialog project={project} onClose={() => setProjectDialog(null)} onSaved={(p) => setProjectId(p.id)} onDeleted={() => setProjectId(null)} />
-      )}
+      {newProject && <ProjectWizard onClose={() => setNewProject(false)} onCreated={(p) => setProjectId(p.id)} />}
     </>
   );
 }
@@ -195,21 +194,24 @@ function ProjectWorkspace({
   project,
   onSelectProject,
   onNewProject,
-  onEditProject,
+  onProjectDeleted,
   onSettings,
 }: {
   projects: Project[];
   project: Project;
   onSelectProject: (id: number) => void;
   onNewProject?: () => void;
-  onEditProject?: () => void;
+  onProjectDeleted: () => void;
   onSettings: () => void;
 }) {
   const { t } = useTranslation();
   const isDesktop = useIsDesktop();
   const xl = useMediaQuery("(min-width: 1280px)");
   const roomy = useMediaQuery("(min-width: 1440px)");
-  const [view, setView] = useStored<View>("plainboard.view", "board");
+  const [storedView, setView] = useStored<View>("plainboard.view", "board");
+  const owner = project.role === "owner";
+  const views = VIEWS.filter((v) => v.id !== "project" || owner);
+  const view = views.some((v) => v.id === storedView) ? storedView : "board";
   const [panelOpen, setPanelOpen] = useStored<boolean>("plainboard.chatOpen", true);
   const agents = useAgents(project.id);
   const [chatAgentId, setChatAgentId] = useStored<number | null>(`plainboard.chatAgent.${project.id}`, null);
@@ -262,7 +264,7 @@ function ProjectWorkspace({
   // The labelled sidebar needs room next to board and chat; otherwise it is an icon rail.
   const wide = xl && (!showPanel || roomy);
   const switcher = (variant: "side" | "rail" | "bar") => (
-    <ProjectSwitcher variant={variant} projects={projects} current={project} onSelect={onSelectProject} onNew={onNewProject} onEdit={onEditProject} />
+    <ProjectSwitcher variant={variant} projects={projects} current={project} onSelect={onSelectProject} onNew={onNewProject} onEdit={owner ? () => setView("project") : undefined} />
   );
 
   return (
@@ -279,7 +281,7 @@ function ProjectWorkspace({
             </div>
             <StatusHints onOpenSettings={onSettings} wide={wide} />
             <nav aria-label={t("nav.views")} className="flex shrink-0 flex-col gap-px px-2">
-              {VIEWS.map((v) => (
+              {views.map((v) => (
                 <button
                   key={v.id}
                   type="button"
@@ -349,6 +351,7 @@ function ProjectWorkspace({
               {view === "browser" && <BrowserView request={browserRequest} />}
               {view === "tools" && <ToolsView />}
               {view === "stats" && <StatsView />}
+              {view === "project" && <ProjectSettings onOpenTeam={() => setView("team")} onDeleted={onProjectDeleted} />}
             </main>
             {showPanel && (
               <>
@@ -362,7 +365,7 @@ function ProjectWorkspace({
             )}
           </div>
 
-          {!isDesktop && <PhoneTabs view={view} setView={setView} onSettings={onSettings} />}
+          {!isDesktop && <PhoneTabs views={views} view={view} setView={setView} onSettings={onSettings} />}
         </div>
       </div>
       {openTaskId !== null && <TaskModal taskId={openTaskId} onClose={() => setOpenTaskId(null)} />}
@@ -371,12 +374,12 @@ function ProjectWorkspace({
 }
 
 /** Bottom navigation on phones: the main views, and a sheet with the rest. */
-function PhoneTabs({ view, setView, onSettings }: { view: View; setView: (v: View) => void; onSettings: () => void }) {
+function PhoneTabs({ views, view, setView, onSettings }: { views: typeof VIEWS; view: View; setView: (v: View) => void; onSettings: () => void }) {
   const { t } = useTranslation();
   const [more, setMore] = useState(false);
   const [lookOpen, setLookOpen] = useState(false);
-  const tabs = VIEWS.slice(0, PHONE_TABS);
-  const rest = VIEWS.slice(PHONE_TABS);
+  const tabs = views.slice(0, PHONE_TABS);
+  const rest = views.slice(PHONE_TABS);
   const tab = (active: boolean) =>
     clsx(
       "relative flex min-h-[58px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5",

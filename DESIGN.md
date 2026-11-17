@@ -165,6 +165,7 @@ One corner: every `rounded-*` resolves to 2px. Fields and secondary buttons are 
 - **Running now** (`RunningNow`): grid with fixed columns: mark, agent, ticket, time.
 - **Chat** (`MessageItem`, `CHAT_ROW`): every entry is a ruled row with name left and time right. The user's rows are `sunk`. There are no bubbles.
 - **Dialog** (`Modal`): full screen below 640px. Title at 800 on a 2px `fg` rule.
+- **Settings** (`SettingsLayout`, `SaveRow`): settings are never one long form. They are a list of sections with one open: the list at the left from 672px of own width (a container query, so it also holds next to the chat panel), a scrolling row above the section below that. A section starts with its caps head on the 2px rule and one or two sentences on what is decided there. A section that is a form ends in its own Save, which says "Not saved yet" and "Saved"; a list that stores every change by itself says so. Every field has a persistent label and a hint that says what it does and what empty means; placeholders are only examples. The project's settings are a view in the navigation (`ProjectSettings`), the installation's a page over the app (`SettingsDialog`), the two wizards (`features/onboarding/`) use the same section names.
 - **Labels** (`Label`): a 7px coloured square plus the name as text. **Agents** (`AgentSquare`): the first letter on the agent's own colour.
 - **Icons:** `lucide-react`, 16px, 20px in phone navigation.
 

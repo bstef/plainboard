@@ -71,7 +71,7 @@ The first time you open a new PlainBoard it asks you to create the admin account
 through the basic settings: subscriptions, models, code access, pace, secrets. On a server it asks
 for `PLAINBOARD_PASSWORD` once at that point (the setup password), so nobody else can claim it.
 
-Add further people in **Settings → People**. They see nothing until they are a member of a project
+Add further people in **PlainBoard settings → People**. They see nothing until they are a member of a project
 (**Project settings → Members**):
 
 | Role | Can |

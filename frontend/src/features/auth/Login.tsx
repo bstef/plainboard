@@ -14,7 +14,7 @@ export function AuthPage({ title, intro, children }: { title: string; intro?: Re
           <Logo /> PlainBoard
         </div>
         <div className="space-y-1">
-          <h1 className="text-lg font-semibold">{title}</h1>
+          <h1 className="font-extrabold">{title}</h1>
           {intro && <p className="text-fg-3">{intro}</p>}
         </div>
         {children}

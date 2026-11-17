@@ -1,19 +1,21 @@
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { CheckCircle2, XCircle } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { CheckCircle2, X, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { checks, qk, useMe, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
-import { Button, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from "../../components/ui";
+import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
+import { Button, ErrorText, Field, IconButton, Input, PageHead, Select, Textarea, Toggle } from "../../components/ui";
+import { useStored } from "../../lib/hooks";
 import { equivalentModel } from "../../lib/models";
 import { ModelSelect } from "../team/AgentEditor";
 import { AccountEditor } from "./AccountEditor";
 import { AccountsEditor } from "./AccountsEditor";
-import { UsersEditor } from "./UsersEditor";
 import { SecretsEditor } from "./SecretsEditor";
+import { UsersEditor } from "./UsersEditor";
 
 export function CheckBadge({ result }: { result: CheckResult | null }) {
   if (!result) return null;
@@ -29,37 +31,41 @@ export function CheckBadge({ result }: { result: CheckResult | null }) {
 
 type Values = Record<string, any>;
 
+/** The installation's settings on a page of its own: one section per subject. Everyone has the
+ * section about their own account; the rest is the admins'. */
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const settings = useSettings();
   const meta = useMeta();
   const me = useMe();
+  const [current, setCurrent] = useStored<string>("plainboard.settingsSection", "account");
   const [values, setValues] = useState<Values>({});
-  const [secrets, setSecrets] = useState<Values>({});
-  const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
+  const [githubToken, setGithubToken] = useState<string | null>(null); // null: untouched, "": clear it
   const [githubCheck, setGithubCheck] = useState<CheckResult | null>(null);
 
   useEffect(() => {
     if (open && settings.data) {
       setValues(settings.data.values);
-      setSecrets({});
+      setGithubToken(null);
       setGithubCheck(null);
     }
   }, [open, settings.data]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
-  if (!me?.is_admin) {
-    // The installation's settings are the admins'. Everyone has an account of their own.
-    return (
-      <Modal open={open} onClose={onClose} title={t("account.title")} width="max-w-lg">
-        <AccountEditor />
-      </Modal>
-    );
-  }
-  if (!settings.data) return null;
+  if (!open || !me) return null;
+  const stored = settings.data?.values ?? {};
   const set = (patch: Values) => setValues((v) => ({ ...v, ...patch }));
-  const setSecret = (patch: Values) => setSecrets((s) => ({ ...s, ...patch }));
+  const dirty = (...keys: string[]) => keys.some((k) => values[k] !== stored[k]);
+  const save = async (keys: string[], more: Values = {}) => {
+    await api.put("/settings", { values: { ...Object.fromEntries(keys.map((k) => [k, values[k]])), ...more } });
+    await qc.invalidateQueries({ queryKey: qk.settings });
+  };
   const providers = meta.data?.providers ?? [];
   const provider = providers.find((p) => p.name === (values.default_provider ?? "claude_code"));
   const setDefaultProvider = (name: string) =>
@@ -69,184 +75,210 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       default_worker_model: equivalentModel(providers, values.default_worker_model ?? "", name),
       default_summary_model: equivalentModel(providers, values.default_summary_model ?? "", name),
     });
-
-  const persist = async () => {
-    const editable = Object.fromEntries(Object.entries(values).filter(([k]) => !settings.data!.secrets.includes(k)));
-    const changedSecrets = Object.fromEntries(Object.entries(secrets).filter(([, v]) => v !== undefined));
-    await api.put("/settings", { values: { ...editable, ...changedSecrets } });
-    setSecrets({});
-    await qc.invalidateQueries({ queryKey: qk.settings });
+  const saveCode = async () => {
+    await save(["git_author_name", "git_author_email"], githubToken === null ? {} : { github_token: githubToken });
+    setGithubToken(null);
   };
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await persist();
-      onClose();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const checkGithub = async () => {
     setGithubCheck({ ok: true, detail: t("settings.testing") });
     try {
-      await persist();
+      await saveCode();
       setGithubCheck(await checks.github());
     } catch (err) {
       setGithubCheck({ ok: false, detail: errorMessage(err) });
     }
   };
+  const MODELS = ["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_effort", "default_context_limit", "default_keep_recent"];
+  const PACE = ["max_parallel_runs", "manager_parallel_limit"];
+  const GENERAL = ["timezone", "update_check"];
 
-  const secretField = (key: string, label: string, hint?: ReactNode) => (
-    <Field
-      group
-      label={label}
-      hint={
-        <>
-          {settings.data!.values[key] ? t("settings.secretSet") : settings.data!.env_fallbacks[key] ? t("settings.secretFromEnv") : t("settings.secretUnset")}
-          {hint && <> · {hint}</>}
-        </>
-      }
-    >
-      <div className="flex gap-2">
-        <Input type="password" autoComplete="off" placeholder="••••••••" value={secrets[key] ?? ""} onChange={(e) => setSecret({ [key]: e.target.value })} />
-        {settings.data!.values[key] && (
-          <Button size="md" variant="ghost" onClick={() => setSecret({ [key]: "" })}>
-            {t("settings.clear")}
-          </Button>
-        )}
-      </div>
-    </Field>
-  );
+  const account: SettingsSection = { id: "account", label: t("account.title"), description: t("account.hint"), content: <AccountEditor /> };
+  const admin: SettingsSection[] = !me.is_admin || !settings.data
+    ? []
+    : [
+        { id: "people", label: t("users.title"), description: t("users.hint"), content: <UsersEditor /> },
+        {
+          id: "subscriptions",
+          label: t("settingsPage.subscriptions.label"),
+          description: t("settingsPage.subscriptions.description"),
+          content: (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <h3 className="font-semibold">{t("settings.claude")}</h3>
+                <p className="text-fg-3">{t("settings.claudeHint")}</p>
+                <AccountsEditor provider="claude_code" />
+              </div>
+              {providers.some((p) => p.name === "codex") && (
+                <div className="space-y-2">
+                  <h3 className="font-semibold">{t("settings.codex")}</h3>
+                  <p className="text-fg-3">{t("settings.codexHint")}</p>
+                  <AccountsEditor provider="codex" />
+                </div>
+              )}
+              <SavedAtOnce />
+            </div>
+          ),
+        },
+        {
+          id: "models",
+          label: t("settingsPage.models.label"),
+          description: t("settingsPage.models.description"),
+          content: (
+            <div className="space-y-4">
+              {providers.length > 1 && (
+                <Field label={t("settings.defaultProvider")} hint={t("settingsPage.models.providerHint")}>
+                  <Select value={values.default_provider ?? "claude_code"} onChange={(e) => setDefaultProvider(e.target.value)}>
+                    {providers.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+              <Field label={t("settings.managerModel")} hint={t("setup.models.managerHint")}>
+                <ModelSelect provider={provider} value={values.default_manager_model ?? ""} onChange={(v) => set({ default_manager_model: v })} />
+              </Field>
+              <Field label={t("settings.workerModel")} hint={t("setup.models.workerHint")}>
+                <ModelSelect provider={provider} value={values.default_worker_model ?? ""} onChange={(v) => set({ default_worker_model: v })} />
+              </Field>
+              <Field label={t("settings.summaryModel")} hint={t("setup.models.summaryHint")}>
+                <ModelSelect provider={provider} value={values.default_summary_model ?? ""} onChange={(v) => set({ default_summary_model: v })} />
+              </Field>
+              <Field label={t("settings.defaultEffort")} hint={t("setup.models.effortHint")}>
+                <Select value={values.default_effort ?? ""} onChange={(e) => set({ default_effort: e.target.value || null })}>
+                  <option value="">{t("team.effortDefault")}</option>
+                  {(provider?.efforts ?? []).map((e) => (
+                    <option key={e} value={e}>
+                      {e}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={t("settings.contextLimit")} hint={t("team.contextLimitHint")}>
+                  <Input type="number" min={5000} step={5000} value={values.default_context_limit ?? 350000} onChange={(e) => set({ default_context_limit: Number(e.target.value) })} />
+                </Field>
+                <Field label={t("settings.keepRecent")} hint={t("settingsPage.models.keepRecentHint")}>
+                  <Input type="number" min={0} max={50} value={values.default_keep_recent ?? 6} onChange={(e) => set({ default_keep_recent: Number(e.target.value) })} />
+                </Field>
+              </div>
+              <SaveRow dirty={dirty(...MODELS)} onSave={() => save(MODELS)} />
+            </div>
+          ),
+        },
+        {
+          id: "code",
+          label: t("settingsPage.code.label"),
+          description: t("settingsPage.code.description"),
+          content: (
+            <div className="space-y-4">
+              <Field
+                group
+                label={t("settings.githubToken")}
+                hint={
+                  <>
+                    {stored.github_token ? t("settings.secretSet") : settings.data.env_fallbacks.github_token ? t("settings.secretFromEnv") : t("settings.secretUnset")} · {t("settingsPage.code.tokenHint")}
+                  </>
+                }
+              >
+                <div className="flex gap-2">
+                  <Input type="password" autoComplete="off" aria-label={t("settings.githubToken")} value={githubToken ?? ""} onChange={(e) => setGithubToken(e.target.value)} />
+                  {stored.github_token && (
+                    <Button variant="ghost" onClick={() => setGithubToken("")}>
+                      {t("settings.clear")}
+                    </Button>
+                  )}
+                </div>
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label={t("settings.gitName")} hint={t("setup.code.authorHint")}>
+                  <Input value={values.git_author_name ?? ""} onChange={(e) => set({ git_author_name: e.target.value })} />
+                </Field>
+                <Field label={t("settings.gitEmail")}>
+                  <Input value={values.git_author_email ?? ""} onChange={(e) => set({ git_author_email: e.target.value })} />
+                </Field>
+              </div>
+              <SaveRow dirty={dirty("git_author_name", "git_author_email") || githubToken !== null} onSave={saveCode}>
+                <CheckBadge result={githubCheck} />
+                <Button onClick={checkGithub}>{t("settingsPage.code.test")}</Button>
+              </SaveRow>
+              <div className="pt-2">
+                <SshKeyEditor publicKey={stored.git_ssh_public_key ?? ""} />
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: "pace",
+          label: t("settingsPage.pace.label"),
+          description: t("settingsPage.pace.description"),
+          content: (
+            <div className="space-y-4">
+              <Field label={t("settings.maxParallel")} hint={t("settings.maxParallelHint")}>
+                <Input type="number" min={0} max={20} className="w-28" value={values.max_parallel_runs ?? 3} onChange={(e) => set({ max_parallel_runs: Number(e.target.value) })} />
+              </Field>
+              <Field label={t("settings.managerParallel")} hint={t("settings.managerParallelHint")}>
+                <Input type="number" min={0} max={20} className="w-28" value={values.manager_parallel_limit ?? 6} onChange={(e) => set({ manager_parallel_limit: Number(e.target.value) })} />
+              </Field>
+              <SaveRow dirty={dirty(...PACE)} onSave={() => save(PACE)} />
+            </div>
+          ),
+        },
+        {
+          id: "secrets",
+          label: t("secrets.title"),
+          description: t("secrets.globalHint"),
+          content: (
+            <div className="space-y-4">
+              <SecretsEditor projectId={null} />
+              <SavedAtOnce />
+            </div>
+          ),
+        },
+        {
+          id: "general",
+          label: t("settings.general"),
+          description: t("settingsPage.general.description"),
+          content: (
+            <div className="space-y-4">
+              <Field label={t("settings.timezone")} hint={t("settingsPage.general.timezoneHint")}>
+                <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
+              </Field>
+              <div className="space-y-1">
+                <Toggle checked={values.update_check ?? true} onChange={(v) => set({ update_check: v })} label={t("settings.updateCheck")} />
+                <p className="text-fg-3">
+                  {t("settings.updateCheckHint")}
+                  {meta.data?.version && ` ${t("settings.versionRunning", { commit: meta.data.version.commit })}`}
+                  {meta.data?.version?.behind ? ` ${t("update.how", { count: meta.data.version.behind })}` : meta.data?.version?.behind === 0 ? ` ${t("settings.versionCurrent")}` : ""}
+                </p>
+              </div>
+              <SaveRow dirty={dirty(...GENERAL)} onSave={() => save(GENERAL)} />
+            </div>
+          ),
+        },
+        {
+          id: "readAccess",
+          label: t("settings.readAccess"),
+          description: t("settings.readAccessHint"),
+          content: (
+            <div className="space-y-4">
+              <ApiKeyEditor path="/access-keys" revokePath="/access-keys" placeholder={t("settings.readAccessLabel")} />
+              <SavedAtOnce />
+            </div>
+          ),
+        },
+      ];
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t("settings.title")}
-      footer={
-        <>
-          <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={save} loading={busy}>
-            {t("common.save")}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-7">
-        <Section title={t("account.title")} description={t("account.hint")}>
-          <AccountEditor />
-        </Section>
-
-        <Section title={t("users.title")} description={t("users.hint")}>
-          <UsersEditor />
-        </Section>
-
-        <Section title={t("settings.claude")} description={t("settings.claudeHint")}>
-          <AccountsEditor provider="claude_code" />
-        </Section>
-
-        {providers.some((p) => p.name === "codex") && (
-          <Section title={t("settings.codex")} description={t("settings.codexHint")}>
-            <AccountsEditor provider="codex" />
-          </Section>
-        )}
-
-        <Section title={t("settings.github")} description={t("settings.githubHint")}>
-          {secretField("github_token", t("settings.githubToken"))}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={t("settings.gitName")}>
-              <Input value={values.git_author_name ?? ""} onChange={(e) => set({ git_author_name: e.target.value })} />
-            </Field>
-            <Field label={t("settings.gitEmail")}>
-              <Input value={values.git_author_email ?? ""} onChange={(e) => set({ git_author_email: e.target.value })} />
-            </Field>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button size="sm" onClick={checkGithub}>
-              {t("settings.test")}
-            </Button>
-            <CheckBadge result={githubCheck} />
-          </div>
-          <SshKeyEditor publicKey={settings.data.values.git_ssh_public_key ?? ""} />
-        </Section>
-
-        <Section title={t("secrets.title")} description={t("secrets.globalHint")}>
-          <SecretsEditor projectId={null} />
-        </Section>
-
-        {/* What holds for the whole installation, at once: not a default that an agent could override. */}
-        <Section title={t("settings.general")} description={t("settings.generalHint")}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={t("settings.maxParallel")} hint={t("settings.maxParallelHint")}>
-              <Input type="number" min={0} max={20} value={values.max_parallel_runs ?? 3} onChange={(e) => set({ max_parallel_runs: Number(e.target.value) })} />
-            </Field>
-            <Field label={t("settings.managerParallel")} hint={t("settings.managerParallelHint")}>
-              <Input type="number" min={0} max={20} value={values.manager_parallel_limit ?? 6} onChange={(e) => set({ manager_parallel_limit: Number(e.target.value) })} />
-            </Field>
-            <Field label={t("settings.timezone")}>
-              <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
-            </Field>
-          </div>
-          <div className="space-y-1">
-            <Toggle checked={values.update_check ?? true} onChange={(v) => set({ update_check: v })} label={t("settings.updateCheck")} />
-            <p className="text-fg-3">
-              {t("settings.updateCheckHint")}
-              {meta.data?.version && ` ${t("settings.versionRunning", { commit: meta.data.version.commit })}`}
-              {meta.data?.version?.behind ? ` ${t("update.how", { count: meta.data.version.behind })}` : meta.data?.version?.behind === 0 ? ` ${t("settings.versionCurrent")}` : ""}
-            </p>
-          </div>
-        </Section>
-
-        <Section title={t("settings.defaults")} description={t("settings.defaultsHint")}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={t("settings.defaultProvider")}>
-              <Select value={values.default_provider ?? "claude_code"} onChange={(e) => setDefaultProvider(e.target.value)}>
-                {providers.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label={t("settings.defaultEffort")}>
-              <Select value={values.default_effort ?? ""} onChange={(e) => set({ default_effort: e.target.value || null })}>
-                <option value="">{t("team.effortDefault")}</option>
-                {(provider?.efforts ?? []).map((e) => (
-                  <option key={e} value={e}>
-                    {e}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label={t("settings.managerModel")}>
-              <ModelSelect provider={provider} value={values.default_manager_model ?? ""} onChange={(v) => set({ default_manager_model: v })} />
-            </Field>
-            <Field label={t("settings.workerModel")}>
-              <ModelSelect provider={provider} value={values.default_worker_model ?? ""} onChange={(v) => set({ default_worker_model: v })} />
-            </Field>
-            <Field label={t("settings.summaryModel")} hint={t("team.summaryModelHint")}>
-              <ModelSelect provider={provider} value={values.default_summary_model ?? ""} onChange={(v) => set({ default_summary_model: v })} />
-            </Field>
-            <Field label={t("settings.contextLimit")} hint={t("team.contextLimitHint")}>
-              <Input type="number" min={5000} step={5000} value={values.default_context_limit ?? 350000} onChange={(e) => set({ default_context_limit: Number(e.target.value) })} />
-            </Field>
-            <Field label={t("settings.keepRecent")}>
-              <Input type="number" min={0} max={50} value={values.default_keep_recent ?? 6} onChange={(e) => set({ default_keep_recent: Number(e.target.value) })} />
-            </Field>
-          </div>
-        </Section>
-
-        <Section title={t("settings.readAccess")} description={t("settings.readAccessHint")}>
-          <ApiKeyEditor path="/access-keys" revokePath="/access-keys" placeholder={t("settings.readAccessLabel")} />
-        </Section>
-        <ErrorText error={error} />
-      </div>
-    </Modal>
+    <div role="dialog" aria-modal="true" aria-label={t("settings.title")} className="fixed inset-0 z-50 flex flex-col bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <PageHead title={t("settings.title")}>
+        <IconButton label={t("common.close")} onClick={onClose}>
+          <X className="size-4" />
+        </IconButton>
+      </PageHead>
+      <SettingsLayout label={t("settings.title")} sections={[account, ...admin]} current={current} onChange={setCurrent} />
+    </div>
   );
 }
 
@@ -325,17 +357,5 @@ export function SshKeyEditor({ publicKey }: { publicKey: string }) {
         <ErrorText error={error} />
       </div>
     </Field>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <h3 className="font-semibold">{title}</h3>
-        <p className="text-fg-3">{description}</p>
-      </div>
-      {children}
-    </section>
   );
 }

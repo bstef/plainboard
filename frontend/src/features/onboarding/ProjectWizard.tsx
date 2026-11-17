@@ -6,8 +6,7 @@ import { qk, useAccounts, useMe, useMeta, useRepositories, useSettings } from ".
 import type { Agent, Project } from "../../api/types";
 import { Field, Input, Select, Textarea, Toggle } from "../../components/ui";
 import { MembersEditor } from "../projects/MembersEditor";
-import { toBody, toDraft } from "../projects/ProjectDialog";
-import { RepositoriesEditor } from "../projects/RepositoriesEditor";
+import { RepositoriesEditor, toBody, toDraft } from "../projects/RepositoriesEditor";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { ModelSelect } from "../team/AgentEditor";
 import { usable } from "./SetupWizard";

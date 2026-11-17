@@ -2,8 +2,8 @@ import { Check, Copy, GitBranch, KeyRound, ListChecks, Pencil, Plus, Trash2 } fr
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/client";
-import type { RepoAuth } from "../../api/types";
-import { Button, Field, IconButton, Input, Select, Textarea, Toggle } from "../../components/ui";
+import type { RepoAuth, Repository } from "../../api/types";
+import { Button, Field, IconButton, Input, Segmented, Select, Textarea } from "../../components/ui";
 import { GitHubRepoPicker } from "./GitHubRepoPicker";
 
 export interface RepoDraft {
@@ -43,6 +43,38 @@ export const emptyRepo = (): RepoDraft => ({
   ssh_private_key: "",
   ssh_public_key: "",
   new_ssh_key: false,
+});
+
+export const toDraft = (r: Repository): RepoDraft => ({
+  key: r.id,
+  name: r.name,
+  url: r.url,
+  default_branch: r.default_branch ?? "",
+  description: r.description,
+  check_command: r.check_command ?? "",
+  quick_check_command: r.quick_check_command ?? "",
+  land_first: r.land_first ?? false,
+  auth: r.auth,
+  token: "",
+  token_user: r.token_user,
+  has_token: r.has_token,
+  ssh_private_key: "",
+  ssh_public_key: r.ssh_public_key,
+  new_ssh_key: false,
+});
+
+// Secrets are write-only: an empty field keeps what is stored.
+export const toBody = (d: RepoDraft) => ({
+  url: d.url.trim(),
+  name: d.name.trim() || null,
+  default_branch: d.default_branch.trim() || null,
+  description: d.description,
+  check_command: d.check_command.trim(),
+  quick_check_command: d.quick_check_command.trim(),
+  land_first: d.land_first,
+  auth: d.auth,
+  ...(d.auth === "token" ? { token_user: d.token_user.trim(), ...(d.token ? { token: d.token } : {}) } : {}),
+  ...(d.auth === "ssh" && d.ssh_private_key.trim() ? { ssh_private_key: d.ssh_private_key } : {}),
 });
 
 const AUTHS: { value: RepoAuth; label: string; hint: string }[] = [
@@ -162,18 +194,26 @@ export function RepositoriesEditor({
       {repos.length > 0 && (
         <ul className="divide-y divide-line rounded-sm ring-1 ring-line">
           {repos.map((repo) => (
-            <li key={repo.key} className="flex items-center gap-2 px-3 py-2">
+            <li key={repo.key} className="flex items-center gap-2 px-3 py-2 hover:bg-sunk">
               <GitBranch className="size-3.5 shrink-0 text-fg-3" />
-              <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => {
+                  setIsNew(false);
+                  setEditing({ ...repo });
+                }}
+              >
                 <div className="truncate font-medium">
                   {repo.name || t("projects.repoAutoName")}
                   {repo.default_branch && <span className="ml-1.5 font-normal text-fg-3">@{repo.default_branch}</span>}
                   {repo.auth !== "default" && (
                     <span className="ml-1.5 font-normal text-fg-3">· {t(repo.auth === "ssh" ? "projects.repoAccessBadgeSsh" : "projects.repoAccessBadgeToken")}</span>
                   )}
+                  {repo.land_first && <span className="ml-1.5 font-normal text-fg-3">· {t("projects.repoLandFirstBadge")}</span>}
                 </div>
                 <div className="truncate font-mono text-fg-3">{repo.url}</div>
-              </div>
+              </button>
               {repo.ssh_public_key && (
                 <IconButton label={t("projects.repoSshCopyKey")} onClick={() => navigator.clipboard.writeText(repo.ssh_public_key)}>
                   <KeyRound className="size-3.5" />
@@ -206,27 +246,59 @@ export function RepositoriesEditor({
         </ul>
       )}
       {editing ? (
-        <div className="space-y-2 rounded-sm bg-sunk p-3">
-          <Input autoFocus placeholder="https://github.com/owner/repo.git" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} className="font-mono" />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input placeholder={t("projects.repoNamePlaceholder")} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
-            <Input placeholder={t("projects.repoBranchPlaceholder")} value={editing.default_branch} onChange={(e) => setEditing({ ...editing, default_branch: e.target.value })} />
+        <div data-part="repo-form" className="space-y-5 rounded-sm bg-sunk p-3 sm:p-4">
+          <div className="space-y-3">
+            <h3 className="font-semibold">{isNew ? t("projects.repoNew") : editing.name || t("projects.repoEdit")}</h3>
+            <Field label={t("projects.repoUrl")} hint={t("projects.repoUrlHint")}>
+              <Input autoFocus placeholder="https://github.com/owner/repo.git" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} className="font-mono" />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t("projects.repoBranch")} hint={t("projects.repoBranchHint")}>
+                <Input placeholder="main" value={editing.default_branch} onChange={(e) => setEditing({ ...editing, default_branch: e.target.value })} />
+              </Field>
+              <Field label={t("projects.repoName")} hint={t("projects.repoNameHint")}>
+                <Input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+              </Field>
+            </div>
+            <Field label={t("projects.repoDescription")} hint={t("projects.repoDescriptionHint")}>
+              <Input value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
+            </Field>
           </div>
-          <Input placeholder={t("projects.repoDescriptionPlaceholder")} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
-          <Input placeholder={t("projects.repoCheckPlaceholder")} value={editing.check_command} onChange={(e) => setEditing({ ...editing, check_command: e.target.value })} className="font-mono" />
-          <p className="text-fg-3">{t("projects.repoCheckHint")}</p>
-          <Input placeholder={t("projects.repoQuickCheckPlaceholder")} value={editing.quick_check_command} onChange={(e) => setEditing({ ...editing, quick_check_command: e.target.value })} className="font-mono" />
-          <p className="text-fg-3">{t("projects.repoQuickCheckHint")}</p>
-          <Toggle checked={editing.land_first} onChange={(land_first) => setEditing({ ...editing, land_first })} label={t("projects.repoLandFirst")} />
-          <p className="text-fg-3">{t("projects.repoLandFirstHint")}</p>
-          <AccessFields draft={editing} onChange={(patch) => setEditing({ ...editing, ...patch })} />
-          <div className="flex gap-2">
-            <Button size="sm" variant="primary" onClick={submit} disabled={!editing.url.trim()}>
-              {isNew ? t("projects.addRepo") : t("common.save")}
+
+          <div className="space-y-3 border-t border-line pt-4">
+            <div>
+              <h3 className="font-semibold">{t("projects.repoLanding")}</h3>
+              <p className="text-fg-3">{t("projects.repoLandingHint")}</p>
+            </div>
+            <Field group label={t("projects.repoLandWhen")} hint={t(editing.land_first ? "projects.repoLandFirstHint" : "projects.repoLandCheckedHint")}>
+              <Segmented
+                aria-label={t("projects.repoLandWhen")}
+                className="max-w-full flex-wrap"
+                value={editing.land_first ? "first" : "checked"}
+                onChange={(v) => setEditing({ ...editing, land_first: v === "first" })}
+                options={[
+                  { value: "checked", label: t("projects.repoLandChecked") },
+                  { value: "first", label: t("projects.repoLandFirst") },
+                ]}
+              />
+            </Field>
+            <Field label={t("projects.repoQuickCheck")} hint={t("projects.repoQuickCheckHint")}>
+              <Input placeholder="cargo fmt --check && cargo clippy" value={editing.quick_check_command} onChange={(e) => setEditing({ ...editing, quick_check_command: e.target.value })} className="font-mono" />
+            </Field>
+            <Field label={t("projects.repoCheck")} hint={t("projects.repoCheckHint")}>
+              <Input placeholder="./scripts/ci.sh" value={editing.check_command} onChange={(e) => setEditing({ ...editing, check_command: e.target.value })} className="font-mono" />
+            </Field>
+          </div>
+
+          <div className="space-y-3 border-t border-line pt-4">
+            <AccessFields draft={editing} onChange={(patch) => setEditing({ ...editing, ...patch })} />
+          </div>
+
+          <div className="flex gap-2 border-t border-line pt-4">
+            <Button variant="primary" onClick={submit} disabled={!editing.url.trim()}>
+              {isNew ? t("projects.addRepo") : t("projects.repoSave")}
             </Button>
-            <Button size="sm" onClick={() => setEditing(null)}>
-              {t("common.cancel")}
-            </Button>
+            <Button onClick={() => setEditing(null)}>{t("common.cancel")}</Button>
           </div>
         </div>
       ) : picking ? (
@@ -244,13 +316,9 @@ export function RepositoriesEditor({
           }}
         />
       ) : (
-        <div className="flex flex-wrap gap-1">
-          <Button size="sm" variant="ghost" icon={<ListChecks className="size-3.5" />} onClick={() => setPicking(true)}>
-            {t("projects.pickFromGithub")}
-          </Button>
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
-            variant="ghost"
             icon={<Plus className="size-3.5" />}
             onClick={() => {
               setIsNew(true);
@@ -258,6 +326,9 @@ export function RepositoriesEditor({
             }}
           >
             {t("projects.addRepoByUrl")}
+          </Button>
+          <Button size="sm" variant="ghost" icon={<ListChecks className="size-3.5" />} onClick={() => setPicking(true)}>
+            {t("projects.pickFromGithub")}
           </Button>
         </div>
       )}
