@@ -145,7 +145,16 @@ def build_mcp_server(bridge: ToolBridge):
             return handler
 
         tools.append(tool(definition.name, definition.description, definition.input_schema)(make_handler(definition.name)))
-    return create_sdk_mcp_server(name=MCP_SERVER_NAME, version="1.0.0", tools=tools)
+    server = create_sdk_mcp_server(name=MCP_SERVER_NAME, version="1.0.0", tools=tools)
+    # PlainBoard's own tools are in the prompt with their descriptions and parameters, not found
+    # on demand. Claude Code defers MCP tools by default: the agent then sees only their names, has
+    # to search before it can call one (a step), and when it guesses the parameters instead, the
+    # call is refused (another step). Measured on a day of real work: 84 searches and 57 refused
+    # calls of 1640. The definitions are short (about 3k tokens for a member, 7k for a manager) and
+    # cached like the system prompt; that is about what the extra steps cost. Tools of the MCP
+    # servers the user added stay deferred: they can be many and long.
+    server["alwaysLoad"] = True  # type: ignore[typeddict-unknown-key]
+    return server
 
 
 class ToolTimer:

@@ -312,6 +312,21 @@ def test_run_accepts_messages_with_large_screenshots(workspaces):
     assert options.max_buffer_size > 10 * 1024 * 1024
 
 
+def test_plainboards_own_tools_are_in_the_prompt_and_the_users_mcp_servers_stay_on_demand(workspaces):
+    from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
+
+    external = [{"name": "docs", "transport": "http", "url": "https://x/mcp"}]
+    spec = RunSpec(**{**run_spec(workspaces, "hi"), "credentials": {"claude_auth_mode": "runner_login"}, "mcp_servers": external})
+    options = ClaudeCodeProvider()._options(spec, ToolBridge(spec.bridge, workspaces), collections.deque())
+    assert options.mcp_servers["plainboard"]["alwaysLoad"] is True and "alwaysLoad" not in options.mcp_servers["docs"]
+    # It reaches Claude Code: the SDK passes the server's settings on, without the server object itself.
+    transport = SubprocessCLITransport(prompt="hi", options=options)
+    transport._cli_path = "claude"
+    command = transport._build_command()
+    config = json.loads(command[command.index("--mcp-config") + 1])["mcpServers"]
+    assert config["plainboard"] == {"type": "sdk", "name": "plainboard", "alwaysLoad": True} and config["docs"]["url"] == "https://x/mcp"
+
+
 def job_spec(workspaces, job_id: str, command: str) -> JobSpec:
     return JobSpec(id=job_id, command=command, workspace=str(workspaces / "p" / "a"), credentials=Credentials())
 
