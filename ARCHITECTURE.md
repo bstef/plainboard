@@ -103,6 +103,14 @@ A job outlives its run: the stop button of a run does not touch it. If a job of 
 running when its turn ends, the assignment stays open and goes on when the job ends. Cancelling an
 assignment (`cancel_assignment`) stops its jobs, also when it has no turn at the moment.
 
+A provider's own background work belongs to the turn. Claude Code runs sub-agents in the background, and
+an agent with nothing else to do ends its turn while they work; the session goes on by itself when one
+reports. The runner does not take that end as the turn's result (`claude_code.BackgroundWork`, fed by Claude
+Code's Stop hook, which lists what is in flight): it keeps the session open until no sub-agent is left, with
+no model turn spent on waiting. A message for the waiting agent is given to it as a prompt at once. After
+20 minutes without any sign of life the agent is told to finish without. Background shells are not waited
+for: a dev server never ends.
+
 `wind_down` stops an agent safely. A running turn gets an urgent notice: it arrives after the current tool
 call, and a tool call still open after 60 seconds is interrupted (`claude_code.UrgentNoticeWatch`). An agent
 with no turn but running jobs gets a turn for stopping them, even if it is paused. A paused (disabled) agent

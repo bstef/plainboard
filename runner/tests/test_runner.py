@@ -726,3 +726,112 @@ async def test_the_limits_of_a_token_subscription_come_from_a_minimal_turn(monke
     assert FakeUsageClient.asked == ["claude-haiku-5-5: ok"]
 
     assert await provider.limits(Credentials(claude_auth_mode="api_key", anthropic_api_key="k")) == []  # an API key has no plan
+
+
+def turn_end(text: str) -> ResultMessage:
+    return ResultMessage(subtype="success", duration_ms=1, duration_api_ms=1, is_error=False, num_turns=1, session_id="s1", total_cost_usd=0.01, usage={}, result=text)
+
+
+class FakeSessionClient:
+    """Stands in for the SDK client with a session that goes on by itself: every entry of
+    ``turns`` is one turn, the messages up to its result. Before a turn's result Claude Code asks
+    the Stop hook, with the background work in flight then."""
+
+    turns: list[tuple[list, list[dict]]] = []
+    asked: list[str] = []
+
+    def __init__(self, options=None):
+        self.options = options
+        self.turns = list(FakeSessionClient.turns)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def query(self, prompt):
+        FakeSessionClient.asked.append(prompt)
+
+    async def receive_response(self):
+        if not self.turns:
+            return
+        messages, in_flight = self.turns.pop(0)
+        for message in messages[:-1]:
+            yield message
+        await self.options.hooks["Stop"][0].hooks[0]({"hook_event_name": "Stop", "background_tasks": in_flight}, None, None)
+        yield messages[-1]
+
+
+async def run_session(monkeypatch, workspaces, turns) -> list:
+    from plainboard_runner.providers import claude_code
+
+    monkeypatch.setattr(claude_code, "ClaudeSDKClient", FakeSessionClient)
+    FakeSessionClient.turns, FakeSessionClient.asked = turns, []
+    spec = RunSpec(**{**run_spec(workspaces, "Write the report"), "credentials": {"claude_auth_mode": "runner_login"}})
+    return [event async for event in ClaudeCodeProvider().run(spec, ToolBridge(spec.bridge, workspaces))]
+
+
+def says(text: str) -> AssistantMessage:
+    return AssistantMessage(content=[TextBlock(text=text)], model="m")
+
+
+async def test_a_turn_that_ends_with_sub_agents_at_work_goes_on_when_they_report(monkeypatch, workspaces):
+    """Seen in production: an agent started four analyses in the background and ended its turn with
+    "I continue when they return". The assignment was closed with that note and the analyses lost."""
+    analysis = {"id": "a1", "type": "subagent", "status": "running", "description": "Heap analysis"}
+    server = {"id": "b1", "type": "shell", "status": "running", "description": "dev server", "command": "npm run dev"}
+    events = await run_session(
+        monkeypatch,
+        workspaces,
+        [
+            ([says("Interim note: the analyses still run."), turn_end("Interim note")], [analysis, server]),
+            ([says("One is back."), turn_end("Still waiting")], [analysis]),
+            ([says("The report."), turn_end("The report")], [server]),  # a shell may never end: nobody waits for it
+        ],
+    )
+    assert [e.text for e in events if e.type == "assistant_text"] == ["Interim note: the analyses still run.", "One is back.", "The report."]
+    assert [e.text for e in events if e.type == "result"] == ["The report"]
+    assert FakeSessionClient.asked == ["Write the report"]  # the session went on by itself: no prompt, no turn of waiting
+
+
+async def test_a_session_that_ends_while_the_agent_waits_keeps_its_last_answer(monkeypatch, workspaces):
+    analysis = {"id": "a1", "type": "subagent", "status": "running", "description": "Heap analysis"}
+    events = await run_session(monkeypatch, workspaces, [([says("Interim note."), turn_end("Interim note")], [analysis])])
+    assert [(e.text, e.is_error) for e in events if e.type == "result"] == [("Interim note", False)]
+
+
+async def test_a_waiting_agent_gets_messages_at_once_and_stops_waiting_for_silent_work(monkeypatch):
+    from plainboard_protocol import ResultEvent
+
+    from plainboard_runner import notices
+    from plainboard_runner.providers import claude_code
+    from plainboard_runner.providers.claude_code import BackgroundWork
+
+    class Client:
+        asked: list[str] = []
+
+        async def query(self, prompt):
+            self.asked.append(prompt)
+
+    client, work = Client(), BackgroundWork("r20")
+    await work.stop_hook({"background_tasks": [{"id": "a1", "type": "subagent", "description": "Heap analysis"}]}, None, None)
+    notices.push("r20", "The owner asks for the RAM numbers first")
+    await work.check(client)
+    assert client.asked == [] and notices.pending("r20")  # the agent still works: the message arrives after its tool call
+
+    assert work.holds(ResultEvent(text="Interim note"))
+    await work.check(client)
+    assert client.asked == ["The owner asks for the RAM numbers first"] and not notices.pending("r20")
+
+    # The agent answered and waits again; then nothing is heard for too long.
+    work.see(says("Noted."))
+    await work.stop_hook({"background_tasks": [{"id": "a1", "type": "subagent", "description": "Heap analysis"}]}, None, None)
+    assert work.holds(ResultEvent(text="Still waiting"))
+    await work.check(client)
+    assert len(client.asked) == 1
+    monkeypatch.setattr(claude_code, "BACKGROUND_SILENT_SECONDS", 0)
+    await work.check(client)
+    assert "silent" in client.asked[-1] and "finish with what you have" in client.asked[-1]
+    await work.stop_hook({"background_tasks": [{"id": "a1", "type": "subagent", "description": "Heap analysis"}]}, None, None)
+    assert not work.holds(ResultEvent(text="Report without the heap analysis"))  # this end is the turn's result

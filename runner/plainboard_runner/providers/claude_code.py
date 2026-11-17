@@ -68,6 +68,14 @@ DISALLOWED_TOOLS = ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "TodoWri
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 NOTICE_GRACE_SECONDS = 60
 NOTICE_CHECK_SECONDS = 5
+# Background work of Claude Code that reports back when it is done. A shell or a monitor may never end.
+AWAITED_TASKS = ("subagent", "workflow")
+# Nothing at all heard from the session for this long while the agent waits for such work: it goes on without.
+BACKGROUND_SILENT_SECONDS = 1200
+BACKGROUND_GIVE_UP_NOTE = (
+    "[PlainBoard] The work you started in the background has been silent for {minutes} min. "
+    "Do not wait for it any longer: finish with what you have, and say what is missing."
+)
 # A tool call that takes this long gets its duration added to its result: the agent has no clock.
 SLOW_TOOL_SECONDS = 120
 # These PlainBoard tools already say how long they waited.
@@ -263,6 +271,58 @@ class UrgentNoticeWatch:
         return "\n\n".join(["[PlainBoard] Your running tool call was interrupted for this message, and its work may be half done.", *notices.drain(self.run_id)])
 
 
+class BackgroundWork:
+    """Claude Code runs sub-agents in the background: the agent may end its turn while they still
+    work, and the session takes the turn up again by itself when one reports. Such an end is not
+    the turn's result. Closing the session there would throw the sub-agents' work away, so the
+    runner keeps reading until nothing is in flight. Waiting costs no model turn."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        self.open: list[str] = []  # what Claude Code said is in flight when the agent last stopped
+        self.waiting = False
+        self.given_up = False
+        self.heard = time.monotonic()
+
+    async def stop_hook(self, hook_input: Any, _tool_use_id: str | None, _context: Any) -> dict[str, Any]:
+        self.open = [str(task.get("description") or task.get("id")) for task in hook_input.get("background_tasks") or [] if task.get("type") in AWAITED_TASKS]
+        return {}
+
+    def see(self, message: Any) -> None:
+        self.heard = time.monotonic()
+        if isinstance(message, AssistantMessage) and not message.parent_tool_use_id:
+            self.waiting = False
+            self.open = []  # the agent works again: its next stop says what is in flight then
+
+    def holds(self, result: ResultEvent) -> bool:
+        """Whether this end of a turn only pauses it."""
+        self.waiting = bool(self.open) and not result.is_error and not self.given_up
+        return self.waiting
+
+    async def check(self, client: Any) -> None:
+        """A waiting agent has no tool call a message could arrive after: it gets it as a prompt."""
+        if not self.waiting:
+            return
+        if notices.pending(self.run_id):
+            prompt = "\n\n".join(notices.drain(self.run_id))
+        elif time.monotonic() - self.heard >= BACKGROUND_SILENT_SECONDS:
+            self.given_up = True
+            log.warning("Run %s: background work silent, going on without: %s", self.run_id, "; ".join(self.open)[:300])
+            prompt = BACKGROUND_GIVE_UP_NOTE.format(minutes=round(BACKGROUND_SILENT_SECONDS / 60))
+        else:
+            return
+        self.waiting = False
+        try:
+            await client.query(prompt)
+        except Exception:
+            log.warning("Could not reach the waiting run %s", self.run_id, exc_info=True)
+
+    async def watch(self, client: Any) -> None:
+        while True:
+            await asyncio.sleep(NOTICE_CHECK_SECONDS)
+            await self.check(client)
+
+
 class EventMapper:
     """Translates Agent SDK messages into protocol events (kept separate for unit tests)."""
 
@@ -343,11 +403,14 @@ class ClaudeCodeProvider(Provider):
     def info(self) -> ProviderInfo:
         return ProviderInfo(name=self.name, label="Claude Agent", models=MODELS, efforts=EFFORTS)
 
-    def _options(self, spec: RunSpec, bridge: ToolBridge, stderr_tail: collections.deque[str]) -> ClaudeAgentOptions:
+    def _options(self, spec: RunSpec, bridge: ToolBridge, stderr_tail: collections.deque[str], background: BackgroundWork | None = None) -> ClaudeAgentOptions:
         env = {**tool_env(spec.credentials), **auth_env(spec.credentials), **spec.env}
         mcp_servers: dict[str, Any] = {s.name: external_mcp_config(s) for s in spec.mcp_servers if s.name != MCP_SERVER_NAME}
         mcp_servers[MCP_SERVER_NAME] = build_mcp_server(bridge)
         timer = ToolTimer()
+        hooks = {"PreToolUse": [HookMatcher(hooks=[timer.start])], "PostToolUse": [HookMatcher(hooks=[notice_hook(spec.run_id, timer)])]}
+        if background:
+            hooks["Stop"] = [HookMatcher(hooks=[background.stop_hook])]
         allowed = [f"mcp__{MCP_SERVER_NAME}__{t.name}" for t in bridge.tools] + [f"mcp__{name}" for name in mcp_servers if name != MCP_SERVER_NAME]
         common: dict[str, Any] = dict(
             model=spec.model,
@@ -362,7 +425,7 @@ class ClaudeCodeProvider(Provider):
             include_partial_messages=True,
             max_buffer_size=MAX_MESSAGE_BYTES,
             stderr=stderr_tail.append,
-            hooks={"PreToolUse": [HookMatcher(hooks=[timer.start])], "PostToolUse": [HookMatcher(hooks=[notice_hook(spec.run_id, timer)])]},
+            hooks=hooks,
         )
         if spec.effort:
             common["effort"] = spec.effort
@@ -383,31 +446,42 @@ class ClaudeCodeProvider(Provider):
     async def run(self, spec: RunSpec, bridge: ToolBridge) -> AsyncIterator[RunEvent]:
         stderr_tail: collections.deque[str] = collections.deque(maxlen=30)
         mapper = EventMapper()
+        background = BackgroundWork(spec.run_id)
         got_result = False
+        paused: ResultEvent | None = None  # an end that only paused the turn; the result if nothing follows
         try:
-            async with ClaudeSDKClient(options=self._options(spec, bridge, stderr_tail)) as client:
+            async with ClaudeSDKClient(options=self._options(spec, bridge, stderr_tail, background)) as client:
                 watch = UrgentNoticeWatch(client, spec.run_id)
-                watcher = asyncio.create_task(watch.watch())
+                watchers = [asyncio.create_task(watch.watch()), asyncio.create_task(background.watch(client))]
                 try:
                     await client.query(spec.prompt)
                     while True:
+                        ended = False
                         async for message in client.receive_response():
                             watch.see(message)
+                            background.see(message)
                             for event in mapper.map(message):
-                                if event.type == "result" and watch.interrupted:
-                                    continue  # the turn goes on below
-                                got_result = got_result or event.type == "result"
+                                if event.type == "result":
+                                    ended = True
+                                    if watch.interrupted or background.holds(event):
+                                        paused = event
+                                        continue  # the turn goes on below
+                                    got_result = True
                                 yield event
-                        if not watch.interrupted:
+                        if not ended:
+                            break  # the session is gone
+                        if watch.interrupted:
+                            await client.query(watch.resume_prompt())
+                        elif not background.waiting:
                             break
-                        await client.query(watch.resume_prompt())
                 finally:
-                    watcher.cancel()
+                    for watcher in watchers:
+                        watcher.cancel()
         except Exception as exc:
             detail = "\n".join(stderr_tail)
             raise RuntimeError(f"{exc}\n{detail}".strip()) from exc
         if not got_result:
-            yield ResultEvent(is_error=True, error="Claude Code ended without a result", context_tokens=mapper.context_tokens)
+            yield paused or ResultEvent(is_error=True, error="Claude Code ended without a result", context_tokens=mapper.context_tokens)
 
     async def limits(self, credentials: Credentials) -> list[LimitWindow]:
         if credentials.claude_auth_mode == "api_key":
