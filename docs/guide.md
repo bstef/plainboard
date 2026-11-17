@@ -14,6 +14,7 @@ How to set PlainBoard up, use it, and find every setting. For the design of the 
 - [Repositories and finished work](#repositories-and-finished-work)
 - [People and roles](#people-and-roles)
 - [A folder on your machine](#a-folder-on-your-machine)
+- [Updating](#updating)
 - [On a server](#on-a-server)
 - [Preview](#preview)
 - [Browser window](#browser-window)
@@ -24,10 +25,10 @@ How to set PlainBoard up, use it, and find every setting. For the design of the 
 
 ## First start
 
+Save the `docker-compose.yml` from the [README](../README.md#quick-start) in an empty folder and run
+
 ```bash
-git clone https://github.com/hthoene/plainboard.git
-cd plainboard
-docker compose up -d --build
+docker compose up -d
 ```
 
 Open <http://localhost:8080>. PlainBoard asks you to create your account, then goes through six
@@ -194,6 +195,19 @@ and set the project's **Shared folder** (Project settings → Advanced) to a sub
 work directly in `D:/Code/my-app` and you see every change immediately. Project repositories are
 cloned into sub folders there (e.g. `D:/Code/my-app/backend`) if they don't exist yet. On Linux hosts
 the folder must be writable by UID 1000.
+
+## Updating
+
+PlainBoard shows a notice in the sidebar when a newer version exists.
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Agents that are in the middle of a turn go on by themselves afterwards. A job that is running in the
+runner is lost when the runner restarts, so update when no long job runs, or pause the team first.
+Built from a clone instead: `git pull`, then `docker compose up -d --build`.
 
 ## On a server
 

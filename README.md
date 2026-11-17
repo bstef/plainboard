@@ -23,17 +23,62 @@ and PlainBoard lands the finished work.
 
 ## Quick start
 
-You need Docker and git.
+You need Docker. Save this as `docker-compose.yml` in an empty folder:
 
-```bash
-git clone https://github.com/hthoene/plainboard.git
-cd plainboard
-docker compose up -d --build
+```yaml
+# PlainBoard. Save this file as docker-compose.yml, then:
+#
+#   docker compose up -d
+#
+# and open http://localhost:8080. Everything else is set in the browser.
+# To update: docker compose pull, then docker compose up -d.
+
+name: plainboard
+
+services:
+  # The web UI and everything PlainBoard does by itself.
+  app:
+    image: thoenehannes/plainboard:latest
+    restart: unless-stopped
+    ports:
+      # On a server: PLAINBOARD_BIND=0.0.0.0 and a PLAINBOARD_PASSWORD, behind a reverse proxy with TLS.
+      - "${PLAINBOARD_BIND:-127.0.0.1}:${PLAINBOARD_PORT:-8080}:8080"
+    environment:
+      # The setup password: asked once, when the first account is created in the browser.
+      PLAINBOARD_PASSWORD: ${PLAINBOARD_PASSWORD:-}
+      PLAINBOARD_RUNNER_URL: http://runner:8090
+      PLAINBOARD_INTERNAL_URL: http://app:8080
+    volumes:
+      - data:/data
+      - uploads:/uploads
+    depends_on:
+      runner:
+        condition: service_healthy
+
+  # Where the agents work: their shell, their tools, your code. Only the app talks to it.
+  runner:
+    image: thoenehannes/plainboard-runner:latest
+    restart: unless-stopped
+    volumes:
+      # To let agents work in a folder of your machine: PLAINBOARD_WORKSPACES_DIR=/home/me/code
+      - ${PLAINBOARD_WORKSPACES_DIR:-workspaces}:/workspaces
+      - uploads:/uploads:ro
+      - agent-home:/home/agent
+
+volumes:
+  data: # the database and the key your secrets are encrypted with: back this up
+  uploads:
+  workspaces:
+  agent-home:
 ```
 
-Open <http://localhost:8080>. The first start builds two images, which takes a few minutes.
+Then start it and open <http://localhost:8080>:
 
-There is nothing to configure in files. PlainBoard asks for what it needs:
+```bash
+docker compose up -d
+```
+
+There is nothing else to configure in files. PlainBoard asks for what it needs:
 
 1. **Create your account.**
 2. **Answer six short questions**, each with a recommendation: which subscription or
@@ -41,8 +86,28 @@ There is nothing to configure in files. PlainBoard asks for what it needs:
    code, how many work at once.
 3. **Create your first project** and tell the manager what you want.
 
-To update: `git pull`, then the same `docker compose up -d --build`. PlainBoard tells you in the
-sidebar when a newer version exists.
+To update: `docker compose pull`, then `docker compose up -d`. PlainBoard tells you in the sidebar
+when a newer version exists.
+
+<details>
+<summary>Other ways to start</summary>
+
+Download the file instead of copying it:
+
+```bash
+curl -o docker-compose.yml https://raw.githubusercontent.com/hthoene/plainboard/main/deploy/docker-compose.yml
+docker compose up -d
+```
+
+Build from source, to change PlainBoard itself:
+
+```bash
+git clone https://github.com/hthoene/plainboard.git
+cd plainboard
+docker compose up -d --build
+```
+
+</details>
 
 ## What you get
 
@@ -133,7 +198,7 @@ flowchart LR
 | Run it on a server | `.env`: `PLAINBOARD_BIND=0.0.0.0` and a setup password, behind a reverse proxy with TLS |
 | Let agents work in a folder on your machine | `.env`: `PLAINBOARD_WORKSPACES_DIR`, then **Project settings → Advanced → Shared folder** |
 
-`.env` is optional: copy `.env.example`, which explains each line. The [guide](docs/guide.md) walks
+`.env` is optional: a file next to your `docker-compose.yml`. [`.env.example`](.env.example) explains each line. The [guide](docs/guide.md) walks
 through the first project, lists every setting and has the details.
 
 ## Good to know

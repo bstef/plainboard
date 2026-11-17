@@ -56,3 +56,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config --quiet
+      - run: docker compose -f deploy/docker-compose.yml config --quiet
+      - name: The compose file in the README is deploy/docker-compose.yml
+        run: |
+          python3 - <<'EOF'
+          import pathlib, re, sys
+          shown = re.search(r"```yaml\n(.*?)```", pathlib.Path("README.md").read_text(encoding="utf-8"), re.S).group(1)
+          sys.exit(0 if shown.strip() == pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8").strip() else "README.md and deploy/docker-compose.yml differ")
+          EOF
