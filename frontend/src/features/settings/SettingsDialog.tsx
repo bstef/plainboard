@@ -14,6 +14,7 @@ import { equivalentModel } from "../../lib/models";
 import { ModelSelect } from "../team/AgentEditor";
 import { AccountEditor } from "./AccountEditor";
 import { AccountsEditor } from "./AccountsEditor";
+import { PauseEditor } from "./PauseEditor";
 import { SecretsEditor } from "./SecretsEditor";
 import { UsersEditor } from "./UsersEditor";
 
@@ -33,13 +34,17 @@ type Values = Record<string, any>;
 
 /** The installation's settings on a page of its own: one section per subject. Everyone has the
  * section about their own account; the rest is the admins'. */
-export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** `section`: the section to show when it opens, instead of the one that was open last. */
+export function SettingsDialog({ open, onClose, section }: { open: boolean; onClose: () => void; section?: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const settings = useSettings();
   const meta = useMeta();
   const me = useMe();
   const [current, setCurrent] = useStored<string>("plainboard.settingsSection", "account");
+  useEffect(() => {
+    if (open && section) setCurrent(section);
+  }, [open, section, setCurrent]);
   const [values, setValues] = useState<Values>({});
   const [githubToken, setGithubToken] = useState<string | null>(null); // null: untouched, "": clear it
   const [githubCheck, setGithubCheck] = useState<CheckResult | null>(null);
@@ -257,6 +262,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
             </div>
           ),
         },
+        { id: "pause", label: t("pause.title"), description: t("pause.description"), content: <PauseEditor /> },
         {
           id: "readAccess",
           label: t("settings.readAccess"),

@@ -21,10 +21,14 @@ from urllib.parse import urlsplit
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from plainboard_protocol import JobPort
+
 from ..config import get_config
-from ..models import PreviewShare, utcnow
+from ..models import Job, PreviewShare, utcnow
+from ..schemas import PreviewOut
 from ..security import SESSION_COOKIE, sign, unsign
 from .errors import ServiceError
+from .util import truncate
 
 PREFIX = "/preview"
 BASE_PREFIX = "/preview-base"  # for a server that was told this is its base path: the path is passed on as it is
@@ -166,6 +170,42 @@ def unreachable(port: int) -> str:
         f"Nothing answers on port {port} in the agents' environment.\n\n"
         "The server may not be running (anymore), or it only listens on 127.0.0.1: it has to listen on 0.0.0.0."
     )
+
+
+# --- what runs: the servers a project's agents have started and left running --------------------
+
+
+def servers(jobs: list[Job]) -> list[Job]:
+    """The running jobs that are servers: started to keep running, so no assignment waits for them.
+    A test run that opens a port for a minute is not a preview."""
+    return [job for job in jobs if job.assignment_id is None]
+
+
+async def running(session: AsyncSession, project_id: int, jobs: list[Job], ports: dict[str, list[JobPort]]) -> list[PreviewOut]:
+    """``ports``: what the runner found for these jobs (its job id -> the ports a web server answers on)."""
+    shares = {share.port: share for share in await shares_for_project(session, project_id)}
+    out = []
+    for job in jobs:
+        for found in ports.get(job.runner_id, []):
+            try:
+                check_port(found.port)
+            except ServiceError:
+                continue
+            share = shares.get(found.port)
+            out.append(
+                PreviewOut(
+                    port=found.port,
+                    title=found.title,
+                    local=found.local,
+                    job_id=job.id,
+                    agent_id=job.agent_id,
+                    command=truncate(job.command, 200),
+                    started_at=job.created_at,
+                    access=share.access if share else "private",
+                    shared_until=share.expires_at if share else None,
+                )
+            )
+    return sorted(out, key=lambda p: p.port)
 
 
 # --- sharing: without a share only the signed-in user opens a preview ---------------------------

@@ -67,6 +67,34 @@ export interface Repository {
   created_at: string;
 }
 
+/** Everything is paused (all projects), and what still moves on the way to rest. */
+export interface PauseStatus {
+  paused: boolean;
+  by: string;
+  since: string | null;
+  /** Paused, and nothing moves any more: PlainBoard can be restarted. */
+  standing: boolean;
+  moving: { what: "turn" | "job" | "check"; project: string; agent: string; detail: string }[];
+  /** Servers agents left running: they end if the runner restarts. */
+  servers: number;
+}
+
+/** A web server an agent has started and left running. */
+export interface Preview {
+  port: number;
+  /** Of the page at its root; may be empty. */
+  title: string;
+  /** Listens on 127.0.0.1 only: it opens in the browser window, not at /preview/<port>/. */
+  local: boolean;
+  job_id: number;
+  agent_id: number;
+  command: string;
+  started_at: string;
+  /** Who opens it without the login. */
+  access: "private" | "password" | "public";
+  shared_until: string | null;
+}
+
 export interface Agent {
   id: number;
   project_id: number;

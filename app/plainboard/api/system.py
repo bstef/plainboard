@@ -9,15 +9,16 @@ from pydantic import BaseModel
 
 from ..models import TaskStatus
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
-from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PublicApiKeyIn, SettingsOut, SettingsUpdate
+from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SettingsOut, SettingsUpdate
 from ..services import access_keys as access_key_service
 from ..services import db_read as db_read_service
 from ..services import limits as limits_service
+from ..services import pause as pause_service
 from ..services import settings as settings_service
 from ..services import version as version_service
 from ..services.errors import ServiceError
 from ..orchestration.runner_client import RunnerError
-from .deps import Runner, Runs, Session
+from .deps import Runner, Runs, Session, Who
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -42,6 +43,25 @@ async def meta(runner: Runner, session: Session) -> dict[str, Any]:
         # The running commit and how far it is behind the newest PlainBoard; None: not known or not wanted.
         "version": version_service.current() if await settings_service.get(session, "update_check") else None,
     }
+
+
+@router.get("/pause", response_model=PauseOut)
+async def get_pause(session: Session) -> PauseOut:
+    """Whether everything is paused, and what still moves."""
+    return await pause_service.status(session)
+
+
+@router.post("/pause", response_model=PauseOut)
+async def pause_everything(session: Session, runs: Runs, who: Who) -> PauseOut:
+    """Bring all projects to rest, e.g. before an update. Again: also what started meanwhile."""
+    await runs.pause_all(session, who.name)
+    return await pause_service.status(session)
+
+
+@router.delete("/pause", response_model=PauseOut)
+async def resume_everything(session: Session, runs: Runs) -> PauseOut:
+    await runs.resume_all(session)
+    return await pause_service.status(session)
 
 
 @router.get("/access-keys", response_model=list[AccessKeyOut])

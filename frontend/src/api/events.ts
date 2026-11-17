@@ -112,6 +112,9 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
     case "project":
       qc.invalidateQueries({ queryKey: qk.projects });
       break;
+    case "pause":
+      qc.invalidateQueries({ queryKey: qk.pause });
+      break;
   }
 }
 

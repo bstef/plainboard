@@ -383,6 +383,63 @@ async def test_job_outside_workspaces_is_rejected(workspaces, jobs_root):
         await jobs.start(JobSpec(id="a4", command="true", workspace="/etc", credentials=Credentials()))
 
 
+SITE = """
+import http.server, socket, threading
+
+class Page(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            self.send_response(302)
+            self.send_header("Location", "/home")
+            self.end_headers()
+            return
+        body = b"<html><head><title>Paper &amp; Paw\\n  shop</title></head></html>"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+def serve(host, port):
+    http.server.HTTPServer((host, port), Page).serve_forever()
+
+threading.Thread(target=serve, args=("0.0.0.0", 18731), daemon=True).start()
+threading.Thread(target=serve, args=("127.0.0.1", 18732), daemon=True).start()
+silent = socket.socket()  # listens and never answers: not a web server
+silent.bind(("0.0.0.0", 18733))
+silent.listen()
+threading.Event().wait()
+"""
+
+
+async def test_the_web_servers_of_a_job_are_found_without_anyone_naming_a_port(workspaces, jobs_root, monkeypatch):
+    from plainboard_protocol import JobPort
+
+    from plainboard_runner import ports
+
+    monkeypatch.setattr(ports, "_seen", {})
+    folder = workspaces / "p" / "a"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "site.py").write_text(SITE)
+    await jobs.start(job_spec(workspaces, "b1", "python site.py"))
+    await jobs.start(job_spec(workspaces, "b2", "sleep 30"))
+    found = {}
+    for _ in range(100):
+        found = await ports.of_jobs(["b1", "b2", "ffff"])
+        if len(found.get("b1", [])) == 2:
+            break
+        await asyncio.sleep(0.1)
+    # The title is of the page "/" leads to. The second server is only reachable from inside the runner.
+    assert found == {"b1": [JobPort(port=18731, title="Paper & Paw shop"), JobPort(port=18732, local=True, title="Paper & Paw shop")]}
+
+    assert jobs.stop("b1") and jobs.stop("b2")
+    await ended("b1")
+    assert await ports.of_jobs(["b1", "b2"]) == {} and not ports._seen
+
+
 async def test_notice_reaches_the_agent_once_after_a_tool_call():
     from plainboard_runner import notices
     from plainboard_runner.providers.claude_code import notice_hook

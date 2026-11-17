@@ -155,6 +155,8 @@ class LandingWatcher:
         train = await landing_service.running_train(s, repo.id)
         if train is not None and not await (self._watch_base(s, r, train, now) if train.direct else self._watch(s, r, train, now)):
             return
+        if self._runs.paused:
+            return  # everything is paused: the train on its way is watched to its end, no new one leaves
         await (self._land_first(s, r, now) if repo.land_first else self._depart(s, r, now))
 
     # ------------------------------------------------------------------ a train on its way

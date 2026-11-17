@@ -11,13 +11,14 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
 from pydantic import BaseModel
 
 from . import github
 from .browser import browsers
 from . import jobs
 from . import notices
+from . import ports
 from . import trains
 from .providers import get_provider, list_providers
 from .tool_bridge import ToolBridge
@@ -156,6 +157,12 @@ async def start_job(spec: JobSpec) -> JobState:
 @app.post("/jobs/status", response_model=dict[str, JobState])
 async def job_status(ids: list[str]) -> dict[str, JobState]:
     return jobs.status(ids)
+
+
+@app.post("/jobs/ports", response_model=dict[str, list[JobPort]])
+async def job_ports(ids: list[str]) -> dict[str, list[JobPort]]:
+    """The web servers these jobs have started (a job without one is left out)."""
+    return await ports.of_jobs(ids)
 
 
 @app.post("/jobs/{job_id}/stop")

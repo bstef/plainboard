@@ -92,6 +92,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/auth/me", Need.USER),
     Rule("/api/meta", Need.USER),
     Rule("/api/limits", Need.USER),
+    Rule("/api/pause", Need.USER, Need.ADMIN),  # everyone sees that everything is paused; an admin does it
     Rule("/api/settings", Need.USER, Need.ADMIN),  # reading shows no secret, and the UI needs the defaults
     Rule("/api/accounts", Need.USER, Need.ADMIN),  # the list: which subscriptions an agent can be given
     Rule("/api/accounts/{account_id}/signin", Need.ADMIN),
@@ -109,6 +110,7 @@ RULES: tuple[Rule, ...] = (
     _project("/notes", write=Need.MEMBER),
     _project("/schedules", write=Need.MEMBER),
     _project("/browser", read=Need.MEMBER),  # the browser window is driven, not only watched
+    _project("/previews", write=Need.MEMBER),  # which servers run; a member stops one
     _project("/secrets", read=Need.OWNER),
     _project("/public-api-keys", read=Need.OWNER),
     _of("/api/agents/{agent_id}", "agent_id", Agent),

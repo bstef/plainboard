@@ -160,6 +160,14 @@ class JobState(BaseModel):
     tail: str = ""  # end of the output, once the job has finished
 
 
+class JobPort(BaseModel):
+    """A port on which a running job answers as a web server."""
+
+    port: int
+    local: bool = False  # listens on 127.0.0.1 only: reachable from inside the runner, not through the app
+    title: str = ""  # of the page at its root
+
+
 class PullRequestRef(BaseModel):
     """A pull request on GitHub, with the access to look at it."""
 

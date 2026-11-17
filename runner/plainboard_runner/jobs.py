@@ -105,6 +105,16 @@ def status(ids: list[str]) -> dict[str, JobState]:
     return {job_id: _state(_jobs[job_id]) for job_id in ids if job_id in _jobs}
 
 
+def is_running(job_id: str) -> bool:
+    job = _jobs.get(job_id)
+    return job is not None and job.finished_at is None
+
+
+def sessions(ids: list[str]) -> dict[int, str]:
+    """Session id -> job id of those that still run: a job's shell leads a session of its own (see ``start``)."""
+    return {_jobs[job_id].proc.pid: job_id for job_id in ids if is_running(job_id)}
+
+
 def _signal_group(job: Job, sig: signal.Signals) -> None:
     try:
         os.killpg(job.proc.pid, sig)

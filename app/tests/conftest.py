@@ -53,6 +53,7 @@ class FakeRunner:
         self.unavailable = 0  # how many starts of a turn fail because the runner is not up yet
         self.jobs: dict[str, JobState] = {}
         self.job_specs: list[JobSpec] = []
+        self.ports: dict[str, list] = {}  # job id -> the web servers it has started (JobPort)
         self.reachable = True
         self.released = False
         # Landing: what the git host would say.
@@ -134,6 +135,11 @@ class FakeRunner:
         if not self.reachable:
             raise RunnerError("Runner unreachable")
         return {i: self.jobs[i] for i in ids if i in self.jobs}
+
+    async def job_ports(self, ids: list[str]) -> dict[str, list]:
+        if not self.reachable:
+            raise RunnerError("Runner unreachable")
+        return {i: self.ports[i] for i in ids if i in self.ports}
 
     async def stop_job(self, runner_id: str) -> bool:
         job = self.jobs.get(runner_id)

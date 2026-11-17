@@ -6,9 +6,11 @@ from sqlalchemy import select
 
 from ..models import ACTIVE_RUN_STATUSES, ProjectRole, Run
 from ..orchestration.runner_client import RunnerError
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, PreviewOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
+from ..services import jobs as job_service
+from ..services import preview as preview_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
@@ -91,6 +93,25 @@ async def rename_public_api_key(key_id: int, body: PublicApiKeyIn, session: Sess
 @router.delete("/public-api-keys/{key_id}", status_code=204)
 async def revoke_public_api_key(key_id: int, session: Session) -> None:
     await api_key_service.delete(session, await api_key_service.get(session, key_id))
+
+
+# --- previews: the servers agents have started and left running ---------------------------------
+
+
+@router.get("/projects/{project_id}/previews", response_model=list[PreviewOut])
+async def list_previews(project_id: int, session: Session, runner: Runner) -> list[PreviewOut]:
+    jobs = preview_service.servers(await job_service.running_for_project(session, project_id))
+    try:
+        ports = await runner.job_ports([job.runner_id for job in jobs]) if jobs else {}
+    except RunnerError:
+        ports = {}  # the runner is restarting, or older than this: nothing to show for now
+    return await preview_service.running(session, project_id, jobs, ports)
+
+
+@router.post("/projects/{project_id}/previews/{job_id}/stop", status_code=204)
+async def stop_preview(project_id: int, job_id: int, session: Session, runs: Runs, who: Who) -> None:
+    job = await job_service.get_for_project(session, project_id, job_id)
+    await runs.stop_job(session, job, by=who.name or "the user")
 
 
 # --- agents ---------------------------------------------------------------------------------

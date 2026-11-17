@@ -5,7 +5,9 @@ import type {
   Limits,
   Agent,
   Member,
+  PauseStatus,
   Person,
+  Preview,
   User,
   Assignment,
   CheckResult,
@@ -50,6 +52,8 @@ export const qk = {
   schedules: (pid: number) => ["schedules", pid] as const,
   mcp: (pid: number) => ["mcp", pid] as const,
   repos: (pid: number) => ["repos", pid] as const,
+  previews: (pid: number) => ["previews", pid] as const,
+  pause: ["pause"] as const,
   secrets: (pid: number | null) => ["secrets", pid ?? "global"] as const,
   stats: (pid: number, days: number) => ["stats", pid, days] as const,
 };
@@ -75,6 +79,17 @@ export const useSecrets = (pid: number | null) =>
 export const useProjects = () => useQuery({ queryKey: qk.projects, queryFn: () => api.get<Project[]>("/projects") });
 export const useAgents = (pid: number) =>
   useQuery({ queryKey: qk.agents(pid), queryFn: () => api.get<Agent[]>(`/projects/${pid}/agents`) });
+/** Whether everything is paused. On the way to rest it is asked often: that is what tells when the server can be restarted. */
+export const usePause = () =>
+  useQuery({
+    queryKey: qk.pause,
+    queryFn: () => api.get<PauseStatus>("/pause"),
+    refetchInterval: (query) => (!query.state.data?.paused ? false : query.state.data.standing ? 15_000 : 3_000),
+  });
+/** The servers the project's agents have left running. Asked again and again while one may run: a
+ * server needs a moment to answer after its job started, and no event says when it does. */
+export const usePreviews = (pid: number, enabled: boolean) =>
+  useQuery({ queryKey: qk.previews(pid), queryFn: () => api.get<Preview[]>(`/projects/${pid}/previews`), enabled, refetchInterval: 10_000 });
 export const useTasks = (pid: number) =>
   useQuery({ queryKey: qk.tasks(pid), queryFn: () => api.get<Task[]>(`/projects/${pid}/tasks`) });
 // Shares the tasks key, so every ticket event refreshes it too.

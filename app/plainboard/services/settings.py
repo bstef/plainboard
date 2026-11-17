@@ -45,6 +45,8 @@ SETTINGS: dict[str, SettingDef] = {
     "update_check": SettingDef(True),  # ask now and then whether a newer PlainBoard exists
     # The admin has gone through the basic settings once (the set-up in the browser). Until then the UI asks for them.
     "setup_done": SettingDef(False),
+    # Everything is paused (services/pause.py): who did it, since when, and which members that switched off.
+    "pause": SettingDef(None, managed=True),
 }
 
 

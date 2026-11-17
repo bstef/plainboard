@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPo
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
 import { useAccounts, useAgents, useMe, useMeta, useProjects } from "../../api/queries";
-import type { Project } from "../../api/types";
+import type { Agent, Project } from "../../api/types";
 import { Button, EmptyState, IconButton, Spinner } from "../../components/ui";
 import { useIsDesktop, useMediaQuery, useStored } from "../../lib/hooks";
 import { Logo } from "../auth/Login";
 import { Board } from "../board/Board";
 import { BrowserView, type BrowserRequest } from "../browser/BrowserView";
+import { PreviewsSide, useActivePreviews } from "../browser/Previews";
 import { ForYou } from "../board/ForYou";
 import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
@@ -20,6 +21,7 @@ import { ProjectWizard } from "../onboarding/ProjectWizard";
 import { ProjectSettings } from "../projects/ProjectSettings";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
 import { SchedulesView } from "../schedules/SchedulesView";
+import { PauseBanner } from "../settings/PauseEditor";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { StatsView } from "../stats/StatsView";
 import { TeamView } from "../team/TeamView";
@@ -49,6 +51,12 @@ export function Shell() {
   const projects = useProjects();
   const [projectId, setProjectId] = useStored<number | null>("plainboard.project", null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<string>();
+  /** The PlainBoard settings, at the section that was open last or at a named one. */
+  const openSettings = (section?: string) => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  };
   const [newProject, setNewProject] = useState(false);
   const me = useMe();
   const mayCreate = !!me && (me.is_admin || me.may_create_projects);
@@ -84,7 +92,8 @@ export function Shell() {
           onSelectProject={setProjectId}
           onNewProject={mayCreate ? () => setNewProject(true) : undefined}
           onProjectDeleted={() => setProjectId(null)}
-          onSettings={() => setSettingsOpen(true)}
+          onSettings={() => openSettings()}
+          onPause={() => openSettings("pause")}
         />
       ) : (
         <div className="flex h-full flex-col pt-[env(safe-area-inset-top)]">
@@ -92,10 +101,11 @@ export function Shell() {
             <Brand />
             <div className="flex-1" />
             <LookButton />
-            <IconButton label={t("nav.settings")} onClick={() => setSettingsOpen(true)}>
+            <IconButton label={t("nav.settings")} onClick={() => openSettings()}>
               <Settings className="size-4" />
             </IconButton>
           </header>
+          <PauseBanner onDetails={() => openSettings("pause")} />
           <EmptyState icon={<FolderKanban className="size-10" />} title={t("projects.none")}>
             <p className="mb-4">{t(mayCreate ? "projects.noneHint" : "projects.noneSharedHint")}</p>
             {mayCreate && (
@@ -106,7 +116,7 @@ export function Shell() {
           </EmptyState>
         </div>
       )}
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} section={settingsSection} />
       {newProject && <ProjectWizard onClose={() => setNewProject(false)} onCreated={(p) => setProjectId(p.id)} />}
     </>
   );
@@ -188,6 +198,7 @@ function UpdateNotice({ wide }: { wide: boolean }) {
 }
 
 const MIN_PANEL = 340;
+const NO_AGENTS: Agent[] = [];
 
 function ProjectWorkspace({
   projects,
@@ -196,6 +207,7 @@ function ProjectWorkspace({
   onNewProject,
   onProjectDeleted,
   onSettings,
+  onPause,
 }: {
   projects: Project[];
   project: Project;
@@ -203,6 +215,8 @@ function ProjectWorkspace({
   onNewProject?: () => void;
   onProjectDeleted: () => void;
   onSettings: () => void;
+  /** Opens the settings where everything is paused and resumed. */
+  onPause: () => void;
 }) {
   const { t } = useTranslation();
   const isDesktop = useIsDesktop();
@@ -225,13 +239,15 @@ function ProjectWorkspace({
   const activeChatId = chatAgent?.id ?? null;
 
   const agentById = useCallback((id: number | null | undefined) => agents.data?.find((a) => a.id === id), [agents.data]);
+  const previews = useActivePreviews(project.id, agents.data ?? NO_AGENTS);
   const api: ShellApi = useMemo(
     () => ({
       project,
       canWrite: project.role !== "viewer",
       isOwner: project.role === "owner",
-      agents: agents.data ?? [],
+      agents: agents.data ?? NO_AGENTS,
       agentById,
+      previews,
       openChat: (id) => {
         setChatAgentId(id);
         if (isDesktop && view !== "chat") setPanelOpen(true);
@@ -243,8 +259,11 @@ function ProjectWorkspace({
         setView("browser");
       },
     }),
-    [project, agents.data, agentById, setChatAgentId, isDesktop, view, setPanelOpen, setView],
+    [project, agents.data, agentById, previews, setChatAgentId, isDesktop, view, setPanelOpen, setView],
   );
+  /** A view that has something running behind it gets a mark: the browser while previews run. */
+  const marked = (id: View) => id === "browser" && previews.length > 0;
+  const viewLabel = (id: View) => (marked(id) ? `${t(`nav.${id}`)} · ${t("previews.count", { count: previews.length })}` : t(`nav.${id}`));
 
   const startResize = (e: ReactPointerEvent) => {
     e.preventDefault();
@@ -286,22 +305,25 @@ function ProjectWorkspace({
                   key={v.id}
                   type="button"
                   onClick={() => setView(v.id)}
-                  title={wide ? undefined : t(`nav.${v.id}`)}
-                  aria-label={t(`nav.${v.id}`)}
+                  title={wide ? undefined : viewLabel(v.id)}
+                  aria-label={viewLabel(v.id)}
                   aria-current={view === v.id ? "page" : undefined}
                   className={clsx(
-                    "flex h-8 items-center gap-2.5 rounded-sm transition-colors",
+                    "relative flex h-8 items-center gap-2.5 rounded-sm transition-colors",
                     wide ? "px-2" : "justify-center",
                     view === v.id ? "plate" : "text-fg-2 hover:bg-sunk hover:text-fg",
                   )}
                 >
                   {v.icon("size-4 shrink-0")}
                   {wide && <span className="truncate">{t(`nav.${v.id}`)}</span>}
+                  {/* The wide sidebar lists the previews themselves, below. */}
+                  {!wide && marked(v.id) && <span className="mk mk-run absolute top-1 right-1 scale-75 bg-current" />}
                 </button>
               ))}
             </nav>
             {wide ? (
-              <div className="mt-5 flex min-h-0 flex-1 flex-col">
+              <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5">
+                <PreviewsSide />
                 <RunningNow variant="table" />
               </div>
             ) : (
@@ -334,6 +356,7 @@ function ProjectWorkspace({
               </div>
             </header>
           )}
+          <PauseBanner onDetails={onPause} />
           {!isDesktop && view === "board" && <RunningNow variant="strip" />}
           {project.role === "viewer" && (
             <p role="status" className="shrink-0 border-b border-line px-4 py-1.5 text-fg-2">
@@ -365,7 +388,7 @@ function ProjectWorkspace({
             )}
           </div>
 
-          {!isDesktop && <PhoneTabs views={views} view={view} setView={setView} onSettings={onSettings} />}
+          {!isDesktop && <PhoneTabs views={views} view={view} setView={setView} onSettings={onSettings} previews={previews.length} />}
         </div>
       </div>
       {openTaskId !== null && <TaskModal taskId={openTaskId} onClose={() => setOpenTaskId(null)} />}
@@ -374,12 +397,13 @@ function ProjectWorkspace({
 }
 
 /** Bottom navigation on phones: the main views, and a sheet with the rest. */
-function PhoneTabs({ views, view, setView, onSettings }: { views: typeof VIEWS; view: View; setView: (v: View) => void; onSettings: () => void }) {
+function PhoneTabs({ views, view, setView, onSettings, previews }: { views: typeof VIEWS; view: View; setView: (v: View) => void; onSettings: () => void; previews: number }) {
   const { t } = useTranslation();
   const [more, setMore] = useState(false);
   const [lookOpen, setLookOpen] = useState(false);
   const tabs = views.slice(0, PHONE_TABS);
   const rest = views.slice(PHONE_TABS);
+  const marked = (id: View) => id === "browser" && previews > 0;
   const tab = (active: boolean) =>
     clsx(
       "relative flex min-h-[58px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5",
@@ -404,6 +428,7 @@ function PhoneTabs({ views, view, setView, onSettings }: { views: typeof VIEWS; 
               <button key={v.id} type="button" role="menuitem" onClick={() => go(v.id)} className={clsx(item, view === v.id ? "plate" : "text-fg")}>
                 {v.icon("size-5 shrink-0")}
                 {t(`nav.${v.id}`)}
+                {marked(v.id) && <span className="ml-auto opacity-80">{t("previews.count", { count: previews })}</span>}
               </button>
             ))}
             <div className="my-2 border-t border-line" />
@@ -438,12 +463,18 @@ function PhoneTabs({ views, view, setView, onSettings }: { views: typeof VIEWS; 
       <nav data-part="tabs" aria-label={t("nav.views")} className="relative z-40 flex shrink-0 border-t border-line-2 bg-bg pb-[env(safe-area-inset-bottom)]">
         {tabs.map((v) => (
           <button key={v.id} type="button" onClick={() => go(v.id)} aria-current={view === v.id && !more ? "page" : undefined} className={tab(view === v.id && !more)}>
-            {v.icon("size-5")}
+            <span className="relative">
+              {v.icon("size-5")}
+              {marked(v.id) && <span className="mk mk-run absolute -top-0.5 -right-2 scale-75 bg-current" />}
+            </span>
             <span className="max-w-full truncate">{t(`nav.${v.id}`)}</span>
           </button>
         ))}
         <button type="button" aria-haspopup="menu" aria-expanded={more} onClick={() => setMore(!more)} className={tab(more || rest.some((v) => v.id === view))}>
-          <Menu className="size-5" />
+          <span className="relative">
+            <Menu className="size-5" />
+            {rest.some((v) => marked(v.id)) && <span className="mk mk-run absolute -top-0.5 -right-2 scale-75 bg-current" />}
+          </span>
           <span className="max-w-full truncate">{t("nav.more")}</span>
         </button>
       </nav>

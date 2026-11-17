@@ -205,8 +205,14 @@ docker compose pull
 docker compose up -d
 ```
 
-Agents that are in the middle of a turn go on by themselves afterwards. A job that is running in the
-runner is lost when the runner restarts, so update when no long job runs, or pause the team first.
+To update cleanly, pause first: **PlainBoard settings → Pause everything**. Every project comes to
+rest: agents that are working finish their current step and save their work, and nothing new starts.
+The page lists what still moves and says when everything is at rest; then update, and press
+**Resume** afterwards (the pause holds across the restart, and a band at the top of every screen says
+so). Nothing is lost: every agent goes on with what it had open.
+
+Without the pause an update works too: agents that are in the middle of a turn go on by themselves
+afterwards, but a job that is running in the runner is lost when the runner restarts.
 Built from a clone instead: `git pull`, then `docker compose up -d --build`.
 
 ## On a server
@@ -226,6 +232,12 @@ PlainBoard sign-in. Agents post the link in the chat. A preview is private; ask 
 one with a password or publicly for a few days, e.g. for a customer. The server has to listen on
 `0.0.0.0`. A preview runs on PlainBoard's own address, so only preview code you trust like your
 agents.
+
+Which previews run right now is always shown: in the sidebar under **Previews** (a row opens the
+page in a new tab), and with everything about them on the start page of the **Browser** view: its
+address, who started it and when, whether it is shared, and buttons to open it there, open it in a
+tab or stop its server. On narrow screens a dot on **Browser** says that one runs. Nobody has to
+name a port for this: PlainBoard sees which web servers the agents' running servers have opened.
 
 The server believes it runs at the root of `localhost:<port>`, and PlainBoard repairs what goes
 wrong because of the `/preview/<port>/` path: links and requests to the root, redirects, cookies,

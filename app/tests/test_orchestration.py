@@ -1362,6 +1362,44 @@ def test_manager_sees_and_stops_preview_servers_of_the_team(client, project):
     assert "preview or dev server" in tidy["prompt"]
 
 
+def test_running_previews_are_listed_for_their_project_and_a_member_stops_one(client, project):
+    from plainboard_protocol import JobPort
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    other = client.post("/api/projects", json={"name": "Other"}).json()
+    assert client.get(f"/api/projects/{pid}/previews").json() == []
+
+    start_job(client, dev["id"], "npm run dev -- --host 0.0.0.0")
+    wait_for(lambda: idle(client, pid))
+    (spec,) = runner(client).job_specs
+    # What the runner found: the dev server, one on 127.0.0.1 only, and a port that is never previewed (the runner's own).
+    runner(client).ports = {spec.id: [JobPort(port=5173, title="Shop"), JobPort(port=9000, local=True), JobPort(port=8090, title="Runner")]}
+    shown = client.get(f"/api/projects/{pid}/previews").json()
+    assert [(p["port"], p["title"], p["local"], p["access"]) for p in shown] == [(5173, "Shop", False, "private"), (9000, "", True, "private")]
+    assert shown[0]["agent_id"] == dev["id"] and shown[0]["command"].startswith("npm run dev") and shown[0]["started_at"].endswith("Z")
+    assert client.get(f"/api/projects/{other['id']}/previews").json() == []  # another project's servers are not this one's
+
+    chat(client, manager["id"], 'TOOL share_preview {"port": 5173, "access": "public", "days": 2}')
+    wait_for(lambda: idle(client, pid))
+    shared = client.get(f"/api/projects/{pid}/previews").json()[0]
+    assert shared["access"] == "public" and shared["shared_until"].endswith("Z")
+
+    runner(client).reachable = False  # restarting: nothing is known, and nothing breaks
+    assert client.get(f"/api/projects/{pid}/previews").json() == []
+    runner(client).reachable = True
+
+    assert client.post(f"/api/projects/{pid}/previews/{shown[0]['job_id']}/stop").status_code == 204
+    assert agents_by_slug(client, pid)["dev"]["running_jobs"] == 0
+    assert client.get(f"/api/projects/{pid}/previews").json() == []
+    # Whoever started it reads that with its next turn, without being woken for it.
+    assert all(run["status"] != "queued" for run in runs_of(client, pid))
+    chat(client, dev["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid))
+    assert "was stopped by Admin in PlainBoard" in runner(client).specs[-1].prompt
+
+
 def test_work_ordered_from_a_paused_agent_waits_for_it_and_an_assignment_without_a_turn_gets_one(client, project):
     from plainboard.db import sessionmaker
     from plainboard.models import Assignment

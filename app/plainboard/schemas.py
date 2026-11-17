@@ -810,6 +810,38 @@ class CheckOut(BaseModel):
     detail: str
 
 
+class PauseMoving(BaseModel):
+    """Something that still moves while everything is being paused."""
+
+    what: Literal["turn", "job", "check"]  # an agent's turn, a job an assignment waits for, a check of finished branches
+    project: str
+    agent: str = ""
+    detail: str = ""
+
+
+class PauseOut(BaseModel):
+    paused: bool
+    by: str = ""
+    since: UTCDateTime | None = None
+    standing: bool = False  # paused, and nothing moves any more: PlainBoard can be restarted
+    moving: list[PauseMoving] = Field(default_factory=list)
+    servers: int = 0  # servers (previews) agents left running: they end if the runner restarts
+
+
+class PreviewOut(BaseModel):
+    """A web server an agent has started and left running, as the UI lists it."""
+
+    port: int
+    title: str  # of the page at its root; may be empty
+    local: bool  # listens on 127.0.0.1 only: it opens in the browser window, not at /preview/<port>/
+    job_id: int
+    agent_id: int
+    command: str
+    started_at: UTCDateTime
+    access: Literal["private", "password", "public"]  # who opens it without the login (share_preview)
+    shared_until: UTCDateTime | None = None
+
+
 # --- events ---------------------------------------------------------------------------------
 
 

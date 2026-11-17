@@ -53,9 +53,10 @@
     "closed": "The connection to the browser ended.",
     "reconnect": "Connect again",
     "emptyTitle": "A browser next to your agents",
-    "emptyHint": "Pages of a server an agent started run here as they do at localhost, so apps work that break as a preview link. Enter an address like localhost:5173, or use the window icon next to a preview link in the chat.",
+    "emptyHint": "Pages of a server an agent started run here as they do at localhost, so apps work that break as a preview link. Servers that run are listed here. You can also enter an address like localhost:5173.",
     "leavePage": "Leave this page?",
-    "ok": "OK"
+    "ok": "OK",
+    "startHint": "A page opened here runs at localhost, as the app expects. In a new tab it is faster, but some apps break behind the preview link."
   },
   "look": {
     "title": "Design and theme",
@@ -930,5 +931,49 @@
       "deleteHint": "Deletes the board with all tickets, the team with its chats, the notes and the schedules. The code in your repositories stays. This cannot be undone.",
       "deleteAction": "Delete {{name}}"
     }
+  },
+  "previews": {
+    "title": "Previews",
+    "running": "Previews running now",
+    "count_one": "{{count}} preview running",
+    "count_other": "{{count}} previews running",
+    "openHere": "Open here",
+    "openTab": "New tab",
+    "stop": "Stop this server",
+    "confirmStop": "Stop the server of \"{{name}}\"? Its preview ends for everyone. An agent can start it again.",
+    "localOnly": "Listens on 127.0.0.1 only, so it opens here and not in a tab.",
+    "access": {
+      "public": "Anyone with the link",
+      "password": "Link and password"
+    },
+    "stopShort": "Stop"
+  },
+  "pause": {
+    "title": "Pause everything",
+    "description": "Brings every project to rest, for an update or a restart of the server. Agents finish their current step and save their work; nothing is lost, and everything goes on where it stopped when you resume.",
+    "step1": "Pause everything. Agents that are working are told to wrap up; nothing new starts.",
+    "step2": "Wait until this page says that everything is at rest. That usually takes a few minutes.",
+    "step3": "Update or restart PlainBoard. The pause holds across the restart.",
+    "step4": "Come back here and resume.",
+    "start": "Pause everything",
+    "resume": "Resume",
+    "resumeHint": "The agents that were paused work on with what they had open, and what waited meanwhile starts.",
+    "details": "Details",
+    "someone": "an admin",
+    "since": "Paused by {{by}} at {{time}}.",
+    "standing": "Everything is at rest.",
+    "standingHint": "You can update or restart PlainBoard now: docker compose pull, then docker compose up -d. Afterwards, resume here.",
+    "moving_one": "{{count}} thing is still wrapping up",
+    "moving_other": "{{count}} things are still wrapping up",
+    "what": {
+      "turn": "finishes its step",
+      "job": "waits for its job",
+      "check": "check of finished branches"
+    },
+    "servers_one": "{{count}} server an agent left running (a preview) still runs. It ends if the runner restarts.",
+    "servers_other": "{{count}} servers agents left running (previews) still run. They end if the runner restarts.",
+    "bannerMoving_one": "PlainBoard is being paused by {{by}}: {{count}} thing is still wrapping up.",
+    "bannerMoving_other": "PlainBoard is being paused by {{by}}: {{count}} things are still wrapping up.",
+    "bannerStanding": "PlainBoard is paused by {{by}}. Everything is at rest; nothing starts until it is resumed."
   }
 }

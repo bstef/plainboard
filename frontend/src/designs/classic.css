@@ -134,6 +134,16 @@
 [data-design="classic"] .ring-fg {
   --tw-ring-color: var(--accent);
 }
+/* A ticket named in a text is a chip in the accent. */
+[data-design="classic"] [data-part="ticket-ref"] {
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  box-shadow: none;
+  font-weight: 600;
+}
+[data-design="classic"] [data-part="ticket-ref"]:hover {
+  background: color-mix(in oklab, var(--accent) 24%, var(--bg));
+}
 /* Heads are set off by a hairline, not a heavy rule. */
 [data-design="classic"] .rule-b {
   border-bottom: 1px solid var(--line);

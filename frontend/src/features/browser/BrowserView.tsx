@@ -1,10 +1,11 @@
 import clsx from "clsx";
-import { AppWindow, ArrowLeft, ArrowRight, ExternalLink, Keyboard, RotateCw } from "lucide-react";
+import { AppWindow, ArrowLeft, ArrowRight, ExternalLink, Keyboard, LayoutList, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, EmptyState, IconButton, Input, Spinner } from "../../components/ui";
 import { previewPath } from "../../lib/preview";
 import { useShell } from "../layout/shell-context";
+import { PreviewList } from "./Previews";
 
 /** An address to open, and a counter so that the same address can be asked for again. */
 export interface BrowserRequest {
@@ -36,7 +37,8 @@ const mods = (e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey
  * (the messages are listed in the runner's browser.py). One browser per project. */
 export function BrowserView({ request }: { request: BrowserRequest }) {
   const { t } = useTranslation();
-  const { project } = useShell();
+  const { project, previews, canWrite } = useShell();
+  const [listOpen, setListOpen] = useState(false); // the running previews, over a page that is open
   const frame = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const keys = useRef<HTMLTextAreaElement>(null);
@@ -240,10 +242,8 @@ export function BrowserView({ request }: { request: BrowserRequest }) {
   const go = (e: FormEvent) => {
     e.preventDefault();
     if (!address.trim()) return;
-    setError("");
-    send({ t: "nav", url: address.trim() });
+    open(address.trim());
     setEditing(false);
-    canvas.current?.focus();
   };
   const settle = (accept: boolean) => {
     send({ t: "dialog", accept, text: answer });
@@ -252,6 +252,14 @@ export function BrowserView({ request }: { request: BrowserRequest }) {
 
   const tab = previewPath(page.url);
   const blank = !page.url || page.url === "about:blank";
+  const noPage = blank || !painted;
+  /** Shows an address of the agents' environment, e.g. a preview picked from the list. */
+  const open = (url: string) => {
+    setError("");
+    setListOpen(false);
+    send({ t: "nav", url });
+    canvas.current?.focus();
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -283,6 +291,11 @@ export function BrowserView({ request }: { request: BrowserRequest }) {
           title={page.title || undefined}
           className="mx-1 min-w-0 flex-1"
         />
+        {previews.length > 0 && !noPage && (
+          <IconButton label={t("previews.running")} aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)} className={clsx(listOpen && "bg-sunk text-fg")}>
+            <LayoutList className="size-4" />
+          </IconButton>
+        )}
         {touch && (
           <IconButton label={t("browser.keyboard")} onClick={() => keys.current?.focus()}>
             <Keyboard className="size-4" />
@@ -328,26 +341,35 @@ export function BrowserView({ request }: { request: BrowserRequest }) {
           }}
           className="pointer-events-none absolute top-0 left-0 size-px opacity-0"
         />
-        {(blank || !painted) && (
-          <div className="absolute inset-0 flex items-center justify-center overflow-y-auto">
-            {status === "connecting" ? (
-              <p className="flex items-center gap-2 text-fg-2">
-                <Spinner /> {t("browser.connecting")}
-              </p>
-            ) : status === "closed" ? (
-              <EmptyState title={t("browser.closed")}>
-                <Button className="mt-3" onClick={() => setAttempt(attempt + 1)}>
-                  {t("browser.reconnect")}
-                </Button>
-              </EmptyState>
-            ) : (
-              <EmptyState icon={<AppWindow className="size-8" />} title={t("browser.emptyTitle")}>
-                {t("browser.emptyHint")}
-              </EmptyState>
-            )}
+        {(noPage || listOpen) && (
+          <div className="absolute inset-0 overflow-y-auto bg-sunk">
+            {/* The start page: what runs right now, then what the window itself has to say. */}
+            <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-4 p-4">
+              <PreviewList onOpenHere={status === "open" ? open : undefined} />
+              {!noPage ? null : status === "connecting" ? (
+                <p className="flex items-center gap-2 text-fg-2">
+                  <Spinner /> {t("browser.connecting")}
+                </p>
+              ) : status === "closed" ? (
+                // A viewer has no browser window: the list above is all there is for them.
+                canWrite && (
+                  <EmptyState title={t("browser.closed")}>
+                    <Button className="mt-3" onClick={() => setAttempt(attempt + 1)}>
+                      {t("browser.reconnect")}
+                    </Button>
+                  </EmptyState>
+                )
+              ) : previews.length ? (
+                <p className="max-w-sm text-center text-fg-3">{t("browser.startHint")}</p>
+              ) : (
+                <EmptyState icon={<AppWindow className="size-8" />} title={t("browser.emptyTitle")}>
+                  {t("browser.emptyHint")}
+                </EmptyState>
+              )}
+            </div>
           </div>
         )}
-        {status === "closed" && !blank && painted && (
+        {status === "closed" && !noPage && (
           <div className="absolute inset-x-0 top-0 flex items-center justify-center gap-3 border-b border-line bg-bg px-4 py-2">
             <span className="text-fg-2">{t("browser.closed")}</span>
             <Button size="sm" onClick={() => setAttempt(attempt + 1)}>

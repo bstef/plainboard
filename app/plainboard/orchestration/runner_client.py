@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -59,6 +59,11 @@ class RunnerClient:
     async def job_status(self, ids: list[str]) -> dict[str, JobState]:
         """States of the jobs the runner knows; a missing id means it restarted in the meantime."""
         return {k: JobState.model_validate(v) for k, v in (await self._post_job("/jobs/status", ids)).json().items()}
+
+    async def job_ports(self, ids: list[str]) -> dict[str, list[JobPort]]:
+        """The web servers running jobs have started: the runner's job id -> its ports."""
+        found = (await self._post_job("/jobs/ports", ids)).json()
+        return {job_id: [JobPort.model_validate(port) for port in ports] for job_id, ports in found.items()}
 
     async def stop_job(self, runner_id: str) -> bool:
         return (await self._post_job(f"/jobs/{runner_id}/stop", {})).json()["stopped"]

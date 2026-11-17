@@ -62,6 +62,7 @@ from ..services import ticket_state
 from ..services import flow_log
 from ..services import jobs as job_service
 from ..services import mcp as mcp_service
+from ..services import pause as pause_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import secrets as secret_service
@@ -144,10 +145,13 @@ class RunManager:
         self._unread: dict[int, set[int]] = {}  # running turn -> waiting chat messages (runs) it was told about and has not read yet
         self._wake = asyncio.Event()
         self._dispatcher: asyncio.Task[None] | None = None
+        self.paused = False  # everything is paused (services/pause.py): nothing new starts
 
     # ------------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
+        async with self._sm() as s:
+            self.paused = await pause_service.state(s) is not None  # a pause holds across the restart it was made for
         await self._recover_interrupted()
         async with self._sm() as s:
             # An assignment that waited for a job when the app stopped must not wait forever.
@@ -656,6 +660,34 @@ class RunManager:
             await self._settle(s, agent.id)
         self._wake.set()  # assignments that waited in the queue
 
+    async def pause_all(self, s: AsyncSession, by: str) -> None:
+        """Bring every project to rest (services/pause.py). Calling it again reaches what started meanwhile."""
+        self.paused = True  # first: from here on nothing new starts
+        reason = "PlainBoard is paused for maintenance. Your open work goes on by itself afterwards."
+        for member in await pause_service.begin(s, by):
+            await self.wind_down(s, member, reason)
+        # Managers stay switched on, and what waits for them stays in the queue. Their running turn wraps up too.
+        turns = select(Run).join(Agent, Agent.id == Run.agent_id).where(Run.status == RunStatus.RUNNING, Run.stop_requested_at.is_(None), Agent.is_manager)
+        for run in list(await s.scalars(turns)):
+            if await self.runner.notify_run(run.id, prompts.wind_down_notice(reason), urgent=True):
+                run.stop_requested_at = utcnow()
+                await s.commit()
+                bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
+        await self._pause_changed(s)
+
+    async def resume_all(self, s: AsyncSession) -> None:
+        """End the pause: the members it switched off work on with what they had open, and what waited starts."""
+        members = await pause_service.end(s)
+        self.paused = False
+        for member in members:
+            await self.resume(s, member)
+        self._wake.set()
+        await self._pause_changed(s)
+
+    async def _pause_changed(self, s: AsyncSession) -> None:
+        for project_id in await s.scalars(select(Project.id)):
+            bus.publish(project_id, "pause.changed", {"paused": self.paused})
+
     async def stop_agent(self, s: AsyncSession, agent: Agent) -> int:
         """Stop everything an agent is doing or about to do, at once: runs and background jobs."""
         run_ids = (await s.scalars(select(Run.id).where(Run.agent_id == agent.id, Run.status.in_((RunStatus.QUEUED, RunStatus.RUNNING))))).all()
@@ -750,6 +782,8 @@ class RunManager:
                 (r.id, r.agent_id, r.project_id, r.parent_run_id is not None, r.agent_id in managers)
                 for r in sorted(queued, key=order)
                 if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied) and not (r.agent_id in paused and r.assignment_id and not r.stop_requested_at)
+                # Everything is paused: only what wraps up still starts, and the answer a turn that wraps up waits for.
+                and not (self.paused and not r.stop_requested_at and r.parent_run_id is None)
             ]
         in_use: dict[int, int] = {}  # project -> its members at work
         for run_id in self._running.keys() - self._unlimited - self.waiting_for_job():
@@ -1197,7 +1231,9 @@ class RunManager:
         # Only now, so that the watcher never looks for a job the runner has not accepted yet.
         return await job_service.add(s, project.id, agent.id, spec.id, command, state.log_path, assignment_id)
 
-    async def stop_job(self, s: AsyncSession, job: Job, *, settle: bool = True) -> bool:
+    async def stop_job(self, s: AsyncSession, job: Job, *, settle: bool = True, by: str = "") -> bool:
+        """``by``: a person stopped it in the UI. Its agent reads that with its next turn, so it does not
+        hand out the link of a server that is gone."""
         try:
             if not await self.runner.stop_job(job.runner_id):
                 return False  # already over: the watcher reports it
@@ -1210,6 +1246,8 @@ class RunManager:
                 # Its assignment waited for it: the agent has to hear that it will not end by itself.
                 await inbox.push(s, job.agent_id, f"{job_service.label(job)} was stopped before it ended. Log: {job.log_path}")
                 await self._settle(s, job.agent_id)
+            elif by:
+                await inbox.push(s, job.agent_id, f"{job_service.label(job)} was stopped by {by} in PlainBoard.")
         return True
 
     async def wait_job(self, job_id: int, seconds: float, run_id: int | None = None) -> str | None:

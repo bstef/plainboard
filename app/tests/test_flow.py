@@ -777,6 +777,46 @@ def test_the_manager_pauses_and_resumes_the_whole_team_in_one_call_each(client, 
     assert team["dev1"]["enabled"] and not team["off"]["enabled"]  # whoever was off before stays off
 
 
+def test_everything_is_paused_at_once_and_goes_on_where_it_stopped(client, project):
+    pid = project["id"]
+    manager = manager_of(client, pid)
+    dev = make_member(client, pid, "Dev1")
+    off = make_member(client, pid, "Off")
+    assert client.patch(f"/api/agents/{off['id']}", json={"enabled": False}).status_code == 200  # switched off by the user before
+    other = client.post("/api/projects", json={"name": "Other"}).json()
+    other_manager = manager_of(client, other["id"])
+    fake = runner(client)
+    assert client.get("/api/pause").json() == {"paused": False, "by": "", "since": None, "standing": False, "moving": [], "servers": 0}
+
+    # A member works on its assignment, and in another project the manager is in the middle of a turn.
+    chat(client, manager["id"], delegate("dev1", "Build", "HOLD\nSAY built half"))
+    chat(client, other_manager["id"], "HOLD\nSAY hello")
+    working = lambda p, agent: any(r["status"] == "running" and r["agent_id"] == agent["id"] for r in runs_of(client, p))  # noqa: E731
+    wait_for(lambda: working(pid, dev) and working(other["id"], other_manager) and not working(pid, manager))
+
+    paused = client.post("/api/pause").json()
+    assert paused["paused"] and paused["by"] == "Admin" and paused["since"].endswith("Z") and not paused["standing"]
+    assert sorted((m["what"], m["project"], m["agent"]) for m in paused["moving"]) == [("turn", "Demo Project", "Dev1"), ("turn", "Other", "Manager")]
+    # Both turns were told to wrap up; no manager spent a turn on the pause.
+    assert len([text for _, text in fake.notices if "You are being paused" in text and "maintenance" in text]) == 2
+    team = agents_by_slug(client, pid)
+    assert not team["dev1"]["enabled"] and team["manager"]["enabled"]
+    assert client.get("/api/settings").json()["values"]["pause"]["by"] == "Admin"  # a setting: it holds across the restart
+
+    chat(client, manager["id"], "SAY later")  # what the user writes meanwhile waits
+    fake.released = True
+    wait_for(lambda: client.get("/api/pause").json()["standing"])
+    assert assignments(client, pid)[0]["status"] == "running"  # nothing is lost
+    assert [r["status"] for r in runs_of(client, pid) if r["agent_id"] == manager["id"]][0] == "queued"
+
+    assert client.delete("/api/pause").json()["paused"] is False
+    wait_for(lambda: idle(client, pid) and assignments(client, pid)[0]["status"] == "done")
+    team = agents_by_slug(client, pid)
+    assert team["dev1"]["enabled"] and not team["off"]["enabled"]  # whoever was off before stays off
+    # What the user wrote meanwhile was answered, and the member's report reaches the manager as usual.
+    wait_for(lambda: all(r["status"] == "succeeded" for r in runs_of(client, pid) if r["agent_id"] == manager["id"]))
+
+
 def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(client, project):
     pid = project["id"]
     make_member(client, pid)

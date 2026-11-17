@@ -80,11 +80,13 @@ function TicketLink({ number, children, className }: { number: number; children:
     <button
       type="button"
       title={task.title}
+      // A ticket that exists stands out of the text as a chip (in colour where the design has one).
+      data-part={className ? undefined : "ticket-ref"}
       onClick={(e) => {
         e.stopPropagation();
         openTask(task.id);
       }}
-      className={className ?? "font-medium text-fg hover:underline"}
+      className={className ?? "rounded-sm bg-sunk px-1 font-semibold whitespace-nowrap text-fg ring-1 ring-line-2 ring-inset hover:bg-line"}
     >
       {children}
     </button>
