@@ -508,7 +508,7 @@ def test_the_quick_check_runs_at_hand_over_and_a_failure_never_reaches_a_train(c
     # On exactly the commit that is handed over: where the member has it checked out (its clone or a worktree
     # of its own, with a warm build cache), else in a worktree that is thrown away afterwards.
     command = fake.job_specs[-1].command
-    assert command.startswith("cd api || exit 97" + chr(10) + "where=$(git worktree list --porcelain") and '= "abc1234def" ] && git -C "$tree" diff --quiet HEAD' in command
+    assert command.startswith("# PlainBoard quick check: api" + chr(10) + "cd api || exit 97" + chr(10) + "where=$(git worktree list --porcelain") and '= "abc1234def" ] && git -C "$tree" diff --quiet HEAD' in command
     assert '(' + chr(10) + 'cd "$where" || exit 97' + chr(10) + 'cargo fmt --check' + chr(10) + ')' in command
     assert 'git worktree add -q --detach "$tmp/tree" abc1234def || exit 97' in command and '(' + chr(10) + 'cd "$tmp/tree" || exit 97' + chr(10) + 'cargo fmt --check' + chr(10) + ')' in command
     assert "git fetch -q origin feat-a" in command and command.endswith('git worktree remove --force "$tmp/tree" >/dev/null 2>&1; rm -rf "$tmp"' + chr(10) + 'exit $rc')

@@ -422,6 +422,14 @@ export interface StatsDay {
   updates: number;
 }
 
+/** Something PlainBoard's own checks found that slows the team down. */
+export interface FlowFinding {
+  key: string;
+  title: string;
+  detail: string;
+  action: string;
+}
+
 /** What a period brought and cost; given for the period shown and the one right before it. */
 export interface StatsPeriod {
   tickets_done: number;

@@ -366,6 +366,15 @@ class StatsPeriod(BaseModel):
     cost_usd: float = 0.0
 
 
+class FlowFinding(BaseModel):
+    """Something PlainBoard's own checks found that slows the team down (services/flow_check.py)."""
+
+    key: str
+    title: str
+    detail: str
+    action: str
+
+
 class StatsVersion(BaseModel):
     at: UTCDateTime
     commit: str

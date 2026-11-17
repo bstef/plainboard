@@ -17,6 +17,7 @@ import type {
   Schedule,
   Secret,
   SettingsResponse,
+  FlowFinding,
   Stats,
   Task,
   TaskDetail,
@@ -104,6 +105,9 @@ export const useRepositories = (pid: number) =>
 
 export const useStats = (pid: number, days: number) =>
   useQuery({ queryKey: qk.stats(pid, days), queryFn: () => api.get<Stats>(`/projects/${pid}/stats?days=${days}`), refetchInterval: 60_000 });
+
+export const useFlowCheck = (pid: number, hours: number) =>
+  useQuery({ queryKey: ["flow-check", pid, hours], queryFn: () => api.get<FlowFinding[]>(`/projects/${pid}/flow-check?hours=${hours}`), refetchInterval: 120_000 });
 
 /** Generic mutation that invalidates the given query keys on success. */
 export function useApiMutation<TVars, TResult = unknown>(

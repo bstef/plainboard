@@ -23,7 +23,10 @@ Time here is the opposite of what human teams are used to, and your instincts ab
   (hours). How long a ticket takes is the number of waits in a row, not the amount of code.
 - PlainBoard measures this for you. Every report says how long the assignment took and how much of that
   was work, waiting for jobs and queueing; time_report shows where the team's time went. When waiting is
-  most of it, change how the work is cut. More checking makes it worse.
+  most of it, change how the work is cut. More checking makes it worse. flow_check lists what
+  PlainBoard's own checks found that slows the team down (a base branch that stays red, a check that
+  keeps failing, repairs that wait, stuck branches, full notes), each with what helps: look at it
+  when work feels slow or the user asks how it is going, and act on it.
 - So cut work for few waits:
   - One owner from start to finish. The member who writes a change also checks it with the fastest
     check that can catch its mistake, pushes its branch and hands it to PlainBoard (merge_when_green).
@@ -48,7 +51,7 @@ Time here is the opposite of what human teams are used to, and your instincts ab
   - What a minute can check must never cost a train. Give every repository a quick check
     (update_repository quick_check_command: format, lint, whatever its checks reject within a minute
     or two). PlainBoard runs it the moment a branch is handed over, and its author fixes what it finds
-    in the same turn. When a train fails on something that fast, add it to the quick check.
+    in the same turn. When a check run fails on something that fast, add it to the quick check.
   - Changes that only pass together are one branch: have one member merge them and hand over that one.
   - So nobody opens a pull request per change, pushes work in progress, starts or re-runs checks,
     watches them, or merges by hand, and you never collect or merge branches yourself. Nobody runs the

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ..models import Assignment, JobStatus, LandingStatus, Repository, Run
 from ..orchestration import prompts
 from ..orchestration.runner_client import RunnerError
+from ..services import flow_check as flow_check_service
 from ..services import flow_log
 from ..services import landings as landing_service
 from ..services import projects as project_service
@@ -35,6 +36,10 @@ class ReturnBranchArgs(BaseModel):
     reason: str = Field(min_length=10, description="What fails and why it is more than a small fix")
 
 
+class FlowCheckArgs(BaseModel):
+    hours: int = Field(default=24, ge=1, le=336)
+
+
 class TimeReportArgs(BaseModel):
     hours: int = Field(default=24, ge=1, le=336)
 
@@ -54,6 +59,7 @@ def quick_check_script(folder: str, branch: str, head: str, command: str) -> str
     q = shlex.quote
     return "\n".join(
         [
+            flow_check_service.QUICK_CHECK_MARK + folder,  # so its time can be measured (services/flow_check.py)
             f"cd {q(folder)} || exit {NOT_AS_PUSHED}",
             "where=$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | while IFS= read -r tree; do",
             f'if [ "$(git -C "$tree" rev-parse HEAD 2>/dev/null)" = "{head}" ] && git -C "$tree" diff --quiet HEAD 2>/dev/null; then printf "%s" "$tree"; break; fi',
@@ -196,6 +202,28 @@ async def return_branch(ctx: ToolContext, args: ReturnBranchArgs) -> str:
     await flow_log.record(ctx.session, ctx.project.id, "landing.returned", landing_id=landing.id, agent_id=ctx.agent.id, run_id=ctx.run.run_id, branch=branch, reason=args.reason, to_author=went_back)
     where = "is back with its author" if went_back else "went to the manager"
     return f"Branch {branch} {where}. The others go on without it: none of them may contain it or need it."
+
+
+@tool("forget_branch", "Take a branch off PlainBoard's landing list: its work landed another way, or is dropped. For stuck branches that will not be handed over again.", MergeWhenGreenArgs, roles=(MANAGER,))
+async def forget_branch(ctx: ToolContext, args: MergeWhenGreenArgs) -> str:
+    repo = await _repository(ctx, args.repository)
+    branch = args.branch.strip().removeprefix("origin/")
+    landing = await landing_service.find(ctx.session, repo.id, branch)
+    if landing is None or landing.status in (LandingStatus.MERGED, LandingStatus.CLOSED):
+        raise ToolError(f"{branch} is not on PlainBoard's list.")
+    if landing.status == LandingStatus.TRAIN:
+        raise ToolError(f"{branch} is being checked right now: wait for the result.")
+    was = str(landing.status)
+    landing.status, landing.train_id, landing.group_no = LandingStatus.CLOSED, None, None
+    await ctx.session.commit()
+    timing_service.forget_cache()
+    await flow_log.record(ctx.session, ctx.project.id, "landing.forgotten", landing_id=landing.id, agent_id=ctx.agent.id, branch=branch, was=was)
+    return f"Branch {branch} is off the list (it was {was}). PlainBoard does nothing more with it; the branch itself is untouched."
+
+
+@tool("flow_check", "PlainBoard's own checks of what slows the team down, measured, heaviest first, each with what usually helps.", FlowCheckArgs, roles=(MANAGER,))
+async def flow_check(ctx: ToolContext, args: FlowCheckArgs) -> str:
+    return flow_check_service.text(await flow_check_service.findings(ctx.session, ctx.project.id, args.hours), args.hours)
 
 
 @tool("time_report", "Where the team's time went: work against waiting, the slowest commands, check runs for landing, repeated runs.", TimeReportArgs, roles=(MANAGER,))

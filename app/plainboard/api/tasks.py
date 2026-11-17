@@ -12,6 +12,7 @@ from ..schemas import (
     CommentOut,
     DecisionAnswer,
     DecisionOut,
+    FlowFinding,
     RunOut,
     StatsOut,
     TaskCreate,
@@ -22,6 +23,7 @@ from ..schemas import (
 )
 from ..services import board as board_service
 from ..services import decisions as decision_service
+from ..services import flow_check as flow_check_service
 from ..services import projects as project_service
 from ..services import stats as stats_service
 from ..services import trace as trace_service
@@ -91,6 +93,13 @@ async def user_action_done(task_id: int, body: UserActionDone, session: Session,
 @router.get("/projects/{project_id}/stats", response_model=StatsOut)
 async def stats(project_id: int, session: Session, days: int = Query(default=30, ge=1, le=365)) -> StatsOut:
     return await stats_service.overview(session, project_id, days)
+
+
+@router.get("/projects/{project_id}/flow-check", response_model=list[FlowFinding])
+async def flow_check(project_id: int, session: Session, hours: int = Query(default=24, ge=1, le=336)) -> list[FlowFinding]:
+    """What PlainBoard's own checks found that slows the team down, heaviest first."""
+    await project_service.get(session, project_id)
+    return [FlowFinding(key=f.key, title=f.title, detail=f.detail, action=f.action) for f in await flow_check_service.findings(session, project_id, hours)]
 
 
 @router.get("/projects/{project_id}/work-report")

@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useStats } from "../../api/queries";
+import { useFlowCheck, useStats } from "../../api/queries";
 import type { StatsDay, StatsPeriod } from "../../api/types";
 import { AgentSquare, PageHead, Segmented, Spinner } from "../../components/ui";
 import { useShell } from "../layout/shell-context";
@@ -73,6 +73,7 @@ export function StatsView() {
               <Tile label={t("stats.tokens")} value={count(sum(data.days, (d) => d.tokens))} />
               <Tile label={t("stats.cost")} value={money(sum(data.days, (d) => d.cost_usd))} />
             </div>
+            <Slowdowns projectId={project.id} />
             <Speed days={data.days} current={data.current} previous={data.previous} range={range} updates={data.versions.length} />
             <BarChart
               title={t("stats.ticketsChart")}
@@ -146,6 +147,31 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="font-extrabold">{value}</div>
       {hint && <div className="text-fg-3">{hint}</div>}
     </div>
+  );
+}
+
+/** What PlainBoard's own checks found in the last day that slows the team down. No model looks for
+ *  these: each is a query with a threshold. The manager sees the same list (flow_check). */
+function Slowdowns({ projectId }: { projectId: number }) {
+  const { t } = useTranslation();
+  const found = useFlowCheck(projectId, 24).data;
+  if (!found) return null;
+  return (
+    <section>
+      <h2 className="caps rule-b pb-1.5">{t("stats.slowdowns")}</h2>
+      <p className="mt-2 text-fg-3">{t(found.length ? "stats.slowdownsHint" : "stats.slowdownsNone")}</p>
+      {found.length > 0 && (
+        <ol className="mt-2 divide-y divide-line">
+          {found.map((finding) => (
+            <li key={finding.key + finding.title} className="py-2.5">
+              <div className="font-semibold">{finding.title}</div>
+              <div className="text-fg-2">{finding.detail}</div>
+              <div className="text-fg-3">→ {finding.action}</div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 

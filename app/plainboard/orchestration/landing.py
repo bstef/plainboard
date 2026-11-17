@@ -176,7 +176,7 @@ class LandingWatcher:
         self._finished(train, now)
         if state.exit_code != 0:
             evidence = f"Check command: {r.repo.check_command.strip()}\nIt ended with exit code {state.exit_code}. Last output:\n{r.redact(state.tail)}\nFull log: {state.log_path}"  # type: ignore[operator]
-            await self._failed(s, r, train, members, f"the check command ended with exit code {state.exit_code}", evidence)
+            await self._failed(s, r, train, members, f"the check command ended with exit code {state.exit_code}", evidence, ["check command"])
             return True
         spec = TrainLandSpec(credentials=r.credentials, key=r.key, remote=r.remote, base=train.base, head_sha=train.head_sha, delete_branches={m.branch: m.head_sha for m in members})
         landed = await self._runs.runner.land_train(spec)
@@ -213,7 +213,7 @@ class LandingWatcher:
             failed = [c for c in state.checks if c.state == "fail"]
             listed = "\n".join(f"- {c.name}" + (f": {c.link}" if c.link else "") for c in failed[:15])
             evidence = f"Failed checks ({train.url}):\n{listed}\nRead the failed logs once: the links, or gh run view <run id> --log-failed."
-            await self._failed(s, r, train, members, "failed checks: " + ", ".join(c.name for c in failed[:8]), evidence)
+            await self._failed(s, r, train, members, "failed checks: " + ", ".join(c.name for c in failed[:8]), evidence, [c.name for c in failed])
             return True
         merged = await self._runs.runner.merge_pull_request(
             r.credentials, r.slug, train.number, methods=MERGE_METHODS, key=r.key, remote=r.remote, delete_branches={m.branch: m.head_sha for m in members}
@@ -270,10 +270,10 @@ class LandingWatcher:
         branches = "; ".join([await self._label(s, m) for m in members])
         await self._tell_manager(s, r, f"Not landed in {r.repo.name}: {branches} {what}. PlainBoard has stopped for these branches; fix the cause, then hand them over again with merge_when_green.")
 
-    async def _failed(self, s: AsyncSession, r: Repo, train: Train, members: list[Landing], summary: str, evidence: str) -> None:
+    async def _failed(self, s: AsyncSession, r: Repo, train: Train, members: list[Landing], summary: str, evidence: str, checks: list[str]) -> None:
         """The train did not pass. One branch on it: its author repairs it. Several: one agent makes
         them pass together, and they are checked again as a group."""
-        train.status = TrainStatus.FAILED
+        train.status, train.failed_checks = TrainStatus.FAILED, "\n".join(checks)
         await s.commit()
         await flow_log.record(
             s, r.project.id, "train.failed", train_id=train.id, branches=[m.branch for m in members], landing_ids=[m.id for m in members],

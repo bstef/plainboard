@@ -40,6 +40,9 @@ Look through:
 - Team: do not remove or change agents; if one seems no longer needed, mention it in your reply.
 - Waiting time (time_report): if one command or the checks of pull requests make up most of the
   team's waiting and no ticket for it exists, create one to make that faster or needed less often.
+- What slows the team down (flow_check): PlainBoard's own checks, with numbers. Do what is yours to
+  do at once (notes, schedules, branches to forget or hand over again, a quick check to extend) and
+  create a ticket for what needs work, unless one exists. Name the heaviest finding in your reply.
 
 Never delete anything the user wrote or may still need. Do not start new work, do not delegate and do
 not message teammates for this. Reply in one or two lines: what you changed, or "Nothing to tidy."."""
