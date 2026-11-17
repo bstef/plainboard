@@ -88,7 +88,7 @@ The board is a timetable: fixed columns, ruled rows, one type size. It shows who
 
 **Key Characteristics:**
 - Two named themes, `carbon` (dark) and `stone` (light), each one block of tokens.
-- This document describes Fahrplan, the default design. PlainBoard can carry other designs next to it (`frontend/src/designs/`, at present Classic: cards, rounded corners, an indigo accent, Inter); they restyle the same components and are not bound by the rules below.
+- This document describes Fahrplan, the design the components are written against. PlainBoard carries other designs next to it (`frontend/src/designs/`, at present Classic: cards, rounded corners, an indigo accent, Inter). Classic is what a browser shows that has not chosen, because its colour makes the parts easier to tell apart; Fahrplan is one click away in the picker. Other designs restyle the same components and are not bound by the rules below.
 - One type size. Rank comes from weight, case, reversal and rule.
 - Hairline rules instead of cards. Flat surfaces, 2px corners.
 - Vermilion means "this waits for you". Green only confirms.

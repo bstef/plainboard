@@ -204,10 +204,11 @@ The UI picks up models from `/api/meta`. If the provider has no server-side sess
 **Add a design or a theme.** The look has two levels, both chosen in the browser (`lib/theme.ts`,
 `features/layout/LookDialog.tsx`) and set on `<html>`: `data-design` and `data-theme`.
 
-- A **design** is a look: its type, corners, shadows, and how the parts are drawn. Fahrplan, the
-  default, is `frontend/src/index.css`. Every other design is one stylesheet in
+- A **design** is a look: its type, corners, shadows, and how the parts are drawn. Fahrplan is
+  `frontend/src/index.css`, the base every component is written against. Every other design is one stylesheet in
   `frontend/src/designs/` (`classic.css` is the example to copy), imported in `main.tsx` and listed in
-  `DESIGNS` in `lib/theme.ts` and in the pre-paint script of `index.html`. It is not layered, so it
+  `DESIGNS` in `lib/theme.ts` and in the pre-paint script of `index.html`. The first design listed
+  there is the default for a browser that has not chosen: Classic. It is not layered, so it
   wins over the utility classes of the components. A design has three means, in this order of
   preference: tokens (`--font-sans`, `--radius-*`, `--shadow-lg`, `--font-weight-*` and its
   colours), the semantic classes (`.plate`, `.caps`, `.mk-*`, `.rule-b`, `.rule-t`, `.sq-hue`,
