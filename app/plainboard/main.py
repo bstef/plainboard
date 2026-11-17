@@ -21,6 +21,7 @@ from .orchestration.landing import LandingWatcher
 from .orchestration.limits_watcher import LimitsWatcher
 from .orchestration.update_watcher import UpdateWatcher
 from .orchestration.scheduler import Scheduler
+from .orchestration.standstill import StandstillWatcher
 from .models import utcnow
 from .security import init_security
 from .services import version as version_service
@@ -46,6 +47,7 @@ async def lifespan(app: FastAPI):
     landing = LandingWatcher(sessionmaker(), runs, config.landing_interval_seconds, config.landing_linger_seconds)
     app.state.runner, app.state.runs, app.state.scheduler, app.state.job_watcher = runner, runs, scheduler, job_watcher
     app.state.landing = landing
+    standstill = app.state.standstill = StandstillWatcher(sessionmaker(), runs, config.standstill_interval_seconds)
     limits_watcher = LimitsWatcher(runs, config.limits_interval_seconds)
     updates = app.state.updates = UpdateWatcher(sessionmaker(), runner, config.update_interval_seconds)
     app.state.preview_client = preview.new_client()
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     job_watcher.start()
     landing.start()
+    standstill.start()
     limits_watcher.start()
     updates.start()
     log.info("PlainBoard ready")
@@ -61,6 +64,7 @@ async def lifespan(app: FastAPI):
     finally:
         await updates.stop()
         await limits_watcher.stop()
+        await standstill.stop()
         await landing.stop()
         await job_watcher.stop()
         await scheduler.stop()

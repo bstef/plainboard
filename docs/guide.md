@@ -64,6 +64,10 @@ the agents it needs, hands out the work and reports back.
 
 - **Say what you want.** Write to the manager. Or add a ticket yourself and hand it over: open it and
   click **Hand to manager**, or drag it to *In Progress*. You never assign a ticket to an agent.
+- **The team keeps going by itself.** What is in *To Do* is work the team takes when someone is free:
+  if tickets are ready and slots stay free for a quarter of an hour, PlainBoard wakes the manager and
+  shows it exactly that, once. *Backlog* is for later: nothing there is started until you move it.
+  When nothing is to do, nobody is woken and nothing is spent.
 - **Watch the board.** A ticket shows which agent works on it and for how long. *Running now* lists
   everyone who is working.
 - **Answer what waits for you.** When an agent needs a decision, or something only you can do, the

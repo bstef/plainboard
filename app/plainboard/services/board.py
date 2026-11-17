@@ -267,7 +267,13 @@ async def get_task_by_number(session: AsyncSession, project_id: int, number: int
 
 async def idle_in_progress(session: AsyncSession, project_id: int) -> list[Task]:
     """Tickets in progress that nothing is happening on and that aren't waiting for the user."""
-    tasks = [t for t in await list_tasks(session, project_id, status=TaskStatus.IN_PROGRESS) if not t.user_action]
+    return await untouched(session, project_id, (TaskStatus.IN_PROGRESS,))
+
+
+async def untouched(session: AsyncSession, project_id: int, statuses: tuple[str, ...]) -> list[Task]:
+    """Tickets in these columns that nothing is happening on and that aren't waiting for the user:
+    no turn, no open assignment, no branch on its way, no open question."""
+    tasks = [t for status in statuses for t in await list_tasks(session, project_id, status=status) if not t.user_action]
     if not tasks:
         return []
     busy = {

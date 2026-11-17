@@ -817,6 +817,61 @@ def test_everything_is_paused_at_once_and_goes_on_where_it_stopped(client, proje
     wait_for(lambda: all(r["status"] == "succeeded" for r in runs_of(client, pid) if r["agent_id"] == manager["id"]))
 
 
+def stand_tick(client, minutes: int = 0) -> int:
+    """Look at the boards as the standstill watcher does, ``minutes`` from now. Returns how many managers it woke."""
+    from plainboard.models import utcnow
+
+    async def tick() -> int:
+        return await client.app_ref.state.standstill.tick(utcnow() + timedelta(minutes=minutes))
+
+    return client.portal.call(tick)
+
+
+def test_a_manager_is_told_once_when_ready_work_stands_next_to_free_slots(client, project):
+    pid = project["id"]
+    make_member(client, pid, "Dev1")
+    fake = runner(client)
+    # A ticket is to do, and the manager's turn (if it had one) ended without ordering anything.
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Write the docs", "status": "todo"}).json()
+    wait_for(lambda: idle(client, pid))
+    assert stand_tick(client) == 0  # the manager has only just looked at this board
+    turns = len(fake.specs)
+
+    assert stand_tick(client, 20) == 1
+    wait_for(lambda: idle(client, pid) and len(fake.specs) == turns + 1)
+    told = fake.specs[-1].prompt
+    assert "3 of 3 member slots are free (idle: Dev1)" in told and "- #1 Write the docs (todo)" in told and "nothing was ordered" in told
+    assert [e["kind"] for e in flow_events(client, pid)].count("manager.told_of_standstill") == 1
+    assert stand_tick(client, 40) == 0  # the same situation is no news
+
+    # A new ticket is news, but not within the hour: the manager is not asked every few minutes.
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Fix the login", "status": "todo"})
+    wait_for(lambda: idle(client, pid))
+    assert stand_tick(client, 50) == 0
+    assert stand_tick(client, 100) == 1
+    wait_for(lambda: idle(client, pid) and "- #2 Fix the login (todo)" in fake.specs[-1].prompt)
+    # And then never again, however long nothing changes: a project with nothing to start costs nothing.
+    assert stand_tick(client, 200) == 0 and stand_tick(client, 2000) == 0
+
+    # No ready work, no question: a ticket that waits for the user, members switched off by the limit, everything paused.
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Third", "status": "todo"})
+    wait_for(lambda: idle(client, pid))
+    for number in (1, 2, 3):
+        task = next(t for t in client.get(f"/api/projects/{pid}/tasks").json() if t["number"] == number)
+        assert client.patch(f"/api/tasks/{task['id']}", json={"user_action": "Try it on your phone"}).status_code == 200
+    wait_for(lambda: idle(client, pid))
+    assert stand_tick(client, 4000) == 0
+    assert client.patch(f"/api/tasks/{ticket['id']}", json={"user_action": ""}).status_code == 200
+    wait_for(lambda: idle(client, pid))
+    assert client.patch(f"/api/projects/{pid}", json={"parallel_agents": 0}).status_code == 200
+    assert stand_tick(client, 4000) == 0
+    assert client.patch(f"/api/projects/{pid}", json={"parallel_agents": 2}).status_code == 200
+    assert client.post("/api/pause").json()["paused"]
+    assert stand_tick(client, 4000) == 0
+    assert client.delete("/api/pause").json()["paused"] is False
+    assert stand_tick(client, 4000) == 1  # and with all that gone, it is asked about the ticket that is left
+
+
 def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(client, project):
     pid = project["id"]
     make_member(client, pid)

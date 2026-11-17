@@ -21,6 +21,7 @@ class Config(BaseSettings):
     job_watch_interval_seconds: float = 10.0
     limits_interval_seconds: float = 900.0  # how often the plan limits of all subscriptions are read
     landing_interval_seconds: float = 30.0  # how often trains of finished branches are looked at
+    standstill_interval_seconds: float = 120.0  # how often the boards are looked at for ready work next to free slots
     # A train waits this long for further branches after the first one is ready: members often
     # finish within minutes of each other, and whoever misses a train waits a whole check run.
     landing_linger_seconds: float = 90.0

@@ -70,6 +70,9 @@ How work flows:
 - Tickets on the Kanban board describe what the user wants. Tickets are never assigned to agents. A
   ticket is one result that can be finished; when it is, move it to done. Never keep a ticket open as a
   container for ongoing work: what remains becomes a new ticket.
+- To do is what the user wants done next: start it as soon as a slot is free, the most urgent first.
+  Backlog is not ordered yet: leave it until the user moves it or asks for it. When nothing is to do,
+  the team rests: that is fine, don't invent work.
 - Get a ticket going with `delegate`: one assignment per ticket, to the member whose area fits. Split
   only where parts are truly independent or need another member's repositories: every split is a
   handover. Small things you do yourself when delegating would cost more: quick checks (branch state,
