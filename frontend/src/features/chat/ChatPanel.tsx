@@ -42,6 +42,7 @@ export function ChatPanel({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [details, setDetails] = useStored<boolean>("plainboard.chatDetails", false);
   const [files, setFiles] = useState<File[]>([]);
+  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
 
   const activeRuns = (runs.data ?? []).filter((r) => r.agent_id === agentId && (r.status === "queued" || r.status === "running"));
   const running = activeRuns.find((r) => r.status === "running");
@@ -185,7 +186,9 @@ export function ChatPanel({
             {loadingOlder ? t("common.loading") : t("chat.loadOlder")}
           </button>
         )}
-        {!conversation.isLoading && messages.length === 0 && !queued.length && <ChatIntro isManager={agent.is_manager} />}
+        {!conversation.isLoading && messages.length === 0 && !queued.length && (
+          <ChatIntro isManager={agent.is_manager} onPick={canWrite && agent.enabled ? (text) => setSeed((last) => ({ text, n: (last?.n ?? 0) + 1 })) : undefined} />
+        )}
         {timeline.map(({ message, run: r }) => (message ? <MessageItem key={message.id} message={message} agent={agent} details={details} /> : r && waitingRow(r)))}
         {running && streaming && (
           <div data-part="msg" data-role="agent" className={CHAT_ROW}>
@@ -198,6 +201,7 @@ export function ChatPanel({
       </div>
 
       <Composer
+        seed={seed}
         agentId={agentId}
         agentName={agent.name}
         runningId={running?.id}
@@ -219,12 +223,30 @@ export function ChatPanel({
   );
 }
 
-function ChatIntro({ isManager }: { isManager: boolean }) {
+const STARTERS = ["build", "existing", "change"] as const;
+
+/** An empty chat says what it is for. With the manager it also offers a few ways to begin: a click
+ * puts a sentence to complete into the message field, nothing is sent. */
+function ChatIntro({ isManager, onPick }: { isManager: boolean; onPick?: (text: string) => void }) {
   const { t } = useTranslation();
   return (
-    <div className="mx-auto max-w-xs space-y-2 px-4 py-10 text-center text-fg-2">
-      <p className="font-extrabold text-fg">{isManager ? t("chat.introManagerTitle") : t("chat.introAgentTitle")}</p>
-      <p>{isManager ? t("chat.introManager") : t("chat.introAgent")}</p>
+    <div className="mx-auto max-w-sm space-y-2 px-4 py-10 text-fg-2">
+      <p className="text-center font-extrabold text-fg">{isManager ? t("chat.introManagerTitle") : t("chat.introAgentTitle")}</p>
+      <p className="text-center">{isManager ? t("chat.introManager") : t("chat.introAgent")}</p>
+      {isManager && onPick && (
+        <div className="pt-4">
+          <p className="pb-1 text-fg-3">{t("chat.starters.hint")}</p>
+          <ul className="border-t border-line">
+            {STARTERS.map((id) => (
+              <li key={id} className="border-b border-line">
+                <button type="button" onClick={() => onPick(t(`chat.starters.${id}.text`))} className="block w-full px-1 py-2 text-left text-fg hover:bg-sunk touch:py-3">
+                  {t(`chat.starters.${id}.label`)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -336,6 +358,7 @@ function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
 }
 
 function Composer({
+  seed,
   agentId,
   agentName,
   runningId,
@@ -347,6 +370,8 @@ function Composer({
   files,
   onFilesChange,
 }: {
+  /** A text to start from, put into the field when it changes. */
+  seed?: { text: string; n: number } | null;
   agentId: number;
   agentName: string;
   runningId?: number;
@@ -365,6 +390,11 @@ function Composer({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!seed) return;
+    setText(seed.text);
+    area.current?.focus();
+  }, [seed]);
   const picker = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {

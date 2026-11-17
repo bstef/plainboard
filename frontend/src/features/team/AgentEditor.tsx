@@ -153,45 +153,33 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
           <Textarea rows={4} value={form.instructions} onChange={(e) => set({ instructions: e.target.value })} className="font-mono" />
         </Field>
 
-        <fieldset className="grid gap-4 rounded-sm bg-sunk p-4 sm:grid-cols-2">
-          <legend className="sr-only">{t("team.modelSection")}</legend>
-          <Field label={t("team.provider")}>
-            <Select
-              value={form.provider}
-              onChange={(e) => {
-                const all = meta.data?.providers ?? [];
-                const to = e.target.value;
-                set({
-                  provider: to,
-                  model: form.model && equivalentModel(all, form.model, to),
-                  summary_model: form.summary_model && equivalentModel(all, form.summary_model, to),
-                  account_id: null,
-                });
-              }}
-            >
-              {(meta.data?.providers?.length ? meta.data.providers : [{ name: form.provider, label: form.provider }]).map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label={t("team.model")}>
-            <ModelSelect provider={provider} value={form.model} onChange={(model) => set({ model })} />
-          </Field>
-          {(providerAccounts.length > 1 || form.account_id !== null) && (
-            <Field label={t("team.account")} hint={t("team.accountHint")} className="sm:col-span-2">
-              <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
-                <option value="">{t("team.accountAuto")}</option>
-                {providerAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                    {a.enabled ? "" : ` (${t("team.accountDisabled")})`}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(meta.data?.providers.length ?? 0) > 1 && (
+            <Field label={t("team.provider")} hint={t("team.providerHint")} className="sm:col-span-2">
+              <Select
+                value={form.provider}
+                onChange={(e) => {
+                  const all = meta.data?.providers ?? [];
+                  const to = e.target.value;
+                  set({
+                    provider: to,
+                    model: form.model && equivalentModel(all, form.model, to),
+                    summary_model: form.summary_model && equivalentModel(all, form.summary_model, to),
+                    account_id: null,
+                  });
+                }}
+              >
+                {(meta.data?.providers?.length ? meta.data.providers : [{ name: form.provider, label: form.provider }]).map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.label}
                   </option>
                 ))}
               </Select>
             </Field>
           )}
+          <Field label={t("team.model")} hint={t("team.modelHint")}>
+            <ModelSelect provider={provider} value={form.model} onChange={(model) => set({ model })} />
+          </Field>
           <Field label={t("team.effort")} hint={t("team.effortHint")}>
             <Select value={form.effort ?? ""} onChange={(e) => set({ effort: e.target.value })}>
               <option value="">{t("team.effortDefault")}</option>
@@ -202,41 +190,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
               ))}
             </Select>
           </Field>
-          <Field label={t("team.toolset")} hint={t(`toolset.${form.toolset}Hint`)}>
-            <Select value={form.toolset} onChange={(e) => set({ toolset: e.target.value as Agent["toolset"] })}>
-              <option value="full">{t("toolset.full")}</option>
-              <option value="board">{t("toolset.board")}</option>
-            </Select>
-          </Field>
-        </fieldset>
-
-        <fieldset className="grid gap-4 rounded-sm bg-sunk p-4 sm:grid-cols-2">
-          <legend className="sr-only">{t("team.contextSection")}</legend>
-          <Field
-            label={t("team.contextLimit")}
-            hint={
-              <>
-                {t("team.contextLimitHint")}
-                {agent?.base_context_tokens ? (
-                  <span className={clsx("block", form.context_limit_tokens < agent.base_context_tokens + 4000 && "text-you-fg")}>
-                    {t("team.baseContext", { tokens: formatTokens(agent.base_context_tokens) })}
-                  </span>
-                ) : null}
-              </>
-            }
-          >
-            <Input type="number" min={5000} step={5000} value={form.context_limit_tokens} onChange={(e) => set({ context_limit_tokens: Number(e.target.value) })} />
-          </Field>
-          <Field label={t("team.summaryModel")} hint={t("team.summaryModelHint")}>
-            <ModelSelect provider={provider} value={form.summary_model} onChange={(summary_model) => set({ summary_model })} />
-          </Field>
-          <Field label={t("team.keepRecent")} hint={t("team.keepRecentHint")}>
-            <Input type="number" min={0} max={50} value={form.keep_recent_messages} onChange={(e) => set({ keep_recent_messages: Number(e.target.value) })} />
-          </Field>
-          <Field label={t("team.maxTurns")} hint={t("team.maxTurnsHint")}>
-            <Input type="number" min={1} value={form.max_turns} onChange={(e) => set({ max_turns: e.target.value === "" ? "" : Number(e.target.value) })} />
-          </Field>
-        </fieldset>
+        </div>
 
         {(repos.data?.length ?? 0) > 0 && !agent?.is_manager && (
           <Field group label={t("team.repositories")} hint={t("team.repositoriesHint")}>
@@ -279,7 +233,61 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
             </div>
           </Field>
         )}
-        {!agent?.is_manager && <Toggle checked={form.enabled} onChange={(enabled) => set({ enabled })} label={t("team.enabled")} />}
+        {!agent?.is_manager && (
+          <div className="space-y-1">
+            <Toggle checked={form.enabled} onChange={(enabled) => set({ enabled })} label={t("team.enabled")} />
+            <p className="text-fg-3">{t("team.enabledHint")}</p>
+          </div>
+        )}
+        <details className="group border-t border-line pt-4">
+          <summary className="cursor-pointer font-semibold select-none">{t("team.advanced")}</summary>
+          <p className="pt-1 text-fg-3">{t("team.advancedHint")}</p>
+          <div className="grid gap-4 pt-4 sm:grid-cols-2">
+            <Field label={t("team.toolset")} hint={t(`toolset.${form.toolset}Hint`)}>
+              <Select value={form.toolset} onChange={(e) => set({ toolset: e.target.value as Agent["toolset"] })}>
+                <option value="full">{t("toolset.full")}</option>
+                <option value="board">{t("toolset.board")}</option>
+              </Select>
+            </Field>
+            {(providerAccounts.length > 1 || form.account_id !== null) && (
+              <Field label={t("team.account")} hint={t("team.accountHint")} className="sm:col-span-2">
+                <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
+                  <option value="">{t("team.accountAuto")}</option>
+                  {providerAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                      {a.enabled ? "" : ` (${t("team.accountDisabled")})`}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            <Field
+              label={t("team.contextLimit")}
+              hint={
+                <>
+                  {t("team.contextLimitHint")}
+                  {agent?.base_context_tokens ? (
+                    <span className={clsx("block", form.context_limit_tokens < agent.base_context_tokens + 4000 && "text-you-fg")}>
+                      {t("team.baseContext", { tokens: formatTokens(agent.base_context_tokens) })}
+                    </span>
+                  ) : null}
+                </>
+              }
+            >
+              <Input type="number" min={5000} step={5000} value={form.context_limit_tokens} onChange={(e) => set({ context_limit_tokens: Number(e.target.value) })} />
+            </Field>
+            <Field label={t("team.summaryModel")} hint={t("team.summaryModelHint")}>
+              <ModelSelect provider={provider} value={form.summary_model} onChange={(summary_model) => set({ summary_model })} />
+            </Field>
+            <Field label={t("team.keepRecent")} hint={t("team.keepRecentHint")}>
+              <Input type="number" min={0} max={50} value={form.keep_recent_messages} onChange={(e) => set({ keep_recent_messages: Number(e.target.value) })} />
+            </Field>
+            <Field label={t("team.maxTurns")} hint={t("team.maxTurnsHint")}>
+              <Input type="number" min={1} value={form.max_turns} onChange={(e) => set({ max_turns: e.target.value === "" ? "" : Number(e.target.value) })} />
+            </Field>
+          </div>
+        </details>
         <ErrorText error={error} />
       </div>
     </Modal>

@@ -109,10 +109,10 @@
     "cancelled": "Cancelled"
   },
   "toolset": {
-    "full": "Coding agent",
-    "board": "Coordinator",
-    "fullHint": "Shell, files, git & web, plus board tools.",
-    "boardHint": "Board tools, shell and file editing for small tasks. Much smaller prompt, fewer tokens."
+    "full": "Member: writes code",
+    "board": "Coordinator: plans and hands out work",
+    "fullHint": "Has a shell, files, git and the web, and the board.",
+    "boardHint": "Has the board, and a shell for small things. Its prompt is much shorter, so it uses less of the quota."
   },
   "projects": {
     "none": "No projects yet",
@@ -428,6 +428,21 @@
       "delegated": "Handed out",
       "noAssignments": "No assignments yet.",
       "limits": "Plan limits"
+    },
+    "starters": {
+      "hint": "Not sure how to begin? Start from one of these and fill in the rest:",
+      "build": {
+        "label": "Build something new",
+        "text": "I want to build: \n\nIt should: \n\nPlan it as tickets first and ask me whatever is unclear before anyone starts."
+      },
+      "existing": {
+        "label": "Work on code that exists",
+        "text": "Look at the repository and tell me in a few lines what it is and how it is built. Then propose the team you would set up for it. Change nothing yet."
+      },
+      "change": {
+        "label": "Change or fix one thing",
+        "text": "Please change: \n\nTell me when it is done and how I can check it."
+      }
     }
   },
   "todos": {
@@ -472,7 +487,7 @@
   },
   "team": {
     "title": "Team",
-    "subtitle": "Each agent owns a narrow area so its context stays small. The manager can change the team, too.",
+    "subtitle": "Each agent has one area of its own, so it stays quick and cheap. The manager builds and changes the team too.",
     "add": "Add agent",
     "create": "Create agent",
     "manager": "Manager",
@@ -484,41 +499,46 @@
     "role": "Role",
     "rolePlaceholder": "e.g. Frontend Developer",
     "color": "Color",
-    "area": "Area of responsibility",
-    "areaHint": "What this agent owns. The manager uses it to route work.",
-    "instructions": "Standing instructions",
-    "instructionsHint": "Added to the agent's system prompt.",
+    "area": "What it is responsible for",
+    "areaHint": "The part of the project that is this agent's. The manager decides by it who gets which work.",
+    "instructions": "Rules it always follows",
+    "instructionsHint": "Anything this agent should always do or never do. It reads them on every turn, so keep them short.",
     "modelSection": "Model",
-    "provider": "Provider",
-    "account": "Account",
-    "accountHint": "Automatic: the subscription with the most room left; API keys only when every subscription is used up.",
+    "provider": "Runs on",
+    "account": "Subscription",
+    "accountHint": "Automatic: the project's subscription, else the one with the most room left. API keys only when every subscription is used up.",
     "accountAuto": "Automatic",
     "accountDisabled": "disabled",
     "model": "Model",
-    "defaultModel": "Default from settings",
+    "defaultModel": "The one from the PlainBoard settings",
     "customModel": "Custom model id…",
-    "effort": "Effort",
-    "effortHint": "Lower effort uses fewer tokens.",
-    "effortDefault": "Model default",
-    "toolset": "Capabilities",
+    "effort": "Thinking effort",
+    "effortHint": "How long it thinks before it acts. Lower is faster and uses less of the quota.",
+    "effortDefault": "The model's own",
+    "toolset": "Kind of agent",
     "contextSection": "Context",
-    "contextLimit": "Compress at (tokens)",
-    "contextLimitHint": "Older messages are summarized once the context grows beyond this. Every turn re-reads the whole context, so a smaller limit makes each turn cheaper and faster.",
-    "summaryModel": "Summary model",
-    "summaryModelHint": "A cheap model is enough.",
-    "keepRecent": "Keep recent messages",
-    "keepRecentHint": "Kept verbatim after compression.",
-    "maxTurns": "Max turns per run",
-    "maxTurnsHint": "Optional safety limit.",
-    "mcpServers": "MCP servers",
-    "mcpServersHint": "Servers not enabled for all agents.",
-    "enabled": "Enabled",
+    "contextLimit": "Summarise its chat from (tokens)",
+    "contextLimitHint": "Beyond this, older messages are replaced by a summary. Every turn reads the whole chat again, so a smaller number makes each turn cheaper and faster.",
+    "summaryModel": "Model for the summary",
+    "summaryModelHint": "Routine work: the small model is enough.",
+    "keepRecent": "Latest messages kept as they are",
+    "keepRecentHint": "They stay word for word when the chat is summarised.",
+    "maxTurns": "Most steps per turn",
+    "maxTurnsHint": "A safety limit. Empty: none.",
+    "mcpServers": "Extra tools (MCP servers)",
+    "mcpServersHint": "Tools from the Tools view that are not given to every agent.",
+    "enabled": "Active",
     "confirmDelete": "Delete agent \"{{name}}\"?",
     "baseContext": "Fixed base context of this agent: ~{{tokens}} tokens (system prompt, tools, memory). Compression starts once the conversation grows at least 4k beyond it.",
-    "repositories": "Repository access",
-    "repositoriesHint": "Only these repositories are cloned into the agent's workspace and listed in its prompt.",
-    "allRepos": "All repositories (including future ones)",
-    "noRepos": "No repositories"
+    "repositories": "Repositories it works in",
+    "repositoriesHint": "It gets its own copy of these and knows nothing of the others.",
+    "allRepos": "All repositories, also ones added later",
+    "noRepos": "No repositories",
+    "modelHint": "Stronger models decide better and cost more of the quota.",
+    "enabledHint": "Switched off, the agent starts nothing new. It keeps its work and goes on with it when you switch it on again.",
+    "advanced": "More settings",
+    "advancedHint": "The values from the PlainBoard settings fit most agents. Change these only for a reason.",
+    "providerHint": "Which kind of AI this agent is. It decides which models and subscriptions it can use."
   },
   "notes": {
     "title": "Notes",
