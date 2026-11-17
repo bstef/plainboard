@@ -60,10 +60,13 @@ def test_manager_setup_script_reaches_the_runner(client, project):
     assert "install it yourself" in spec.system_prompt.replace("\n", " ")
 
 
-def interrupted_assignment(client, pid: int, dev: dict, manager: dict, ticket: dict, cut_off_before: int = 0) -> None:
-    """An assignment whose turn was running when the app stopped, then the restart."""
+def interrupted_assignment(client, pid: int, dev: dict, manager: dict, ticket: dict, cut_off_before: int = 0, worked_minutes: int = 0) -> None:
+    """An assignment whose turn was running when the app stopped, then the restart.
+    ``worked_minutes``: how long each earlier turn had worked before it was cut off."""
+    from datetime import timedelta
+
     from plainboard.db import sessionmaker
-    from plainboard.models import Assignment, Run
+    from plainboard.models import Assignment, Run, utcnow
 
     async def interrupt_and_restart():
         async with sessionmaker()() as s:
@@ -71,7 +74,8 @@ def interrupted_assignment(client, pid: int, dev: dict, manager: dict, ticket: d
             s.add(assignment)
             await s.commit()
             for _ in range(cut_off_before):
-                s.add(Run(project_id=pid, agent_id=dev["id"], trigger="wake", input_text="", status="failed", error="Interrupted by a restart", assignment_id=assignment.id))
+                times = {"started_at": utcnow() - timedelta(minutes=worked_minutes + 60), "finished_at": utcnow() - timedelta(minutes=60)} if worked_minutes else {}
+                s.add(Run(project_id=pid, agent_id=dev["id"], trigger="wake", input_text="", status="failed", error="Interrupted by a restart", assignment_id=assignment.id, **times))
             s.add(Run(project_id=pid, agent_id=dev["id"], trigger="assignment", input_text="x", status="running", assignment_id=assignment.id, task_id=ticket["id"]))
             await s.commit()
         await client.app_ref.state.runs._recover_interrupted()
@@ -106,6 +110,17 @@ def test_an_assignment_that_restarts_keep_cutting_off_is_reported_to_the_manager
     detail = client.get(f"/api/tasks/{ticket['id']}").json()
     assert detail["assignments"][0]["status"] == "failed" and "restart" in detail["assignments"][0]["result"]
     assert detail["comments"] == []  # the assignment on the ticket says it
+
+
+def test_many_updates_do_not_fail_an_assignment_whose_turns_had_time_to_work(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Build it", "status": "in_progress"}).json()
+    # A day with many updates: four turns of a long assignment were cut off, each after 40 minutes of work.
+    interrupted_assignment(client, pid, dev, manager, ticket, cut_off_before=4, worked_minutes=40)
+    wait_for(lambda: idle(client, pid) and client.get(f"/api/tasks/{ticket['id']}").json()["assignments"][0]["status"] == "done")
+    assert any("PlainBoard was restarted while you were working" in s.prompt for s in runner(client).specs)
 
 
 def test_interrupted_manager_turn_is_reported_to_itself(client, project):

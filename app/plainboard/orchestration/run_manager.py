@@ -85,6 +85,9 @@ ASK_BUSY_TIMEOUT_SECONDS = 120  # the teammate is in a turn of unknown length, s
 CANCEL_GRACE_SECONDS = 15
 RESTARTED = "Interrupted by a restart"
 MAX_RESTART_RESUMES = 3  # an assignment cut off this often by restarts goes to the manager instead of on
+# ... if those turns were cut off right after they began: restarts that leave no time to work. A turn
+# that had worked for a while when an update came is no sign of that, however many updates there are.
+CUT_SHORT_SECONDS = 300
 
 
 @dataclass
@@ -165,8 +168,9 @@ class RunManager:
                 if run.assignment_id and (a := await s.get(Assignment, run.assignment_id)):
                     # A restart is not a failure of the work: the assignment stays open and its agent
                     # goes on in the same session. Only one that keeps being cut off goes to the manager.
-                    cut_off = await s.scalar(select(func.count()).select_from(Run).where(Run.assignment_id == a.id, Run.error == RESTARTED, Run.id != run.id)) or 0
-                    if a.status == AssignmentStatus.RUNNING and cut_off + 1 < MAX_RESTART_RESUMES:
+                    earlier = (await s.execute(select(Run.started_at, Run.finished_at).where(Run.assignment_id == a.id, Run.error == RESTARTED, Run.id != run.id))).all()
+                    cut_short = sum(began is None or ((ended or now) - began).total_seconds() < CUT_SHORT_SECONDS for began, ended in [*earlier, (run.started_at, now)])
+                    if a.status == AssignmentStatus.RUNNING and cut_short < MAX_RESTART_RESUMES:
                         resumed.add(run.id)
                     else:
                         a.status, a.result, a.finished_at = AssignmentStatus.FAILED, RESTARTED, now
