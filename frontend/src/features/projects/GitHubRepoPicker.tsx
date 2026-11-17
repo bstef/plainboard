@@ -123,6 +123,10 @@ export function GitHubRepoPicker({
             })}
             {visible.length === 0 && <li className="px-3 py-4 text-center text-fg-3">{t("projects.noGithubMatches")}</li>}
           </ul>
+          <details className="text-fg-3">
+            <summary className="cursor-pointer">{t("projects.githubMissing")}</summary>
+            <p className="pt-1">{t("projects.githubMissingHint")}</p>
+          </details>
         </>
       )}
       <div className="flex gap-2">

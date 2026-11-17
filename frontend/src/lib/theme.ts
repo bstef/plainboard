@@ -27,7 +27,6 @@ export interface Look {
 
 const DESIGN_KEY = "plainboard.design";
 const APPEARANCE_KEY = "plainboard.appearance";
-const LEGACY_THEME_KEY = "plainboard.theme"; // "carbon" | "stone", from before designs existed
 const listeners = new Set<() => void>();
 const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)");
 
@@ -36,11 +35,11 @@ function storedDesign(): DesignId {
   return DESIGNS.some((d) => d.id === value) ? (value as DesignId) : DESIGNS[0].id;
 }
 
+/** What the user chose in the picker; until then the system decides. (An old key, "plainboard.theme",
+ * was written by itself before designs existed and says nothing about a choice: it is not read.) */
 function storedAppearance(): Appearance {
   const value = localStorage.getItem(APPEARANCE_KEY);
-  if (APPEARANCES.includes(value as Appearance)) return value as Appearance;
-  const legacy = localStorage.getItem(LEGACY_THEME_KEY);
-  return legacy === "carbon" ? "dark" : legacy === "stone" ? "light" : "system";
+  return APPEARANCES.includes(value as Appearance) ? (value as Appearance) : "system";
 }
 
 let look: Look = read();

@@ -205,7 +205,9 @@
     "repoLandCheckedHint": "PlainBoard merges all finished branches, checks them once together, and only what passes reaches the base branch. Right for a branch you release from, and where checks are quick and reliable.",
     "repoLandFirstBadge": "merges at once",
     "repoQuickCheck": "Quick check (command)",
-    "repoCheck": "Full check (command)"
+    "repoCheck": "Full check (command)",
+    "githubMissing": "A repository is missing?",
+    "githubMissingHint": "The list shows what your GitHub token can reach: your own repositories, those you collaborate on and those of your organisations. A classic token needs the repo scope, and where an organisation uses single sign-on it must be authorised for that organisation. A fine-grained token only reaches the one account or organisation it was created for, so an organisation needs a token of its own (as the project's GitHub token: Project settings, Advanced). Any repository can also be added by its address."
   },
   "board": {
     "filter": "Filter tickets…",

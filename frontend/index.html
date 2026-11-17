@@ -17,11 +17,9 @@
         var themes = { fahrplan: ["carbon", "stone"], classic: ["classic-dark", "classic-light"] };
         var design = localStorage.getItem("plainboard.design");
         if (!themes[design]) design = "classic";
+        // Light or dark: what was chosen in the picker, else as the system.
         var mode = localStorage.getItem("plainboard.appearance");
-        if (mode !== "dark" && mode !== "light") {
-          var legacy = localStorage.getItem("plainboard.theme");
-          mode = mode !== "system" && legacy === "carbon" ? "dark" : mode !== "system" && legacy === "stone" ? "light" : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-        }
+        if (mode !== "dark" && mode !== "light") mode = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         document.documentElement.dataset.design = design;
         document.documentElement.dataset.theme = themes[design][mode === "dark" ? 0 : 1];
       })();
