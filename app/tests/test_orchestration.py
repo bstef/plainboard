@@ -1364,3 +1364,24 @@ def test_work_ordered_from_a_paused_agent_waits_for_it_and_an_assignment_without
     client.portal.call(client.app_ref.state.runs._recover_interrupted)
     wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in client.get(f"/api/projects/{pid}/assignments").json()))
     assert sorted(a["result"] for a in client.get(f"/api/projects/{pid}/assignments").json()) == ["docs written", "found again"]
+
+
+def test_a_message_sent_while_the_runner_is_not_up_yet_waits_for_it(client, project, monkeypatch):
+    """Right after an update the app answers a moment before the runner does. In production the
+    user's first message after an update failed with "Runner unreachable"."""
+    monkeypatch.setattr("plainboard.orchestration.run_manager.RUNNER_RETRY_SECONDS", 0.02)
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    runner(client).unavailable = 3
+    sent = chat(client, manager["id"], "SAY here I am")
+    wait_for(lambda: idle(client, pid))
+    (run,) = [r for r in runs_of(client, pid) if r["id"] == sent["id"]]
+    assert run["status"] == "succeeded" and run["result_text"] == "here I am" and runner(client).unavailable == 0
+
+    # A runner that stays away is an error after all, said as one.
+    monkeypatch.setattr("plainboard.orchestration.run_manager.RUNNER_TRIES", 2)
+    runner(client).unavailable = 5
+    lost = chat(client, manager["id"], "SAY anyone?")
+    wait_for(lambda: idle(client, pid))
+    (run,) = [r for r in runs_of(client, pid) if r["id"] == lost["id"]]
+    assert run["status"] == "failed" and "Runner unreachable" in run["error"]

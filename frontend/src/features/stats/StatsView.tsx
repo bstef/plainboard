@@ -240,8 +240,10 @@ function BarChart({ title, days, series, format }: { title: string; days: StatsD
   const place = hovered === null ? 0 : ((hovered + 0.5) / days.length) * 100;
   const shown = (value: number | null) => (value === null ? "–" : format(value));
 
+  // relative: the table for screen readers is positioned absolutely. Without a positioned box around
+  // it, it sits in the page itself, far below the fold, and the whole page scrolls.
   return (
-    <figure className="min-w-0">
+    <figure className="relative min-w-0">
       <figcaption className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rule-b pb-1.5">
         <span className="caps">{title}</span>
         {series.length > 1 && (

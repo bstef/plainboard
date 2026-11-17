@@ -75,7 +75,7 @@ from ..services.util import truncate
 from ..tools import registry
 from . import inbox, prompts
 from .context import ContextManager, workspace_path
-from .runner_client import RunnerClient, RunnerError
+from .runner_client import RunnerClient, RunnerError, RunnerUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ MAX_RESTART_RESUMES = 3  # an assignment cut off this often by restarts goes to 
 # ... if those turns were cut off right after they began: restarts that leave no time to work. A turn
 # that had worked for a while when an update came is no sign of that, however many updates there are.
 CUT_SHORT_SECONDS = 300
+RUNNER_TRIES, RUNNER_RETRY_SECONDS = 12, 5.0  # how long a turn waits for a runner that is not up yet (about a minute, plus connect timeouts)
 
 
 @dataclass
@@ -766,7 +767,16 @@ class RunManager:
             if prepared is None:
                 return
             spec, ctx = prepared
-            outcome = await self._stream(spec, ctx)
+            for attempt in range(RUNNER_TRIES):
+                try:
+                    outcome = await self._stream(spec, ctx)
+                    break
+                except RunnerUnavailable:
+                    # Nothing ran there. After an update the runner comes up a moment after the app: a
+                    # message sent in that moment waits for it instead of failing.
+                    if attempt == RUNNER_TRIES - 1:
+                        raise
+                    await asyncio.sleep(RUNNER_RETRY_SECONDS)
             await self._finish(run_id, outcome)
         except asyncio.CancelledError:
             await asyncio.shield(self._finish(run_id, Outcome(error="Run cancelled", cancelled=True)))

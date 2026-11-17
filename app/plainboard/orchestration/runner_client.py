@@ -13,6 +13,11 @@ class RunnerError(RuntimeError):
     pass
 
 
+class RunnerUnavailable(RunnerError):
+    """The runner could not be reached at all: nothing was started there. (After an update the app
+    is up a moment before the runner is.)"""
+
+
 class RunnerClient:
     def __init__(self, base_url: str):
         self._client = httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(60, connect=10))
@@ -28,6 +33,8 @@ class RunnerClient:
                 async for line in resp.aiter_lines():
                     if line.strip():
                         yield parse_event(line)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise RunnerUnavailable(f"Runner unreachable: {exc}") from exc
         except httpx.HTTPError as exc:
             raise RunnerError(f"Runner unreachable: {exc}") from exc
 

@@ -31,7 +31,7 @@ from plainboard_protocol import (
     UsageEvent,
 )
 
-from plainboard.orchestration.runner_client import RunnerError
+from plainboard.orchestration.runner_client import RunnerError, RunnerUnavailable
 
 
 class FakeRunner:
@@ -50,6 +50,7 @@ class FakeRunner:
         self.notices: list[tuple[int, str]] = []
         self.limit_windows: list[LimitWindow] = []
         self.limit_calls: list = []
+        self.unavailable = 0  # how many starts of a turn fail because the runner is not up yet
         self.jobs: dict[str, JobState] = {}
         self.job_specs: list[JobSpec] = []
         self.reachable = True
@@ -74,6 +75,9 @@ class FakeRunner:
         self.upstream_calls: list[tuple[str, str, str]] = []
 
     async def stream_run(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
+        if self.unavailable > 0:  # not up yet
+            self.unavailable -= 1
+            raise RunnerUnavailable("Runner unreachable: [Errno -2] Name or service not known")
         self.specs.append(spec)
         runs = self.app.state.runs
         ctx = runs.context_for_token(spec.bridge.run_token, int(spec.run_id))
