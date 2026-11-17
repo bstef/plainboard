@@ -1,61 +1,85 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel, Field
 
-from ..config import get_config
-from ..db import sessionmaker
-from ..security import SESSION_COOKIE, SESSION_MAX_AGE, make_session_cookie, password_matches, session_cookie_valid
-from ..services import access_keys as access_key_service
+from ..models import User
+from ..schemas import UserOut
+from ..security import SESSION_COOKIE, SESSION_MAX_AGE, make_session_cookie
+from ..services import users as user_service
+from ..services.errors import ServiceError
+from .deps import Session, Who
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+class AuthStatus(BaseModel):
+    setup_required: bool  # no user yet: the first admin is created in the browser
+    setup_password_required: bool  # ... and that takes PLAINBOARD_PASSWORD
+    user: UserOut | None  # who is signed in
+
+
 class LoginIn(BaseModel):
+    username: str
     password: str
 
 
-def is_authenticated(request: Request) -> bool:
-    if not get_config().password:
-        return True
-    return session_cookie_valid(request.cookies.get(SESSION_COOKIE))
+class SetupIn(BaseModel):
+    username: str
+    name: str = ""
+    password: str
+    setup_password: str | None = None
 
 
-# What a read key never gets, although it is a GET: the keys themselves, the provider accounts and
-# their sign-in, and what is fetched with the user's GitHub token.
-READ_KEY_HIDDEN = ("/api/access-keys", "/api/accounts", "/api/github/")
+class MeUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    current_password: str | None = None
+    new_password: str | None = None
 
 
-async def read_key_refusal(request: Request) -> tuple[int, str] | None:
-    """A request without the login: None if it carries a read key and only reads, else why not."""
-    scheme, _, secret = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not secret.strip():
-        return 401, "Not authenticated"
-    async with sessionmaker()() as session:
-        if not await access_key_service.valid(session, secret.strip()):
-            return 401, "Not authenticated"
-    if request.method not in ("GET", "HEAD") or request.url.path.startswith(READ_KEY_HIDDEN):
-        return 403, "This key can only read"
-    return None
+def _sign_in(response: Response, user: User) -> None:
+    response.set_cookie(SESSION_COOKIE, make_session_cookie(user.id, user.session_version), max_age=SESSION_MAX_AGE, httponly=True, samesite="lax")
 
 
-@router.get("/status")
-async def status(request: Request) -> dict[str, bool]:
-    return {"password_required": bool(get_config().password), "authenticated": is_authenticated(request)}
+@router.get("/status", response_model=AuthStatus)
+async def status(request: Request, session: Session) -> AuthStatus:
+    who = getattr(request.state, "principal", None)
+    return AuthStatus(
+        setup_required=not await user_service.count(session),
+        setup_password_required=user_service.setup_password_required(),
+        user=UserOut.model_validate(who.user) if who and who.user else None,
+    )
 
 
-@router.post("/login")
-async def login(body: LoginIn, response: Response) -> dict[str, bool]:
-    expected = get_config().password
-    if not expected:
-        return {"authenticated": True}
-    if not password_matches(body.password, expected):
-        raise HTTPException(401, "Wrong password")
-    response.set_cookie(SESSION_COOKIE, make_session_cookie(), max_age=SESSION_MAX_AGE, httponly=True, samesite="lax")
-    return {"authenticated": True}
+@router.post("/setup", response_model=UserOut, status_code=201)
+async def setup(body: SetupIn, session: Session, response: Response) -> UserOut:
+    """The first admin, once: an installation without users is not set up yet."""
+    user = await user_service.setup(session, body.username, body.name, body.password, body.setup_password)
+    _sign_in(response, user)
+    return UserOut.model_validate(user)
 
 
-@router.post("/logout")
-async def logout(response: Response) -> dict[str, bool]:
+@router.post("/login", response_model=UserOut)
+async def login(body: LoginIn, session: Session, response: Response) -> UserOut:
+    user = await user_service.authenticate(session, body.username, body.password)
+    _sign_in(response, user)
+    return UserOut.model_validate(user)
+
+
+@router.post("/logout", status_code=204)
+async def logout(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE)
-    return {"authenticated": False}
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(body: MeUpdate, who: Who, session: Session, response: Response) -> UserOut:
+    """One's own name and password. A new password signs every other browser out."""
+    if who.user is None:
+        raise ServiceError("Only a signed-in user has an account.", 403)
+    user = await user_service.get(session, who.user.id)
+    if body.name is not None:
+        user = await user_service.update(session, user, name=body.name)
+    if body.new_password is not None:
+        user = await user_service.change_own_password(session, user, body.current_password or "", body.new_password)
+        _sign_in(response, user)
+    return UserOut.model_validate(user)

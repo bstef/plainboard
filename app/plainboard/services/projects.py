@@ -4,9 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Attachment, Project
+from ..models import Attachment, Project, ProjectRole
 from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate
 from ..security import decrypt, encrypt
+from . import accounts as account_service
 from . import agents as agent_service
 from . import repositories as repo_service
 from . import schedules as schedule_service
@@ -29,6 +30,8 @@ async def _unique_slug(session: AsyncSession, name: str) -> str:
 
 
 async def create(session: AsyncSession, data: ProjectCreate) -> Project:
+    if data.account_id is not None:
+        await account_service.get(session, data.account_id)
     project = Project(
         name=data.name,
         slug=await _unique_slug(session, data.name),
@@ -36,6 +39,7 @@ async def create(session: AsyncSession, data: ProjectCreate) -> Project:
         workspace_path=normalize_workspace_path(data.workspace_path),
         github_token_enc=encrypt(data.github_token),
         parallel_agents=data.parallel_agents,
+        account_id=data.account_id,
     )
     session.add(project)
     await session.commit()
@@ -57,6 +61,8 @@ async def update(session: AsyncSession, project: Project, data: ProjectUpdate) -
         project.github_token_enc = encrypt(fields.pop("github_token"))
     if "workspace_path" in fields:
         fields["workspace_path"] = normalize_workspace_path(fields["workspace_path"])
+    if fields.get("account_id") is not None:
+        await account_service.get(session, fields["account_id"])
     for key, value in fields.items():
         setattr(project, key, value)
     await session.commit()
@@ -129,7 +135,8 @@ def github_token(project: Project) -> str | None:
     return decrypt(project.github_token_enc)
 
 
-def to_out(project: Project) -> ProjectOut:
+def to_out(project: Project, role: ProjectRole | None = None) -> ProjectOut:
     out = ProjectOut.model_validate(project)
     out.has_github_token = bool(project.github_token_enc)
+    out.role = role
     return out

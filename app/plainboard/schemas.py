@@ -8,6 +8,8 @@ from typing import Annotated, Any, Literal
 from plainboard_protocol import LimitWindow
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_validator
 
+from .models import ProjectRole
+
 
 def _iso_utc(value: datetime | None) -> str | None:
     if value is None:
@@ -25,6 +27,54 @@ ToolsetName = Literal["full", "board"]
 
 class ORM(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- users ----------------------------------------------------------------------------------
+
+
+class UserOut(ORM):
+    id: int
+    username: str
+    name: str
+    is_admin: bool
+    may_create_projects: bool
+    enabled: bool
+    created_at: UTCDateTime
+
+
+class PersonOut(ORM):
+    """What everyone signed in may know about a user."""
+
+    id: int
+    username: str
+    name: str
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=2, max_length=60)
+    name: str = Field(default="", max_length=100)
+    password: str = Field(min_length=8, max_length=200)
+    is_admin: bool = False
+    may_create_projects: bool = False
+
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    password: str | None = Field(default=None, min_length=8, max_length=200)
+    is_admin: bool | None = None
+    may_create_projects: bool | None = None
+    enabled: bool | None = None
+
+
+class MemberIn(BaseModel):
+    role: ProjectRole
+
+
+class MemberOut(BaseModel):
+    user_id: int
+    username: str
+    name: str
+    role: ProjectRole
 
 
 # --- repositories ---------------------------------------------------------------------------
@@ -145,6 +195,7 @@ class ProjectCreate(BaseModel):
     workspace_path: WorkspacePath = None
     github_token: str | None = None
     parallel_agents: int | None = Field(default=None, ge=0, le=20)
+    account_id: int | None = None
     repositories: list[RepositoryCreate] = Field(default_factory=list)
 
 
@@ -156,6 +207,7 @@ class ProjectUpdate(BaseModel):
     github_token: str | None = None  # "" clears the override
     auto_wake_manager: bool | None = None
     parallel_agents: int | None = Field(default=None, ge=0, le=20)  # null: the number from the settings again
+    account_id: int | None = None  # null: the subscription with the most room again
     auto_archive_days: int | None = Field(default=None, ge=0, le=3650)
     review_days: int | None = Field(default=None, ge=0, le=365)
 
@@ -169,6 +221,8 @@ class ProjectOut(ORM):
     has_github_token: bool = False
     auto_wake_manager: bool
     parallel_agents: int | None = None
+    account_id: int | None = None
+    role: ProjectRole | None = None  # the asking user's role; not part of events, which go to everyone
     auto_archive_days: int
     review_days: int = 3
     label_colors: dict[str, str] = Field(default_factory=dict)
@@ -448,6 +502,7 @@ class CommentOut(ORM):
     task_id: int
     author_kind: str
     author_agent_id: int | None
+    author_name: str | None = None
     body: str
     created_at: UTCDateTime
 

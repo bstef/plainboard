@@ -65,11 +65,34 @@ repositories it may use (branches and pull requests, no conflicts between parall
 PlainBoard, set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD`, ideally behind a reverse proxy
 with TLS. Browsers offer to install PlainBoard as an app only over HTTPS or on `localhost`.
 
+## People and roles
+
+The first time you open a new PlainBoard it asks you to create the admin account, and then walks you
+through the basic settings: subscriptions, models, code access, pace, secrets. On a server it asks
+for `PLAINBOARD_PASSWORD` once at that point (the setup password), so nobody else can claim it.
+
+Add further people in **Settings → People**. They see nothing until they are a member of a project
+(**Project settings → Members**):
+
+| Role | Can |
+|---|---|
+| Viewer | read everything in the project: board, chats, team, notes, statistics |
+| Member | also work in it: tickets, chats with the agents, the team, notes, schedules |
+| Owner | also its settings, repositories, secrets, MCP servers, public API keys and members; delete it |
+
+Admins run the installation (settings, subscriptions, people) and see every project. Whoever
+creates a project owns it; an admin decides per person who may create projects, because every
+project uses the installation's subscriptions. A project can name the subscription its agents run
+on. Where several people work in a project, agents see who wrote a message or a comment.
+
+Know the limit: all agents share one runner container. Someone who can chat with agents can have
+them read whatever the runner holds, also of other projects. Give roles to people you trust.
+
 ## Preview
 
 Web servers that agents start (dev servers, preview builds) open through PlainBoard at
 `/preview/<port>/`, e.g. <http://localhost:8080/preview/5173/>: no ports to publish, and behind the
-PlainBoard password. Agents post the link in the chat. A preview is private; ask the manager to share
+PlainBoard sign-in. Agents post the link in the chat. A preview is private; ask the manager to share
 one with a password or publicly for a few days, e.g. for a customer. The server has to listen on
 `0.0.0.0`. A preview runs on PlainBoard's own address, so only preview code you trust like your
 agents.

@@ -1,8 +1,11 @@
-"""Secret encryption at rest and the optional single-password login."""
+"""Secret encryption at rest, password hashes and the signed session cookie."""
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import hmac
+import secrets
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -49,18 +52,45 @@ def password_matches(given: str, expected: str) -> bool:
     return hmac.compare_digest(given.encode(), expected.encode())
 
 
-def make_session_cookie() -> str:
-    assert _signer is not None
-    return _signer.dumps({"ok": True})
+# scrypt from the standard library: memory-hard, no further dependency. The parameters are stored
+# with every hash, so they can be raised later without touching existing passwords.
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
 
 
-def session_cookie_valid(value: str | None) -> bool:
-    if not value or _signer is None:
-        return False
+def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
+    return hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, maxmem=128 * 1024 * 1024, dklen=32)
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = _scrypt(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${base64.b64encode(salt).decode()}${base64.b64encode(digest).decode()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
     try:
-        return bool(_signer.loads(value, max_age=SESSION_MAX_AGE).get("ok"))
-    except BadSignature:
+        kind, n, r, p, salt, digest = stored.split("$")
+        if kind != "scrypt":
+            return False
+        return hmac.compare_digest(_scrypt(password, base64.b64decode(salt), int(n), int(r), int(p)), base64.b64decode(digest))
+    except (ValueError, TypeError):
         return False
+
+
+def make_session_cookie(user_id: int, session_version: int) -> str:
+    assert _signer is not None
+    return _signer.dumps({"u": user_id, "v": session_version})
+
+
+def read_session_cookie(value: str | None) -> tuple[int, int] | None:
+    """The user and the session version a cookie was made for; None if it is not ours or too old."""
+    if not value or _signer is None:
+        return None
+    try:
+        data = _signer.loads(value, max_age=SESSION_MAX_AGE)
+        return int(data["u"]), int(data["v"])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return None
 
 
 def sign(data: dict, purpose: str) -> str:

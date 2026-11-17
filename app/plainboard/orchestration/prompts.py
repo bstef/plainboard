@@ -525,6 +525,8 @@ def comment_lines(comments: list[Comment], names: dict[int, str], max_len: int) 
     out = []
     for c in comments:
         author = names.get(c.author_agent_id or 0, c.author_kind) if c.author_kind == "agent" else c.author_kind
+        if c.author_kind == "user" and c.author_name:
+            author = f"user {c.author_name}"  # several people work here
         out.append(f"- {author}: {truncate(c.body, max_len)}")
     return out
 

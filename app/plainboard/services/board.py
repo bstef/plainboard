@@ -488,9 +488,9 @@ async def publish_task_id(session: AsyncSession, task_id: int | None) -> None:
 
 
 async def add_comment(
-    session: AsyncSession, task: Task, body: str, *, author_kind: str = "user", agent_id: int | None = None
+    session: AsyncSession, task: Task, body: str, *, author_kind: str = "user", agent_id: int | None = None, author_name: str | None = None
 ) -> Comment:
-    comment = Comment(task_id=task.id, body=body, author_kind=author_kind, author_agent_id=agent_id)
+    comment = Comment(task_id=task.id, body=body, author_kind=author_kind, author_agent_id=agent_id, author_name=author_name)
     session.add(comment)
     await session.commit()
     bus.publish(task.project_id, "comment.created", CommentOut.model_validate(comment))

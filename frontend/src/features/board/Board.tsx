@@ -33,7 +33,7 @@ const columnKey = (s: TaskStatus) => `c-${s}`;
 
 export function Board() {
   const { t } = useTranslation();
-  const { project } = useShell();
+  const { project, canWrite } = useShell();
   const qc = useQueryClient();
   const tasks = useTasks(project.id);
   // Side by side from here; below, the statuses stack and can be folded.
@@ -70,6 +70,7 @@ export function Board() {
   const onDragStart = (e: DragStartEvent) => setActiveId(findTask(e.active.id)?.id ?? null);
 
   const onDragEnd = async (e: DragEndEvent) => {
+    if (!canWrite) return setActiveId(null);  // a viewer's card goes back where it was
     setActiveId(null);
     const task = findTask(e.active.id);
     if (!task || !e.over) return;
@@ -124,9 +125,11 @@ export function Board() {
         <Button variant="ghost" className="max-sm:w-11 max-sm:px-0" icon={<Archive className="size-4" />} aria-label={t("archive.title")} onClick={() => setArchiveOpen(true)}>
           <span className="max-sm:hidden">{t("archive.title")}</span>
         </Button>
-        <Button variant="primary" className="max-sm:w-11 max-sm:px-0" icon={<Plus className="size-4" />} aria-label={t("board.addTicket")} onClick={() => setAdding("backlog")}>
-          <span className="max-sm:hidden">{t("board.addTicket")}</span>
-        </Button>
+        {canWrite && (
+          <Button variant="primary" className="max-sm:w-11 max-sm:px-0" icon={<Plus className="size-4" />} aria-label={t("board.addTicket")} onClick={() => setAdding("backlog")}>
+            <span className="max-sm:hidden">{t("board.addTicket")}</span>
+          </Button>
+        )}
       </div>
       {archiveOpen && <ArchiveDialog onClose={() => setArchiveOpen(false)} />}
       {empty && adding === null && <p className="mx-4 mb-3 max-w-prose text-fg-2">{t("board.hint")}</p>}
@@ -170,7 +173,7 @@ function Column({
 }) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: columnKey(status) });
-  const { project } = useShell();
+  const { project, canWrite } = useShell();
   const qc = useQueryClient();
 
   const archiveDone = async () => {
@@ -190,15 +193,17 @@ function Column({
         ) : (
           <h2 className="caps min-w-0 flex-1 truncate">{t(`taskStatus.${status}`)}</h2>
         )}
-        {status === "done" && tasks.length > 0 && (
+        {canWrite && status === "done" && tasks.length > 0 && (
           <IconButton label={t("archive.archiveDone")} onClick={archiveDone}>
             <Archive className="size-4" />
           </IconButton>
         )}
         <span className="w-7 shrink-0 text-right text-fg-3">{tasks.length}</span>
-        <IconButton label={t("board.addTicket")} onClick={() => setAdding(true)} className="ml-1 md:-mr-1.5">
-          <Plus className="size-4" />
-        </IconButton>
+        {canWrite && (
+          <IconButton label={t("board.addTicket")} onClick={() => setAdding(true)} className="ml-1 md:-mr-1.5">
+            <Plus className="size-4" />
+          </IconButton>
+        )}
       </header>
       {!folded && (
         <div ref={setNodeRef} data-part="column-body" data-over={isOver || undefined} className={clsx("min-h-6 md:scroll-thin md:min-h-0 md:flex-1 md:overflow-y-auto", isOver && "bg-sunk")}>

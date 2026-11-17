@@ -16,8 +16,9 @@ export function ProjectSwitcher({
   projects: Project[];
   current: Project;
   onSelect: (id: number) => void;
-  onNew: () => void;
-  onEdit: () => void;
+  /** Missing: the user may not create projects, or does not own this one. */
+  onNew?: () => void;
+  onEdit?: () => void;
   variant?: "side" | "rail" | "bar";
 }) {
   const { t } = useTranslation();
@@ -78,29 +79,33 @@ export function ProjectSwitcher({
               {p.id === current.id && <Check className="size-3.5 shrink-0" />}
             </button>
           ))}
-          <div className="my-1 border-t border-line" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onEdit();
-              setOpen(false);
-            }}
-            className={clsx(item, "text-fg-2")}
-          >
-            <Pencil className="size-3.5 shrink-0" /> {t("projects.settings")}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onNew();
-              setOpen(false);
-            }}
-            className={clsx(item, "text-fg-2")}
-          >
-            <Plus className="size-3.5 shrink-0" /> {t("projects.new")}
-          </button>
+          {(onEdit || onNew) && <div className="my-1 border-t border-line" />}
+          {onEdit && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onEdit();
+                setOpen(false);
+              }}
+              className={clsx(item, "text-fg-2")}
+            >
+              <Pencil className="size-3.5 shrink-0" /> {t("projects.settings")}
+            </button>
+          )}
+          {onNew && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onNew();
+                setOpen(false);
+              }}
+              className={clsx(item, "text-fg-2")}
+            >
+              <Plus className="size-3.5 shrink-0" /> {t("projects.new")}
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -27,8 +27,9 @@ from ..services import flow_check as flow_check_service
 from ..services import projects as project_service
 from ..services import stats as stats_service
 from ..services import trace as trace_service
+from ..services import users as user_service
 from ..services.errors import NotFound, ServiceError
-from .deps import Runs, Session
+from .deps import Runs, Session, Who
 
 router = APIRouter(prefix="/api", tags=["board"])
 
@@ -134,9 +135,10 @@ async def list_comments(task_id: int, session: Session, before: int | None = Non
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut, status_code=201)
-async def add_comment(task_id: int, body: CommentCreate, session: Session) -> CommentOut:
+async def add_comment(task_id: int, body: CommentCreate, session: Session, who: Who) -> CommentOut:
     task = await board_service.get_task(session, task_id)
-    return CommentOut.model_validate(await board_service.add_comment(session, task, body.body))
+    author = await user_service.author(session, who.user, task.project_id)
+    return CommentOut.model_validate(await board_service.add_comment(session, task, body.body, author_name=author))
 
 
 @router.post("/tasks/{task_id}/attachments", response_model=list[AttachmentOut], status_code=201)

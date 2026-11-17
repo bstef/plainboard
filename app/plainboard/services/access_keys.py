@@ -1,9 +1,9 @@
 """Keys that may read this PlainBoard through its API and change nothing.
 
 For a tool or a person that looks at how the agents work: chats, runs, tickets, the work log.
-Such a key passes the login for GET requests only (``api/auth.read_key_refusal``), and never for
+Such a key reads what an admin reads, with GET requests only (``services/access.check``), and never
 what is about the credentials themselves. Only the hash is stored: a key is shown once, when it is
-created. Without a login password PlainBoard is open anyway and no key is needed.
+created.
 """
 
 from __future__ import annotations

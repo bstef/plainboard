@@ -294,7 +294,11 @@ class RunManager:
         """Look at the waiting turns again, e.g. after the number of parallel agents changed."""
         self._wake.set()
 
-    async def chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None = None) -> Run:
+    async def chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None = None, *, author: str | None = None) -> Run:
+        """``author``: the person's name, where several people work in the project (``users.author``).
+        It stands in front of the text, so the agent and everyone reading the chat know who wrote."""
+        if author and text.strip():
+            text = f"[{author}] {text}"
         if attachment_ids and len(await board_service.chat_attachments(s, agent.project_id, attachment_ids)) != len(set(attachment_ids)):
             raise ServiceError("Unknown attachment")
         run = await self._join_waiting_chat(s, agent, text, attachment_ids) or await self.enqueue(s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids)

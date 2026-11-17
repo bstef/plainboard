@@ -135,6 +135,8 @@ class Project(Timestamps, Base):
     auto_wake_manager: Mapped[bool] = mapped_column(Boolean, default=True)
     # Members of this project working at the same time. Unset: the number from the settings (`max_parallel_runs`).
     parallel_agents: Mapped[int | None] = mapped_column(Integer)
+    # The subscription this project's agents run on, unless an agent has its own. Unset: the one with the most room.
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never
@@ -168,6 +170,39 @@ class AccessKey(Base):
     hint: Mapped[str] = mapped_column(String(8), default="")  # last characters, to recognise the key
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class User(Timestamps, Base):
+    """A person who signs in. An admin runs the installation (settings, subscriptions, users) and
+    sees every project; everyone else sees the projects they are a member of."""
+
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(60), unique=True)  # what they sign in with; lower case
+    name: Mapped[str] = mapped_column(String(100))  # shown to people and agents
+    password_hash: Mapped[str] = mapped_column(Text)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    may_create_projects: Mapped[bool] = mapped_column(Boolean, default=False)  # projects use the installation's subscriptions
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    session_version: Mapped[int] = mapped_column(Integer, default=0)  # raised to sign the user out everywhere
+
+
+class ProjectRole(StrEnum):
+    VIEWER = "viewer"  # reads everything of the project, changes nothing
+    MEMBER = "member"  # works in it: tickets, chats with the agents, the team, notes
+    OWNER = "owner"  # also its settings, repositories, secrets and members; may delete it
+
+
+class ProjectMember(Base):
+    """A user's part in a project. No row: the project does not exist for that user (admins aside)."""
+
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("project_id", "user_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(10), default=ProjectRole.MEMBER)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Repository(Timestamps, Base):
@@ -303,6 +338,7 @@ class Comment(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
     author_kind: Mapped[str] = mapped_column(String(10), default="user")  # user | agent | system
+    author_name: Mapped[str | None] = mapped_column(String(100))  # which person, where a project has several
     author_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

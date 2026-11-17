@@ -123,8 +123,9 @@ Everything is optional. Copy `.env.example` to `.env` for the settings below.
 | You want to | How |
 | --- | --- |
 | Let agents work in a folder on your machine | Set `PLAINBOARD_WORKSPACES_DIR` and the project's **Local folder** |
-| Run it on a server | Set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD`, behind a reverse proxy with TLS |
-| Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard password; apps that break there open in the **Browser** view, a browser next to the agents |
+| Run it on a server | Set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD` (the setup password: asked once, when the first admin account is created in the browser), behind a reverse proxy with TLS |
+| Work with others | Add people in **Settings → People**, then give them a role in a project (**Project settings → Members**): viewer, member or owner. Projects they are not a member of don't exist for them |
+| Look at what agents built | Their web servers open at `/preview/<port>/`, behind the PlainBoard sign-in; apps that break there open in the **Browser** view, a browser next to the agents |
 | Show progress on your website | Create a key under **Project settings → Public API** |
 | Use several subscriptions | Add more accounts under Settings; agents move to the one with the most room |
 | Update | `git pull`, then `docker compose up -d --build`. PlainBoard shows a notice in the sidebar when a newer version exists |

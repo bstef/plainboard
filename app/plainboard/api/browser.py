@@ -11,9 +11,9 @@ from fastapi import APIRouter, WebSocket
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidHandshake
 
-from ..config import get_config
 from ..db import sessionmaker
-from ..security import SESSION_COOKIE, session_cookie_valid
+from ..services.access import Need
+from .deps import socket_role
 from ..services import projects
 from ..services.errors import ServiceError
 from .relay import relay
@@ -24,7 +24,7 @@ router = APIRouter()
 @router.websocket("/api/projects/{project_id}/browser")
 async def project_browser(websocket: WebSocket, project_id: int) -> None:
     """One browser per project: two windows on the same project show the same page."""
-    if get_config().password and not session_cookie_valid(websocket.cookies.get(SESSION_COOKIE)):
+    if not await socket_role(websocket, project_id, Need.MEMBER):
         await websocket.close(code=4401)
         return
     async with sessionmaker()() as session:

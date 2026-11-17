@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from plainboard_protocol import ProviderInfo
 from sqlalchemy import select
 
-from ..models import ACTIVE_RUN_STATUSES, Run
+from ..models import ACTIVE_RUN_STATUSES, ProjectRole, Run
 from ..orchestration.runner_client import RunnerError
 from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
 from ..services import agents as agent_service
@@ -13,30 +13,41 @@ from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
 from ..services.errors import ServiceError
-from .deps import Runner, Runs, Session
+from ..services import users as user_service
+from .deps import Runner, Runs, Session, Who
 
 router = APIRouter(prefix="/api", tags=["projects"])
 
 
 @router.get("/projects", response_model=list[ProjectOut])
-async def list_projects(session: Session) -> list[ProjectOut]:
-    return [project_service.to_out(p) for p in await project_service.list_all(session)]
+async def list_projects(session: Session, who: Who) -> list[ProjectOut]:
+    """The projects the user has a part in (an admin and a read key: all), each with the user's role."""
+    projects = await project_service.list_all(session)
+    if who.user is None:
+        return [project_service.to_out(p) for p in projects]
+    roles = await user_service.roles(session, who.user)
+    return [project_service.to_out(p, roles[p.id]) for p in projects if p.id in roles]
 
 
 @router.post("/projects", response_model=ProjectOut, status_code=201)
-async def create_project(body: ProjectCreate, session: Session) -> ProjectOut:
-    return project_service.to_out(await project_service.create(session, body))
+async def create_project(body: ProjectCreate, session: Session, who: Who) -> ProjectOut:
+    project = await project_service.create(session, body)
+    if who.user is not None:  # whoever creates a project owns it
+        await user_service.set_member(session, project.id, who.user.id, ProjectRole.OWNER)
+    return project_service.to_out(project, ProjectRole.OWNER)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectOut)
-async def get_project(project_id: int, session: Session) -> ProjectOut:
-    return project_service.to_out(await project_service.get(session, project_id))
+async def get_project(project_id: int, session: Session, who: Who) -> ProjectOut:
+    role = await user_service.role_in(session, who.user, project_id) if who.user else None
+    return project_service.to_out(await project_service.get(session, project_id), role)
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectOut)
-async def update_project(project_id: int, body: ProjectUpdate, session: Session, runs: Runs) -> ProjectOut:
+async def update_project(project_id: int, body: ProjectUpdate, session: Session, runs: Runs, who: Who) -> ProjectOut:
     project = await project_service.get(session, project_id)
-    out = project_service.to_out(await project_service.update(session, project, body))
+    role = await user_service.role_in(session, who.user, project_id) if who.user else None
+    out = project_service.to_out(await project_service.update(session, project, body), role)
     runs.recheck()  # more parallel agents: waiting turns may start now
     return out
 

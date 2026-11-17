@@ -4,16 +4,16 @@ import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..config import get_config
 from ..events import bus
-from ..security import SESSION_COOKIE, session_cookie_valid
+from ..services.access import Need
+from .deps import socket_role
 
 router = APIRouter()
 
 
 @router.websocket("/api/projects/{project_id}/ws")
 async def project_events(websocket: WebSocket, project_id: int) -> None:
-    if get_config().password and not session_cookie_valid(websocket.cookies.get(SESSION_COOKIE)):
+    if not await socket_role(websocket, project_id, Need.VIEWER):
         await websocket.close(code=4401)
         return
     await websocket.accept()

@@ -11,7 +11,19 @@
   },
   "auth": {
     "password": "Password",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "username": "User name",
+    "usernameHint": "What you sign in with. Letters, digits, dot, dash or underscore.",
+    "name": "Name",
+    "nameHint": "How people and agents see you.",
+    "passwordHint": "At least 8 characters.",
+    "passwordRepeat": "Password again",
+    "passwordMismatch": "The two passwords differ.",
+    "setupTitle": "Set up PlainBoard",
+    "setupIntro": "This installation is new. Create the admin account: it runs the installation, adds further people and sees every project.",
+    "setupPassword": "Setup password",
+    "setupPasswordHint": "PLAINBOARD_PASSWORD of this installation. It is asked once, so nobody else can claim a new server.",
+    "setupCreate": "Create account"
   },
   "nav": {
     "board": "Board",
@@ -177,7 +189,8 @@
     "publicApiCreated": "Created {{when}}",
     "publicApiUsed": "last used {{when}}",
     "publicApiNeverUsed": "never used",
-    "publicApiConfirmRevoke": "Revoke the key \"{{name}}\"? Whatever uses it stops working."
+    "publicApiConfirmRevoke": "Revoke the key \"{{name}}\"? Whatever uses it stops working.",
+    "noneSharedHint": "No project has been shared with you yet. Ask an owner or an admin to add you."
   },
   "board": {
     "filter": "Filter tickets…",
@@ -683,5 +696,139 @@
     "minutes": "{{n}}m",
     "hours": "{{n}}h",
     "days": "{{n}}d"
+  },
+  "account": {
+    "title": "Your account",
+    "hint": "Your name and your password.",
+    "signedInAs": "Signed in as {{username}}.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "save": "Save account",
+    "saved": "Saved.",
+    "signOut": "Sign out"
+  },
+  "users": {
+    "title": "People",
+    "hint": "Who can sign in. Admins run the installation and see every project; everyone else sees the projects they were added to (project settings, Members). Changes apply at once.",
+    "add": "Add a person",
+    "addHint": "Give them the user name and the password. They can change the password themselves.",
+    "create": "Create",
+    "you": "you",
+    "admin": "Admin",
+    "disabled": "Switched off",
+    "enabled": "May sign in",
+    "mayCreate": "May create projects",
+    "newPassword": "Set a new password",
+    "newPasswordPlaceholder": "New password, at least 8 characters",
+    "delete": "Delete",
+    "confirmDelete": "Delete {{name}}? What they wrote stays."
+  },
+  "members": {
+    "title": "Members",
+    "hint": "Who works in this project besides the admins. Changes apply at once.",
+    "role": "Role",
+    "roles": {
+      "viewer": "Viewer",
+      "member": "Member",
+      "owner": "Owner"
+    },
+    "rolesHint": "Viewer: reads everything, changes nothing. Member: works with the board, the agents and the team. Owner: also these settings, repositories, secrets and members.",
+    "add": "Add someone…",
+    "remove": "Remove",
+    "none": "Nobody yet. Only admins see this project.",
+    "nobodyElse": "Everyone with an account is a member. An admin adds further people in Settings.",
+    "readOnly": "You are a viewer of this project: you can read everything and change nothing."
+  },
+  "wizard": {
+    "steps": "Steps",
+    "stepOf": "Step {{step}} of {{count}}",
+    "back": "Back",
+    "next": "Continue",
+    "anyway": "Continue anyway"
+  },
+  "setup": {
+    "heading": "Set up PlainBoard",
+    "finish": "Finish set-up",
+    "subscriptions": {
+      "label": "Subscriptions",
+      "title": "Which AI subscriptions do the agents work with?",
+      "intro": "Agents need at least one. Add every subscription or API key you want to use: with several, an agent takes the one that has the most room left, and a project can name its own.",
+      "advice": "An API key is the officially supported way and is billed per token, which adds up with a busy team. A Claude subscription has a fixed price; whether it may be used here depends on Anthropic's terms for your plan. The connection is tested when you continue.",
+      "missing": "Add one subscription or API key first.",
+      "failed": "No subscription answered. {{detail}}"
+    },
+    "models": {
+      "label": "Models",
+      "title": "Which models do new agents get?",
+      "intro": "These are the defaults for new projects and new agents. Every agent can be changed later, and so can these.",
+      "advice": "Recommended: {{manager}} for managers, {{worker}} for members, {{summary}} for summaries.",
+      "useAdvice": "Use these",
+      "managerHint": "The manager plans, splits work and decides. A wrong decision costs the whole team time, so the strongest model pays off here.",
+      "workerHint": "Members write the code. A balanced model does most of it well; the manager can give a hard piece of work more effort.",
+      "summaryHint": "Compresses long chats and writes the state of a ticket. Routine work: the small model is enough and saves quota.",
+      "effortHint": "How long a model thinks before it acts. Medium is a good start; higher is slower and uses more quota.",
+      "missing": "Choose all three models."
+    },
+    "code": {
+      "label": "Code access",
+      "title": "How do agents reach your repositories?",
+      "intro": "Agents clone, push and open pull requests. Whatever you set here holds for every project; a project or a single repository can have its own access instead.",
+      "advice": "Nothing here is required. With GitHub: a token (fine-grained, with access to the repositories' contents and pull requests). With any other host: the SSH key, added to your account there. Public repositories that are only read need neither.",
+      "tokenHint": "Not set. Leave it empty if you don't use GitHub.",
+      "authorHint": "The name and address on the agents' commits."
+    },
+    "pace": {
+      "label": "Pace",
+      "title": "How many agents work at the same time?",
+      "intro": "More agents finish sooner and use the subscription's quota faster. The number counts per project, and a project can have its own.",
+      "advice": "Recommended: start with 3. Raise it when the quota lasts through the week, lower it when it runs out early.",
+      "timezoneHint": "Taken from your browser. Schedules and the times agents see use it."
+    },
+    "secrets": {
+      "label": "Secrets",
+      "title": "Do the agents need keys or tokens of yours?",
+      "intro": "Environment variables for the agents' shells, in every project: a package registry token, a deploy key, an API key of a service. Agents see the names, never the values in a chat. Skip this if nothing comes to mind; projects can have their own."
+    },
+    "people": {
+      "label": "People",
+      "title": "Does anyone else work here?",
+      "intro": "Add the people you want to work with. They see nothing until you add them to a project, as a viewer, a member or an owner. Skip this to work alone; you can add people any time in the settings."
+    }
+  },
+  "newProject": {
+    "finish": "Open the project",
+    "basics": {
+      "label": "Project",
+      "title": "What is this project?",
+      "intro": "A project has its own board, its own team of agents, notes and schedules.",
+      "descriptionHint": "The manager reads this on every turn: what is being built, for whom, and what matters. A few sentences are enough; it can grow later.",
+      "missing": "Give the project a name."
+    },
+    "code": {
+      "label": "Code",
+      "title": "Where is the code?",
+      "intro": "Add the git repositories the agents work in. A project can also start without one, for planning or research.",
+      "advice": "Per repository you decide how changes reach the base branch. Short, reliable checks: leave it as it is. Long or flaky check runs: switch on \"land first\", so branches merge at once and the base is checked afterwards."
+    },
+    "team": {
+      "label": "Team",
+      "title": "Who leads the work?",
+      "intro": "Every project starts with a manager. You talk to it; it builds the team it needs, hands out the work and reports back.",
+      "advice": "The defaults from the settings are filled in. Change them only if this project differs: a small side project runs fine on a smaller model and fewer agents.",
+      "subscription": "Subscription",
+      "subscriptionHint": "Which subscription this project's agents run on. Useful when a project should use up its own quota; an agent can still be given another one.",
+      "subscriptionAuto": "Automatic: the one with the most room left"
+    },
+    "secrets": {
+      "label": "Secrets",
+      "title": "Does this project need keys or tokens?",
+      "intro": "Environment variables for the agents of this project only. One with the same name as a general secret wins here. Skip this if the project needs none."
+    },
+    "members": {
+      "label": "People",
+      "title": "Who works on this with you?",
+      "intro": "You own this project. Add others as viewers, members or owners, or leave it as it is to work alone.",
+      "introAdmin": "Admins see every project. Add others as viewers, members or owners, or leave it as it is to work alone."
+    }
   }
 }

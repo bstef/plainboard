@@ -3,7 +3,7 @@ import { AlertTriangle, AppWindow, ArrowUpCircle, BarChart3, CalendarClock, Fold
 import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjectEvents } from "../../api/events";
-import { useAccounts, useAgents, useMeta, useProjects } from "../../api/queries";
+import { useAccounts, useAgents, useMe, useMeta, useProjects } from "../../api/queries";
 import type { Project } from "../../api/types";
 import { Button, EmptyState, IconButton, Spinner } from "../../components/ui";
 import { useIsDesktop, useMediaQuery, useStored } from "../../lib/hooks";
@@ -16,6 +16,7 @@ import { ChatPanel } from "../chat/ChatPanel";
 import { ChatView } from "../chat/ChatView";
 import { LookDialog } from "./LookDialog";
 import { NotesView } from "../notes/NotesView";
+import { ProjectWizard } from "../onboarding/ProjectWizard";
 import { ProjectDialog } from "../projects/ProjectDialog";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
 import { SchedulesView } from "../schedules/SchedulesView";
@@ -47,11 +48,21 @@ export function Shell() {
   const [projectId, setProjectId] = useStored<number | null>("plainboard.project", null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectDialog, setProjectDialog] = useState<"new" | "edit" | null>(null);
+  const me = useMe();
+  const mayCreate = !!me && (me.is_admin || me.may_create_projects);
 
   const project = projects.data?.find((p) => p.id === projectId) ?? projects.data?.[0];
   useEffect(() => {
     if (project && project.id !== projectId) setProjectId(project.id);
   }, [project, projectId, setProjectId]);
+  // Nothing to look at yet: whoever may create a project is taken to creating the first one.
+  const [offered, setOffered] = useState(false);
+  useEffect(() => {
+    if (!offered && mayCreate && projects.data?.length === 0) {
+      setOffered(true);
+      setProjectDialog("new");
+    }
+  }, [offered, mayCreate, projects.data]);
 
   if (projects.isLoading) {
     return (
@@ -69,8 +80,8 @@ export function Shell() {
           projects={projects.data ?? []}
           project={project}
           onSelectProject={setProjectId}
-          onNewProject={() => setProjectDialog("new")}
-          onEditProject={() => setProjectDialog("edit")}
+          onNewProject={mayCreate ? () => setProjectDialog("new") : undefined}
+          onEditProject={project.role === "owner" ? () => setProjectDialog("edit") : undefined}
           onSettings={() => setSettingsOpen(true)}
         />
       ) : (
@@ -84,21 +95,19 @@ export function Shell() {
             </IconButton>
           </header>
           <EmptyState icon={<FolderKanban className="size-10" />} title={t("projects.none")}>
-            <p className="mb-4">{t("projects.noneHint")}</p>
-            <Button variant="primary" onClick={() => setProjectDialog("new")}>
-              {t("projects.create")}
-            </Button>
+            <p className="mb-4">{t(mayCreate ? "projects.noneHint" : "projects.noneSharedHint")}</p>
+            {mayCreate && (
+              <Button variant="primary" onClick={() => setProjectDialog("new")}>
+                {t("projects.create")}
+              </Button>
+            )}
           </EmptyState>
         </div>
       )}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      {projectDialog && (
-        <ProjectDialog
-          project={projectDialog === "edit" ? project : undefined}
-          onClose={() => setProjectDialog(null)}
-          onSaved={(p) => setProjectId(p.id)}
-          onDeleted={() => setProjectId(null)}
-        />
+      {projectDialog === "new" && <ProjectWizard onClose={() => setProjectDialog(null)} onCreated={(p) => setProjectId(p.id)} />}
+      {projectDialog === "edit" && project && (
+        <ProjectDialog project={project} onClose={() => setProjectDialog(null)} onSaved={(p) => setProjectId(p.id)} onDeleted={() => setProjectId(null)} />
       )}
     </>
   );
@@ -132,6 +141,7 @@ function StatusHints({ onOpenSettings, wide }: { onOpenSettings: () => void; wid
   const { t } = useTranslation();
   const meta = useMeta();
   const accounts = useAccounts();
+  const admin = !!useMe()?.is_admin;
   const runnerDown = meta.data && !meta.data.runner_ok;
   const noCredentials = !runnerDown && accounts.data && !accounts.data.some((a) => a.enabled);
   if (!runnerDown && !noCredentials) return null;
@@ -143,7 +153,7 @@ function StatusHints({ onOpenSettings, wide }: { onOpenSettings: () => void; wid
     </>
   );
   const cls = clsx("flex shrink-0 items-center gap-2 rounded-sm text-left text-you-fg", wide ? "mx-2 mb-2 bg-you-bg px-2 py-1.5" : "mx-auto mb-1 size-8 justify-center");
-  return noCredentials ? (
+  return noCredentials && admin ? (
     <button type="button" onClick={onOpenSettings} className={clsx(cls, "hover:underline")} title={text}>
       {body}
     </button>
@@ -191,8 +201,8 @@ function ProjectWorkspace({
   projects: Project[];
   project: Project;
   onSelectProject: (id: number) => void;
-  onNewProject: () => void;
-  onEditProject: () => void;
+  onNewProject?: () => void;
+  onEditProject?: () => void;
   onSettings: () => void;
 }) {
   const { t } = useTranslation();
@@ -216,6 +226,8 @@ function ProjectWorkspace({
   const api: ShellApi = useMemo(
     () => ({
       project,
+      canWrite: project.role !== "viewer",
+      isOwner: project.role === "owner",
       agents: agents.data ?? [],
       agentById,
       openChat: (id) => {
@@ -321,6 +333,11 @@ function ProjectWorkspace({
             </header>
           )}
           {!isDesktop && view === "board" && <RunningNow variant="strip" />}
+          {project.role === "viewer" && (
+            <p role="status" className="shrink-0 border-b border-line px-4 py-1.5 text-fg-2">
+              {t("members.readOnly")}
+            </p>
+          )}
 
           <div className="flex min-h-0 flex-1">
             <main data-part="main" className="min-w-0 flex-1 overflow-hidden">

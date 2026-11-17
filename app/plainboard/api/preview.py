@@ -17,9 +17,9 @@ from websockets.exceptions import InvalidHandshake
 
 from ..config import get_config
 from ..db import sessionmaker
-from ..security import SESSION_COOKIE, session_cookie_valid
 from ..services import preview
 from ..services.errors import ServiceError
+from .deps import who_is
 from .relay import relay
 
 log = logging.getLogger(__name__)
@@ -31,8 +31,10 @@ UNLOCK_PREFIX = "/api/public/preview/"  # under the public API: its visitors are
 
 
 async def access(conn: HTTPConnection, port: int) -> Literal["ok", "password", "denied"]:
-    """The signed-in user opens every preview; anyone else only a shared one."""
-    if not get_config().password or session_cookie_valid(conn.cookies.get(SESSION_COOKIE)):
+    """A signed-in user opens every preview; anyone else only a shared one. Ports belong to the
+    runner, not to a project: which project a server is of is not known here."""
+    who = await who_is(conn)
+    if who is not None and who.user is not None:
         return "ok"
     async with sessionmaker()() as session:
         row = await preview.active_share(session, port)

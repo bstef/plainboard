@@ -4,6 +4,9 @@ import type {
   Account,
   Limits,
   Agent,
+  Member,
+  Person,
+  User,
   Assignment,
   CheckResult,
   Conversation,
@@ -27,6 +30,9 @@ import type {
 
 export const qk = {
   auth: ["auth"] as const,
+  users: ["users"] as const,
+  directory: ["users", "directory"] as const,
+  members: (pid: number) => ["members", pid] as const,
   meta: ["meta"] as const,
   settings: ["settings"] as const,
   limits: ["limits"] as const,
@@ -49,11 +55,18 @@ export const qk = {
 };
 
 export interface AuthStatus {
-  password_required: boolean;
-  authenticated: boolean;
+  /** No user yet: the first admin is created in the browser. */
+  setup_required: boolean;
+  setup_password_required: boolean;
+  user: User | null;
 }
 
 export const useAuth = () => useQuery({ queryKey: qk.auth, queryFn: () => api.get<AuthStatus>("/auth/status") });
+/** Who is signed in. The app renders nothing that asks before that is known. */
+export const useMe = () => useAuth().data?.user ?? null;
+export const useUsers = (enabled = true) => useQuery({ queryKey: qk.users, queryFn: () => api.get<User[]>("/users"), enabled });
+export const useDirectory = () => useQuery({ queryKey: qk.directory, queryFn: () => api.get<Person[]>("/users/directory") });
+export const useMembers = (pid: number) => useQuery({ queryKey: qk.members(pid), queryFn: () => api.get<Member[]>(`/projects/${pid}/members`) });
 export const useMeta = () => useQuery({ queryKey: qk.meta, queryFn: () => api.get<Meta>("/meta"), staleTime: 60_000 });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<SettingsResponse>("/settings") });
 export const useAccounts = () => useQuery({ queryKey: qk.accounts, queryFn: () => api.get<Account[]>("/accounts") });

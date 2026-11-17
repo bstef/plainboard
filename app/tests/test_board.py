@@ -1,4 +1,4 @@
-from conftest import agents_by_slug
+from conftest import ADMIN_PASSWORD, agents_by_slug
 
 
 def test_project_gets_a_manager(client, project):
@@ -78,9 +78,7 @@ def test_notes_and_mcp_servers(client, project):
     assert client.post(f"/api/projects/{pid}/mcp-servers", json={"name": "bad", "transport": "stdio"}).status_code == 400
 
 
-def test_a_read_key_reads_everything_and_changes_nothing(client, project, monkeypatch):
-    from plainboard import config
-
+def test_a_read_key_reads_everything_and_changes_nothing(client, project):
     pid = project["id"]
     assert client.patch(f"/api/projects/{pid}", json={"github_token": "ghp_secret"}).status_code == 200
     created = client.post("/api/access-keys", json={"label": "Analysis"}).json()
@@ -89,64 +87,44 @@ def test_a_read_key_reads_everything_and_changes_nothing(client, project, monkey
     (listed,) = client.get("/api/access-keys").json()
     assert listed["label"] == "Analysis" and listed["key"] is None and listed["last_used_at"] is None
 
-    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
-    config.get_config.cache_clear()
-    try:
-        headers = {"Authorization": f"Bearer {key}"}
-        assert client.get("/api/projects").status_code == 401
-        assert client.get("/api/projects", headers={"Authorization": "Bearer pbr_nope"}).status_code == 401
-        # Reading: the board, the chats, the full log.
-        assert [p["id"] for p in client.get("/api/projects", headers=headers).json()] == [pid]
-        manager = client.get(f"/api/projects/{pid}/agents", headers=headers).json()[0]
-        assert client.get(f"/api/agents/{manager['id']}/conversation", headers=headers).status_code == 200
-        assert client.get(f"/api/projects/{pid}/work-log?days=1", headers=headers).status_code == 200
-        # The database itself, for questions no endpoint foresaw: one SELECT, and credentials read as nothing.
-        tables = {t["table"]: t for t in client.get("/api/inspect/schema", headers=headers).json()}
-        assert tables["projects"]["rows"] == 1 and "name VARCHAR(200)" in tables["projects"]["columns"]
-        assert not any(c.startswith(("github_token_enc", "key_hash")) for t in tables.values() for c in t["columns"])
-        query = lambda sql, **more: client.get("/api/inspect/query", params={"sql": sql, **more}, headers=headers)  # noqa: E731
-        counted = query("select is_manager, count(*) as n from agents group by is_manager").json()
-        assert counted == {"columns": ["is_manager", "n"], "rows": [[1, 1]], "more": False}
-        assert query("select name, github_token_enc as t, length(github_token_enc) as n from projects").json()["rows"] == [[project["name"], None, None]]
-        assert query("select key_hash, hint from access_keys").json()["rows"] == [[None, key[-4:]]]
-        assert query("select value from settings").json()["rows"] in ([], [[None]] * len(query("select key from settings").json()["rows"]))
-        assert query("select id from agents", limit=1).json()["more"] is False and query("select 1 union all select 2", limit=1).json()["more"] is True
-        for refused in ("delete from agents", "update projects set name = 'x'", "drop table agents", "pragma journal_mode = delete", "select 1; select 2", "attach database 'x.db' as x"):
-            assert query(refused).status_code == 400, refused
-        assert client.get(f"/api/projects/{pid}/agents", headers=headers).json()[0]["name"] == manager["name"]  # nothing was changed
-        # Nothing else: no change of any kind, and nothing about the credentials.
-        assert client.post(f"/api/projects/{pid}/tasks", json={"title": "x"}, headers=headers).status_code == 403
-        assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "hi"}, headers=headers).status_code == 403
-        assert client.put("/api/settings", json={"values": {"max_parallel_runs": 9}}, headers=headers).status_code == 403
-        assert client.delete(f"/api/access-keys/{created['id']}", headers=headers).status_code == 403
-        for hidden in ("/api/access-keys", "/api/accounts", "/api/github/repos"):
-            assert client.get(hidden, headers=headers).status_code == 403
-        assert client.get("/api/projects", cookies={}, headers={"Authorization": "Bearer " + key.upper()}).status_code == 401
+    client.cookies.clear()  # nobody is signed in: only the key speaks
+    headers = {"Authorization": f"Bearer {key}"}
+    assert client.get("/api/projects").status_code == 401
+    assert client.get("/api/projects", headers={"Authorization": "Bearer pbr_nope"}).status_code == 401
+    # Reading: the board, the chats, the full log.
+    assert [p["id"] for p in client.get("/api/projects", headers=headers).json()] == [pid]
+    manager = client.get(f"/api/projects/{pid}/agents", headers=headers).json()[0]
+    assert client.get(f"/api/agents/{manager['id']}/conversation", headers=headers).status_code == 200
+    assert client.get(f"/api/projects/{pid}/work-log?days=1", headers=headers).status_code == 200
+    # The database itself, for questions no endpoint foresaw: one SELECT, and credentials read as nothing.
+    tables = {t["table"]: t for t in client.get("/api/inspect/schema", headers=headers).json()}
+    assert tables["projects"]["rows"] == 1 and "name VARCHAR(200)" in tables["projects"]["columns"]
+    assert not any(c.startswith(("github_token_enc", "key_hash")) for t in tables.values() for c in t["columns"])
+    query = lambda sql, **more: client.get("/api/inspect/query", params={"sql": sql, **more}, headers=headers)  # noqa: E731
+    counted = query("select is_manager, count(*) as n from agents group by is_manager").json()
+    assert counted == {"columns": ["is_manager", "n"], "rows": [[1, 1]], "more": False}
+    assert query("select name, github_token_enc as t, length(github_token_enc) as n from projects").json()["rows"] == [[project["name"], None, None]]
+    assert query("select key_hash, hint from access_keys").json()["rows"] == [[None, key[-4:]]]
+    assert query("select value from settings").json()["rows"] in ([], [[None]] * len(query("select key from settings").json()["rows"]))
+    assert query("select id from agents", limit=1).json()["more"] is False and query("select 1 union all select 2", limit=1).json()["more"] is True
+    for refused in ("delete from agents", "update projects set name = 'x'", "drop table agents", "pragma journal_mode = delete", "select 1; select 2", "attach database 'x.db' as x"):
+        assert query(refused).status_code == 400, refused
+    assert client.get(f"/api/projects/{pid}/agents", headers=headers).json()[0]["name"] == manager["name"]  # nothing was changed
+    # Nothing else: no change of any kind, and nothing about the credentials.
+    assert client.post(f"/api/projects/{pid}/tasks", json={"title": "x"}, headers=headers).status_code == 403
+    assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "hi"}, headers=headers).status_code == 403
+    assert client.put("/api/settings", json={"values": {"max_parallel_runs": 9}}, headers=headers).status_code == 403
+    assert client.delete(f"/api/access-keys/{created['id']}", headers=headers).status_code == 403
+    for hidden in ("/api/access-keys", "/api/accounts", "/api/github/repos"):
+        assert client.get(hidden, headers=headers).status_code == 403
+    assert client.get("/api/projects", cookies={}, headers={"Authorization": "Bearer " + key.upper()}).status_code == 401
 
-        # Revoked by the user (who is signed in): the key is worth nothing at once.
-        assert client.post("/api/auth/login", json={"password": "pw"}).status_code == 200
-        assert client.get("/api/access-keys").json()[0]["last_used_at"] is not None
-        assert client.delete(f"/api/access-keys/{created['id']}").status_code == 204
-        client.cookies.clear()
-        assert client.get("/api/projects", headers=headers).status_code == 401
-    finally:
-        monkeypatch.delenv("PLAINBOARD_PASSWORD")
-        config.get_config.cache_clear()
-
-
-def test_password_protection(client, monkeypatch):
-    from plainboard import config
-
-    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
-    config.get_config.cache_clear()
-    try:
-        assert client.get("/api/projects").status_code == 401
-        assert client.post("/api/auth/login", json={"password": "nope"}).status_code == 401
-        assert client.post("/api/auth/login", json={"password": "pw"}).status_code == 200
-        assert client.get("/api/projects").status_code == 200
-    finally:
-        monkeypatch.delenv("PLAINBOARD_PASSWORD")
-        config.get_config.cache_clear()
+    # Revoked by the user (who is signed in): the key is worth nothing at once.
+    assert client.post("/api/auth/login", json={"username": "admin", "password": ADMIN_PASSWORD}).status_code == 200
+    assert client.get("/api/access-keys").json()[0]["last_used_at"] is not None
+    assert client.delete(f"/api/access-keys/{created['id']}").status_code == 204
+    client.cookies.clear()
+    assert client.get("/api/projects", headers=headers).status_code == 401
 
 
 def test_public_api_shows_only_customer_texts(client, project):
@@ -287,8 +265,7 @@ def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeyp
         return out
 
     client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=site))
-    client.cookies.set("pb_session", "secret")
-    client.cookies.set("theme", "dark")
+    client.cookies.set("theme", "dark")  # next to the PlainBoard login the client already has
 
     resp = client.get("/preview/5173/?q=1")
     assert resp.json() == {"page": "home"} and resp.cookies["plainboard_preview"] == "5173"
@@ -326,10 +303,7 @@ def test_preview_opens_a_server_in_the_runner_through_plainboard(client, monkeyp
     assert client.get("/preview/8090/").status_code == 404  # the runner's own API
     assert client.get("/preview/80/").status_code == 404
 
-    from plainboard import config
-
-    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
-    config.get_config.cache_clear()
+    client.cookies.clear()
     assert client.get("/preview/5173/").status_code == 401
 
 
@@ -372,7 +346,6 @@ def test_a_preview_is_private_until_it_is_shared_with_a_password_or_publicly(cli
     import httpx
     from fastapi import FastAPI
 
-    from plainboard import config
     from plainboard.db import sessionmaker
     from plainboard.services import preview as preview_service
 
@@ -383,8 +356,7 @@ def test_a_preview_is_private_until_it_is_shared_with_a_password_or_publicly(cli
         return {"page": "home"}
 
     client.app_ref.state.preview_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=site))
-    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
-    config.get_config.cache_clear()
+    client.cookies.clear()  # a visitor without a PlainBoard account
 
     def share(access, **kwargs):
         async def call():
@@ -412,5 +384,5 @@ def test_a_preview_is_private_until_it_is_shared_with_a_password_or_publicly(cli
     share("private")
     assert client.post("/api/public/preview/5173/unlock", data={"password": "another-one"}, follow_redirects=False).status_code == 401
 
-    assert client.post("/api/auth/login", json={"password": "pw"}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "admin", "password": ADMIN_PASSWORD}).status_code == 200
     assert client.get("/preview/5173/").json() == {"page": "home"}

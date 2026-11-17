@@ -2,15 +2,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useRepositories, useSettings } from "../../api/queries";
+import { MembersEditor } from "./MembersEditor";
+import { checks, qk, useAccounts, useRepositories, useSettings } from "../../api/queries";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import type { CheckResult, Project, Repository } from "../../api/types";
-import { Button, ErrorText, Field, Input, Modal, Textarea, Toggle } from "../../components/ui";
+import { Button, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from "../../components/ui";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { RepositoriesEditor, type RepoDraft } from "./RepositoriesEditor";
 
-const toDraft = (r: Repository): RepoDraft => ({
+export const toDraft = (r: Repository): RepoDraft => ({
   key: r.id,
   name: r.name,
   url: r.url,
@@ -29,7 +30,7 @@ const toDraft = (r: Repository): RepoDraft => ({
 });
 
 // Secrets are write-only: an empty field keeps what is stored.
-const toBody = (d: RepoDraft) => ({
+export const toBody = (d: RepoDraft) => ({
   url: d.url.trim(),
   name: d.name.trim() || null,
   default_branch: d.default_branch.trim() || null,
@@ -62,6 +63,7 @@ export function ProjectDialog({
     github_token: "",
     auto_wake_manager: project?.auto_wake_manager ?? true,
     parallel_agents: project?.parallel_agents ?? null,
+    account_id: project?.account_id ?? null,
     auto_archive_days: project?.auto_archive_days ?? 14,
     review_days: project?.review_days ?? 3,
   });
@@ -72,6 +74,7 @@ export function ProjectDialog({
   // Existing project: repositories are saved immediately. New project: collected and sent on create.
   const savedRepos = useRepositories(project?.id ?? 0);
   const defaultParallel = useSettings().data?.values.max_parallel_runs ?? 3;
+  const accounts = useAccounts();
   const [draftRepos, setDraftRepos] = useState<RepoDraft[]>([]);
   const repoList = project ? (savedRepos.data ?? []).map(toDraft) : draftRepos;
   const refreshRepos = () => project && qc.invalidateQueries({ queryKey: qk.repos(project.id) });
@@ -191,6 +194,11 @@ export function ProjectDialog({
             <SecretsEditor projectId={project.id} />
           </Field>
         )}
+        {project && (
+          <Field group label={t("members.title")} hint={t("members.hint")}>
+            <MembersEditor projectId={project.id} />
+          </Field>
+        )}
         <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
         <p className="-mt-2 pl-11 text-fg-3">{t("projects.autoWakeHint")}</p>
         <Field label={t("projects.parallel")} hint={t("projects.parallelHint", { count: Number(defaultParallel) })}>
@@ -203,6 +211,18 @@ export function ProjectDialog({
             placeholder={String(defaultParallel)}
             onChange={(e) => set({ parallel_agents: e.target.value === "" ? null : Math.max(0, Math.min(20, Math.round(Number(e.target.value) || 0))) })}
           />
+        </Field>
+        <Field label={t("newProject.team.subscription")} hint={t("newProject.team.subscriptionHint")}>
+          <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
+            <option value="">{t("newProject.team.subscriptionAuto")}</option>
+            {(accounts.data ?? [])
+              .filter((a) => a.enabled)
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+          </Select>
         </Field>
         <Field label={t("projects.reviewDays")} hint={t("projects.reviewDaysHint")}>
           <Input

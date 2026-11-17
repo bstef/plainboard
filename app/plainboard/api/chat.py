@@ -9,8 +9,9 @@ from ..models import Run, RunStatus
 from ..schemas import AttachmentOut, ChatMessageIn, ConversationOut, MessageOut, RunOut
 from ..services import agents as agent_service
 from ..services import board as board_service
+from ..services import users as user_service
 from ..services.errors import NotFound, ServiceError
-from .deps import Runs, Session
+from .deps import Runs, Session, Who
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -30,9 +31,10 @@ async def get_conversation(agent_id: int, session: Session, before_id: int | Non
 
 
 @router.post("/agents/{agent_id}/messages", response_model=RunOut, status_code=202)
-async def send_message(agent_id: int, body: ChatMessageIn, session: Session, runs: Runs) -> RunOut:
+async def send_message(agent_id: int, body: ChatMessageIn, session: Session, runs: Runs, who: Who) -> RunOut:
     agent = await agent_service.get(session, agent_id)
-    return RunOut.model_validate(await runs.chat(session, agent, body.text, body.attachment_ids))
+    author = await user_service.author(session, who.user, agent.project_id)
+    return RunOut.model_validate(await runs.chat(session, agent, body.text, body.attachment_ids, author=author))
 
 
 @router.delete("/runs/{run_id}/message", status_code=204)

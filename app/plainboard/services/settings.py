@@ -43,6 +43,8 @@ SETTINGS: dict[str, SettingDef] = {
     "manager_parallel_limit": SettingDef(6),
     "timezone": SettingDef("Europe/Berlin"),
     "update_check": SettingDef(True),  # ask now and then whether a newer PlainBoard exists
+    # The admin has gone through the basic settings once (the set-up in the browser). Until then the UI asks for them.
+    "setup_done": SettingDef(False),
 }
 
 

@@ -227,6 +227,9 @@ class FakeRunner:
         pass
 
 
+ADMIN_PASSWORD = "admin-password"
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_DATA_DIR", str(tmp_path / "data"))
@@ -246,6 +249,8 @@ def client(tmp_path, monkeypatch):
     FakeRunner.app = app
     with TestClient(app) as test_client:
         test_client.app_ref = app
+        # A fresh installation has no users: its first admin is who the tests work as.
+        assert test_client.post("/api/auth/setup", json={"username": "admin", "name": "Admin", "password": ADMIN_PASSWORD}).status_code == 201
         yield test_client
     config.get_config.cache_clear()
 

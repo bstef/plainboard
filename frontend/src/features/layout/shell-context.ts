@@ -3,6 +3,10 @@ import type { Agent, Project } from "../../api/types";
 
 export interface ShellApi {
   project: Project;
+  /** The signed-in user may change things in this project (not a viewer). */
+  canWrite: boolean;
+  /** ... and its settings, repositories, secrets and members. */
+  isOwner: boolean;
   agents: Agent[];
   agentById: (id: number | null | undefined) => Agent | undefined;
   openChat: (agentId: number) => void;

@@ -5,11 +5,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import accounts, auth, browser, chat, internal, knowledge, preview, projects, public, repositories, secrets, system, tasks, todos, ws
+from .api import accounts, auth, browser, chat, internal, knowledge, preview, projects, public, repositories, secrets, system, tasks, todos, users, ws
+from .api.deps import authorize
 from .config import get_config
 from .db import dispose_engine, init_engine, sessionmaker
 from .migrate import upgrade
@@ -27,9 +28,6 @@ from .services.errors import ServiceError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("plainboard")
-
-PUBLIC_PREFIXES = ("/api/auth/", "/api/internal/", "/api/public/", "/api/health")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,7 +55,7 @@ async def lifespan(app: FastAPI):
     landing.start()
     limits_watcher.start()
     updates.start()
-    log.info("PlainBoard ready (auth %s)", "on" if config.password else "off")
+    log.info("PlainBoard ready")
     try:
         yield
     finally:
@@ -72,25 +70,27 @@ async def lifespan(app: FastAPI):
         await dispose_engine()
 
 
+# Every route of these is checked against its rule in services/access.py before it runs.
+API_MODULES = (auth, system, accounts, users, projects, public, repositories, secrets, tasks, todos, chat, knowledge, internal)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="PlainBoard", lifespan=lifespan)
 
     @app.middleware("http")
-    async def require_login(request: Request, call_next):
-        path = request.url.path
+    async def preview_pages(request: Request, call_next):
         # First: a preview page's requests belong to the previewed server, whatever their path.
         if redirect := preview.redirect_from_preview_page(request):
             return redirect
-        if path.startswith("/api/") and not path.startswith(PUBLIC_PREFIXES) and not auth.is_authenticated(request):
-            if refusal := await auth.read_key_refusal(request):  # no login: a read key may still read
-                return JSONResponse({"detail": refusal[1]}, status_code=refusal[0])
         return await call_next(request)
 
     @app.exception_handler(ServiceError)
     async def service_error(_request: Request, exc: ServiceError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status_code)
 
-    for module in (auth, system, accounts, projects, public, repositories, secrets, tasks, todos, chat, knowledge, internal, ws, browser, preview):
+    for module in API_MODULES:
+        app.include_router(module.router, dependencies=[Depends(authorize)])
+    for module in (ws, browser, preview):  # sockets and the preview proxy check by themselves
         app.include_router(module.router)
 
     _mount_spa(app, get_config().static_dir)

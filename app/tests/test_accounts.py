@@ -158,7 +158,7 @@ def test_a_window_that_is_no_longer_reported_stops_counting(client, project, mon
 
     claude = accounts(client)["Claude"]
     client.patch(f"/api/accounts/{claude['id']}", json={"auth_mode": "oauth_token", "secret": "tok"})
-    clock = [1_800_000_000.0]
+    clock = [float(int(limits_service.time.time()))]  # from now on: the sign-in is checked against the same clock
     monkeypatch.setattr(limits_service.time, "time", lambda: clock[0])
 
     async def report(**used: float) -> dict[str, float]:
@@ -179,3 +179,30 @@ def test_a_window_that_is_no_longer_reported_stops_counting(client, project, mon
     clock[0] += 60
     assert list(client.portal.call(lambda: report(seven_day_extra=0.33)).values()) == [0.57]
     assert {w["name"]: w["utilization"] for w in limits_of(client, claude["id"])["windows"]} == {"seven_day": 0.57, "seven_day_extra": 0.33}
+
+
+def test_a_project_runs_on_the_subscription_it_names(client, project):
+    """Two projects, two subscriptions: each uses up its own quota. An agent's own choice still wins."""
+    pid = project["id"]
+    first = accounts(client)["Claude"]
+    client.patch(f"/api/accounts/{first['id']}", json={"auth_mode": "oauth_token", "secret": "tok-a"})
+    second = client.post("/api/accounts", json={"provider": "claude_code", "label": "Second", "auth_mode": "oauth_token", "secret": "tok-b"}).json()
+    dev = make_dev(client, pid)
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-a"  # automatic
+
+    assert client.patch(f"/api/projects/{pid}", json={"account_id": second["id"]}).json()["account_id"] == second["id"]
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-b"
+    client.patch(f"/api/agents/{dev['id']}", json={"account_id": first["id"]})
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-a"  # the agent's own
+    client.patch(f"/api/agents/{dev['id']}", json={"account_id": None})
+
+    assert client.patch(f"/api/projects/{pid}", json={"account_id": 999}).status_code == 404
+    client.delete(f"/api/accounts/{second['id']}")  # gone: the project is back on automatic
+    assert client.get(f"/api/projects/{pid}").json()["account_id"] is None
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-a"
+
+
+def test_a_new_installation_is_not_set_up_until_its_admin_says_so(client):
+    assert client.get("/api/settings").json()["values"]["setup_done"] is False
+    client.put("/api/settings", json={"values": {"setup_done": True}})
+    assert client.get("/api/settings").json()["values"]["setup_done"] is True

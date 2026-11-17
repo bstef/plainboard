@@ -20,6 +20,9 @@ execution, providers), `protocol/` (shared wire models), `frontend/` (React + TS
   never from the manager's memory. Prefer such mechanisms over more prompt text.
 - Timestamps are naive UTC in the DB and serialized with a trailing `Z` (`schemas.UTCDateTime`).
 - All UI strings go through i18n (`frontend/src/i18n/en.json`).
+- Every API route needs a rule in `services/access.py` (`RULES`): who may read it, who may change it, and for
+  a project route what names the project. Without one it is for admins only and a test fails. Endpoints don't
+  check roles themselves; a list for everyone filters by the user's projects (`users.roles`).
 - Schema changes need an Alembic migration (see ARCHITECTURE.md).
 
 ## Commands

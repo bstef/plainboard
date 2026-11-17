@@ -6,7 +6,6 @@ from starlette.websockets import WebSocketDisconnect
 
 
 def test_browser_window_is_passed_on_to_the_runner_for_the_signed_in_user(client, project, monkeypatch):
-    from plainboard import config
     from plainboard.api import browser as browser_api
 
     sent, asked = [], []
@@ -44,8 +43,6 @@ def test_browser_window_is_passed_on_to_the_runner_for_the_signed_in_user(client
     assert gone.value.code == 4404
 
     # It is a browser inside the agents' environment: never without the login, shared previews or not.
-    monkeypatch.setenv("PLAINBOARD_PASSWORD", "pw")
-    config.get_config.cache_clear()
     client.cookies.clear()
     with pytest.raises(WebSocketDisconnect) as refused:
         with client.websocket_connect(f"/api/projects/{project['id']}/browser"):

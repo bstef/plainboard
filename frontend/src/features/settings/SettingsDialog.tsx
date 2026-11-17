@@ -4,13 +4,15 @@ import { CheckCircle2, XCircle } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useMeta, useSettings } from "../../api/queries";
+import { checks, qk, useMe, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { Button, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from "../../components/ui";
 import { equivalentModel } from "../../lib/models";
 import { ModelSelect } from "../team/AgentEditor";
+import { AccountEditor } from "./AccountEditor";
 import { AccountsEditor } from "./AccountsEditor";
+import { UsersEditor } from "./UsersEditor";
 import { SecretsEditor } from "./SecretsEditor";
 
 export function CheckBadge({ result }: { result: CheckResult | null }) {
@@ -32,6 +34,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const qc = useQueryClient();
   const settings = useSettings();
   const meta = useMeta();
+  const me = useMe();
   const [values, setValues] = useState<Values>({});
   const [secrets, setSecrets] = useState<Values>({});
   const [error, setError] = useState<unknown>(null);
@@ -46,6 +49,14 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     }
   }, [open, settings.data]);
 
+  if (!me?.is_admin) {
+    // The installation's settings are the admins'. Everyone has an account of their own.
+    return (
+      <Modal open={open} onClose={onClose} title={t("account.title")} width="max-w-lg">
+        <AccountEditor />
+      </Modal>
+    );
+  }
   if (!settings.data) return null;
   const set = (patch: Values) => setValues((v) => ({ ...v, ...patch }));
   const setSecret = (patch: Values) => setSecrets((s) => ({ ...s, ...patch }));
@@ -127,6 +138,14 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       }
     >
       <div className="space-y-7">
+        <Section title={t("account.title")} description={t("account.hint")}>
+          <AccountEditor />
+        </Section>
+
+        <Section title={t("users.title")} description={t("users.hint")}>
+          <UsersEditor />
+        </Section>
+
         <Section title={t("settings.claude")} description={t("settings.claudeHint")}>
           <AccountsEditor provider="claude_code" />
         </Section>
@@ -232,7 +251,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 }
 
 /** One SSH key for all repositories with an SSH address. Saved right away, apart from the form. */
-function SshKeyEditor({ publicKey }: { publicKey: string }) {
+export function SshKeyEditor({ publicKey }: { publicKey: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [own, setOwn] = useState("");

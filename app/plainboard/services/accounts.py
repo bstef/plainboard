@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Account, Agent, Conversation
+from ..models import Account, Agent, Conversation, Project
 from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from ..security import decrypt, encrypt
 from . import limits as limits_service
@@ -118,7 +118,11 @@ async def pick(session: AsyncSession, provider: str, agent: Agent | None = None,
     accounts = [a for a in await list_accounts(session, provider) if a.enabled]
     if not accounts:
         return None
-    if agent and agent.account_id and (pinned := next((a for a in accounts if a.id == agent.account_id), None)):
+    # The agent's own subscription, else its project's. One of another provider does not count.
+    wanted = agent.account_id if agent else None
+    if agent and wanted is None:
+        wanted = await session.scalar(select(Project.account_id).where(Project.id == agent.project_id))
+    if wanted and (pinned := next((a for a in accounts if a.id == wanted), None)):
         return pinned
     used = await limits_service.usage(session)
     best = min(accounts, key=lambda a: _rank(a, used))

@@ -13,6 +13,10 @@ export interface Project {
   has_github_token: boolean;
   auto_wake_manager: boolean;
   parallel_agents: number | null;
+  /** The subscription the project's agents run on; null: the one with the most room. */
+  account_id: number | null;
+  /** The signed-in user's role in the project. */
+  role: ProjectRole | null;
   auto_archive_days: number;
   review_days: number;
   label_colors: Record<string, string>;
@@ -461,4 +465,30 @@ export interface Stats {
   current: StatsPeriod;
   previous: StatsPeriod;
   versions: { at: string; commit: string }[];
+}
+
+export type ProjectRole = "viewer" | "member" | "owner";
+
+export interface User {
+  id: number;
+  username: string;
+  name: string;
+  is_admin: boolean;
+  may_create_projects: boolean;
+  enabled: boolean;
+  created_at: string;
+}
+
+/** What everyone signed in may know about a user. */
+export interface Person {
+  id: number;
+  username: string;
+  name: string;
+}
+
+export interface Member {
+  user_id: number;
+  username: string;
+  name: string;
+  role: ProjectRole;
 }

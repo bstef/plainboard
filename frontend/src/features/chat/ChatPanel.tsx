@@ -31,7 +31,7 @@ export function ChatPanel({
   variant?: "panel" | "page";
 }) {
   const { t } = useTranslation();
-  const { project, agents, agentById } = useShell();
+  const { project, agents, agentById, canWrite } = useShell();
   const qc = useQueryClient();
   const agent = agentById(agentId);
   const conversation = useConversation(agentId);
@@ -201,7 +201,7 @@ export function ChatPanel({
         agentId={agentId}
         agentName={agent.name}
         runningId={running?.id}
-        disabled={!agent.enabled}
+        disabled={!agent.enabled || !canWrite}
         className={column}
         status={
           activeRuns.length > 0
