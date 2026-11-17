@@ -1,0 +1,128 @@
+name: Publish images
+
+# Builds PlainBoard's two images for amd64 and arm64 and pushes them to Docker Hub:
+#
+#   <namespace>/plainboard          the app (web UI and everything PlainBoard does by itself)
+#   <namespace>/plainboard-runner   where the agents work
+#
+# each as :latest and as :<first 7 characters of the commit>. It runs for every commit on main that
+# passed CI, and by hand (Actions -> Publish images -> Run workflow).
+#
+# It needs two repository secrets (Settings -> Secrets and variables -> Actions):
+#   DOCKERHUB_USERNAME   the Docker Hub user name
+#   DOCKERHUB_TOKEN      an access token of that user with "Read & Write" (Docker Hub -> Account
+#                        settings -> Personal access tokens), not the password
+# The namespace is that user name. To publish under an organisation instead, set the repository
+# variable DOCKERHUB_NAMESPACE.
+#
+# Without the secrets it still builds both images for both architectures and pushes nothing, so a
+# build that broke is found either way.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One at a time, in order: an older commit must never become :latest after a newer one.
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
+env:
+  PUBLISH: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+  NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+  # The commit that passed CI, not whatever main points at by now.
+  COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.image }} (${{ matrix.arch }})
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [plainboard, plainboard-runner]
+        arch: [amd64, arm64]
+        include:
+          - image: plainboard
+            dockerfile: app/Dockerfile
+          - image: plainboard-runner
+            dockerfile: runner/Dockerfile
+    # Each architecture on a machine of its own kind: an emulated build of the runner image takes very long.
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Sign in to Docker Hub
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # The checkout is the build context (not the repository's address), so the image learns which
+      # commit it is from .git, as a local build does (see app/Dockerfile and .dockerignore).
+      - name: Build
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          # Pushed without a tag: the tags are put on both architectures together, below.
+          outputs: ${{ env.PUBLISH == 'true' && format('type=image,name={0}/{1},push-by-digest=true,name-canonical=true,push=true', env.NAMESPACE, matrix.image) || 'type=cacheonly' }}
+      - name: Note what was pushed
+        if: env.PUBLISH == 'true'
+        run: |
+          mkdir -p digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        if: env.PUBLISH == 'true'
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  tag:
+    name: Publish ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [plainboard, plainboard-runner]
+    steps:
+      - name: Nothing to publish
+        if: env.PUBLISH != 'true'
+        run: echo "::notice::Built, not published. Add the secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN to publish to Docker Hub."
+      - uses: actions/download-artifact@v4
+        if: env.PUBLISH == 'true'
+        with:
+          path: digests
+          pattern: digest-${{ matrix.image }}-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+        if: env.PUBLISH == 'true'
+      - name: Sign in to Docker Hub
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: One image for both architectures
+        if: env.PUBLISH == 'true'
+        working-directory: digests
+        run: |
+          image="$NAMESPACE/${{ matrix.image }}"
+          docker buildx imagetools create -t "$image:latest" -t "$image:${COMMIT::7}" $(printf "$image@sha256:%s " *)
+          docker buildx imagetools inspect "$image:latest"
