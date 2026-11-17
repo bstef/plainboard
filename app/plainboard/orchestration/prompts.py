@@ -624,6 +624,8 @@ def base_red_instructions(repo: str, base: str, branches: list[str], evidence: s
         "2. Fix all of it there and run the checks that failed once (the part that shows the failure, not the whole suite). A number in a "
         "budget or limit file that only the checks measure: take it from the failed log.\n"
         "3. Push the branch and hand it over with merge_when_green. It lands like any other branch, and the checks run again with it.\n"
+        "4. Where a failure clearly came from one of the branches above and that branch has a ticket, write one line on that ticket "
+        "(add_comment): what it broke and how you fixed it. Its author and the user look there, not here.\n"
         "A failure that does not come from the repository (a check that fails at random, a service that is down) you don't fix: say so in "
         "your report. Open no pull request and wait for no checks.\n"
         f"This is repair {round_no} of {max_rounds} for this failure; after that the manager decides how to go on."

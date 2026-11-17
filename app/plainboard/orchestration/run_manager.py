@@ -45,11 +45,13 @@ from ..models import (
     JobStatus,
     Message,
     Project,
+    Repository,
     Run,
     RunStatus,
     RunTrigger,
     Task,
     TaskStatus,
+    Train,
     utcnow,
 )
 from ..schemas import AssignmentOut, MessageOut, RunOut, TaskUpdate
@@ -1109,7 +1111,21 @@ class RunManager:
         if ticket:
             self.refresh_ticket_state(ticket.id)
         if ok and (assignment.landing_id or assignment.train_id):
-            return  # repair for landing: PlainBoard puts the branches on the next train, nobody has to read this
+            # A repair for landing: PlainBoard goes on by itself, so it costs nobody a turn. The repair of
+            # a red base branch is told to the manager with its next turn: what broke and what fixed it is
+            # how it sees a pattern (the same check again and again), and what it can tell the user.
+            train = await s.get(Train, assignment.train_id) if assignment.train_id else None
+            if train is not None and train.direct:
+                repo = await s.get(Repository, train.repository_id)
+                checks = ", ".join(train.failed_checks.split("\n")[:6]) or "its checks"
+                manager = await agent_service.get_manager(s, project.id)
+                await inbox.push(
+                    s,
+                    manager.id,
+                    f"{train.base} of {repo.name if repo else '?'} was red after a landing ({checks}); {agent.name} repaired it in {took} (assignment #{assignment.id}), "
+                    f"and the fix lands like any branch: {truncate(text, 500)}",
+                )
+            return
         ref = f", ticket #{ticket.number}" if ticket else ""
         recipient = assignment.created_by_agent_id or (await agent_service.get_manager(s, project.id)).id
         if recipient != agent.id:

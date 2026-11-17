@@ -863,6 +863,9 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
     land_tick_at(client, now + timedelta(minutes=30))
     wait_for(lambda: idle(client, pid))
     assert len(repairs(client, pid)) == 1 and sorted(fake.land_specs[-1].delete_branches) == ["fix-tests"]
+    # What broke and what fixed it reaches the manager with its next turn (no turn of its own), and the ticket it came from.
+    assert "main of api was red after a landing (Tests); Dev1 repaired it in" in last_update(fake) and "(assignment #1)" in last_update(fake)
+    assert "write one line on that ticket (add_comment): what it broke and how you fixed it" in prompt
 
     # Still red with the fix on it: the next repair. Green after that one: nothing more.
     fake.commit_checks_of["train-3"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/3")]
