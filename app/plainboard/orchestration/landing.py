@@ -560,8 +560,10 @@ class LandingWatcher:
         addition gets a repair of its own, without the failures the other one has."""
         streak = await landing_service.red_streak(s, train)
         ids = [t.id for t in streak]
-        repairs = list(await s.scalars(select(Assignment).where(Assignment.train_id.in_(ids)).order_by(Assignment.id.desc()))) if ids else []
-        known = {name for t in streak for name in t.failed_checks.split("\n")}
+        was_red = {t.id: set(t.failed_checks.split("\n")) for t in streak}
+        # A repair that was cancelled before it began repaired nothing.
+        repairs = list(await s.scalars(select(Assignment).where(Assignment.train_id.in_(ids), Assignment.status != AssignmentStatus.CANCELLED).order_by(Assignment.id.desc()))) if ids else []
+        known = {name for names in was_red.values() for name in names}
         if repairs:
             last = repairs[0]
             # The branch that was handed over while that repair was worked on, not any branch of the same agent.
@@ -580,16 +582,20 @@ class LandingWatcher:
                         else ""
                     )
                     failed = more
-        if set(failed) <= known and any(t.escalated for t in streak):
+        # How often this failure was repaired already: repairs of a batch that failed on at least all
+        # of this. A base branch that is red for a new reason every time gets a repair every time;
+        # only what does not get repaired goes to the manager.
+        tried = [a for a in repairs if set(failed) <= was_red.get(a.train_id or 0, set())]
+        if any(t.escalated and set(failed) <= was_red[t.id] for t in streak):
             return  # the manager has it
         members = list(await s.scalars(select(Landing).where(Landing.train_id == train.id).order_by(Landing.id)))
         fixer = await self._fixer(s, members) or (await self._fixer(s, list(await s.scalars(select(Landing).where(Landing.train_id.in_(ids))))) if ids else None)
         names = ", ".join(failed[:8]) + (f" and {len(failed) - 8} more" if len(failed) > 8 else "")
-        if fixer is None or len(repairs) >= landing_service.MAX_FAILED_ROUNDS:
+        if fixer is None or len(tried) >= landing_service.MAX_FAILED_ROUNDS:
             train.escalated = True
             await s.commit()
-            why = "and nobody who wrote what landed is available" if fixer is None else f"and {len(repairs)} repairs have not made it pass"
-            await flow_log.record(s, r.project.id, "base.escalated", train_id=train.id, repairs=len(repairs))
+            why = "and nobody who wrote what landed is available" if fixer is None else f"and {len(tried)} repairs have not made it pass"
+            await flow_log.record(s, r.project.id, "base.escalated", train_id=train.id, repairs=len(tried), checks=failed)
             await self._tell_manager(
                 s, r,
                 f"{train.base} of {r.repo.name} does not pass its checks ({names}), {why}. Nothing was taken back: what landed is on {train.base}. "
@@ -597,9 +603,9 @@ class LandingWatcher:
             )
             return
         branches = [await label(s, m) for m in members]
-        instructions = prompts.base_red_instructions(r.repo.name, train.base, branches, evidence, len(repairs) + 1, landing_service.MAX_FAILED_ROUNDS)
+        instructions = prompts.base_red_instructions(r.repo.name, train.base, branches, evidence, len(tried) + 1, landing_service.MAX_FAILED_ROUNDS)
         repair = await self._runs.delegate(s, None, fixer, f"Make {train.base} of {r.repo.name} pass its checks again", instructions, None, train_id=train.id)
-        await flow_log.record(s, r.project.id, "base.repair_ordered", train_id=train.id, agent_id=fixer.id, assignment_id=repair.id, round=len(repairs) + 1, checks=failed)
+        await flow_log.record(s, r.project.id, "base.repair_ordered", train_id=train.id, agent_id=fixer.id, assignment_id=repair.id, round=len(tried) + 1, checks=failed)
 
     async def _unrepaired(self, s: AsyncSession, r: Repo, pick: list[Landing]) -> bool:
         """Whether a group comes back from its repair exactly as it failed: the same branches, none

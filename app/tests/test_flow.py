@@ -938,6 +938,42 @@ def test_other_work_of_the_member_that_repaired_is_not_taken_for_the_fix(client,
     assert "repair 2 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
 
 
+def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(client, project):
+    """Seen in production: eight red landings, each for other checks. After three repairs everything
+    went to the manager, although none of the new failures had been repaired even once."""
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-1"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    now = utcnow()
+    land_tick_at(client, now - timedelta(hours=1))
+
+    def next_batch(batch: int, failing: str, minutes: int) -> None:
+        """The batch that landed last fails on ``failing``; another branch lands with this look."""
+        fake.commit_checks_of[f"train-{batch}"] = [PullRequestCheck(name=failing, state="fail", link=f"https://ci/{batch}")]
+        hand_over(client, pid, fake, f"Dev{batch + 1}", f"feat-{batch + 1}")
+        land_tick_at(client, now + timedelta(minutes=minutes))
+        wait_for(lambda: idle(client, pid))
+
+    # Four landings, each red for another check: four repairs, each the first for its failure.
+    for batch, failing in enumerate(["Tests", "Firmware", "Android", "Docs"], start=1):
+        next_batch(batch, failing, 30 * batch)
+    wait_for(lambda: len(repairs(client, pid)) == 4)
+    prompts_ = [s.prompt for s in fake.specs if "Nothing is taken back" in s.prompt]
+    assert all("repair 1 of 3" in p for p in prompts_) and "does not pass its checks" not in last_update(fake)
+
+    # One that stays red for the same reason: three repairs, then the manager, once.
+    for batch in (5, 6):
+        next_batch(batch, "Docs", 30 * batch)
+    wait_for(lambda: len(repairs(client, pid)) == 6)
+    assert "repair 3 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
+    next_batch(7, "Docs", 210)
+    wait_for(lambda: idle(client, pid) and "main of api does not pass its checks (Docs), and 3 repairs have not made it pass" in last_update(fake))
+    turns = len([s for s in fake.specs if s.toolset == "board"])
+    next_batch(8, "Docs", 240)  # still the same: the manager has it, nobody is told again
+    assert len(repairs(client, pid)) == 6 and not any("does not pass its checks" in s.prompt for s in [s for s in fake.specs if s.toolset == "board"][turns:])
+
+
 def test_land_first_with_a_check_command_and_without_any_checks(client, project):
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a"], land_first=True)

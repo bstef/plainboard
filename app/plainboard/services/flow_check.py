@@ -302,7 +302,7 @@ async def _tool_errors(session, project_id, agents, since, now) -> list[Finding]
     refused: dict[str, Counter] = {}
     for name, result in rows:
         name = name.removeprefix("mcp__plainboard__")
-        if name in names:
+        if name in names and not str(result or "").startswith("Not handed over: the quick check"):  # that is the quick check doing its work
             refused.setdefault(name, Counter())[truncate(str(result or "").split("\n")[0], 110)] += 1
     often = sorted(((name, reasons) for name, reasons in refused.items() if sum(reasons.values()) >= 5), key=lambda item: -sum(item[1].values()))
     if not often:
