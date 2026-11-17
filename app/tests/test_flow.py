@@ -950,6 +950,7 @@ def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(cli
 
     def next_batch(batch: int, failing: str, minutes: int) -> None:
         """The batch that landed last fails on ``failing``; another branch lands with this look."""
+        wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in repairs(client, pid)))  # the last repair has reported
         fake.commit_checks_of[f"train-{batch}"] = [PullRequestCheck(name=failing, state="fail", link=f"https://ci/{batch}")]
         hand_over(client, pid, fake, f"Dev{batch + 1}", f"feat-{batch + 1}")
         land_tick_at(client, now + timedelta(minutes=minutes))
@@ -968,10 +969,10 @@ def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(cli
     wait_for(lambda: len(repairs(client, pid)) == 6)
     assert "repair 3 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
     next_batch(7, "Docs", 210)
-    wait_for(lambda: idle(client, pid) and "main of api does not pass its checks (Docs), and 3 repairs have not made it pass" in last_update(fake))
-    turns = len([s for s in fake.specs if s.toolset == "board"])
+    told = lambda: [s.prompt for s in fake.specs if s.toolset == "board" and "main of api does not pass its checks (Docs), and 3 repairs have not made it pass" in s.prompt]  # noqa: E731
+    wait_for(lambda: idle(client, pid) and len(told()) == 1)
     next_batch(8, "Docs", 240)  # still the same: the manager has it, nobody is told again
-    assert len(repairs(client, pid)) == 6 and not any("does not pass its checks" in s.prompt for s in [s for s in fake.specs if s.toolset == "board"][turns:])
+    assert len(repairs(client, pid)) == 6 and len(told()) == 1
 
 
 def test_land_first_with_a_check_command_and_without_any_checks(client, project):
