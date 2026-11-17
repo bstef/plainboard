@@ -521,6 +521,7 @@ class LandingWatcher:
         """A batch that landed before its checks: look at the checks of the base branch at that
         commit. True once they are over or will not come, so the next batch can land."""
         failed: list[str] = []
+        links: dict[str, str] = {}
         evidence = ""
         if train.mode == landing_service.COMMAND:
             state = (await self._runs.runner.job_status([train.job_id or ""])).get(train.job_id or "")
@@ -535,37 +536,53 @@ class LandingWatcher:
             result = base_result(checks, (now - train.created_at).total_seconds())
             if result == "pending":
                 return False
-            bad = [c for c in checks if c.state == "fail"]
-            failed = [c.name for c in bad]
-            listed = "\n".join(f"- {c.name}" + (f": {c.link}" if c.link else "") for c in bad[:20])
-            evidence = f"Failed checks of {train.base} at {train.head_sha[:10]}:\n{listed}\nRead the failed logs once: the links, or gh run view <run id> --log-failed."
+            links = {c.name: c.link for c in checks if c.state == "fail"}
+            failed = list(links)
+            evidence = self._failed_checks(train, links)
         self._finished(train, now)
         train.status = {"failed": TrainStatus.FAILED, "passed": TrainStatus.LANDED}.get(result, TrainStatus.ABORTED)
         train.failed_checks = "\n".join(failed)
         await s.commit()
         await flow_log.record(s, r.project.id, {"failed": "base.red", "passed": "base.green"}.get(result, "base.unchecked"), train_id=train.id, checks=failed, check_seconds=train.check_seconds)
         if result == "failed":
-            await self._base_red(s, r, train, failed, evidence)
+            await self._base_red(s, r, train, failed, evidence, links)
         return True
 
-    async def _base_red(self, s: AsyncSession, r: Repo, train: Train, failed: list[str], evidence: str) -> None:
+    @staticmethod
+    def _failed_checks(train: Train, links: dict[str, str]) -> str:
+        listed = "\n".join(f"- {name}" + (f": {link}" if link else "") for name, link in list(links.items())[:20])
+        return f"Failed checks of {train.base} at {train.head_sha[:10]}:\n{listed}\nRead the failed logs once: the links, or gh run view <run id> --log-failed."
+
+    async def _base_red(self, s: AsyncSession, r: Repo, train: Train, failed: list[str], evidence: str, links: dict[str, str]) -> None:
         """The base branch does not pass its checks with what landed. Nothing is taken back: one
         agent repairs it on a branch of its own, which lands like any other. A failure that is being
-        repaired already, or whose fix has not landed yet, orders nothing more."""
+        repaired already, or whose fix has not landed yet, orders nothing more; what failed in
+        addition gets a repair of its own, without the failures the other one has."""
         streak = await landing_service.red_streak(s, train)
         ids = [t.id for t in streak]
         repairs = list(await s.scalars(select(Assignment).where(Assignment.train_id.in_(ids)).order_by(Assignment.id.desc()))) if ids else []
         known = {name for t in streak for name in t.failed_checks.split("\n")}
-        if repairs and set(failed) <= known:
+        if repairs:
             last = repairs[0]
             on_its_way = select(Landing.id).where(
                 Landing.repository_id == r.repo.id, Landing.agent_id == last.agent_id, Landing.status.in_(landing_service.ACTIVE), Landing.updated_at >= last.created_at
             )
+            # Its fix could not be in this batch yet: what it repairs is not ordered again.
             if last.status in (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING) or (last.finished_at and last.finished_at > train.created_at) or await s.scalar(on_its_way.limit(1)):
-                await flow_log.record(s, r.project.id, "base.still_red", train_id=train.id, assignment_id=last.id)
-                return  # its fix could not be in this batch yet
-            if any(t.escalated for t in streak):
-                return  # the manager has it
+                more = [name for name in failed if name not in known]
+                if not more:
+                    await flow_log.record(s, r.project.id, "base.still_red", train_id=train.id, assignment_id=last.id)
+                    return
+                if links:  # only where the checks have names of their own
+                    being_fixed = [name for name in failed if name in known]
+                    evidence = self._failed_checks(train, {name: links.get(name, "") for name in more}) + (
+                        f"\nThese failed too, and assignment #{last.id} repairs them (its fix has not landed yet): {', '.join(being_fixed[:12])}. Leave them: what they have in common with yours is fixed there."
+                        if being_fixed
+                        else ""
+                    )
+                    failed = more
+        if set(failed) <= known and any(t.escalated for t in streak):
+            return  # the manager has it
         members = list(await s.scalars(select(Landing).where(Landing.train_id == train.id).order_by(Landing.id)))
         fixer = await self._fixer(s, members) or (await self._fixer(s, list(await s.scalars(select(Landing).where(Landing.train_id.in_(ids))))) if ids else None)
         names = ", ".join(failed[:8]) + (f" and {len(failed) - 8} more" if len(failed) > 8 else "")

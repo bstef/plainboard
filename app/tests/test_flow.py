@@ -881,6 +881,28 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
     assert stats["previous"] == {"tickets_done": 0, "branches_landed": 0, "landing_seconds": None, "check_runs": 0, "check_runs_failed": 0, "assignments_done": 0, "repairs": 0, "cost_usd": 0.0}
 
 
+def test_a_new_failure_on_a_red_base_gets_its_own_repair_without_what_is_being_repaired(client, project):
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    land_tick_at(client, utcnow() - timedelta(hours=1))
+    hand_over(client, pid, fake, "Dev3", "feat-c")
+    fake.commit_checks_of["train-1"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/t1")]
+    now = utcnow()
+    land_tick_at(client, now)  # red: the first repair; feat-c lands meanwhile
+    wait_for(lambda: idle(client, pid) and len(repairs(client, pid)) == 1 and repairs(client, pid)[0]["status"] == "done")
+    # The next batch is red for the same reason (the fix has not landed) and for a new one.
+    fake.commit_checks_of["train-2"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/t2"), PullRequestCheck(name="Licenses", state="fail", link="https://ci/l2")]
+    land_tick_at(client, now + timedelta(minutes=30))
+    wait_for(lambda: idle(client, pid) and len(repairs(client, pid)) == 2)
+    first, second = repairs(client, pid)
+    assert second["agent_id"] == agents_by_slug(client, pid)["dev3"]["id"]  # it wrote what landed with the new failure
+    prompt = next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
+    assert "- Licenses: https://ci/l2" in prompt and "- Tests" not in prompt
+    assert f"These failed too, and assignment #{first['id']} repairs them (its fix has not landed yet): Tests." in prompt
+
+
 def test_land_first_with_a_check_command_and_without_any_checks(client, project):
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a"], land_first=True)
