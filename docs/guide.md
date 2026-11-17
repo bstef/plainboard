@@ -17,6 +17,7 @@ How to set PlainBoard up, use it, and find every setting. For the design of the 
 - [Updating](#updating)
 - [Moving a project to another PlainBoard](#moving-a-project-to-another-plainboard)
 - [On a server](#on-a-server)
+- [PostgreSQL](#postgresql)
 - [Preview](#preview)
 - [Browser window](#browser-window)
 - [Public API](#public-api)
@@ -250,6 +251,42 @@ PlainBoard from other machines, set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PA
 (`.env.example` explains both) and put a reverse proxy with TLS in front. The password is the setup
 password: it is asked once, when the first account is created in the browser, so nobody else can
 claim a new server. Browsers offer to install PlainBoard as an app only over HTTPS or on `localhost`.
+
+## PostgreSQL
+
+PlainBoard keeps its data in one SQLite file in the data volume. That needs nothing and is the right
+choice for most installations. If you would rather have the data in a PostgreSQL server (your own
+backups and tools, a managed database), name it in `.env`:
+
+```bash
+PLAINBOARD_DATABASE=postgresql://plainboard:change-me@db:5432/plainboard
+```
+
+and, unless you have a server already, add one to your `docker-compose.yml`:
+
+```yaml
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: plainboard
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: plainboard
+    volumes:
+      - db:/var/lib/postgresql/data
+```
+
+(with `db:` under `volumes:` at the end of the file, and the line `PLAINBOARD_DATABASE:
+${PLAINBOARD_DATABASE:-}` in the app's `environment:` if your file is older and lacks it). Then
+`docker compose up -d`: an empty database is set up by itself.
+
+- **It starts empty.** To take projects from SQLite along, download each as a project file first
+  ([Moving a project](#moving-a-project-to-another-plainboard)), switch, create your account, and
+  bring the files in. Users, subscriptions and the PlainBoard settings are entered again.
+- **The data volume stays.** The key your secrets are encrypted with and the uploaded files are
+  still there, not in the database.
+- **Reading with SQL** (the read access for analysis, `scripts/remote.py sql`) works with SQLite
+  only. With PostgreSQL, ask the database itself.
 
 ## Preview
 

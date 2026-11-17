@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from collections.abc import AsyncIterator
 
@@ -236,6 +237,26 @@ class FakeRunner:
 ADMIN_PASSWORD = "admin-password"
 
 
+POSTGRES = bool(os.environ.get("PLAINBOARD_DATABASE"))  # the whole suite runs against PostgreSQL
+
+
+def empty_database() -> None:
+    """With PostgreSQL every test starts with an empty database; with SQLite each has a file of its own anyway."""
+    if not POSTGRES:
+        return
+    from sqlalchemy import create_engine, text
+
+    from plainboard import config
+
+    engine = create_engine(config.get_config().sync_database_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+    finally:
+        engine.dispose()
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_DATA_DIR", str(tmp_path / "data"))
@@ -250,6 +271,7 @@ def client(tmp_path, monkeypatch):
     from plainboard import config, main
 
     config.get_config.cache_clear()
+    empty_database()
     monkeypatch.setattr(main, "RunnerClient", FakeRunner)
     app = main.create_app()
     FakeRunner.app = app

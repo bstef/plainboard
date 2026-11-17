@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,8 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PLAINBOARD_", extra="ignore")
 
     data_dir: Path = Path("/data")
+    # Empty: SQLite in the data folder. Or a PostgreSQL database: postgresql://user:password@host:5432/name
+    database: str = ""
     uploads_dir: Path = Path("/uploads")
     static_dir: Path = Path("/app/static")
     runner_url: str = "http://runner:8090"
@@ -38,8 +41,27 @@ class Config(BaseSettings):
     runner_uploads_dir: str = "/uploads"
 
     @property
+    def postgres(self) -> bool:
+        return self.database.strip().startswith(("postgresql://", "postgres://", "postgresql+psycopg://"))
+
+    @property
     def database_url(self) -> str:
-        return f"sqlite+aiosqlite:///{self.data_dir / 'plainboard.db'}"
+        """For the app (async)."""
+        return self._postgres_url() if self.postgres else f"sqlite+aiosqlite:///{self.data_dir / 'plainboard.db'}"
+
+    @property
+    def sync_database_url(self) -> str:
+        """For the migrations (sync). psycopg speaks both ways."""
+        return self._postgres_url() if self.postgres else f"sqlite:///{self.data_dir / 'plainboard.db'}"
+
+    def _postgres_url(self) -> str:
+        return "postgresql+psycopg://" + self.database.strip().split("://", 1)[1]
+
+    @model_validator(mode="after")
+    def _known_database(self) -> "Config":
+        if self.database.strip() and not self.postgres:
+            raise ValueError("PLAINBOARD_DATABASE must be empty (SQLite) or start with postgresql://")
+        return self
 
 
 @lru_cache

@@ -17,6 +17,8 @@ services:
       - "${PLAINBOARD_BIND:-127.0.0.1}:${PLAINBOARD_PORT:-8080}:8080"
     environment:
       PLAINBOARD_PASSWORD: ${PLAINBOARD_PASSWORD:-}
+      # Empty: SQLite in the data volume. Or your PostgreSQL: postgresql://user:password@host:5432/name
+      PLAINBOARD_DATABASE: ${PLAINBOARD_DATABASE:-}
       PLAINBOARD_RUNNER_URL: http://runner:8090
       PLAINBOARD_INTERNAL_URL: http://app:8080
       PLAINBOARD_UPDATE_REPOSITORY: ${PLAINBOARD_UPDATE_REPOSITORY:-hthoene/plainboard}

@@ -39,6 +39,12 @@ def _authorize(action: int, first: str | None, second: str | None, _db: str | No
     return sqlite3.SQLITE_OK
 
 
+def _sqlite_only() -> None:
+    """What keeps this reading safe is SQLite's authorizer; PostgreSQL has nothing like it per statement."""
+    if get_config().postgres:
+        raise ServiceError("Reading the database this way works with SQLite only. With PostgreSQL, ask the database itself (psql, with a role that can only read).", 400)
+
+
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{get_config().data_dir / 'plainboard.db'}?mode=ro", uri=True, timeout=5)
     conn.set_authorizer(_authorize)
@@ -88,9 +94,11 @@ def _schema() -> list[dict[str, Any]]:
 
 async def query(sql: str, limit: int = 200, cell_chars: int = 2000) -> dict[str, Any]:
     """Rows of one SELECT. ``cell_chars``: longer texts are cut (0: never), so a look at many rows stays small."""
+    _sqlite_only()
     return await asyncio.to_thread(_query, sql, max(1, min(limit, MAX_ROWS)), max(cell_chars, 0))
 
 
 async def schema() -> list[dict[str, Any]]:
     """Every table with its row count and the columns that can be read."""
+    _sqlite_only()
     return await asyncio.to_thread(_schema)

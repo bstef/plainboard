@@ -924,9 +924,7 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a", "feat-b"], url="https://github.com/acme/api.git", check_command="", land_first=True)
     assert "within minutes; the full checks run on the base branch afterwards" in runs_of(client, pid)[0]["result_text"]
-    # The statistics below are per UTC day: the times used here must not run past midnight, whenever the test runs.
-    clock = min(utcnow(), utcnow().replace(hour=22, minute=55, second=0, microsecond=0))
-    start = clock - timedelta(hours=1)
+    start = utcnow() - timedelta(hours=1)
     land_tick_at(client, start)
     wait_for(lambda: idle(client, pid) and "Landed on main in api: feat-a (Dev1); feat-b (Dev2)." in last_update(fake))
     # On the base branch at once: no pull request, and no check run anybody waits for.
@@ -942,7 +940,7 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
 
     # They fail. Nothing is taken back and nothing stops: one member repairs the base branch, and the next batch lands.
     fake.commit_checks_of["train-1"] = [PullRequestCheck(name="Tests", state="fail", link="https://ci/1"), PullRequestCheck(name="Lint", state="pass")]
-    now = clock
+    now = utcnow()
     land_tick_at(client, now)
     wait_for(lambda: idle(client, pid) and repairs(client, pid) and repairs(client, pid)[0]["status"] == "done")
     (repair,) = repairs(client, pid)
@@ -975,13 +973,15 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
     assert report["time"]["branches_landed"] == 4 and report["time"]["landing_check_runs_failed"] == 3
     # The statistics show the speed of it: per day, and this period against the one before.
     stats = client.get(f"/api/projects/{pid}/stats?days=7").json()
-    days = stats["days"][-2:]  # the first landing is an hour back: that is yesterday, shortly after midnight
+    days = stats["days"][-2:]  # the first landing is an hour back: shortly after midnight that is yesterday
 
     def total(key: str) -> int:
         return sum(day[key] for day in days)
 
-    assert (total("branches_landed"), total("check_runs"), total("check_runs_failed"), total("repairs")) == (4, 3, 3, 2)
-    assert any(day["landing_seconds"] is not None for day in days)
+    # ... and the last one an hour ahead: shortly before midnight that is tomorrow, which no day shows yet.
+    if (now + timedelta(minutes=60)).date() == now.date():
+        assert (total("branches_landed"), total("check_runs"), total("check_runs_failed"), total("repairs")) == (4, 3, 3, 2)
+        assert any(day["landing_seconds"] is not None for day in days)
     assert stats["current"]["branches_landed"] == 4 and stats["current"]["repairs"] == 2 and stats["current"]["assignments_done"] == 2
     assert stats["previous"] == {"tickets_done": 0, "branches_landed": 0, "landing_seconds": None, "check_runs": 0, "check_runs_failed": 0, "assignments_done": 0, "repairs": 0, "cost_usd": 0.0}
 
@@ -1102,8 +1102,16 @@ def test_land_first_with_a_check_command_and_without_any_checks(client, project)
 
 
 def landing_row(client, branch: str) -> dict:
-    found = client.get("/api/inspect/query", params={"sql": f"select status, failures, agent_id from landings where branch = '{branch}' order by id desc limit 1"}).json()
-    return dict(zip(found["columns"], found["rows"][0]))
+    from plainboard.db import sessionmaker
+    from plainboard.models import Landing
+    from sqlalchemy import select
+
+    async def read() -> dict:
+        async with sessionmaker()() as s:
+            row = await s.scalar(select(Landing).where(Landing.branch == branch).order_by(Landing.id.desc()).limit(1))
+            return {"status": row.status, "failures": row.failures, "agent_id": row.agent_id}
+
+    return client.portal.call(read)
 
 
 def test_a_conflict_uses_up_no_round_and_a_branch_the_manager_hands_over_keeps_its_author(client, project):

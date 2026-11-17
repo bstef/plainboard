@@ -44,13 +44,14 @@ def test_a_new_installation_gets_its_first_admin_in_the_browser(client, monkeypa
 
 
 def test_the_setup_password_guards_a_fresh_installation(tmp_path, monkeypatch):
-    from conftest import FakeRunner
+    from conftest import FakeRunner, empty_database
 
     from plainboard import config, main
 
     for name, value in (("DATA_DIR", tmp_path / "data"), ("UPLOADS_DIR", tmp_path / "uploads"), ("STATIC_DIR", tmp_path / "static"), ("PASSWORD", "pw")):
         monkeypatch.setenv(f"PLAINBOARD_{name}", str(value))
     config.get_config.cache_clear()
+    empty_database()
     monkeypatch.setattr(main, "RunnerClient", FakeRunner)
     try:
         with TestClient(main.create_app()) as client:

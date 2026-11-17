@@ -11,15 +11,18 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 def init_engine(url: str) -> AsyncEngine:
     global _engine, _sessionmaker
-    _engine = create_async_engine(url, connect_args={"timeout": 30})
+    if not url.startswith("sqlite"):
+        _engine = create_async_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20)  # PostgreSQL
+    else:
+        _engine = create_async_engine(url, connect_args={"timeout": 30})
 
-    @event.listens_for(_engine.sync_engine, "connect")
-    def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA busy_timeout=30000")
-        cur.close()
+        @event.listens_for(_engine.sync_engine, "connect")
+        def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA busy_timeout=30000")
+            cur.close()
 
     _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

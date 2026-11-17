@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -226,7 +226,7 @@ class Repository(Timestamps, Base):
     # Land first, check after: finished branches are merged into the base branch at once (after the
     # quick check), and the checks run on the base branch afterwards; a red base is repaired by one
     # assignment. For a development branch. Off: nothing lands before its checks passed (trains).
-    land_first: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    land_first: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")
@@ -272,7 +272,7 @@ class Agent(Timestamps, Base):
     max_turns: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Paused together with the rest of the team (pause_team): resume_team enables exactly these again.
-    team_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    team_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     color: Mapped[str] = mapped_column(String(20), default="#6366f1")
     all_repos: Mapped[bool] = mapped_column(Boolean, default=True)  # False = only `repositories`
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))  # None = automatic
@@ -448,9 +448,9 @@ class Train(Timestamps, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
     # Its branches were pushed to the base branch before the checks (Repository.land_first): the
     # checks are those of the base branch at head_sha, and their result changes nothing about what landed.
-    direct: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    direct: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     failed_checks: Mapped[str] = mapped_column(Text, default="", server_default="")  # names, one per line
-    escalated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # the manager was told the base stays red
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # the manager was told the base stays red
 
 
 class FlowEvent(Base):

@@ -24,12 +24,16 @@ execution, providers), `protocol/` (shared wire models), `frontend/` (React + TS
   a project route what names the project. Without one it is for admins only and a test fails. Endpoints don't
   check roles themselves; a list for everyone filters by the user's projects (`users.roles`).
 - Schema changes need an Alembic migration (see ARCHITECTURE.md).
+- SQLite is the default database, PostgreSQL an option: migrations and queries must work on both (ARCHITECTURE.md,
+  "Database"). A new table, or a new column that points at another row, also needs its entry in
+  `services/transfer.TABLES` (moving a project).
 
 ## Commands
 ```bash
 docker compose up -d --build                     # run everything (http://localhost:8080)
 docker run --rm -w /src/app --entrypoint python plainboard-app -m pytest -q
 docker run --rm -w /src/runner plainboard-runner python -m pytest -q
+# the app's tests against PostgreSQL: the same, with -e PLAINBOARD_DATABASE=postgresql://user:password@host/name
 cd frontend && npm run build                     # typecheck + production build
 cd frontend && npm run dev                       # dev server, proxies /api to :8080
 ```

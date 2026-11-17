@@ -1,4 +1,4 @@
-from conftest import ADMIN_PASSWORD, agents_by_slug
+from conftest import ADMIN_PASSWORD, POSTGRES, agents_by_slug
 
 
 def test_project_gets_a_manager(client, project):
@@ -97,6 +97,10 @@ def test_a_read_key_reads_everything_and_changes_nothing(client, project):
     assert client.get(f"/api/agents/{manager['id']}/conversation", headers=headers).status_code == 200
     assert client.get(f"/api/projects/{pid}/work-log?days=1", headers=headers).status_code == 200
     # The database itself, for questions no endpoint foresaw: one SELECT, and credentials read as nothing.
+    if POSTGRES:  # what keeps this safe is SQLite's own: with PostgreSQL it says so
+        assert "SQLite only" in client.get("/api/inspect/schema", headers=headers).json()["detail"]
+        assert client.get("/api/inspect/query", params={"sql": "select 1"}, headers=headers).status_code == 400
+        return
     tables = {t["table"]: t for t in client.get("/api/inspect/schema", headers=headers).json()}
     assert tables["projects"]["rows"] == 1 and "name VARCHAR(200)" in tables["projects"]["columns"]
     assert not any(c.startswith(("github_token_enc", "key_hash")) for t in tables.values() for c in t["columns"])

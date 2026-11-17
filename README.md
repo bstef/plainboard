@@ -46,6 +46,8 @@ services:
     environment:
       # The setup password: asked once, when the first account is created in the browser.
       PLAINBOARD_PASSWORD: ${PLAINBOARD_PASSWORD:-}
+      # Empty: SQLite in the data volume. Or your PostgreSQL: postgresql://user:password@host:5432/name
+      PLAINBOARD_DATABASE: ${PLAINBOARD_DATABASE:-}
       PLAINBOARD_RUNNER_URL: http://runner:8090
       PLAINBOARD_INTERNAL_URL: http://app:8080
     volumes:

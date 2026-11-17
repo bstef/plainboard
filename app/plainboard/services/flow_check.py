@@ -294,9 +294,9 @@ async def _tool_errors(session, project_id, agents, since, now) -> list[Finding]
     names = {tool.name for tool in all_tools()}
     rows = (
         await session.execute(
-            select(Message.content, func.json_extract(Message.meta, "$.result"))
+            select(Message.content, Message.meta["result"].as_string())
             .join(Conversation, Conversation.id == Message.conversation_id)
-            .where(Conversation.agent_id.in_(list(agents)), Message.kind == "tool", Message.created_at >= since, func.json_extract(Message.meta, "$.is_error") == 1)
+            .where(Conversation.agent_id.in_(list(agents)), Message.kind == "tool", Message.created_at >= since, Message.meta["is_error"].as_boolean().is_(True))
         )
     ).all()
     refused: dict[str, Counter] = {}
