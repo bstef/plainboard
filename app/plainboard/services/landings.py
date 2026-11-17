@@ -82,7 +82,9 @@ async def find(session: AsyncSession, repository_id: int, branch: str) -> Landin
     return await session.scalar(q)
 
 
-async def hand_over(session: AsyncSession, repo: Repository, branch: str, head_sha: str, *, agent_id: int, task_id: int | None, fresh_start: bool) -> Landing:
+async def hand_over(
+    session: AsyncSession, repo: Repository, branch: str, head_sha: str, *, agent_id: int, task_id: int | None, fresh_start: bool, assignment_id: int | None = None
+) -> Landing:
     """Put a branch on the list for the next train. ``fresh_start`` (the manager hands it over, or
     it comes with new commits after it had landed) forgets its failed rounds."""
     landing = await find(session, repo.id, branch)
@@ -93,7 +95,7 @@ async def hand_over(session: AsyncSession, repo: Repository, branch: str, head_s
         landing.failures, landing.failed_sha = 0, ""
     if landing.agent_id is None or not fresh_start:
         landing.agent_id = agent_id  # a manager that hands over someone's branch again does not become its author
-    landing.head_sha = head_sha
+    landing.head_sha, landing.assignment_id = head_sha, assignment_id
     if not (landing.title or "").startswith(f"{branch} carrying "):
         landing.title = branch[:300]
     landing.task_id = task_id or landing.task_id

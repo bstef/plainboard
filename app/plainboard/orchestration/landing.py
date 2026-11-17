@@ -564,9 +564,8 @@ class LandingWatcher:
         known = {name for t in streak for name in t.failed_checks.split("\n")}
         if repairs:
             last = repairs[0]
-            on_its_way = select(Landing.id).where(
-                Landing.repository_id == r.repo.id, Landing.agent_id == last.agent_id, Landing.status.in_(landing_service.ACTIVE), Landing.updated_at >= last.created_at
-            )
+            # The branch that was handed over while that repair was worked on, not any branch of the same agent.
+            on_its_way = select(Landing.id).where(Landing.repository_id == r.repo.id, Landing.assignment_id == last.id, Landing.status.in_(landing_service.ACTIVE))
             # Its fix could not be in this batch yet: what it repairs is not ordered again.
             if last.status in (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING) or (last.finished_at and last.finished_at > train.created_at) or await s.scalar(on_its_way.limit(1)):
                 more = [name for name in failed if name not in known]

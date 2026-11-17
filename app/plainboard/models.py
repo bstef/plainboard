@@ -376,6 +376,7 @@ class Landing(Timestamps, Base):
     title: Mapped[str] = mapped_column(String(300), default="")
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))  # the author
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
+    assignment_id: Mapped[int | None] = mapped_column(Integer)  # the assignment it was last handed over in (a repair: this is its fix)
     status: Mapped[str] = mapped_column(String(20), default=LandingStatus.WAITING, index=True)
     head_sha: Mapped[str] = mapped_column(String(64), default="")
     failed_sha: Mapped[str] = mapped_column("handled_sha", String(64), default="")  # the head it last failed with

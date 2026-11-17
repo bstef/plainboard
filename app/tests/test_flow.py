@@ -906,6 +906,38 @@ def test_a_new_failure_on_a_red_base_gets_its_own_repair_without_what_is_being_r
     assert f"These failed too, and assignment #{first['id']} repairs them (its fix has not landed yet): Tests." in prompt
 
 
+def test_other_work_of_the_member_that_repaired_is_not_taken_for_the_fix(client, project):
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    dev1 = agents_by_slug(client, pid)["dev1"]["id"]
+    red = [PullRequestCheck(name="Tests", state="fail", link="https://ci/t")]
+
+    def dev1_hands_over(branch: str) -> None:
+        fake.branches[branch] = f"sha-{branch}"
+        chat(client, dev1, "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": branch}))
+        wait_for(lambda: idle(client, pid))
+
+    land_tick_at(client, utcnow() - timedelta(hours=1))
+    fake.commit_checks_of["train-1"] = red
+    dev1_hands_over("work-1")
+    now = utcnow()
+    land_tick_at(client, now)  # red: the repair goes to Dev1, whose report hands over no fix; work-1 lands
+    wait_for(lambda: idle(client, pid) and len(repairs(client, pid)) == 1 and repairs(client, pid)[0]["status"] == "done")
+    fake.commit_checks_of["train-2"] = red
+    dev1_hands_over("work-2")
+    land_tick_at(client, now + timedelta(minutes=30))  # still red, but the repair ended after this batch was pushed: its fix could not be in it
+    wait_for(lambda: idle(client, pid))
+    assert len(repairs(client, pid)) == 1
+    # Dev1 goes on with its own work and hands that over. It is no fix: the base branch is red, and nobody repairs it.
+    fake.commit_checks_of["train-3"] = red
+    dev1_hands_over("work-3")
+    land_tick_at(client, now + timedelta(minutes=60))
+    wait_for(lambda: idle(client, pid) and len(repairs(client, pid)) == 2)
+    assert "repair 2 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
+
+
 def test_land_first_with_a_check_command_and_without_any_checks(client, project):
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a"], land_first=True)

@@ -137,7 +137,9 @@ async def merge_when_green(ctx: ToolContext, args: MergeWhenGreenArgs) -> str:
         raise ToolError(f"Branch {branch} failed with exactly this commit and went to the manager. Push a change first, or leave it to the manager.")
     # The manager hands over what others wrote, from a clone that is elsewhere: its call is a decision, not a check.
     quick = await _quick_check(ctx, repo, branch, head) if repo.quick_check_command.strip() and not ctx.agent.is_manager else ""
-    landing = await landing_service.hand_over(ctx.session, repo, branch, head, agent_id=ctx.agent.id, task_id=task_id, fresh_start=ctx.agent.is_manager)
+    landing = await landing_service.hand_over(
+        ctx.session, repo, branch, head, agent_id=ctx.agent.id, task_id=task_id, fresh_start=ctx.agent.is_manager, assignment_id=ctx.run.assignment_id
+    )
     # Repairing a failed train with a branch of one's own: that branch carries the train's branches.
     repairing = await ctx.session.get(Assignment, ctx.run.assignment_id) if ctx.run.assignment_id else None
     carried = await landing_service.carry(ctx.session, landing, repairing.train_id) if repairing and repairing.train_id else []
