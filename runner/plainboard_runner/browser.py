@@ -21,10 +21,12 @@ One Chromium per key (a project), driven over the DevTools protocol. A client is
                     {"t": "dialog", accept, text}
                     {"t": "ack"}                            the last frame has arrived and is shown
 
-The picture keeps pace with the viewer. The browser makes the next frame only when a viewer has
-confirmed the last one, so a slow line gets fewer frames instead of old ones: nothing queues up, and
-what the viewer sees is never further behind than one frame. While the page moves, frames are small
-(the page's size, compressed hard); once it rests, one sharp picture follows.
+The picture keeps pace with the viewer. A few frames may be on their way to a viewer at once
+(``IN_FLIGHT``), so the picture does not wait for one round trip per frame: on a line with 150 ms
+that is the difference between 6 frames a second and 20. Beyond that the browser makes the next frame
+only when a viewer has room for it, so a slow line gets fewer frames instead of old ones: nothing
+queues up. While the page moves, frames are small (the page's size, compressed hard); once it rests,
+one sharp picture follows, later on a slow line, so that it does not get in the way of the next move.
 
 ``mods`` is the DevTools bit mask: Alt 1, Ctrl 2, Meta 4, Shift 8.
 """
@@ -65,7 +67,9 @@ INPUT = {"mouse", "wheel", "touch", "key", "text", "ack"}  # in the order it was
 MOVING_QUALITY = 55  # JPEG quality of frames while the page changes
 STILL_QUALITY = 88  # and of the picture once it rests
 REST_SECONDS = 0.3  # no new frame for this long: the page rests
+SLOW_REST_SECONDS = 1.5  # ... at most, on a slow line (see Browser._rest_after)
 STALL_SECONDS = 0.5  # a viewer that confirms nothing does not hold the others up for longer
+IN_FLIGHT = 3  # frames on their way to one viewer at the same time
 
 
 class BrowserError(Exception):
@@ -231,7 +235,8 @@ class Browser:
         self._frame: bytes | None = None
         self._number = 0  # of the newest frame
         self._has: dict[WebSocket, int] = {}  # per viewer: the frame it was sent last
-        self._busy: set[WebSocket] = set()  # viewers that have not confirmed that frame yet
+        self._flying: dict[WebSocket, list[float]] = {}  # per viewer: when each frame it has not confirmed yet was sent
+        self._trip = 0.0  # how long a frame takes to a viewer and its confirmation back (smoothed)
         self._owed: str | None = None  # the browser's frame it still waits to hear about before it makes the next
         self._rest: asyncio.TimerHandle | None = None
         self._cast_mark = 0  # of the browser's last frame: one that looks the same is not news
@@ -325,7 +330,7 @@ class Browser:
 
     async def leave(self, client: WebSocket) -> None:
         self.clients.discard(client)
-        self._busy.discard(client)
+        self._flying.pop(client, None)
         self._has.pop(client, None)
         if not self.clients:
             self.left_at = time.monotonic()
@@ -342,17 +347,20 @@ class Browser:
 
     # --- frames: one at a time, at the viewer's pace ------------------------------------------
 
+    def _room(self, client: WebSocket) -> bool:
+        return len(self._flying.get(client, ())) < IN_FLIGHT
+
     async def _show(self, client: WebSocket) -> bool:
-        """Send the newest frame to a viewer that is free and does not have it yet."""
-        if self._frame is None or client in self._busy or self._has.get(client) == self._number:
+        """Send the newest frame to a viewer that has room for one and does not have it yet."""
+        if self._frame is None or not self._room(client) or self._has.get(client) == self._number:
             return False
-        self._busy.add(client)
+        self._flying.setdefault(client, []).append(time.monotonic())
         self._has[client] = self._number
         try:
             await client.send_bytes(self._frame)
         except Exception:  # it is gone; its own loop notices
             self.clients.discard(client)
-            self._busy.discard(client)
+            self._flying.pop(client, None)
             return False
         return True
 
@@ -364,19 +372,24 @@ class Browser:
         for client in list(self.clients):
             await self._show(client)
         if owed:
-            # The browser hears about this frame when a viewer has it. One that confirms nothing
-            # (gone, or stuck) must not stop the picture for the others.
-            asyncio.get_running_loop().call_later(STALL_SECONDS, self._stalled, self._number)
+            if any(self._room(client) for client in self.clients):
+                await self._next_frame()  # a viewer can take another one right away
+            else:
+                # The browser makes the next frame when a viewer has room again. One that confirms
+                # nothing (gone, or stuck) must not stop the picture for the others.
+                asyncio.get_running_loop().call_later(STALL_SECONDS, self._stalled, self._number)
 
     def _stalled(self, number: int) -> None:
         if number == self._number and self._owed and not self.closed:
-            self._busy.clear()
+            self._flying.clear()
             asyncio.create_task(self._next_frame())
 
     async def _confirmed(self, client: WebSocket) -> None:
-        """A viewer has the frame it was sent: it gets the newest one if that is another, and the
+        """A viewer has a frame it was sent: it gets the newest one if that is another, and the
         browser may make the next."""
-        self._busy.discard(client)
+        if sent := self._flying.get(client):
+            trip = time.monotonic() - sent.pop(0)
+            self._trip = trip if not self._trip else 0.7 * self._trip + 0.3 * trip
         await self._show(client)
         await self._next_frame()
 
@@ -386,10 +399,16 @@ class Browser:
             with contextlib.suppress(BrowserError):
                 await self._post("Page.screencastFrameAck", {"sessionId": owed})
 
+    def _rest_after(self) -> float:
+        """How long the page has to rest before the sharp picture is made. It is several times the size
+        of a moving frame: on a slow line it would still be on its way when the user goes on, and hold
+        back what they do next. So there it waits until they have probably stopped."""
+        return min(SLOW_REST_SECONDS, max(REST_SECONDS, 4 * self._trip))
+
     def _rests_soon(self) -> None:
         if self._rest:
             self._rest.cancel()
-        self._rest = asyncio.get_running_loop().call_later(REST_SECONDS, lambda number=self._number: asyncio.create_task(self._sharpen(number)))
+        self._rest = asyncio.get_running_loop().call_later(self._rest_after(), lambda number=self._number: asyncio.create_task(self._sharpen(number)))
 
     async def _sharpen(self, number: int) -> None:
         """The page rests: one picture in full sharpness replaces the last small one."""

@@ -35,26 +35,35 @@ def test_input_is_translated_for_devtools():
     assert touch_event({"type": "end", "points": [{"x": 1, "y": 2, "id": 7}]}) == {"type": "touchEnd", "touchPoints": []}
 
 
-async def test_a_viewer_gets_the_next_frame_when_it_has_confirmed_the_last():
-    """Nothing queues up on a slow line: frames wait in the browser, not on the way."""
+async def test_a_few_frames_are_on_their_way_at_once_and_no_more():
+    """The picture does not wait for one round trip per frame, and still nothing queues up on a slow
+    line: beyond a few frames they wait in the browser, not on the way."""
     shown = browser.Browser("pace")
     slow, told = Client(), []
 
     async def post(method, params):
-        told.append((method, params))
+        told.append(params["sessionId"])
 
     shown._post = post
     shown.clients.add(slow)
+    assert browser.IN_FLIGHT == 3
     await shown._frame_made(b"one", "f1")
-    await shown._frame_made(b"two", None)  # e.g. the sharp picture of the page at rest
+    await shown._frame_made(b"two", "f2")
+    # The viewer has confirmed nothing yet and gets both; the browser may make the next each time.
+    assert slow.frames == [b"one", b"two"] and told == ["f1", "f2"]
     await shown._frame_made(b"three", "f3")
-    # The viewer still has the first one in the line; the browser has not been asked for more.
-    assert slow.frames == [b"one"] and told == []
+    await shown._frame_made(b"four", None)  # e.g. the sharp picture of the page at rest
+    await shown._frame_made(b"five", "f5")
+    # Three are on their way: no more are sent, and the browser has not been asked for more.
+    assert slow.frames == [b"one", b"two", b"three"] and told == ["f1", "f2"]
     await shown.handle({"t": "ack"}, slow)
     # It gets the newest, not the ones in between, and the browser may go on.
-    assert slow.frames == [b"one", b"three"] and told == [("Page.screencastFrameAck", {"sessionId": "f3"})]
+    assert slow.frames == [b"one", b"two", b"three", b"five"] and told == ["f1", "f2", "f5"]
     await shown.handle({"t": "ack"}, slow)
-    assert slow.frames == [b"one", b"three"]  # nothing new: nothing sent
+    assert slow.frames[-1] == b"five" and len(slow.frames) == 4  # nothing new: nothing sent
+    assert 0 < shown._trip < 1 and shown._rest_after() == browser.REST_SECONDS  # a quick line: the sharp picture follows at once
+    shown._trip = 0.3
+    assert shown._rest_after() == 1.2  # a slow one: only when the user has probably stopped
 
 
 class Client:
