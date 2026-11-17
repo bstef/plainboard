@@ -116,7 +116,9 @@ async def record(session: AsyncSession, account_key: str, windows: list[LimitWin
     for window in windows:
         if WEEKLY_MARK in window.name:
             track_growth(growth, window, known.get(window.name), now)
-    known.update({w.name: w.model_dump() for w in windows})
+    for stored_window in known.values():  # stored before windows knew when they were last reported
+        stored_window.setdefault("seen_at", stored.get("updated_at") or 0)
+    known.update({w.name: {**w.model_dump(), "seen_at": int(now)} for w in windows})
     for name in RETIRED:
         known.pop(name, None)
     accounts[account_key] = {"windows": known, "growth": growth, "updated_at": int(now)}
@@ -125,8 +127,19 @@ async def record(session: AsyncSession, account_key: str, windows: list[LimitWin
     await session.commit()
 
 
+UNREPORTED_SECONDS = 3 * 3600
+
+
 def _windows(stored: dict, now: float) -> list[LimitWindow]:
-    windows = [LimitWindow(**w) for w in stored.get("windows", {}).values() if w["name"] not in RETIRED]
+    """The account's windows as they are now. A window that the account's reports have left out for
+    hours is not shown and does not count: its number is old, and nothing would ever correct it.
+    A provider reports some windows only with requests that touch them (a limit for certain
+    models), and a plan can be reset before a window's own reset time. An account that is avoided
+    because of such a window would never get the request that reports it afresh. If the limit
+    still holds, the first request that touches it brings it back."""
+    kept = [w for w in stored.get("windows", {}).values() if w["name"] not in RETIRED]
+    newest = max((w.get("seen_at") or 0 for w in kept), default=0)
+    windows = [LimitWindow(**{k: v for k, v in w.items() if k != "seen_at"}) for w in kept if newest - (w.get("seen_at") or newest) < UNREPORTED_SECONDS]
     for window in windows:
         if window.resets_at and window.resets_at <= now:  # it has reset since the last report
             window.utilization, window.resets_at, window.status = 0.0, None, None

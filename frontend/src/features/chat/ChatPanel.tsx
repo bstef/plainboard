@@ -47,9 +47,15 @@ export function ChatPanel({
   const running = activeRuns.find((r) => r.status === "running");
   const queued = activeRuns.filter((r) => r.status === "queued" && r.trigger === "chat");
   const messages = conversation.data?.messages ?? [];
-  // By time, not by id: a message a busy agent read right away belongs above the replies it wrote
-  // before the turn of that message started. Waiting messages sit at the time they were sent, too.
-  const timeline = [...messages.map((m) => ({ at: Date.parse(m.created_at), message: m, run: null })), ...queued.map((r) => ({ at: Date.parse(r.created_at), message: null, run: r }))]
+  // A message the agent has not read yet stays at the very bottom, below whatever the agent still
+  // writes, in the order it was sent. Once read it takes its place: at the time it was read, above
+  // what the agent wrote after that. (By time, not by id: a busy agent can read a message and react
+  // to it before the turn that answers it starts.)
+  const unread = queued.filter((r) => !r.read_at);
+  const timeline = [
+    ...messages.map((m) => ({ at: Date.parse(m.created_at), message: m, run: null })),
+    ...queued.filter((r) => r.read_at).map((r) => ({ at: Date.parse(r.read_at!), message: null, run: r })),
+  ]
     .map((item, index) => ({ ...item, index }))
     .sort((a, b) => a.at - b.at || a.index - b.index);
   // Works only until the agent's turn starts; if it just did, the refreshed list shows the message as sent.
@@ -58,6 +64,27 @@ export function ChatPanel({
       .del(`/runs/${runId}/message`)
       .catch(() => undefined)
       .then(() => qc.invalidateQueries({ queryKey: qk.runs(project.id) }));
+
+  const waitingRow = (r: (typeof queued)[number]) => (
+    <div key={`run-${r.id}`} data-part="msg" data-role="queued" className={clsx(CHAT_ROW, "bg-sunk")}>
+      <Head name={t("chat.you")}>
+        <span className="mk mk-plan self-center" />
+        <span className="min-w-0 flex-1 truncate text-fg-3">{t(r.read_at ? "chat.readWaiting" : "chat.waiting", { name: agent?.name ?? "" })}</span>
+        {!r.read_at && (
+          <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id)} className="-my-1 self-center">
+            <Trash2 className="size-4" />
+          </IconButton>
+        )}
+      </Head>
+      <div className="break-words whitespace-pre-wrap text-fg-2">{r.input_text}</div>
+      {r.attachment_ids.length > 0 && (
+        <span className="mt-1 flex items-center gap-1 text-fg-3">
+          <Paperclip className="size-4" />
+          {t("chat.fileCount", { count: r.attachment_ids.length })}
+        </span>
+      )}
+    </div>
+  );
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -159,34 +186,14 @@ export function ChatPanel({
           </button>
         )}
         {!conversation.isLoading && messages.length === 0 && !queued.length && <ChatIntro isManager={agent.is_manager} />}
-        {timeline.map(({ message, run: r }) =>
-          message ? (
-            <MessageItem key={message.id} message={message} agent={agent} details={details} />
-          ) : r && (
-          <div key={`run-${r.id}`} data-part="msg" data-role="queued" className={clsx(CHAT_ROW, "bg-sunk")}>
-            <Head name={t("chat.you")}>
-              <span className="mk mk-plan self-center" />
-              <span className="min-w-0 flex-1 truncate text-fg-3">{t("chat.waiting", { name: agent.name })}</span>
-              <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id)} className="-my-1 self-center">
-                <Trash2 className="size-4" />
-              </IconButton>
-            </Head>
-            <div className="break-words whitespace-pre-wrap text-fg-2">{r.input_text}</div>
-            {r.attachment_ids.length > 0 && (
-              <span className="mt-1 flex items-center gap-1 text-fg-3">
-                <Paperclip className="size-4" />
-                {t("chat.fileCount", { count: r.attachment_ids.length })}
-              </span>
-            )}
-          </div>
-        ),
-        )}
+        {timeline.map(({ message, run: r }) => (message ? <MessageItem key={message.id} message={message} agent={agent} details={details} /> : r && waitingRow(r)))}
         {running && streaming && (
           <div data-part="msg" data-role="agent" className={CHAT_ROW}>
             <Head name={agent.name} />
             <Markdown>{streaming}</Markdown>
           </div>
         )}
+        {unread.map(waitingRow)}
         </div>
       </div>
 

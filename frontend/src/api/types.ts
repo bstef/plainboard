@@ -252,6 +252,8 @@ export interface Run {
   trigger: "chat" | "ticket" | "assignment" | "ask" | "message" | "schedule" | "wake";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   stop_requested_at: string | null;
+  /** A waiting chat message: when its busy agent read it (before the turn that answers it). */
+  read_at: string | null;
   input_text: string;
   attachment_ids: number[];
   effort: string | null;

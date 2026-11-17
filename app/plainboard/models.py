@@ -510,6 +510,9 @@ class Run(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
     stop_requested_at: Mapped[datetime | None] = mapped_column(DateTime)  # told to wrap up
+    # A chat message that waits as this turn: when its busy agent read it, if it did before the turn
+    # started. The chat keeps it at the bottom until then and shows it at that time afterwards.
+    read_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Job(Base):

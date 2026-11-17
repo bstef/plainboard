@@ -135,6 +135,7 @@ class RunManager:
         self._limits_asked = 0.0
         self._limits_task: asyncio.Task[None] | None = None
         self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
+        self._unread: dict[int, set[int]] = {}  # running turn -> waiting chat messages (runs) it was told about and has not read yet
         self._wake = asyncio.Event()
         self._dispatcher: asyncio.Task[None] | None = None
 
@@ -266,8 +267,13 @@ class RunManager:
         # A working agent reads the message after its current step instead of after its whole turn.
         # Nothing is interrupted, and the message stays queued as its next turn.
         busy_run = await s.scalar(select(Run.id).where(Run.agent_id == agent.id, Run.status == RunStatus.RUNNING).limit(1))
+        if run.read_at is not None:  # more was added to a message the agent had read: it has not read this part
+            run.read_at = None
+            await s.commit()
+            bus.publish(agent.project_id, "run.upserted", RunOut.model_validate(run))
         if busy_run and (text.strip() or attachment_ids):
-            await self.runner.notify_run(busy_run, prompts.chat_notice(text, len(attachment_ids or [])))
+            if await self.runner.notify_run(busy_run, prompts.chat_notice(text, len(attachment_ids or []))):
+                self._unread.setdefault(busy_run, set()).add(run.id)  # it reads it after the step it is in
             if ended := self._end_waits(busy_run, "the user wrote to you"):  # no wait is worth more than the user
                 await flow_log.record(s, agent.project_id, "wait.ended", agent_id=agent.id, run_id=busy_run, waits=ended, by="user")
         return run
@@ -291,6 +297,14 @@ class RunManager:
         if ended.done():
             raise WaitEnded(ended.result())
         raise TimeoutError
+
+    async def _mark_read(self, s: AsyncSession, project_id: int, run_ids: set[int]) -> None:
+        """Waiting chat messages their agent has just read in its running turn."""
+        now = utcnow()
+        for run in await s.scalars(select(Run).where(Run.id.in_(run_ids), Run.status == RunStatus.QUEUED, Run.read_at.is_(None))):
+            run.read_at = now
+            await s.commit()
+            bus.publish(project_id, "run.upserted", RunOut.model_validate(run))
 
     def waiting_for_job(self) -> set[int]:
         """Turns that do nothing but wait for a job right now. The limit is about agents that work
@@ -733,6 +747,7 @@ class RunManager:
             self._unlimited.discard(run_id)
             self._cancel_requested.discard(run_id)
             self._job_waits.pop(run_id, None)
+            self._unread.pop(run_id, None)
             self._busy_agents.discard(agent_id)
             self._wake.set()
             try:
@@ -794,10 +809,10 @@ class RunManager:
             if files:
                 meta["attachments"] = [{"id": a.id, "filename": a.filename, "content_type": a.content_type, "path": board_service.runner_path(a)} for a in files]
             message = Message(conversation_id=conv.id, role="user", kind="text", content=text, meta=meta, run_id=run.id)
-            if run.trigger == RunTrigger.CHAT:
-                # A busy agent read it when it was sent and may have reacted before this turn: the chat
-                # shows it at that time, above those replies.
-                message.created_at = run.created_at
+            if run.trigger == RunTrigger.CHAT and run.read_at:
+                # A busy agent read it before this turn and may have reacted in the turn it was in: the
+                # chat shows it where it was read, above those replies. Otherwise it is read now.
+                message.created_at = run.read_at
             s.add(message)
             assignment = await s.get(Assignment, run.assignment_id) if run.assignment_id else None
             if assignment:
@@ -912,6 +927,9 @@ class RunManager:
                         msg.meta = {**msg.meta, "result": ctx.redact(event.content), "is_error": event.is_error}
                         await s.commit()
                         bus.publish(ctx.project_id, "message.updated", MessageOut.model_validate(msg))
+                    # A step ended: this is where the agent gets what was sent to it meanwhile (the runner's notices).
+                    if told := self._unread.pop(ctx.run_id, None):
+                        await self._mark_read(s, ctx.project_id, told)
                 elif event.type == "usage":
                     if fresh_session:  # first call of a new session = fixed base context
                         conv.session_base_tokens = event.context_tokens

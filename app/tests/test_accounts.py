@@ -145,3 +145,37 @@ def test_only_a_subscription_without_a_fresh_report_is_asked(client, project):
     asked = [creds.claude_oauth_token for provider, creds in runner(client).limit_calls if provider == "claude_code"]
     assert asked == ["tok-idle"]
     assert limits_of(client, idle_account["id"])["windows"][0]["utilization"] == 0.6
+
+
+def test_a_window_that_is_no_longer_reported_stops_counting(client, project, monkeypatch):
+    """A window some requests report and others don't (a limit for certain models), or a plan that
+    was reset early: its last number would stay for ever, and an account avoided because of it
+    would never get the request that corrects it."""
+    from plainboard.db import sessionmaker
+    from plainboard.models import Account
+    from plainboard.services import limits as limits_service
+    from sqlalchemy import select
+
+    claude = accounts(client)["Claude"]
+    client.patch(f"/api/accounts/{claude['id']}", json={"auth_mode": "oauth_token", "secret": "tok"})
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(limits_service.time, "time", lambda: clock[0])
+
+    async def report(**used: float) -> dict[str, float]:
+        async with sessionmaker()() as s:
+            key = await s.scalar(select(Account.key).where(Account.id == claude["id"]))
+            await limits_service.record(s, key, [LimitWindow(name=name, utilization=value, resets_at=int(clock[0]) + 5 * 86400) for name, value in used.items()])
+            return {key: value for key, value in (await limits_service.usage(s)).items()}
+
+    key = client.portal.call(lambda: report(seven_day=0.89, seven_day_extra=0.95))
+    assert list(key.values()) == [0.95]
+    # Later reports bring only one of the two windows (they come from requests that don't touch the other).
+    clock[0] += 3600
+    assert list(client.portal.call(lambda: report(seven_day=0.6)).values()) == [0.95]  # an hour is nothing
+    clock[0] += 3 * 3600
+    assert list(client.portal.call(lambda: report(seven_day=0.57)).values()) == [0.57]
+    assert [w["name"] for w in limits_of(client, claude["id"])["windows"]] == ["seven_day"]
+    # A request that touches it reports it again: it counts again, with its new number.
+    clock[0] += 60
+    assert list(client.portal.call(lambda: report(seven_day_extra=0.33)).values()) == [0.57]
+    assert {w["name"]: w["utilization"] for w in limits_of(client, claude["id"])["windows"]} == {"seven_day": 0.57, "seven_day_extra": 0.33}

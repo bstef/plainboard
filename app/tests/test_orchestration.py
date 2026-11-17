@@ -1150,9 +1150,27 @@ def test_a_busy_agent_reads_a_chat_message_right_away_and_answers_it_next(client
     messages = conversation(client, dev["id"])["messages"]
     texts = [m["content"] for m in messages if m["role"] == "assistant" and m["kind"] == "text"]
     assert texts[-1] == "from the user"
-    # The chat shows the message when it was sent (the agent read it then), not when its turn began.
+    # The agent never got to read it in the turn it was in (no step ended): it is read when its own turn begins,
+    # and the chat shows it there, not at the time it was sent.
     sent = next(m for m in messages if m["content"] == "SAY from the user")
-    assert sent["created_at"] == waiting["created_at"] <= waiting_started(client, pid, waiting["id"])
+    answered = next(r for r in runs_of(client, pid) if r["id"] == waiting["id"])
+    assert answered["read_at"] is None and sent["created_at"] >= answered["started_at"] >= waiting["created_at"]
+
+
+def test_a_waiting_chat_message_is_shown_where_the_busy_agent_read_it(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    chat(client, dev["id"], "HOLD" + chr(10) + "TOOL list_tasks" + chr(10) + "SAY done with the old work")
+    wait_for(lambda: runs_of(client, pid, agent_id=dev["id"])[0]["status"] == "running")
+    waiting = client.post(f"/api/agents/{dev['id']}/messages", json={"text": "SAY from the user"}).json()
+    assert waiting["status"] == "queued" and waiting["read_at"] is None  # at the bottom of the chat until it is read
+    runner(client).released = True  # the agent's step ends: that is where it gets the message
+    wait_for(lambda: idle(client, pid))
+    answered = next(r for r in runs_of(client, pid) if r["id"] == waiting["id"])
+    assert answered["read_at"] is not None and waiting["created_at"] <= answered["read_at"] <= answered["started_at"]
+    messages = conversation(client, dev["id"])["messages"]
+    sent = next(m for m in messages if m["content"] == "SAY from the user")
+    assert sent["created_at"] == answered["read_at"]  # above what the agent wrote after reading it, although its own turn began later
 
 
 def waiting_started(client, pid, run_id):

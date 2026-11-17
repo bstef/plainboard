@@ -280,6 +280,7 @@
     "loadOlder": "Load older messages",
     "working": "{{name}} is working…",
     "waiting": "{{name}} is waiting to start…",
+    "readWaiting": "{{name}} has read this and answers next",
     "jobsRunning_one": "{{count}} background job running",
     "jobsRunning_other": "{{count}} background jobs running",
     "placeholder": "Message {{name}}…",

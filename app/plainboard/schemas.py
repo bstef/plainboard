@@ -541,6 +541,7 @@ class RunOut(ORM):
     started_at: UTCDateTime | None
     finished_at: UTCDateTime | None
     stop_requested_at: UTCDateTime | None = None
+    read_at: UTCDateTime | None = None  # a waiting chat message: when its busy agent read it
 
 
 # --- notes / schedules / mcp ----------------------------------------------------------------
