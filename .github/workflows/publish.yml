@@ -89,7 +89,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: env.PUBLISH == 'true'
         with:
-          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          # "_" around the image's name: "plainboard-*" would also match "plainboard-runner-...".
+          name: digest_${{ matrix.image }}_${{ matrix.arch }}
           path: digests/*
           if-no-files-found: error
           retention-days: 1
@@ -109,7 +110,7 @@ jobs:
         if: env.PUBLISH == 'true'
         with:
           path: digests
-          pattern: digest-${{ matrix.image }}-*
+          pattern: digest_${{ matrix.image }}_*
           merge-multiple: true
       - uses: docker/setup-buildx-action@v3
         if: env.PUBLISH == 'true'
