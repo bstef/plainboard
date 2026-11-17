@@ -333,7 +333,7 @@ class LandingWatcher:
         for member in members:
             if member.agent_id:
                 counts[member.agent_id] = counts.get(member.agent_id, 0) + 1
-        authors = [a for a in [await s.get(Agent, agent_id) for agent_id in counts] if a and a.enabled]
+        authors = [a for a in [await s.get(Agent, agent_id) for agent_id in counts] if a and can_repair(a)]
         if not authors:
             return None
         ids = [a.id for a in authors]
@@ -620,6 +620,12 @@ class LandingWatcher:
         await tell_manager(s, self._runs, r.project, text)
 
 
+def can_repair(agent: Agent) -> bool:
+    """Whether a branch can go back to this agent. A manager does not repair. An agent that is paused
+    with the team can: the assignment waits for it and starts when the team goes on."""
+    return not agent.is_manager and (agent.enabled or agent.team_pause)
+
+
 async def open_repair(s: AsyncSession, landing: Landing) -> bool:
     """Whether someone is repairing this branch right now: on its own, or with the train it failed on."""
     mine = Assignment.landing_id == landing.id
@@ -656,13 +662,17 @@ async def give_back(
     landing.train_id, landing.group_no = None, None
     author = await s.get(Agent, landing.agent_id) if landing.agent_id else None
     ticket = await s.get(Task, landing.task_id) if landing.task_id else None
-    # A manager does not repair: a branch it handed over itself has no author who could.
-    available = author is not None and author.enabled and not author.is_manager
+    available = author is not None and can_repair(author)
     if landing.failures >= landing_service.MAX_FAILED_ROUNDS or not available:
         landing.status = LandingStatus.STUCK
         await s.commit()
         await flow_log.record(s, project.id, "landing.stuck", landing_id=landing.id, task_id=landing.task_id, branch=landing.branch, why=what, failures=landing.failures)
-        why = f"{landing.failures} times now" if available else "and it has no author who could repair it (you handed it over): delegate that to the member who knows it"
+        if available:
+            why = f"{landing.failures} times now"
+        elif author is None or author.is_manager:
+            why = "and it has no author who could repair it (you handed it over): delegate that to the member who knows it"
+        else:
+            why = f"and its author {author.name} is switched off"
         await tell_manager(
             s, runs, project,
             f"Not landed in {repo.name}: {await label(s, landing)} {what}, {why}. PlainBoard has stopped for this branch. "

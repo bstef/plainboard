@@ -184,6 +184,31 @@ class RunManager:
                         await self._report_interrupted(s, run)
                 except Exception:  # a failed report must not keep the app from starting
                     log.exception("Could not report interrupted run %s", run.id)
+            await self._adopt_orphans(s)
+
+    async def _adopt_orphans(self, s: AsyncSession) -> None:
+        """An assignment that waits but has no turn would wait for ever, and block further work on its
+        ticket (it counts as open work). Give it its turn. (Before, ordering work from a paused agent
+        left such an assignment behind.)"""
+        has_turn = select(Run.id).where(Run.assignment_id == Assignment.id).exists()
+        for assignment in list(await s.scalars(select(Assignment).where(Assignment.status == AssignmentStatus.QUEUED, ~has_turn))):
+            try:
+                agent = await s.get(Agent, assignment.agent_id)
+                if agent is None:
+                    continue
+                creator = await s.get(Agent, assignment.created_by_agent_id) if assignment.created_by_agent_id else None
+                task = await s.get(Task, assignment.task_id) if assignment.task_id else None
+                from_name = creator.name if creator else "PlainBoard" if assignment.landing_id or assignment.train_id else "the user"
+                state = "" if assignment.landing_id or assignment.train_id else await ticket_state.text_for(s, assignment.task_id)
+                run = await self.enqueue(
+                    s, agent, RunTrigger.ASSIGNMENT, prompts.assignment_prompt(assignment, from_name, task, state),
+                    task_id=assignment.task_id, assignment_id=assignment.id, source_agent_id=assignment.created_by_agent_id, effort=assignment.effort, paused_ok=True,
+                )  # fmt: skip
+                assignment.run_id = run.id
+                await s.commit()
+                await flow_log.record(s, assignment.project_id, "assignment.adopted", assignment_id=assignment.id, agent_id=agent.id, task_id=assignment.task_id)
+            except Exception:
+                log.exception("Could not give assignment %s its turn", assignment.id)
 
     async def _report_interrupted(self, s: AsyncSession, run: Run) -> None:
         """An interrupted turn outside an open assignment is not retried (it may be half done): tell whoever can decide."""
@@ -232,8 +257,10 @@ class RunManager:
         effort: str | None = None,
         attachment_ids: list[int] | None = None,
         stopping: bool = False,
+        paused_ok: bool = False,
     ) -> Run:
-        if not agent.enabled and not stopping:
+        """``paused_ok``: a turn for a paused agent is kept: it waits in the queue until the agent is enabled again."""
+        if not agent.enabled and not stopping and not paused_ok:
             raise ServiceError(f"Agent '{agent.name}' is disabled")
         run = Run(
             project_id=agent.project_id,
@@ -420,6 +447,7 @@ class RunManager:
             assignment_id=assignment.id,
             source_agent_id=caller.id if caller else None,
             effort=effort,
+            paused_ok=True,  # an assignment for a paused agent waits for it, like the ones it had before the pause
         )
         assignment.run_id = run.id
         await s.commit()

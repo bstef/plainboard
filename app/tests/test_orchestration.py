@@ -1316,3 +1316,36 @@ def test_manager_sees_and_stops_preview_servers_of_the_team(client, project):
 
     tidy = next(s for s in client.get(f"/api/projects/{pid}/schedules").json() if s["name"] == "Tidy up")
     assert "preview or dev server" in tidy["prompt"]
+
+
+def test_work_ordered_from_a_paused_agent_waits_for_it_and_an_assignment_without_a_turn_gets_one(client, project):
+    from plainboard.db import sessionmaker
+    from plainboard.models import Assignment
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Docs", "status": "todo"})
+    chat(client, manager["id"], "TOOL pause_team")
+    wait_for(lambda: idle(client, pid) and not agents_by_slug(client, pid)["dev"]["enabled"])
+
+    # Ordered while the team is paused: the assignment waits with its turn, it is not left behind without one.
+    chat(client, manager["id"], "TOOL delegate " + json.dumps({"agent": "dev", "title": "Write the docs", "instructions": "SAY docs written", "ticket_number": 1}))
+    wait_for(lambda: client.get(f"/api/projects/{pid}/assignments").json())
+    result = next(m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool" and m["content"] == "delegate")
+    assert "queued for dev" in result and "dev is paused: it starts when the agent is enabled again" in result
+    (waiting,) = [r for r in runs_of(client, pid, agent_id=dev["id"]) if r["trigger"] == "assignment"]
+    assert waiting["status"] == "queued"
+    chat(client, manager["id"], "TOOL resume_team")
+    wait_for(lambda: idle(client, pid) and client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "done")
+
+    # One that has no turn at all (left behind by an earlier version): it gets its turn when PlainBoard starts.
+    async def orphan() -> None:
+        async with sessionmaker()() as s:
+            s.add(Assignment(project_id=pid, agent_id=dev["id"], created_by_agent_id=manager["id"], title="Left behind", instructions="SAY found again"))
+            await s.commit()
+
+    client.portal.call(orphan)
+    client.portal.call(client.app_ref.state.runs._recover_interrupted)
+    wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in client.get(f"/api/projects/{pid}/assignments").json()))
+    assert sorted(a["result"] for a in client.get(f"/api/projects/{pid}/assignments").json()) == ["docs written", "found again"]

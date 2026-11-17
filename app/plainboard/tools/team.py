@@ -199,7 +199,9 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     limit = int(await settings_service.get(ctx.session, "max_parallel_runs"))
     capacity = await board_service.capacity(ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id, waiting=ctx.runs.waiting_for_job())
     use = f"{capacity.working} of {limit} parallel agents in use"
-    if limit < 1:
+    if not target.enabled:
+        state = f"{target.slug} is paused: it starts when the agent is enabled again (update_agent enabled=true, or resume_team)."
+    elif limit < 1:
         state = "Members are paused by the user (limit 0): it starts when they raise it."
     elif was_busy:
         state = f"It starts after {target.slug}'s current work ({use})."
