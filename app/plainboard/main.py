@@ -20,7 +20,9 @@ from .orchestration.landing import LandingWatcher
 from .orchestration.limits_watcher import LimitsWatcher
 from .orchestration.update_watcher import UpdateWatcher
 from .orchestration.scheduler import Scheduler
+from .models import utcnow
 from .security import init_security
+from .services import version as version_service
 from .services.errors import ServiceError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -37,6 +39,8 @@ async def lifespan(app: FastAPI):
     init_security(config.data_dir)
     await asyncio.to_thread(upgrade)
     init_engine(config.database_url)
+    async with sessionmaker()() as session:
+        await version_service.note_start(session, utcnow())
     runner = RunnerClient(config.runner_url)
     runs = RunManager(sessionmaker(), runner)
     scheduler = Scheduler(sessionmaker(), runs, config.scheduler_interval_seconds)

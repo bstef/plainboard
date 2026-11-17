@@ -873,6 +873,12 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
     assert events == ["train.landed", "base.red", "base.repair_ordered", "train.landed", "base.red", "base.still_red", "train.landed", "base.red", "base.repair_ordered"]
     report = client.get(f"/api/projects/{pid}/work-report?days=1").json()
     assert report["time"]["branches_landed"] == 4 and report["time"]["landing_check_runs_failed"] == 3
+    # The statistics show the speed of it: per day, and this period against the one before.
+    stats = client.get(f"/api/projects/{pid}/stats?days=7").json()
+    today = stats["days"][-1]
+    assert (today["branches_landed"], today["check_runs"], today["check_runs_failed"], today["repairs"]) == (4, 3, 3, 2) and today["landing_seconds"] is not None
+    assert stats["current"]["branches_landed"] == 4 and stats["current"]["repairs"] == 2 and stats["current"]["assignments_done"] == 2
+    assert stats["previous"] == {"tickets_done": 0, "branches_landed": 0, "landing_seconds": None, "check_runs": 0, "check_runs_failed": 0, "assignments_done": 0, "repairs": 0, "cost_usd": 0.0}
 
 
 def test_land_first_with_a_check_command_and_without_any_checks(client, project):

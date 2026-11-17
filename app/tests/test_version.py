@@ -89,3 +89,17 @@ def test_a_build_that_does_not_know_its_commit_asks_nothing(client, monkeypatch)
     client.portal.call(client.app_ref.state.updates.tick)
     assert fake.upstream_calls == [] and client.get("/api/meta").json()["version"] is None
 
+
+def test_the_statistics_mark_the_days_plainboard_was_updated(client, project, monkeypatch):
+    from plainboard.db import sessionmaker
+    from plainboard.models import utcnow
+
+    async def started(commit: str) -> None:
+        monkeypatch.setattr(version, "running_commit", lambda: commit)
+        async with sessionmaker()() as s:
+            await version.note_start(s, utcnow())
+
+    for commit in (SHA, SHA, OTHER, ""):  # a restart with the same version is no update; a build that does not know itself is none either
+        client.portal.call(started, commit)
+    stats = client.get(f"/api/projects/{project['id']}/stats?days=7").json()
+    assert [v["commit"] for v in stats["versions"]][-2:] == [SHA[:10], OTHER[:10]] and stats["days"][-1]["updates"] == len(stats["versions"])

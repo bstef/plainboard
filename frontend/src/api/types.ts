@@ -410,6 +410,28 @@ export interface StatsDay {
   failed_runs: number;
   tokens: number;
   cost_usd: number;
+  branches_landed: number;
+  /** Median from handing a branch over to it being on the base branch; null: none landed that day. */
+  landing_seconds: number | null;
+  check_runs: number;
+  check_runs_failed: number;
+  assignments_done: number;
+  /** Of the finished assignments: repairs for landing (a failed check run, a conflict). */
+  repairs: number;
+  /** Times PlainBoard itself started with another version that day. */
+  updates: number;
+}
+
+/** What a period brought and cost; given for the period shown and the one right before it. */
+export interface StatsPeriod {
+  tickets_done: number;
+  branches_landed: number;
+  landing_seconds: number | null;
+  check_runs: number;
+  check_runs_failed: number;
+  assignments_done: number;
+  repairs: number;
+  cost_usd: number;
 }
 
 export interface StatsAgent {
@@ -427,4 +449,7 @@ export interface Stats {
   agents: StatsAgent[];
   open_tickets: number;
   median_cycle_seconds: number | null;
+  current: StatsPeriod;
+  previous: StatsPeriod;
+  versions: { at: string; commit: string }[];
 }

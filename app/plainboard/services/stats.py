@@ -10,8 +10,9 @@ from statistics import median
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Account, Agent, Assignment, AssignmentStatus, Comment, Conversation, FlowEvent, InboxItem, Message, Run, RunStatus, Task, TaskStatus, TaskTransition, Train, utcnow
-from ..schemas import StatsAgent, StatsDay, StatsOut
+from ..models import Account, Agent, Assignment, Landing, TrainStatus, AssignmentStatus, Comment, Conversation, FlowEvent, InboxItem, Message, Run, RunStatus, Task, TaskStatus, TaskTransition, Train, utcnow
+from ..schemas import StatsAgent, StatsDay, StatsOut, StatsPeriod, StatsVersion
+from . import version as version_service
 from . import timing
 
 
@@ -19,6 +20,11 @@ async def overview(session: AsyncSession, project_id: int, days: int = 30, now: 
     today = (now or utcnow()).date()
     since = datetime.combine(today - timedelta(days=days - 1), datetime.min.time())
     by_day = {d.date: d for d in (StatsDay(date=(today - timedelta(days=n)).isoformat()) for n in range(days - 1, -1, -1))}
+    before = since - timedelta(days=days)  # the period right before, for comparison
+    current, previous = StatsPeriod(), StatsPeriod()
+
+    def period(at: datetime | None) -> StatsPeriod | None:
+        return None if at is None or at < before else current if at >= since else previous
 
     transitions = await session.scalars(select(TaskTransition).where(TaskTransition.project_id == project_id).order_by(TaskTransition.at, TaskTransition.id))
     started: dict[int, datetime] = {}
@@ -32,12 +38,17 @@ async def overview(session: AsyncSession, project_id: int, days: int = 30, now: 
             started.setdefault(t.task_number, t.at)
         day = by_day.get(t.at.date().isoformat())
         if day is None:
+            key = (t.at.date().isoformat(), t.task_number)
+            if t.status == TaskStatus.DONE and t.at >= before and key not in done_on:
+                done_on.add(key)
+                previous.tickets_done += 1
             continue
         if t.from_status is None:
             day.tickets_created += 1
         if t.status == TaskStatus.DONE and (day.date, t.task_number) not in done_on:
             done_on.add((day.date, t.task_number))
             day.tickets_done += 1
+            current.tickets_done += 1
             cycles.append((t.at - started.get(t.task_number, created.get(t.task_number, t.at))).total_seconds())
 
     agents: dict[int, StatsAgent] = {}
@@ -66,12 +77,47 @@ async def overview(session: AsyncSession, project_id: int, days: int = 30, now: 
     for agent_id, count in finished:
         agents.setdefault(agent_id, StatsAgent(agent_id=agent_id)).assignments_done = count
 
+    # How fast work reaches the base branch, per day and for this period against the one before.
+    took: dict[str, list[float]] = defaultdict(list)
+    for created_at, merged_at in await session.execute(select(Landing.created_at, Landing.merged_at).where(Landing.project_id == project_id, Landing.merged_at >= before)):
+        seconds = max((merged_at - created_at).total_seconds(), 0.0)
+        for key in (merged_at.date().isoformat(), "current" if merged_at >= since else "previous"):
+            took[key].append(seconds)
+        period(merged_at).branches_landed += 1  # type: ignore[union-attr]
+        if day := by_day.get(merged_at.date().isoformat()):
+            day.branches_landed += 1
+    for key, values in took.items():
+        target = current if key == "current" else previous if key == "previous" else by_day.get(key)
+        if target is not None:
+            target.landing_seconds = int(median(values))
+    checked = select(Train.status, Train.finished_at).where(Train.project_id == project_id, Train.finished_at >= before, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
+    for status, finished_at in await session.execute(checked):
+        for item in (period(finished_at), by_day.get(finished_at.date().isoformat())):
+            if item is not None:
+                item.check_runs += 1
+                item.check_runs_failed += status == TrainStatus.FAILED
+    done = select(Assignment.finished_at, Assignment.landing_id, Assignment.train_id).where(Assignment.project_id == project_id, Assignment.status == AssignmentStatus.DONE, Assignment.finished_at >= before)
+    for finished_at, landing_id, train_id in await session.execute(done):
+        for item in (period(finished_at), by_day.get(finished_at.date().isoformat())):
+            if item is not None:
+                item.assignments_done += 1
+                item.repairs += landing_id is not None or train_id is not None
+    current.cost_usd = round(sum(d.cost_usd for d in by_day.values()), 4)
+    previous.cost_usd = round(await session.scalar(select(func.sum(Run.cost_usd)).where(Run.project_id == project_id, Run.created_at >= before, Run.created_at < since)) or 0.0, 4)
+    versions = [StatsVersion(at=v["at"], commit=v["commit"]) for v in await version_service.history(session) if v["at"] >= since]
+    for v in versions:
+        if day := by_day.get(v.at.date().isoformat()):
+            day.updates += 1
+
     open_tickets = await session.scalar(select(func.count()).select_from(Task).where(Task.project_id == project_id, Task.status != TaskStatus.DONE, Task.archived_at.is_(None)))
     return StatsOut(
         days=list(by_day.values()),
         agents=sorted(agents.values(), key=lambda a: a.runs, reverse=True),
         open_tickets=open_tickets or 0,
         median_cycle_seconds=int(median(cycles)) if cycles else None,
+        current=current,
+        previous=previous,
+        versions=versions,
     )
 
 

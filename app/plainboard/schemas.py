@@ -342,6 +342,33 @@ class StatsDay(BaseModel):
     failed_runs: int = 0
     tokens: int = 0  # input + output
     cost_usd: float = 0.0
+    # How fast work reaches the base branch (see StatsPeriod).
+    branches_landed: int = 0
+    landing_seconds: int | None = None  # median from handing a branch over to it being on the base branch
+    check_runs: int = 0
+    check_runs_failed: int = 0
+    assignments_done: int = 0
+    repairs: int = 0  # of those: repairs for landing (a failed check run, a conflict)
+    updates: int = 0  # times PlainBoard itself started with another version
+
+
+class StatsPeriod(BaseModel):
+    """What a period brought and what it cost: the same numbers for the period shown and the one
+    before it, so that a change (a new version of PlainBoard, another way of working) can be seen."""
+
+    tickets_done: int = 0
+    branches_landed: int = 0
+    landing_seconds: int | None = None
+    check_runs: int = 0
+    check_runs_failed: int = 0
+    assignments_done: int = 0
+    repairs: int = 0
+    cost_usd: float = 0.0
+
+
+class StatsVersion(BaseModel):
+    at: UTCDateTime
+    commit: str
 
 
 class StatsAgent(BaseModel):
@@ -359,6 +386,9 @@ class StatsOut(BaseModel):
     agents: list[StatsAgent]
     open_tickets: int
     median_cycle_seconds: int | None = None  # from starting work on a ticket to done
+    current: StatsPeriod = Field(default_factory=StatsPeriod)
+    previous: StatsPeriod = Field(default_factory=StatsPeriod)  # the same number of days right before
+    versions: list[StatsVersion] = Field(default_factory=list)  # PlainBoard's own updates in the period
 
 
 class PublicTask(BaseModel):

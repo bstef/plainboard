@@ -9,6 +9,7 @@ Standard library only up to ``read_commit``: the image build runs it before anyt
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -82,6 +83,35 @@ def record(behind: int | None, url: str, now: datetime | None) -> None:
 
 def forget() -> None:
     record(None, "", None)
+
+
+HISTORY_KEY = "version_history"
+HISTORY_MAX = 400
+
+
+async def note_start(session, now: datetime) -> None:
+    """Write down that PlainBoard runs another version than last time. The statistics mark these
+    moments, so that what an update changed can be read off the numbers before and after it."""
+    from ..models import Setting  # not at the top: the image build runs this file on its own
+
+    commit = running_commit()
+    if not commit:
+        return
+    row = await session.get(Setting, HISTORY_KEY) or Setting(key=HISTORY_KEY, secret=False)
+    known = json.loads(row.value) if row.value else []
+    if known and known[-1]["commit"] == commit:
+        return
+    row.value = json.dumps([*known, {"commit": commit, "at": now.isoformat()}][-HISTORY_MAX:])
+    session.add(row)
+    await session.commit()
+
+
+async def history(session) -> list[dict]:
+    """The versions PlainBoard ran, oldest first: ``{"commit": short id, "at": naive UTC datetime}``."""
+    from ..models import Setting
+
+    row = await session.get(Setting, HISTORY_KEY)
+    return [{"commit": v["commit"][:10], "at": datetime.fromisoformat(v["at"])} for v in (json.loads(row.value) if row and row.value else [])]
 
 
 def current() -> dict | None:
