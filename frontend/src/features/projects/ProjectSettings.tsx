@@ -32,6 +32,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
   const [form, setForm] = useState({
     name: project.name,
     description: project.description,
+    language: project.language ?? "",
     workspace_path: project.workspace_path ?? "",
     github_token: "",
     auto_wake_manager: project.auto_wake_manager,
@@ -95,7 +96,10 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           <Field label={t("projects.description")} hint={t("projects.descriptionHint")}>
             <Textarea rows={7} value={form.description} onChange={(e) => set({ description: e.target.value })} />
           </Field>
-          <SaveRow dirty={dirty("name", "description") && form.name.trim() !== ""} onSave={() => save("name", "description")} />
+          <Field label={t("projects.language")} hint={t("projects.languageHint")}>
+            <Input className="sm:w-64" placeholder={t("projects.languagePlaceholder")} value={form.language} onChange={(e) => set({ language: e.target.value })} />
+          </Field>
+          <SaveRow dirty={dirty("name", "description", "language") && form.name.trim() !== ""} onSave={() => save("name", "description", "language")} />
         </div>
       ),
     },

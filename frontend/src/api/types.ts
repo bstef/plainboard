@@ -9,6 +9,8 @@ export interface Project {
   name: string;
   slug: string;
   description: string;
+  /** What agents write to people in, e.g. "German". Empty: the language each person writes in. */
+  language: string;
   workspace_path: string | null;
   has_github_token: boolean;
   auto_wake_manager: boolean;

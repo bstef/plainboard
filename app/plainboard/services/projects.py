@@ -34,6 +34,9 @@ The questions are a suggestion; follow where the user leads:
 - How it is checked and released: tests, CI, who may publish.
 - What the user wants to decide themselves, and what the team may decide.
 
+Set the language the user writes in as the project's language (update_project language), so every agent
+writes to them in it from now on.
+
 Write the result into the project description (update_project) and a pinned note (create_note), so every
 agent starts from it. Then move this ticket to done.""",
     ),
@@ -130,6 +133,8 @@ async def update(session: AsyncSession, project: Project, data: ProjectUpdate) -
         fields["workspace_path"] = normalize_workspace_path(fields["workspace_path"])
     if fields.get("account_id") is not None:
         await account_service.get(session, fields["account_id"])
+    if "language" in fields:
+        fields["language"] = (fields["language"] or "").strip()
     for key, value in fields.items():
         setattr(project, key, value)
     await session.commit()

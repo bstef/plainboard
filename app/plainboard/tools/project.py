@@ -15,6 +15,7 @@ from .registry import MANAGER, ToolContext, tool
 class UpdateProjectArgs(BaseModel):
     name: str | None = None
     description: str | None = None
+    language: str | None = Field(default=None, description="What people are written to in, e.g. German")
     workspace_path: str | None = None
     setup_script: str | None = Field(default=None, description="Full replacement. Must be safe to run repeatedly")
     auto_wake_manager: bool | None = None
@@ -31,12 +32,12 @@ async def get_project(ctx: ToolContext, _args) -> str:
     shares = await preview_service.shares_for_project(ctx.session, p.id)
     shared = "; ".join(f"{s.port} {s.access} until {s.expires_at:%Y-%m-%d}" for s in shares) or "none (all private)"
     return (
-        f"Name: {p.name}\nRepositories: {repos}\nWorkspace: {workspace}\nParallel agents: {parallel}\nShared previews: {shared}\n"
+        f"Name: {p.name}\nLanguage: {p.language or 'each person their own'}\nRepositories: {repos}\nWorkspace: {workspace}\nParallel agents: {parallel}\nShared previews: {shared}\n"
         f"Auto-wake manager: {p.auto_wake_manager}\nBacklog when To do cannot start: {'worked on' if p.continue_with_backlog else 'left until the user moves it'}\nDescription:\n{p.description or '-'}\nSetup script:\n{p.setup_script or '-'}"
     )
 
 
-@tool("update_project", "Update project name, description, shared workspace folder, setup script, auto-wake or whether the Backlog is worked on.", UpdateProjectArgs, roles=(MANAGER,))
+@tool("update_project", "Update project name, description, language, shared workspace folder, setup script, auto-wake or whether the Backlog is worked on.", UpdateProjectArgs, roles=(MANAGER,))
 async def update_project(ctx: ToolContext, args: UpdateProjectArgs) -> str:
     await project_service.update(ctx.session, ctx.project, ProjectUpdate(**args.model_dump(exclude_unset=True)))
     return "Project updated."

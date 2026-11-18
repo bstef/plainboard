@@ -448,6 +448,7 @@ def system_prompt_sections(
         identity.append(f"Your area of responsibility: {agent.description}")
     sections["identity"] = "\n\n".join(identity)
     sections["guide"] = MANAGER_GUIDE if agent.is_manager else WORKER_GUIDE
+    sections["language"] = language_rule(project.language)
     if agent.is_manager:
         sections["backlog"] = BACKLOG_NEXT if project.continue_with_backlog else BACKLOG_LATER
     if project.workspace_path:
@@ -819,6 +820,14 @@ def todo_block(todos: list, total: int) -> str:
 
 
 TODOS_CLEARED = "Your task list has no open tasks now."
+
+
+def language_rule(language: str) -> str:
+    """What people are written to in. A section of its own: what an agent reads (code, tickets, tool
+    results) is mostly English, and without a rule it answers in that."""
+    if language:
+        return f"Language: write to people in {language}: in the chat, in questions to them and in what a ticket tells them. What you read in another language changes nothing about that."
+    return "Language: write to a person in the language they write in, also right after reading material in another language."
 
 
 def with_preface(text: str, *, now: str, inbox: list[str], board: str = "") -> str:

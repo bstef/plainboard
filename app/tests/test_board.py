@@ -33,6 +33,17 @@ def test_a_project_made_in_the_ui_starts_with_the_two_tickets_that_set_it_up(cli
     wait_for(lambda: idle(client, new["id"]))
     assert "Two tickets are in To do to set it up" in client.app_ref.state.runner.specs[-1].prompt
 
+    # The language people are written to in: theirs until the project has one, which the first ticket asks for.
+    assert "update_project language" in tickets[0]["description"]
+    assert "write to a person in the language they write in" in client.app_ref.state.runner.specs[-1].system_prompt
+    assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": 'TOOL update_project {"language": "German"}'}).status_code == 202
+    wait_for(lambda: idle(client, new["id"]))
+    assert client.get(f"/api/projects/{new['id']}").json()["language"] == "German"
+    assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "SAY ok"}).status_code == 202
+    wait_for(lambda: idle(client, new["id"]))
+    spec = client.app_ref.state.runner.specs[-1]
+    assert "write to people in German" in spec.system_prompt + spec.prompt
+
     # What it chooses from: the models of the installation with their class, the strongest first.
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "TOOL list_models {}"}).status_code == 202
     wait_for(lambda: idle(client, new["id"]))

@@ -126,6 +126,8 @@ class Project(Timestamps, Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(100), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
+    # What agents write to people in, e.g. "German". Empty: the language each person writes in.
+    language: Mapped[str] = mapped_column(String(50), default="", server_default="")
     # Optional shared working directory (relative to the workspaces root, e.g. a bind-mounted
     # host folder). Unset = every agent gets its own directory/clone.
     workspace_path: Mapped[str | None] = mapped_column(String(500))

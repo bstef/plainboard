@@ -205,6 +205,7 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
+    language: str | None = Field(default=None, max_length=50)  # "" : the language each person writes in
     workspace_path: WorkspacePath = None
     setup_script: str | None = None
     github_token: str | None = None  # "" clears the override
@@ -221,6 +222,7 @@ class ProjectOut(ORM):
     name: str
     slug: str
     description: str
+    language: str = ""
     workspace_path: str | None
     has_github_token: bool = False
     auto_wake_manager: bool
