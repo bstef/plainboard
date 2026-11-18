@@ -18,9 +18,13 @@ def test_a_project_made_in_the_ui_starts_with_the_two_tickets_that_set_it_up(cli
     tickets = sorted(client.get(f"/api/projects/{new['id']}/tasks").json(), key=lambda t: t["number"])
     assert [(t["number"], t["status"], t["priority"]) for t in tickets] == [(1, "todo", "high"), (2, "todo", "high")]
     assert "what this project is about" in tickets[0]["title"] and "team" in tickets[1]["title"]
-    # What the second one has to carry: which model for whom, a reviewer, the limit, and how finished work lands.
-    for said in ("GPT-6 Astra or Claude Opus", "Claude Sonnet or GPT-6.1 Sol", "A reviewer on a strong model", "core work", "set_parallel_agents", "land_first", "wait for their"):
-        assert said in tickets[1]["description"], said
+    # What the second one has to carry: which class of model for whom, a reviewer, the limit, how finished work lands,
+    # and that all of it is a recommendation the user may overrule.
+    text = tickets[1]["description"]
+    for said in ("list_models", "newest", "A reviewer on a strong model", "core work", "set_parallel_agents", "land_first", "a recommendation", "They may decide differently"):
+        assert said in text, said
+    # No model is named: a name would still be picked when newer models exist.
+    assert not any(name in (tickets[0]["description"] + text).lower() for name in ("gpt", "claude", "opus", "sonnet", "astra", "sol ", "fable", "haiku"))
 
     # The manager reads of them with its first turn, whatever the user writes first; no turn was spent before.
     manager = agents_by_slug(client, new["id"])["manager"]
@@ -28,6 +32,13 @@ def test_a_project_made_in_the_ui_starts_with_the_two_tickets_that_set_it_up(cli
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "SAY hello"}).status_code == 202
     wait_for(lambda: idle(client, new["id"]))
     assert "Two tickets are in To do to set it up" in client.app_ref.state.runner.specs[-1].prompt
+
+    # What it chooses from: the models of the installation with their class, the strongest first.
+    assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "TOOL list_models {}"}).status_code == 202
+    wait_for(lambda: idle(client, new["id"]))
+    messages = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"]
+    listed = next(m["meta"]["result"] for m in messages if m["kind"] == "tool" and m["content"] == "list_models")
+    assert "claude_code: claude-sonnet-5-5 (medium), claude-haiku-5-5 (small)" in listed
 
 
 def test_ticket_crud_comments_attachments(client, project):

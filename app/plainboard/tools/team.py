@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from ..models import ACTIVE_RUN_STATUSES, Agent, Assignment, Run, Task
 from ..schemas import AgentCreate, AgentUpdate, ToolsetName
+from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import projects as project_service
@@ -117,6 +118,24 @@ async def _catalog(ctx: ToolContext, provider: str | None) -> list[ProviderInfo]
     if provider not in {p.name for p in catalog}:
         raise ToolError(f"Unknown provider '{provider}'. Available: {', '.join(p.name for p in catalog)}")
     return catalog
+
+
+CLASSES = ("xlarge", "large", "medium", "small")  # strongest first
+
+
+@tool("list_models", "The models an agent can run on, per provider, each with its class (xlarge > large > medium > small).", roles=(MANAGER,))
+async def list_models(ctx: ToolContext, _args) -> str:
+    try:
+        catalog = await ctx.runs.runner.providers()
+    except RunnerError as exc:
+        raise ToolError("The models cannot be read right now: the runner does not answer. Try again later.") from exc
+    subscribed = {a.provider for a in await account_service.list_accounts(ctx.session) if a.enabled}
+    lines = []
+    for provider in catalog:
+        models = sorted(provider.models, key=lambda m: CLASSES.index(m.tier) if m.tier in CLASSES else len(CLASSES))
+        listed = ", ".join(f"{m.id} ({m.tier})" for m in models) or "-"
+        lines.append(f"{provider.name}{'' if provider.name in subscribed else ' [no subscription set up]'}: {listed}")
+    return "\n".join(lines) or "No provider."
 
 
 @tool("list_agents", "List the team: slug, role, model, status and area.")

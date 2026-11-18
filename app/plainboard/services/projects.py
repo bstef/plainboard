@@ -18,13 +18,15 @@ from .util import slugify
 
 # What a project made in the UI starts with, in To do: a manager knows how to run a project, not what
 # this one is, and a team is easy to get wrong (too many members, the strongest model for everyone).
+# No model is named here: names age, and list_models shows what the installation offers today.
 FIRST_STEPS = (
     TaskCreate(
         title="Find out with the user what this project is about",
         status="todo",
         priority="high",
         description="""\
-The first step in a new project. Ask the user in the chat, a few questions at a time, in their language:
+The first step in a new project. Ask the user in the chat, a few questions at a time, in their language.
+The questions are a suggestion; follow where the user leads:
 - What is being built, for whom, and what should exist first.
 - Where the code is: an existing repository (connect it with add_repository) or a new one.
 - How it is checked and released: tests, CI, who may publish.
@@ -38,23 +40,26 @@ agent starts from it. Then move this ticket to done.""",
         status="todo",
         priority="high",
         description="""\
-After it is clear what the project is about. Propose this to the user in the chat and wait for their
-yes before you create anything:
+After it is clear what the project is about. Everything below is a recommendation to start from, not a
+rule: propose it to the user in the chat, say why, and let them decide. They may decide differently.
+Create nothing before their yes.
 
 - The team: one member per area of the product that will see steady work, not one per task. Few to
   start with; another one when an area appears.
-- Models: a strong one plans and checks, a cheaper one builds.
-  - You, the manager, plan and decide: a strong model, best GPT-6 Astra or Claude Opus.
+- Models: a strong one plans and checks, a cheaper one builds. Look up what this installation offers
+  with list_models (every model with its class: xlarge > large > medium > small) and take the newest
+  model of the class you need. Never pick a model by a name you remember: newer ones may exist.
+  - You, the manager, plan and decide: a strong model, one of the two top classes.
   - The members who write most of the code do the bulk of the work, and that is where the quota
-    goes: a mid-range model, for example Claude Sonnet or GPT-6.1 Sol.
-  - A reviewer on a strong model (Claude Opus or GPT-6 Astra). It only reads: it looks once more over
+    goes: a mid-range model, a class or two below yours.
+  - A reviewer on a strong model, as strong as yours. It only reads: it looks once more over
     important core logic that a cheaper model planned or wrote, and the cheaper model makes the
     fixes. Not over everything: a review is a handover and a wait, so only where a mistake is
     expensive.
   - The most important core work (the architecture, what everything else builds on, security,
     money, data that must not be lost) is built by a strong model in the first place: propose a
     member for it, or which member takes it.
-  Use what the user's subscriptions offer.
+  Only models of a provider the user has a subscription for.
 - How many members work at the same time (set_parallel_agents; get_project shows what you may set).
   More finishes sooner and uses the quota faster. Say what you suggest for this project and why.
 - How finished work reaches the base branch, per repository (update_repository land_first). After
@@ -62,8 +67,8 @@ yes before you create anything:
   afterwards: nothing queues behind long check runs, right for a development branch. Say which fits
   each repository.
 
-When the user agrees, set it up: create_agent for the members, the limit, the repositories, and your
-own model with update_agent if it should change. Then move this ticket to done.""",
+When the user has decided, set it up as they decided: create_agent for the members, the limit, the
+repositories, and your own model with update_agent if it should change. Then move this ticket to done.""",
     ),
 )
 FIRST_STEPS_NOTE = (
