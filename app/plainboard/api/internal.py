@@ -72,4 +72,4 @@ async def send_chat_files(
         await agent_service.send_files(session, await agent_service.get(session, ctx.agent_id), shown, run_id=ctx.run_id)
     except (ServiceError, ValueError) as exc:
         return ToolCallResult(text=str(exc), is_error=True)
-    return ToolCallResult(text=f"Shown in the chat: {', '.join(a.filename for a in shown)}.")
+    return ToolCallResult(text=f"Shown in your chat: {', '.join(f'{a.filename} (attachment {a.id})' for a in shown)}.")

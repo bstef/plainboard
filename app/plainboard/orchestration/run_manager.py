@@ -1235,7 +1235,14 @@ class RunManager:
         if recipient != agent.id:
             still_open = (await todo_service.open_stats(s, [agent.id])).get(agent.id, (0, None))[0]
             todos_note = f" [{agent.name} still has {still_open} open task(s) on its list: check that they are still right.]" if still_open else ""
-            await inbox.push(s, recipient, f'Assignment #{assignment.id} "{assignment.title}" ({agent.name}{ref}) {assignment.status} after {took}: {outcome_text}{todos_note}')
+            # A member shows a file in its own chat, and the user reads the manager's: without this the file is
+            # somewhere the user does not look, and the manager cannot say where.
+            shown = await agent_service.files_shown(s, assignment.id)
+            listed = ", ".join(f"{name} (attachment {attachment_id})" for attachment_id, name in shown[:8])
+            files_note = f" [{agent.name} showed files in its own chat, which the user may not have open: {listed}. What is for the user, show in your chat: send_files attachment_ids.]" if shown else ""
+            await inbox.push(
+                s, recipient, f'Assignment #{assignment.id} "{assignment.title}" ({agent.name}{ref}) {assignment.status} after {took}: {outcome_text}{todos_note}{files_note}'
+            )
             await self._maybe_wake(s, project, recipient)
 
     async def decision_answered(self, s: AsyncSession, decision: Decision) -> None:

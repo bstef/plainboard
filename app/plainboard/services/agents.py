@@ -231,6 +231,16 @@ async def send_files(session: AsyncSession, agent: Agent, files: list[Attachment
     return message
 
 
+async def files_shown(session: AsyncSession, assignment_id: int) -> list[tuple[int, str]]:
+    """What an agent showed in its own chat while it worked on an assignment (send_files): attachment id and name."""
+    turns = select(Run.id).where(Run.assignment_id == assignment_id)
+    shown: dict[int, str] = {}
+    for meta in await session.scalars(select(Message.meta).where(Message.kind == "files", Message.run_id.in_(turns)).order_by(Message.id)):
+        for item in meta.get("attachments", []):
+            shown[item["id"]] = item["filename"]
+    return list(shown.items())
+
+
 async def to_out(session: AsyncSession, agents: list[Agent]) -> list[AgentOut]:
     if not agents:
         return []

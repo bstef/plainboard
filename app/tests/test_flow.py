@@ -1362,3 +1362,26 @@ def test_merged_branches_are_removed_once_a_day_where_a_repository_asks_for_it(c
     assert len(fake.tidy_specs) == 1
     tick(now + timedelta(hours=25))
     assert len(fake.tidy_specs) == 2
+
+
+def test_a_file_a_member_shows_in_its_own_chat_is_named_to_the_manager(client, project):
+    """Seen in production: a member put the access data for the user into its own chat, and the manager told the
+    user about a "private chat file" it could not point to. The user reads the manager's chat."""
+    from plainboard.orchestration.run_manager import RunContext
+
+    pid = project["id"]
+    manager = manager_of(client, pid)
+    dev = make_member(client, pid, "Dev1")
+    fake = runner(client)
+    order = {"agent": "dev1", "title": "Set up the test server", "instructions": "HOLD\nSAY set up, the access data is in the chat"}
+    chat(client, manager["id"], "TOOL delegate " + json.dumps(order))
+    wait_for(lambda: any(r["status"] == "running" and r["agent_id"] == dev["id"] for r in runs_of(client, pid)))
+    turn = next(r for r in runs_of(client, pid) if r["status"] == "running" and r["agent_id"] == dev["id"])
+    client.app_ref.state.runs._tokens["tok"] = RunContext(run_id=turn["id"], project_id=pid, agent_id=dev["id"], token="tok")
+    sent = client.post(f"/api/internal/runs/{turn['id']}/chat-files", headers={"Authorization": "Bearer tok"}, files=[("files", ("access.txt", b"secret", "text/plain"))]).json()
+    assert not sent["is_error"]
+    fake.released = True
+    wait_for(lambda: idle(client, pid) and "set up, the access data is in the chat" in last_update(fake))
+    file_id = client.get(f"/api/agents/{dev['id']}/conversation").json()["messages"][-2]["meta"]["attachments"][0]["id"]
+    assert f"Dev1 showed files in its own chat, which the user may not have open: access.txt (attachment {file_id})" in last_update(fake)
+    assert "show in your chat: send_files attachment_ids" in last_update(fake)

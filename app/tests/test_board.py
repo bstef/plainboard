@@ -422,8 +422,9 @@ def test_an_agent_shows_ticket_attachments_and_its_own_files_in_its_chat(client,
     sent = client.post(
         "/api/internal/runs/1/chat-files", headers=auth, data={"attachment_ids": str(on_ticket["id"])}, files=[("files", ("shot.png", b"new", "image/png"))]
     ).json()
-    assert not sent["is_error"] and sent["text"] == "Shown in the chat: logo.png, shot.png."
     message = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"][-1]
+    new = message["meta"]["attachments"][1]["id"]
+    assert not sent["is_error"] and sent["text"] == f"Shown in your chat: logo.png (attachment {on_ticket['id']}), shot.png (attachment {new})."
     assert (message["role"], message["kind"]) == ("assistant", "files")
     assert [f["filename"] for f in message["meta"]["attachments"]] == ["logo.png", "shot.png"]
     assert client.get(f"/api/attachments/{message['meta']['attachments'][1]['id']}").content == b"new"
