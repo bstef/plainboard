@@ -169,9 +169,12 @@ export function RepositoriesEditor({
   onAdd,
   onSave,
   onRemove,
+  beforeGithub,
 }: {
   repos: RepoDraft[];
   projectId?: number;
+  /** Runs before the list from GitHub opens: e.g. stores a token typed beside it, so the list is that token's. */
+  beforeGithub?: () => Promise<void>;
   onAdd: (draft: RepoDraft) => Promise<void>;
   onSave: (draft: RepoDraft) => Promise<void>;
   onRemove: (draft: RepoDraft) => Promise<void>;
@@ -335,7 +338,20 @@ export function RepositoriesEditor({
           >
             {t("projects.addRepoByUrl")}
           </Button>
-          <Button size="sm" variant="ghost" icon={<ListChecks className="size-3.5" />} onClick={() => setPicking(true)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<ListChecks className="size-3.5" />}
+            onClick={async () => {
+              setError(null);
+              try {
+                await beforeGithub?.();
+                setPicking(true);
+              } catch (err) {
+                setError(errorMessage(err));
+              }
+            }}
+          >
             {t("projects.pickFromGithub")}
           </Button>
         </div>

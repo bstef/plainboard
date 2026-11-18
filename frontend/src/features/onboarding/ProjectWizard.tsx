@@ -128,6 +128,10 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
             <RepositoriesEditor
               repos={(repos.data ?? []).map(toDraft)}
               projectId={project.id}
+              // A token typed below is stored first: the list shows what that token reaches, not the general one.
+              beforeGithub={async () => {
+                if (code.github_token) await saveCode();
+              }}
               onAdd={async (d) => {
                 await api.post(`/projects/${project.id}/repositories`, toBody(d));
                 refreshRepos();
