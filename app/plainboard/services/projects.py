@@ -4,16 +4,72 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Attachment, Project, ProjectRole
-from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate
+from ..models import Attachment, InboxItem, Project, ProjectRole
+from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate, TaskCreate
 from ..security import decrypt, encrypt
 from . import accounts as account_service
 from . import agents as agent_service
+from . import board as board_service
 from . import repositories as repo_service
 from . import schedules as schedule_service
 from . import settings as settings_service
 from .errors import NotFound, ServiceError
 from .util import slugify
+
+# What a project made in the UI starts with, in To do: a manager knows how to run a project, not what
+# this one is, and a team is easy to get wrong (too many members, the strongest model for everyone).
+FIRST_STEPS = (
+    TaskCreate(
+        title="Find out with the user what this project is about",
+        status="todo",
+        priority="high",
+        description="""\
+The first step in a new project. Ask the user in the chat, a few questions at a time, in their language:
+- What is being built, for whom, and what should exist first.
+- Where the code is: an existing repository (connect it with add_repository) or a new one.
+- How it is checked and released: tests, CI, who may publish.
+- What the user wants to decide themselves, and what the team may decide.
+
+Write the result into the project description (update_project) and a pinned note (create_note), so every
+agent starts from it. Then move this ticket to done.""",
+    ),
+    TaskCreate(
+        title="Propose a team and how many agents work at once, agree with the user, set it up",
+        status="todo",
+        priority="high",
+        description="""\
+After it is clear what the project is about. Propose this to the user in the chat and wait for their
+yes before you create anything:
+
+- The team: one member per area of the product that will see steady work, not one per task. Few to
+  start with; another one when an area appears.
+- Models: a strong one plans and checks, a cheaper one builds.
+  - You, the manager, plan and decide: a strong model, best GPT-6 Astra or Claude Opus.
+  - The members who write most of the code do the bulk of the work, and that is where the quota
+    goes: a mid-range model, for example Claude Sonnet or GPT-6.1 Sol.
+  - A reviewer on a strong model (Claude Opus or GPT-6 Astra). It only reads: it looks once more over
+    important core logic that a cheaper model planned or wrote, and the cheaper model makes the
+    fixes. Not over everything: a review is a handover and a wait, so only where a mistake is
+    expensive.
+  - The most important core work (the architecture, what everything else builds on, security,
+    money, data that must not be lost) is built by a strong model in the first place: propose a
+    member for it, or which member takes it.
+  Use what the user's subscriptions offer.
+- How many members work at the same time (set_parallel_agents; get_project shows what you may set).
+  More finishes sooner and uses the quota faster. Say what you suggest for this project and why.
+- How finished work reaches the base branch, per repository (update_repository land_first). After
+  the checks pass: the branch stays green, right for a branch that is released from. At once, checked
+  afterwards: nothing queues behind long check runs, right for a development branch. Say which fits
+  each repository.
+
+When the user agrees, set it up: create_agent for the members, the limit, the repositories, and your
+own model with update_agent if it should change. Then move this ticket to done.""",
+    ),
+)
+FIRST_STEPS_NOTE = (
+    "This project is new. Two tickets are in To do to set it up: find out with the user what it is about, then propose a team "
+    "and how many agents work at once. Start with the first one: read it (get_task) and ask the user."
+)
 
 MANAGER_DESCRIPTION = (
     "Coordinates the project: turns tickets into clear assignments for the team, "
@@ -52,6 +108,10 @@ async def create(session: AsyncSession, data: ProjectCreate) -> Project:
         is_manager=True,
     )
     await schedule_service.create_tidy(session, manager)
+    if data.first_steps:
+        await board_service.create_tasks(session, project.id, list(FIRST_STEPS))
+        session.add(InboxItem(agent_id=manager.id, text=FIRST_STEPS_NOTE))  # read with its first turn; no turn is spent on it
+        await session.commit()
     return project
 
 

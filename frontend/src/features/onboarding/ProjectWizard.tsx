@@ -41,7 +41,8 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const usableAccounts = (accounts.data ?? []).filter((a) => usable(a) && a.provider === provider?.name);
 
   const saveBasics = async () => {
-    const saved = project ? await api.patch<Project>(`/projects/${project.id}`, basics) : await api.post<Project>("/projects", basics);
+    // A project made here starts with the two tickets that set it up.
+    const saved = project ? await api.patch<Project>(`/projects/${project.id}`, basics) : await api.post<Project>("/projects", { ...basics, first_steps: true });
     setProject(saved);
     await qc.invalidateQueries({ queryKey: qk.projects });
     if (!manager) {

@@ -59,8 +59,11 @@ the first one, so closing early loses nothing.
 4. **Secrets**: keys and tokens for this project only.
 5. **People**: who works on it with you, if anyone.
 
-Then tell the manager what you want, in the chat next to the board. It writes the tickets, creates
-the agents it needs, hands out the work and reports back.
+A new project starts with two tickets in *To Do*: the manager finds out with you what the project
+is about, and then proposes a team (which model plans, builds and reviews), how many agents work at
+once and how finished work lands, and sets it up once you agree. Write to the manager in the chat
+next to the board to begin; it knows of both tickets. After that, tell it what you want: it writes
+the tickets, creates the agents it needs, hands out the work and reports back.
 
 ## Everyday use
 

@@ -10,6 +10,26 @@ def test_project_gets_a_manager(client, project):
     assert client.delete(f"/api/agents/{manager['id']}").status_code == 400
 
 
+def test_a_project_made_in_the_ui_starts_with_the_two_tickets_that_set_it_up(client, project):
+    from conftest import agents_by_slug, idle, wait_for
+
+    assert client.get(f"/api/projects/{project['id']}/tasks").json() == []  # made over the API: nothing is put on its board
+    new = client.post("/api/projects", json={"name": "Shop", "first_steps": True}).json()
+    tickets = sorted(client.get(f"/api/projects/{new['id']}/tasks").json(), key=lambda t: t["number"])
+    assert [(t["number"], t["status"], t["priority"]) for t in tickets] == [(1, "todo", "high"), (2, "todo", "high")]
+    assert "what this project is about" in tickets[0]["title"] and "team" in tickets[1]["title"]
+    # What the second one has to carry: which model for whom, a reviewer, the limit, and how finished work lands.
+    for said in ("GPT-6 Astra or Claude Opus", "Claude Sonnet or GPT-6.1 Sol", "A reviewer on a strong model", "core work", "set_parallel_agents", "land_first", "wait for their"):
+        assert said in tickets[1]["description"], said
+
+    # The manager reads of them with its first turn, whatever the user writes first; no turn was spent before.
+    manager = agents_by_slug(client, new["id"])["manager"]
+    assert client.get(f"/api/projects/{new['id']}/runs").json() == []
+    assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "SAY hello"}).status_code == 202
+    wait_for(lambda: idle(client, new["id"]))
+    assert "Two tickets are in To do to set it up" in client.app_ref.state.runner.specs[-1].prompt
+
+
 def test_ticket_crud_comments_attachments(client, project):
     pid = project["id"]
     t1 = client.post(f"/api/projects/{pid}/tasks", json={"title": "First", "status": "todo", "labels": ["ui"]}).json()
