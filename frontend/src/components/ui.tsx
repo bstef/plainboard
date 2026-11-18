@@ -322,13 +322,21 @@ export function Field({
   group?: boolean;
 }) {
   const Tag = group ? "div" : "label";
+  // Spaced by "what follows another", not by "all but the last" (space-y): an element a password
+  // manager adds after the input must not move what is below it.
   return (
-    <Tag className={clsx("block space-y-1", className)} {...(group ? { role: "group", "aria-label": label } : {})}>
-      <span className="block font-medium text-fg-2">{label}</span>
+    <Tag className={clsx("block [&>*+*]:mt-1", className)} {...(group ? { role: "group", "aria-label": label } : {})}>
+      <span className="block self-end font-medium text-fg-2">{label}</span>
       {children}
       {hint && <span className="block text-fg-3">{hint}</span>}
     </Tag>
   );
+}
+
+/** Two fields side by side. Their labels, inputs and hints share the rows, so the inputs stay on one
+ * line when one label wraps. */
+export function FieldRow({ children }: { children: ReactNode }) {
+  return <div className="grid gap-3 sm:grid-cols-2 sm:gap-y-0 sm:*:row-span-3 sm:*:grid sm:*:grid-rows-subgrid">{children}</div>;
 }
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode }) {

@@ -80,7 +80,7 @@ async def create(
         instructions=data.instructions,
         provider=provider,
         model=model,
-        effort=data.effort if data.effort is not None else s["default_effort"],
+        effort=data.effort if data.effort is not None else s["default_manager_effort" if is_manager else "default_worker_effort"],
         toolset=data.toolset,
         context_limit_tokens=data.context_limit_tokens or int(s["default_context_limit"]),
         keep_recent_messages=data.keep_recent_messages if data.keep_recent_messages is not None else int(s["default_keep_recent"]),

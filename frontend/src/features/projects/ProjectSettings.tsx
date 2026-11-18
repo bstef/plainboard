@@ -6,9 +6,10 @@ import { checks, qk, useAccounts, useRepositories, useSettings } from "../../api
 import type { CheckResult, Project } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
-import { Button, ErrorText, Field, Input, PageHead, Select, Textarea, Toggle } from "../../components/ui";
+import { Button, ErrorText, Field, Input, Modal, PageHead, Select, Textarea, Toggle } from "../../components/ui";
 import { useStored } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
+import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
@@ -54,15 +55,21 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
     await qc.invalidateQueries({ queryKey: qk.projects });
   };
   const refreshRepos = () => qc.invalidateQueries({ queryKey: qk.repos(project.id) });
+  // Deleting asks first, and asks what happens to the folders the agents worked in.
+  const [deleting, setDeleting] = useState(false);
+  const [withFiles, setWithFiles] = useState(true);
+  const [removing, setRemoving] = useState(false);
   const remove = async () => {
-    if (!confirm(t("projects.confirmDelete", { name: project.name }))) return;
     setError(null);
+    setRemoving(true);
     try {
-      await api.del(`/projects/${project.id}`);
+      await api.del(`/projects/${project.id}${withFiles && !project.workspace_path ? "?files=true" : ""}`);
       await qc.invalidateQueries({ queryKey: qk.projects });
       onDeleted();
     } catch (err) {
       setError(err);
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -236,8 +243,8 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
       description: t("projectSettings.advanced.description"),
       content: (
         <div className="space-y-4">
-          <Field label={t("projects.githubToken")} hint={project.has_github_token ? t("projects.githubTokenSet") : t("projects.githubTokenHint")}>
-            <Input type="password" autoComplete="off" value={form.github_token} onChange={(e) => set({ github_token: e.target.value })} />
+          <Field group label={t("projects.githubToken")} hint={project.has_github_token ? t("projects.githubTokenSet") : t("projects.githubTokenHint")}>
+            <GithubTokenField label={t("projects.githubToken")} projectId={project.id} value={form.github_token} onChange={(v) => set({ github_token: v })} />
           </Field>
           <Field label={t("projects.localFolder")} hint={t("projects.localFolderHint")}>
             <Input placeholder="my-app" value={form.workspace_path} onChange={(e) => set({ workspace_path: e.target.value })} />
@@ -246,11 +253,39 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           <div className="space-y-2 pt-4">
             <h3 className="font-semibold">{t("projectSettings.advanced.delete")}</h3>
             <p className="text-fg-3">{t("projectSettings.advanced.deleteHint")}</p>
-            <Button variant="danger" onClick={remove}>
+            <Button variant="danger" onClick={() => setDeleting(true)}>
               {t("projectSettings.advanced.deleteAction", { name: project.name })}
             </Button>
-            <ErrorText error={error} />
           </div>
+          <Modal
+            open={deleting}
+            onClose={() => setDeleting(false)}
+            width="max-w-lg"
+            title={t("projectSettings.advanced.deleteTitle", { name: project.name })}
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setDeleting(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button variant="danger" loading={removing} onClick={remove}>
+                  {t("projectSettings.advanced.deleteAction", { name: project.name })}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <p>{t("projectSettings.advanced.deleteHint")}</p>
+              {project.workspace_path ? (
+                <p className="text-fg-3">{t("projectSettings.advanced.folderStays", { folder: project.workspace_path })}</p>
+              ) : (
+                <div className="space-y-1">
+                  <Toggle checked={withFiles} onChange={setWithFiles} label={t("projectSettings.advanced.deleteFiles")} />
+                  <p className="text-fg-3">{t("projectSettings.advanced.deleteFilesHint")}</p>
+                </div>
+              )}
+              <ErrorText error={error} />
+            </div>
+          </Modal>
         </div>
       ),
     },

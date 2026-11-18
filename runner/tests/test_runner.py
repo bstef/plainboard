@@ -905,3 +905,59 @@ async def test_a_waiting_agent_gets_messages_at_once_and_stops_waiting_for_silen
     assert "silent" in client.asked[-1] and "finish with what you have" in client.asked[-1]
     await work.stop_hook({"background_tasks": [{"id": "a1", "type": "subagent", "description": "Heap analysis"}]}, None, None)
     assert not work.holds(ResultEvent(text="Report without the heap analysis"))  # this end is the turn's result
+
+
+def test_a_deleted_projects_folders_are_removed(workspaces, tmp_path, monkeypatch):
+    from plainboard_runner import trains
+
+    monkeypatch.setattr(trains, "trains_root", lambda: tmp_path / "trains-root")
+    (workspaces / "shop" / "dev").mkdir(parents=True)
+    (workspaces / "shop" / "dev" / "file.txt").write_text("x")
+    (workspaces / "other").mkdir()
+    (trains.folder("p1-r1")).mkdir(parents=True)
+    client = TestClient(app)
+
+    body = client.post("/files/remove", json={"workspace": str(workspaces / "shop"), "trains": ["p1-r1", "p1-r2"]}).json()
+    assert body == {"ok": True, "detail": "2 folders removed"}
+    assert not (workspaces / "shop").exists() and not trains.folder("p1-r1").exists() and (workspaces / "other").exists()
+
+    # Never anything but one project's folder below the root.
+    for path in (str(workspaces), "/etc", str(workspaces / ".." / "elsewhere")):
+        assert client.post("/files/remove", json={"workspace": path}).json()["ok"] is False, path
+    assert (workspaces / "other").exists()
+    assert client.post("/files/remove", json={"trains": ["../x"]}).status_code == 422
+
+
+def test_what_a_token_may_do_is_read_from_githubs_answer():
+    from plainboard_runner import github
+
+    classic = "HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nX-Oauth-Scopes: repo, workflow\r\n\r\n" + '{"login":"octo","id":1}'
+    assert github.token_summary(classic) == ("octo", ["repo", "workflow"])
+    assert github.token_summary("HTTP/2.0 200 OK\nX-Oauth-Scopes: \n\n" + '{"login":"octo"}') == ("octo", [])
+    assert github.token_summary("HTTP/2.0 200 OK\nContent-Type: application/json\n\n" + '{"login":"octo"}') == ("octo", None)
+
+
+def test_a_repository_is_created_on_github(monkeypatch):
+    calls = []
+
+    async def fake(args, cwd, env, timeout=600):
+        calls.append((args, env.get("GH_TOKEN")))
+        if "name=taken" in args:
+            raise WorkspaceError("gh api failed: name already exists on this account (HTTP 422)")
+        return '{"full_name":"acme/shop","name":"shop","clone_url":"https://github.com/acme/shop.git","description":"","default_branch":"main","private":true}'
+
+    monkeypatch.setattr("plainboard_runner.main.run_cmd", fake)
+    client = TestClient(app)
+    body = client.post("/github/repos/create", json={"credentials": {"github_token": "tok"}, "name": "shop", "owner": "acme"}).json()
+    assert body["ok"] and body["repos"][0]["clone_url"] == "https://github.com/acme/shop.git"
+    args, token = calls[-1]
+    assert args[:5] == ["gh", "api", "-X", "POST", "orgs/acme/repos"] and token == "tok"
+    # Private, and with a first commit: a repository without a branch is nothing an agent can start from.
+    assert "private=true" in args and "auto_init=true" in args
+
+    assert client.post("/github/repos/create", json={"credentials": {"github_token": "tok"}, "name": "shop", "private": False}).json()["ok"]
+    assert calls[-1][0][4] == "user/repos" and "private=false" in calls[-1][0]
+    taken = client.post("/github/repos/create", json={"credentials": {"github_token": "tok"}, "name": "taken"}).json()
+    assert not taken["ok"] and "already exists" in taken["detail"]
+    assert client.post("/github/repos/create", json={"credentials": {}, "name": "shop"}).json()["detail"] == "No GitHub token configured"
+    assert client.post("/github/repos/create", json={"credentials": {"github_token": "tok"}, "name": "a/b"}).status_code == 422

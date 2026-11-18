@@ -4,10 +4,11 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useAccounts, useMe, useMeta, useRepositories, useSettings } from "../../api/queries";
 import type { Agent, Project } from "../../api/types";
-import { Field, Input, Select, Textarea, Toggle } from "../../components/ui";
+import { Field, FieldRow, Input, Select, Toggle } from "../../components/ui";
 import { MembersEditor } from "../projects/MembersEditor";
 import { ImportProject } from "../projects/MoveProject";
 import { RepositoriesEditor, toBody, toDraft } from "../projects/RepositoriesEditor";
+import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { ModelSelect } from "../team/AgentEditor";
 import { usable } from "./SetupWizard";
@@ -25,7 +26,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const defaults = settings.data?.values ?? {};
   const [project, setProject] = useState<Project | null>(null);
   const [manager, setManager] = useState<Agent | null>(null);
-  const [basics, setBasics] = useState({ name: "", description: "" });
+  const [basics, setBasics] = useState({ name: "" });
   const [code, setCode] = useState({ workspace_path: "", github_token: "" });
   const [team, setTeam] = useState<{ model: string; effort: string; account_id: number | null; parallel_agents: number | null; auto_wake_manager: boolean; continue_with_backlog: boolean }>({
     model: "",
@@ -82,9 +83,6 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
           <Field label={t("projects.name")}>
             <Input autoFocus value={basics.name} onChange={(e) => setBasics({ ...basics, name: e.target.value })} />
           </Field>
-          <Field label={t("projects.description")} hint={t("newProject.basics.descriptionHint")}>
-            <Textarea rows={6} value={basics.description} onChange={(e) => setBasics({ ...basics, description: e.target.value })} />
-          </Field>
           {/* The other way to a project: bring one along from another PlainBoard. Only before this one exists. */}
           {!project && (
             <details className="border-t border-line pt-4">
@@ -129,8 +127,8 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
               }}
             />
           </Field>
-          <Field label={t("projects.githubToken")} hint={project.has_github_token ? t("projects.githubTokenSet") : t("projects.githubTokenHint")}>
-            <Input type="password" autoComplete="off" value={code.github_token} onChange={(e) => setCode({ ...code, github_token: e.target.value })} />
+          <Field group label={t("projects.githubToken")} hint={project.has_github_token ? t("projects.githubTokenSet") : t("projects.githubTokenHint")}>
+            <GithubTokenField label={t("projects.githubToken")} projectId={project.id} value={code.github_token} onChange={(v) => setCode({ ...code, github_token: v })} />
           </Field>
           <Field label={t("projects.localFolder")} hint={t("projects.localFolderHint")}>
             <Input placeholder="my-app" value={code.workspace_path} onChange={(e) => setCode({ ...code, workspace_path: e.target.value })} />
@@ -149,11 +147,11 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
       content: (
         <div className="space-y-4">
           <Advice>{t("newProject.team.advice")}</Advice>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <FieldRow>
             <Field label={t("settings.managerModel")} hint={t("setup.models.managerHint")}>
               <ModelSelect provider={provider} value={team.model} onChange={(v) => setTeam({ ...team, model: v })} />
             </Field>
-            <Field label={t("team.effort")} hint={t("setup.models.effortHint")}>
+            <Field label={t("team.effort")} hint={t("team.effortHint")}>
               <Select value={team.effort} onChange={(e) => setTeam({ ...team, effort: e.target.value })}>
                 <option value="">{t("team.effortDefault")}</option>
                 {(provider?.efforts ?? []).map((e) => (
@@ -163,7 +161,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
                 ))}
               </Select>
             </Field>
-          </div>
+          </FieldRow>
           <Field label={t("newProject.team.subscription")} hint={t("newProject.team.subscriptionHint")}>
             <Select value={team.account_id ?? ""} onChange={(e) => setTeam({ ...team, account_id: e.target.value ? Number(e.target.value) : null })}>
               <option value="">{t("newProject.team.subscriptionAuto")}</option>

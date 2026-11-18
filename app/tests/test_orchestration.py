@@ -351,6 +351,7 @@ def test_compression_resets_session_and_carries_memory(client, project):
     assert conv["compressions"] == 1 and conv["provider_session_id"] is None
     assert conv["messages"][-1]["kind"] == "summary" and conv["messages"][-1]["content"] == "SUMMARY #1"
     assert runner(client).completions[-1].model == "claude-haiku-5-5"
+    assert runner(client).completions[-1].effort == "high"  # summaries think as long as the installation says
 
     chat(client, dev["id"], "SAY second")
     wait_for(lambda: idle(client, pid))

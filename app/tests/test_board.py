@@ -73,6 +73,45 @@ def test_ticket_crud_comments_attachments(client, project):
     assert list(get_config().uploads_dir.iterdir()) == []
 
 
+def test_deleting_a_project_can_take_its_folders_along(client):
+    runner = client.app_ref.state.runner
+    kept = client.post("/api/projects", json={"name": "Shop"}).json()
+    repo = client.post(f"/api/projects/{kept['id']}/repositories", json={"name": "api", "url": "https://github.com/acme/api.git"}).json()
+    # Not asked for: the agents' folders stay, the runner's own clones of the repositories go.
+    assert client.delete(f"/api/projects/{kept['id']}").status_code == 204
+    assert runner.removed[-1].workspace is None and runner.removed[-1].trains == [f"p{kept['id']}-r{repo['id']}"]
+
+    # Asked for: a new project of the same name gets the same folder, so the old one has to go.
+    again = client.post("/api/projects", json={"name": "Shop"}).json()
+    assert again["slug"] == kept["slug"]
+    runner.remove_fails = True  # then nothing is deleted, so it can be tried again
+    refused = client.delete(f"/api/projects/{again['id']}?files=true")
+    assert refused.status_code == 400 and "Permission denied" in refused.json()["detail"]
+    assert any(p["id"] == again["id"] for p in client.get("/api/projects").json())
+    runner.remove_fails = False
+    assert client.delete(f"/api/projects/{again['id']}?files=true").status_code == 204
+    assert runner.removed[-1].workspace == f"/workspaces/{kept['slug']}"
+
+    # A folder of the user's own is never deleted.
+    local = client.post("/api/projects", json={"name": "Local", "workspace_path": "my-app"}).json()
+    assert client.delete(f"/api/projects/{local['id']}?files=true").status_code == 204
+    assert runner.removed[-1].workspace is None
+
+
+def test_thinking_effort_by_what_a_model_does(client):
+    # A new installation: managers on medium, members and summaries on high.
+    pid = client.post("/api/projects", json={"name": "Efforts"}).json()["id"]
+    manager = next(a for a in client.get(f"/api/projects/{pid}/agents").json() if a["is_manager"])
+    dev = client.post(f"/api/projects/{pid}/agents", json={"name": "Dev", "role": "developer"}).json()
+    assert (manager["effort"], dev["effort"]) == ("medium", "high")
+
+    client.put("/api/settings", json={"values": {"default_manager_effort": "high", "default_worker_effort": "low", "default_summary_effort": None}})
+    pid = client.post("/api/projects", json={"name": "Efforts 2"}).json()["id"]
+    manager = next(a for a in client.get(f"/api/projects/{pid}/agents").json() if a["is_manager"])
+    dev = client.post(f"/api/projects/{pid}/agents", json={"name": "Dev", "role": "developer"}).json()
+    assert (manager["effort"], dev["effort"]) == ("high", "low")
+
+
 def test_local_workspace_folder(client):
     from plainboard.models import Agent, Project
     from plainboard.orchestration.context import workspace_path

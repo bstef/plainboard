@@ -102,7 +102,7 @@ whole installation. Everyone finds their own account here; the rest is for admin
 | Your account | Your name, your password, signing out |
 | People | Who may sign in, who is an admin, who may create projects |
 | Subscriptions | Claude and Codex subscriptions and API keys |
-| Models | The models and the thinking effort new agents start with; when long chats are summarised |
+| Models | The models new agents start with, each with its thinking effort (managers, members, summaries); when long chats are summarised |
 | Code access | GitHub token, SSH key, the name and address on the agents' commits |
 | Pace | How many agents work at the same time per project; how far a manager may raise that |
 | Secrets | Keys and tokens for the agents of all projects |
@@ -114,13 +114,13 @@ whole installation. Everyone finds their own account here; the rest is for admin
 | Section | What is in it |
 |---|---|
 | General | The project's name and description |
-| Repositories | The repositories. Click one for its address, base branch, checks and access |
+| Repositories | The repositories: by address, chosen from GitHub, or newly created there. Click one for its address, base branch, checks and access |
 | Team | How many agents work at once, which subscription they run on, whether the manager is told when work is finished |
 | Board | When tickets leave *Review* and when done tickets are archived |
 | Secrets | Keys and tokens for this project's agents only |
 | Members | Who sees the project, as viewer, member or owner |
 | Public API | Keys for showing progress on a website |
-| Advanced | A GitHub token for this project, a shared folder, deleting the project |
+| Advanced | A GitHub token for this project (with a test), a shared folder, deleting the project: with or without the folders its agents worked in |
 
 **In their own view**
 

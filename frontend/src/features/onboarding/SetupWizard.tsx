@@ -1,16 +1,17 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { checks, qk, useAccounts, useMeta, useSettings } from "../../api/queries";
 import type { Account, ProviderInfo } from "../../api/types";
-import { Field, Input, Select, Spinner, Toggle } from "../../components/ui";
+import { Field, FieldRow, Input, Select, Spinner, Toggle } from "../../components/ui";
 import { equivalentModel, smallModel } from "../../lib/models";
 import { AccountsEditor } from "../settings/AccountsEditor";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { SshKeyEditor } from "../settings/SettingsDialog";
 import { UsersEditor } from "../settings/UsersEditor";
-import { ModelSelect } from "../team/AgentEditor";
+import { DefaultModels } from "../settings/DefaultModels";
+import { GithubTokenField } from "../settings/GithubTokenField";
 import { Advice, Wizard, type WizardStep } from "./Wizard";
 
 type Values = Record<string, any>;
@@ -42,6 +43,16 @@ export function SetupWizard() {
       setValues({ ...settings.data.values, ...(zone ? { timezone: zone } : {}) });
     }
   }, [settings.data, values]);
+
+  // A new installation starts with the models PlainBoard recommends, as it does with the browser's
+  // time zone: the admin changes what differs, instead of having to press "Use these" first.
+  const advised = useRef(false);
+  useEffect(() => {
+    const found = (meta.data?.providers ?? []).find((p) => p.name === (values?.default_provider ?? "claude_code"));
+    if (values === null || advised.current || !found) return;
+    advised.current = true;
+    setValues((v) => ({ ...v, ...recommended(found) }));
+  }, [meta.data, values]);
 
   if (!settings.data || values === null) {
     return (
@@ -102,7 +113,7 @@ export function SetupWizard() {
       intro: t("setup.models.intro"),
       ready: !!values.default_manager_model && !!values.default_worker_model && !!values.default_summary_model,
       missing: t("setup.models.missing"),
-      onNext: () => save(["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_effort"]),
+      onNext: () => save(["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_manager_effort", "default_worker_effort", "default_summary_effort"]),
       content: (
         <div className="space-y-4">
           {provider && (
@@ -131,25 +142,7 @@ export function SetupWizard() {
               </Select>
             </Field>
           )}
-          <Field label={t("settings.managerModel")} hint={t("setup.models.managerHint")}>
-            <ModelSelect provider={provider} value={values.default_manager_model ?? ""} onChange={(v) => set({ default_manager_model: v })} />
-          </Field>
-          <Field label={t("settings.workerModel")} hint={t("setup.models.workerHint")}>
-            <ModelSelect provider={provider} value={values.default_worker_model ?? ""} onChange={(v) => set({ default_worker_model: v })} />
-          </Field>
-          <Field label={t("settings.summaryModel")} hint={t("setup.models.summaryHint")}>
-            <ModelSelect provider={provider} value={values.default_summary_model ?? ""} onChange={(v) => set({ default_summary_model: v })} />
-          </Field>
-          <Field label={t("settings.defaultEffort")} hint={t("setup.models.effortHint")}>
-            <Select value={values.default_effort ?? ""} onChange={(e) => set({ default_effort: e.target.value || null })}>
-              <option value="">{t("team.effortDefault")}</option>
-              {(provider?.efforts ?? []).map((e) => (
-                <option key={e} value={e}>
-                  {e}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <DefaultModels provider={provider} values={values} set={set} />
         </div>
       ),
     },
@@ -166,20 +159,21 @@ export function SetupWizard() {
         <div className="space-y-4">
           <Advice>{t("setup.code.advice")}</Advice>
           <Field
+            group
             label={t("settings.githubToken")}
             hint={settings.data.values.github_token ? t("settings.secretSet") : settings.data.env_fallbacks.github_token ? t("settings.secretFromEnv") : t("setup.code.tokenHint")}
           >
-            <Input type="password" autoComplete="off" placeholder="••••••••" value={githubToken} onChange={(e) => setGithubToken(e.target.value)} />
+            <GithubTokenField label={t("settings.githubToken")} value={githubToken} onChange={setGithubToken} />
           </Field>
           <SshKeyEditor publicKey={settings.data.values.git_ssh_public_key ?? ""} />
-          <div className="grid gap-3 sm:grid-cols-2">
+          <FieldRow>
             <Field label={t("settings.gitName")} hint={t("setup.code.authorHint")}>
               <Input value={values.git_author_name ?? ""} onChange={(e) => set({ git_author_name: e.target.value })} />
             </Field>
             <Field label={t("settings.gitEmail")}>
               <Input value={values.git_author_email ?? ""} onChange={(e) => set({ git_author_email: e.target.value })} />
             </Field>
-          </div>
+          </FieldRow>
         </div>
       ),
     },
@@ -192,14 +186,14 @@ export function SetupWizard() {
       content: (
         <div className="space-y-4">
           <Advice>{t("setup.pace.advice")}</Advice>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <FieldRow>
             <Field label={t("settings.maxParallel")} hint={t("settings.maxParallelHint")}>
               <Input type="number" min={0} max={20} value={values.max_parallel_runs ?? 3} onChange={(e) => set({ max_parallel_runs: Number(e.target.value) })} />
             </Field>
             <Field label={t("settings.managerParallel")} hint={t("settings.managerParallelHint")}>
               <Input type="number" min={0} max={20} value={values.manager_parallel_limit ?? 6} onChange={(e) => set({ manager_parallel_limit: Number(e.target.value) })} />
             </Field>
-          </div>
+          </FieldRow>
           <Field label={t("settings.timezone")} hint={t("setup.pace.timezoneHint")}>
             <Input value={values.timezone ?? ""} onChange={(e) => set({ timezone: e.target.value })} placeholder="Europe/Berlin" />
           </Field>

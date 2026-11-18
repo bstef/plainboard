@@ -208,6 +208,7 @@ class ContextManager:
                     system_prompt=prompts.SUMMARY_SYSTEM,
                     prompt=prompts.summary_prompt(summary, chunk),
                     credentials=credentials,
+                    effort=values["default_summary_effort"] or None,
                 )
             )
             summary = result.text.strip()

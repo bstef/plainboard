@@ -125,7 +125,7 @@
     "settings": "Project settings",
     "name": "Name",
     "description": "Description",
-    "descriptionHint": "What is being built, for whom, and what matters. Every agent reads it whenever it works, so keep it short.",
+    "descriptionHint": "What is being built, for whom, and what matters. Part of every agent's briefing, so keep it short. The manager writes it after talking with you; change it here whenever you like.",
     "localFolder": "Shared folder",
     "localFolderHint": "Normally every agent works in its own copy of the code. Name a folder inside the workspaces directory here to have all agents work in the same one instead, for example a project folder of your own machine that is mounted there. Repositories are cloned into sub folders of it.",
     "githubToken": "GitHub token for this project",
@@ -140,7 +140,6 @@
     "autoWakeHint": "The manager gets the reports of finished work by itself and goes on from there. Switched off, it looks at them only when you write to it.",
     "backlogNext": "Go on with the Backlog when To Do cannot start",
     "backlogNextHint": "When nothing in To Do can start, the team takes the next Backlog tickets, the most urgent first, and leaves only what needs you. Switched off, the Backlog waits until you move a ticket to To Do, and the team rests when To Do is empty.",
-    "confirmDelete": "Delete project \"{{name}}\" with all tickets, agents and notes?",
     "repositories": "Repositories",
     "repositoriesHint": "Every agent gets its own copy of each repository; in the team you choose which agent gets which.",
     "addRepo": "Add repository",
@@ -150,7 +149,7 @@
     "repoLandFirstHint": "A finished branch is merged at once, after the quick check. The full check runs on the base branch afterwards, once for everything that arrived; if it fails, an agent repairs it. Much faster where checks take long or often fail, but the base branch can be broken for a while: right for a development branch, not for one you release from.",
     "repoQuickCheckHint": "Runs the moment an agent hands over a branch: formatting, lint, whatever takes a minute or two. A failure goes straight back to that agent instead of costing everyone a full check. Empty: none.",
     "confirmRemoveRepo": "Remove repository \"{{name}}\" from the project? Existing clones stay on disk.",
-    "pickFromGithub": "Choose from GitHub",
+    "pickFromGithub": "From GitHub: choose or create",
     "addRepoByUrl": "Add a repository",
     "loadingGithub": "Loading your GitHub repositories…",
     "githubNoToken": "To choose from GitHub, add a GitHub token: PlainBoard settings → Code access, or Project settings → Advanced. Without one, add the repository by its address.",
@@ -212,6 +211,12 @@
     "repoQuickCheck": "Quick check (command)",
     "repoCheck": "Full check (command)",
     "githubMissing": "A repository is missing?",
+    "refreshGithub": "Load the list again",
+    "newGithub": "Or create a new repository on GitHub",
+    "newGithubName": "name, or organisation/name",
+    "newGithubCreate": "Create and add",
+    "newGithubHint": "Created with the GitHub token, with a first commit, and added to this project. A classic token needs the scope repo, a fine-grained one the permission \"Administration: write\".",
+    "newGithubFailed": "GitHub did not create the repository.",
     "githubMissingHint": "The list shows what your GitHub token can reach: your own repositories, those you collaborate on and those of your organisations. A classic token needs the repo scope, and where an organisation uses single sign-on it must be authorised for that organisation. A fine-grained token only reaches the one account or organisation it was created for, so an organisation needs a token of its own (as the project's GitHub token: Project settings, Advanced). Any repository can also be added by its address."
   },
   "board": {
@@ -634,6 +639,7 @@
     "title": "PlainBoard settings",
     "test": "Test connection",
     "testing": "Testing…",
+    "testToken": "Test",
     "clear": "Clear",
     "secretSet": "Stored",
     "secretFromEnv": "Using value from environment",
@@ -677,6 +683,8 @@
     "general": "General",
     "defaultProvider": "Provider",
     "defaultEffort": "Thinking effort",
+    "effortOption": "Effort: {{effort}}",
+    "effortOwn": "Effort: model's own",
     "managerModel": "Model for managers",
     "workerModel": "Model for members",
     "summaryModel": "Model for summaries",
@@ -806,7 +814,7 @@
       "managerHint": "The manager plans, splits work and decides. A wrong decision costs the whole team time, so the strongest model pays off here.",
       "workerHint": "Members write the code. A balanced model does most of it well; the manager can give a hard piece of work more effort.",
       "summaryHint": "Compresses long chats and writes the state of a ticket. Routine work: the small model is enough and saves quota.",
-      "effortHint": "How long a model thinks before it acts. Medium is a good start; higher is slower and uses more quota.",
+      "effortHint": "Beside each model: how long it thinks before it acts. Higher is slower and uses more quota. The manager has many short turns, so medium is enough there; members and summaries start on high.",
       "missing": "Choose all three models."
     },
     "code": {
@@ -839,9 +847,8 @@
     "finish": "Open the project",
     "basics": {
       "label": "Project",
-      "title": "What is this project?",
-      "intro": "A project has its own board, its own team of agents, notes and schedules.",
-      "descriptionHint": "The manager reads this on every turn: what is being built, for whom, and what matters. A few sentences are enough; it can grow later.",
+      "title": "What is the project called?",
+      "intro": "A project has its own board, its own team of agents, notes and schedules. What it is about you tell the manager in the chat afterwards: the first ticket on the board is for that.",
       "missing": "Give the project a name."
     },
     "code": {
@@ -888,8 +895,7 @@
     "code": {
       "label": "Code access",
       "description": "How agents reach your git repositories, in every project. A project or a single repository can have its own access instead.",
-      "tokenHint": "Lets agents clone, push and open pull requests on GitHub. Leave it empty if you don't use GitHub.",
-      "test": "Save and test"
+      "tokenHint": "Lets agents clone, push and open pull requests on GitHub. Leave it empty if you don't use GitHub."
     },
     "pace": {
       "label": "Pace",
@@ -937,6 +943,10 @@
       "label": "Advanced",
       "description": "Rarely needed. Leave these empty unless you know you need them.",
       "delete": "Delete this project",
+      "deleteTitle": "Delete \"{{name}}\"?",
+      "deleteFiles": "Also delete the folders its agents worked in",
+      "deleteFilesHint": "Their clones of your repositories on this server, with everything in them that was never pushed. If they stay, a new project with the same name works in them again and finds the old state.",
+      "folderStays": "The project works in your folder \"{{folder}}\". It stays as it is.",
       "deleteHint": "Deletes the board with all tickets, the team with its chats, the notes and the schedules. The code in your repositories stays. This cannot be undone.",
       "deleteAction": "Delete {{name}}"
     }

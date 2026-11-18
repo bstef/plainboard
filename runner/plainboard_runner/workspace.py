@@ -7,6 +7,7 @@ import base64
 import hashlib
 import logging
 import os
+import shutil
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -35,6 +36,25 @@ def resolve_workspace(spec: WorkspaceSpec) -> Path:
     if path != root and root not in path.parents:
         raise WorkspaceError(f"Workspace {path} is outside {root}")
     return path
+
+
+def project_folder(path: str) -> Path:
+    """A folder that may be deleted with a project: below the workspaces root, never the root itself."""
+    found = resolve_workspace(WorkspaceSpec(path=path))
+    if found == WORKSPACES_ROOT.resolve():
+        raise WorkspaceError("Not the folder of one project")
+    return found
+
+
+def remove_folder(path: Path) -> bool:
+    """Delete a folder with everything in it. False: there was none."""
+    if path.is_symlink():  # the link goes, never what it points at
+        path.unlink()
+        return True
+    if not path.exists():
+        return False
+    shutil.rmtree(path)
+    return True
 
 
 def git_env(creds: Credentials) -> dict[str, str]:

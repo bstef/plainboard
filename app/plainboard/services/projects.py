@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from plainboard_protocol import ProjectFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_config
 from ..events import bus
 from ..models import Attachment, InboxItem, Project, ProjectRole
 from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate, TaskCreate
@@ -164,9 +166,19 @@ async def set_label_color(session: AsyncSession, project: Project, label: str, c
     bus.publish(project.id, "project.updated", to_out(project))
 
 
-async def delete(session: AsyncSession, project: Project) -> None:
+async def delete(session: AsyncSession, project: Project, runner=None, *, files: bool = False) -> None:
+    """The project with everything PlainBoard knows about it. The runner's own clones of its repositories go
+    with it. The folders its agents worked in go only when asked (`files`): they may hold work that was never
+    pushed. A folder of the user's own (`workspace_path`) always stays."""
+    from . import landings as landing_service
     from .board import storage_path
 
+    if runner is not None:
+        folder = f"{get_config().workspaces_root}/{project.slug}" if files and not project.workspace_path else None
+        trains = [landing_service.train_key(r) for r in await repo_service.list_for_project(session, project.id)]
+        result = await runner.remove_files(ProjectFiles(workspace=folder, trains=trains))
+        if folder and not result.ok:
+            raise ServiceError(f"The project's folders could not be deleted, so the project is still there: {result.detail}. Try again, or delete it without them.")
     attachments = (await session.scalars(select(Attachment).where(Attachment.project_id == project.id))).all()
     files = [storage_path(a) for a in attachments]
     await session.delete(project)

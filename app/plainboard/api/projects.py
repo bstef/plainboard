@@ -83,11 +83,14 @@ async def update_project(project_id: int, body: ProjectUpdate, session: Session,
 
 
 @router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(project_id: int, session: Session) -> None:
+async def delete_project(project_id: int, session: Session, runs: Runs, files: bool = False) -> None:
+    """``files``: also the folders its agents worked in on the runner."""
     project = await project_service.get(session, project_id)
     if await session.scalar(select(Run.id).where(Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES))):
         raise ServiceError("Stop all running agents of this project first")
-    await project_service.delete(session, project)
+    for job in await job_service.running_for_project(session, project_id):
+        await runs.stop_job(session, job, settle=False)  # nothing of it keeps running on the runner
+    await project_service.delete(session, project, runs.runner, files=files)
 
 
 @router.post("/projects/{project_id}/check-github", response_model=CheckOut)

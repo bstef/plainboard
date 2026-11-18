@@ -205,6 +205,13 @@ class CommitRef(BaseModel):
 TRAIN_KEY = r"^[\w.-]{1,80}$"
 
 
+class ProjectFiles(BaseModel):
+    """What a deleted project leaves on the runner."""
+
+    workspace: str | None = None  # the folder its agents worked in. None: it stays (e.g. the user's own folder)
+    trains: list[Annotated[str, Field(pattern=TRAIN_KEY)]] = Field(default_factory=list)  # the runner's own clones
+
+
 class TrainSpec(BaseModel):
     """Several finished branches to be checked together: merged, in order, onto the base branch in
     the runner's own clone of the repository, so that one check run covers all of them. Plain git:

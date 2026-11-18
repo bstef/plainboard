@@ -221,6 +221,15 @@ class FakeRunner:
     async def check_provider(self, spec):
         return CheckResult(ok=True, detail="fake")
 
+    async def github_create_repo(self, credentials, name, owner="", private=True):
+        self.github_token_used = credentials.github_token
+        full = f"{owner or 'me'}/{name}"
+        return {"ok": True, "detail": "", "repos": [{"full_name": full, "name": name, "clone_url": f"https://github.com/{full}.git", "private": private}]}
+
+    async def remove_files(self, spec):
+        self.removed = getattr(self, "removed", []) + [spec]
+        return CheckResult(ok=not getattr(self, "remove_fails", False), detail="2 folders removed" if not getattr(self, "remove_fails", False) else "Permission denied")
+
     async def check_github(self, credentials, repo_url):
         return CheckResult(ok=bool(credentials.github_token), detail="fake")
 

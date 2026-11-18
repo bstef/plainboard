@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { Check, Lock, Search } from "lucide-react";
+import { Check, Lock, Plus, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api } from "../../api/client";
-import { Button, Input, Spinner } from "../../components/ui";
+import { api, errorMessage } from "../../api/client";
+import { Button, IconButton, Input, Spinner, Toggle } from "../../components/ui";
 import { emptyRepo, type RepoDraft } from "./RepositoriesEditor";
 
 interface GitHubRepo {
@@ -41,8 +41,12 @@ export function GitHubRepoPicker({
   const result = useQuery({
     queryKey: ["github-repos", projectId ?? 0],
     queryFn: () => api.get<GitHubReposResult>(`/github/repos${projectId ? `?project_id=${projectId}` : ""}`),
-    staleTime: 60_000,
+    // Asked again whenever the list opens: a repository made a moment ago has to be in it.
+    staleTime: 0,
   });
+  const [fresh, setFresh] = useState({ name: "", private: true });
+  const [creating, setCreating] = useState(false);
+  const [failed, setFailed] = useState("");
 
   const normalize = (url: string) => url.toLowerCase().replace(/\.git$/, "");
   const taken = useMemo(() => new Set(existing.map((r) => normalize(r.url))), [existing]);
@@ -78,6 +82,25 @@ export function GitHubRepoPicker({
     }
   };
 
+  // A new repository on GitHub, added to the project in the same step.
+  const create = async () => {
+    const [name, owner] = fresh.name.trim().split("/").reverse();
+    setCreating(true);
+    setFailed("");
+    try {
+      const made = await api.post<GitHubReposResult>("/github/repos", { name, owner: owner ?? "", private: fresh.private, project_id: projectId ?? null });
+      const repo = made.repos[0];
+      if (!made.ok || !repo) return setFailed(made.detail || t("projects.newGithubFailed"));
+      const folder = existing.some((r) => r.name.toLowerCase() === repo.name.toLowerCase()) ? repo.full_name.replace("/", "-") : repo.name;
+      await onPick([{ ...emptyRepo(), name: folder, url: repo.clone_url }]);
+      onClose();
+    } catch (err) {
+      setFailed(errorMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="space-y-2 rounded-sm bg-sunk p-3">
       {result.isLoading ? (
@@ -88,9 +111,14 @@ export function GitHubRepoPicker({
         <p className="text-you-fg">{result.data?.detail === "No GitHub token configured" ? t("projects.githubNoToken") : result.data?.detail || String(result.error ?? "")}</p>
       ) : (
         <>
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-2 left-2.5 size-4 text-fg-3" />
-            <Input autoFocus className="pl-8" placeholder={t("projects.searchGithub", { count: available.length })} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="flex items-center gap-1">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute top-2 left-2.5 size-4 text-fg-3" />
+              <Input autoFocus className="pl-8" placeholder={t("projects.searchGithub", { count: available.length })} value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+            <IconButton label={t("projects.refreshGithub")} onClick={() => result.refetch()} disabled={result.isFetching}>
+              <RefreshCw className={clsx("size-4", result.isFetching && "animate-spin")} />
+            </IconButton>
           </div>
           <ul className="scroll-thin max-h-64 overflow-y-auto rounded-sm bg-bg ring-1 ring-line">
             {visible.map((r) => {
@@ -126,6 +154,26 @@ export function GitHubRepoPicker({
           <details className="text-fg-3">
             <summary className="cursor-pointer">{t("projects.githubMissing")}</summary>
             <p className="pt-1">{t("projects.githubMissingHint")}</p>
+          </details>
+          <details className="text-fg-3">
+            <summary className="cursor-pointer">{t("projects.newGithub")}</summary>
+            <div className="space-y-2 pt-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <Input
+                  className="min-w-40 flex-1"
+                  aria-label={t("projects.newGithubName")}
+                  placeholder={t("projects.newGithubName")}
+                  value={fresh.name}
+                  onChange={(e) => setFresh({ ...fresh, name: e.target.value })}
+                />
+                <Toggle checked={fresh.private} onChange={(v) => setFresh({ ...fresh, private: v })} label={t("projects.private")} />
+                <Button size="sm" icon={<Plus className="size-4" />} loading={creating} disabled={!/^([\w.-]+\/)?[\w.-]+$/.test(fresh.name.trim())} onClick={create}>
+                  {t("projects.newGithubCreate")}
+                </Button>
+              </div>
+              <p>{t("projects.newGithubHint")}</p>
+              {failed && <p className="text-you-fg">{failed}</p>}
+            </div>
           </details>
         </>
       )}

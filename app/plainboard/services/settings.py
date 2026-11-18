@@ -34,7 +34,11 @@ SETTINGS: dict[str, SettingDef] = {
     "default_manager_model": SettingDef("claude-sonnet-5-5"),
     "default_worker_model": SettingDef("claude-sonnet-5-5"),
     "default_summary_model": SettingDef("claude-haiku-5-5"),
-    "default_effort": SettingDef("medium"),
+    # How long a model thinks before it acts, by what it does. The manager has many short turns; a
+    # member's turn is the work itself, and a summary is what an agent knows afterwards.
+    "default_manager_effort": SettingDef("medium"),
+    "default_worker_effort": SettingDef("high"),
+    "default_summary_effort": SettingDef("high"),
     "default_context_limit": SettingDef(350000),
     "default_keep_recent": SettingDef(6),
     # Members working at the same time in each project that has no number of its own (`projects.parallel_limit`).

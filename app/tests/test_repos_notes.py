@@ -46,7 +46,13 @@ def test_github_repo_picker_uses_project_token_override(client, project):
     client.put("/api/settings", json={"values": {"github_token": "global-token"}})
     assert client.get("/api/github/repos").json()["repos"][0]["full_name"] == "acme/api"
     assert runner(client).github_token_used == "global-token"
+    # A new repository is made with the same token, and with the project's own if it has one.
+    made = client.post("/api/github/repos", json={"name": "shop", "owner": "acme"}).json()
+    assert made["repos"][0]["clone_url"] == "https://github.com/acme/shop.git" and made["repos"][0]["private"] and runner(client).github_token_used == "global-token"
+    assert client.post("/api/github/repos", json={"name": "a/b"}).status_code == 422
     client.patch(f"/api/projects/{pid}", json={"github_token": "project-token"})
+    client.post("/api/github/repos", json={"name": "shop", "project_id": pid})
+    assert runner(client).github_token_used == "project-token"
     client.get(f"/api/github/repos?project_id={pid}")
     assert runner(client).github_token_used == "project-token"
 

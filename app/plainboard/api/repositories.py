@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
 from ..schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
 from ..services import projects as project_service
@@ -19,6 +20,21 @@ async def github_repos(session: Session, runner: Runner, project_id: int | None 
     override = project_service.github_token(await project_service.get(session, project_id)) if project_id else None
     credentials = settings_service.credentials(await settings_service.get_all(session), override)
     return await runner.github_repos(credentials)
+
+
+class GithubRepoIn(BaseModel):
+    name: str = Field(pattern=r"^[\w.-]{1,100}$")
+    owner: str = Field(default="", pattern=r"^[\w.-]{0,100}$")  # an organisation. Empty: the token's own account
+    private: bool = True
+    project_id: int | None = None  # its token, if it has one of its own
+
+
+@router.post("/github/repos")
+async def create_github_repo(body: GithubRepoIn, session: Session, runner: Runner) -> dict[str, Any]:
+    """A new repository on GitHub, made with the GitHub token. The answer has the shape of the list above."""
+    override = project_service.github_token(await project_service.get(session, body.project_id)) if body.project_id else None
+    credentials = settings_service.credentials(await settings_service.get_all(session), override)
+    return await runner.github_create_repo(credentials, body.name, body.owner, body.private)
 
 
 @router.get("/projects/{project_id}/repositories", response_model=list[RepositoryOut])

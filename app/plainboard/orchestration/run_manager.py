@@ -599,10 +599,18 @@ class RunManager:
                     return
                 manager = await agent_service.get_manager(s, task.project_id)
                 account = await account_service.pick(s, manager.provider, manager)
-                credentials = settings_service.credentials(await settings_service.get_all(s), account=account_service.fields(account))
+                values = await settings_service.get_all(s)
+                credentials = settings_service.credentials(values, account=account_service.fields(account))
                 before = await ticket_state.text_for(s, task.id)
                 names = await board_service.agent_names(s, task.project_id)
-                spec = CompletionSpec(provider=manager.provider, model=manager.summary_model, system_prompt=ticket_state.SYSTEM, prompt=ticket_state.prompt(task, before, reports, names), credentials=credentials)
+                spec = CompletionSpec(
+                    provider=manager.provider,
+                    model=manager.summary_model,
+                    system_prompt=ticket_state.SYSTEM,
+                    prompt=ticket_state.prompt(task, before, reports, names),
+                    credentials=credentials,
+                    effort=values["default_summary_effort"] or None,
+                )
                 await s.commit()  # no transaction is held while the model writes
                 result = await self.runner.complete(spec)
                 if not result.text.strip():

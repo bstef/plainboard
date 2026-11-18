@@ -32,6 +32,15 @@ def check_state(item: dict[str, Any]) -> PullRequestCheck:
     return PullRequestCheck(name=name, state=result, link=item.get("detailsUrl") or "")
 
 
+def token_summary(response: str) -> tuple[str, list[str] | None]:
+    """Who a token belongs to and what it may do, from `gh api -i user`: the login and the scopes.
+    Scopes None: a fine-grained token, whose rights GitHub does not list."""
+    head, _, body = response.replace("\r\n", "\n").partition("\n\n")
+    login = json.loads(body)["login"]
+    found = re.search(r"(?im)^x-oauth-scopes:(.*)$", head)
+    return login, None if found is None else [scope.strip() for scope in found.group(1).split(",") if scope.strip()]
+
+
 def parse_state(data: dict[str, Any]) -> PullRequestState:
     mergeable = {"MERGEABLE": "yes", "CONFLICTING": "conflict"}.get((data.get("mergeable") or "").upper(), "unknown")
     # A re-run adds a second entry for the same check: the last one counts.

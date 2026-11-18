@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
+from plainboard_protocol import ProjectFiles, CheckResult, CompletionResult, CompletionSpec, Credentials, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -89,6 +89,10 @@ class RunnerClient:
             resp = await self._client.post("/complete", json=spec.model_dump(mode="json"), timeout=600)
         except httpx.HTTPError as exc:
             raise RunnerError(f"Runner unreachable: {exc}") from exc
+        if resp.status_code >= 400 and spec.effort:
+            # Not every model takes every effort, and a summary must not fail over it: once more without.
+            log.warning("Completion with effort %s failed on %s, trying without: %s", spec.effort, spec.model, resp.text[:300])
+            return await self.complete(spec.model_copy(update={"effort": None}))
         if resp.status_code >= 400:
             raise RunnerError(resp.text[:1000])
         return CompletionResult.model_validate(resp.json())
@@ -133,6 +137,25 @@ class RunnerClient:
             return CheckResult.model_validate(resp.json())
         except httpx.HTTPError as exc:
             return CheckResult(ok=False, detail=f"Runner unreachable: {exc}")
+
+    async def github_create_repo(self, credentials: Credentials, name: str, owner: str = "", private: bool = True) -> dict:
+        body = {"credentials": credentials.model_dump(mode="json"), "name": name, "owner": owner, "private": private}
+        try:
+            resp = await self._client.post("/github/repos/create", json=body, timeout=90)
+        except httpx.HTTPError as exc:
+            return {"ok": False, "detail": f"Runner unreachable: {exc}", "repos": []}
+        if resp.status_code >= 400:
+            return {"ok": False, "detail": resp.text[:300], "repos": []}
+        return resp.json()
+
+    async def remove_files(self, spec: ProjectFiles) -> CheckResult:
+        try:
+            resp = await self._client.post("/files/remove", json=spec.model_dump(mode="json"), timeout=300)
+        except httpx.HTTPError as exc:
+            return CheckResult(ok=False, detail=f"Runner unreachable: {exc}")
+        if resp.status_code >= 400:
+            return CheckResult(ok=False, detail=resp.text[:300])
+        return CheckResult.model_validate(resp.json())
 
     async def github_repos(self, credentials: Credentials) -> dict:
         try:

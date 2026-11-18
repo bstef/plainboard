@@ -3,15 +3,16 @@ import clsx from "clsx";
 import { CheckCircle2, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, errorMessage } from "../../api/client";
-import { checks, qk, useMe, useMeta, useSettings } from "../../api/queries";
+import { api } from "../../api/client";
+import { qk, useMe, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
-import { Button, ErrorText, Field, IconButton, Input, PageHead, Select, Textarea, Toggle } from "../../components/ui";
+import { Button, ErrorText, Field, FieldRow, IconButton, Input, PageHead, Select, Textarea, Toggle } from "../../components/ui";
 import { useStored } from "../../lib/hooks";
 import { equivalentModel } from "../../lib/models";
-import { ModelSelect } from "../team/AgentEditor";
+import { DefaultModels } from "./DefaultModels";
+import { GithubTokenField } from "./GithubTokenField";
 import { AccountEditor } from "./AccountEditor";
 import { AccountsEditor } from "./AccountsEditor";
 import { PauseEditor } from "./PauseEditor";
@@ -47,13 +48,11 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   }, [open, section, setCurrent]);
   const [values, setValues] = useState<Values>({});
   const [githubToken, setGithubToken] = useState<string | null>(null); // null: untouched, "": clear it
-  const [githubCheck, setGithubCheck] = useState<CheckResult | null>(null);
 
   useEffect(() => {
     if (open && settings.data) {
       setValues(settings.data.values);
       setGithubToken(null);
-      setGithubCheck(null);
     }
   }, [open, settings.data]);
   useEffect(() => {
@@ -84,16 +83,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
     await save(["git_author_name", "git_author_email"], githubToken === null ? {} : { github_token: githubToken });
     setGithubToken(null);
   };
-  const checkGithub = async () => {
-    setGithubCheck({ ok: true, detail: t("settings.testing") });
-    try {
-      await saveCode();
-      setGithubCheck(await checks.github());
-    } catch (err) {
-      setGithubCheck({ ok: false, detail: errorMessage(err) });
-    }
-  };
-  const MODELS = ["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_effort", "default_context_limit", "default_keep_recent"];
+  const MODELS = ["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_manager_effort", "default_worker_effort", "default_summary_effort", "default_context_limit", "default_keep_recent"];
   const PACE = ["max_parallel_runs", "manager_parallel_limit"];
   const GENERAL = ["timezone", "update_check"];
 
@@ -141,33 +131,15 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   </Select>
                 </Field>
               )}
-              <Field label={t("settings.managerModel")} hint={t("setup.models.managerHint")}>
-                <ModelSelect provider={provider} value={values.default_manager_model ?? ""} onChange={(v) => set({ default_manager_model: v })} />
-              </Field>
-              <Field label={t("settings.workerModel")} hint={t("setup.models.workerHint")}>
-                <ModelSelect provider={provider} value={values.default_worker_model ?? ""} onChange={(v) => set({ default_worker_model: v })} />
-              </Field>
-              <Field label={t("settings.summaryModel")} hint={t("setup.models.summaryHint")}>
-                <ModelSelect provider={provider} value={values.default_summary_model ?? ""} onChange={(v) => set({ default_summary_model: v })} />
-              </Field>
-              <Field label={t("settings.defaultEffort")} hint={t("setup.models.effortHint")}>
-                <Select value={values.default_effort ?? ""} onChange={(e) => set({ default_effort: e.target.value || null })}>
-                  <option value="">{t("team.effortDefault")}</option>
-                  {(provider?.efforts ?? []).map((e) => (
-                    <option key={e} value={e}>
-                      {e}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <DefaultModels provider={provider} values={values} set={set} />
+              <FieldRow>
                 <Field label={t("settings.contextLimit")} hint={t("team.contextLimitHint")}>
                   <Input type="number" min={5000} step={5000} value={values.default_context_limit ?? 350000} onChange={(e) => set({ default_context_limit: Number(e.target.value) })} />
                 </Field>
                 <Field label={t("settings.keepRecent")} hint={t("settingsPage.models.keepRecentHint")}>
                   <Input type="number" min={0} max={50} value={values.default_keep_recent ?? 6} onChange={(e) => set({ default_keep_recent: Number(e.target.value) })} />
                 </Field>
-              </div>
+              </FieldRow>
               <SaveRow dirty={dirty(...MODELS)} onSave={() => save(MODELS)} />
             </div>
           ),
@@ -187,27 +159,23 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   </>
                 }
               >
-                <div className="flex gap-2">
-                  <Input type="password" autoComplete="off" aria-label={t("settings.githubToken")} value={githubToken ?? ""} onChange={(e) => setGithubToken(e.target.value)} />
+                <GithubTokenField label={t("settings.githubToken")} value={githubToken ?? ""} onChange={setGithubToken}>
                   {stored.github_token && (
                     <Button variant="ghost" onClick={() => setGithubToken("")}>
                       {t("settings.clear")}
                     </Button>
                   )}
-                </div>
+                </GithubTokenField>
               </Field>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <FieldRow>
                 <Field label={t("settings.gitName")} hint={t("setup.code.authorHint")}>
                   <Input value={values.git_author_name ?? ""} onChange={(e) => set({ git_author_name: e.target.value })} />
                 </Field>
                 <Field label={t("settings.gitEmail")}>
                   <Input value={values.git_author_email ?? ""} onChange={(e) => set({ git_author_email: e.target.value })} />
                 </Field>
-              </div>
-              <SaveRow dirty={dirty("git_author_name", "git_author_email") || githubToken !== null} onSave={saveCode}>
-                <CheckBadge result={githubCheck} />
-                <Button onClick={checkGithub}>{t("settingsPage.code.test")}</Button>
-              </SaveRow>
+              </FieldRow>
+              <SaveRow dirty={dirty("git_author_name", "git_author_email") || githubToken !== null} onSave={saveCode} />
               <div className="pt-2">
                 <SshKeyEditor publicKey={stored.git_ssh_public_key ?? ""} />
               </div>

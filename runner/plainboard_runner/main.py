@@ -11,8 +11,8 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
-from pydantic import BaseModel
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
+from pydantic import BaseModel, Field
 
 from . import github
 from .browser import browsers
@@ -22,7 +22,7 @@ from . import ports
 from . import trains
 from .providers import get_provider, list_providers
 from .tool_bridge import ToolBridge
-from .workspace import WorkspaceError, config_args, git_env, prepare_workspace, run_cmd
+from .workspace import WorkspaceError, config_args, git_env, prepare_workspace, project_folder, remove_folder, run_cmd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("plainboard.runner")
@@ -232,7 +232,7 @@ async def github_repos(credentials: Credentials) -> GitHubReposResult:
     """All repositories the token can access (own, collaborator, organisation member)."""
     if not credentials.github_token:
         return GitHubReposResult(ok=False, detail="No GitHub token configured")
-    jq = ".[] | {full_name, name, clone_url, description, default_branch, private}"
+    jq = f".[] | {REPO_FIELDS}"
     path = "user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member"
     try:
         out = await run_cmd(["gh", "api", "--paginate", path, "--jq", jq], cwd=None, env=git_env(credentials), timeout=90)
@@ -240,6 +240,31 @@ async def github_repos(credentials: Credentials) -> GitHubReposResult:
         return GitHubReposResult(ok=False, detail=str(exc)[:400])
     repos = [GitHubRepo.model_validate_json(line) for line in out.splitlines() if line.strip()]
     return GitHubReposResult(ok=True, repos=repos)
+
+
+REPO_FIELDS = "{full_name, name, clone_url, description, default_branch, private}"
+
+
+class NewGitHubRepo(BaseModel):
+    credentials: Credentials
+    name: str = Field(pattern=r"^[\w.-]{1,100}$")
+    owner: str = Field(default="", pattern=r"^[\w.-]{0,100}$")  # an organisation. Empty: the token's own account
+    private: bool = True
+    description: str = ""
+
+
+@app.post("/github/repos/create", response_model=GitHubReposResult)
+async def github_create_repo(body: NewGitHubRepo) -> GitHubReposResult:
+    """A new repository on GitHub, with a first commit so it has a branch agents can start from."""
+    if not body.credentials.github_token:
+        return GitHubReposResult(ok=False, detail="No GitHub token configured")
+    args = ["gh", "api", "-X", "POST", f"orgs/{body.owner}/repos" if body.owner else "user/repos"]
+    args += ["-f", f"name={body.name}", "-f", f"description={body.description}", "-F", f"private={str(body.private).lower()}", "-F", "auto_init=true"]
+    try:
+        out = await run_cmd([*args, "--jq", REPO_FIELDS], cwd=None, env=git_env(body.credentials), timeout=60)
+    except WorkspaceError as exc:
+        return GitHubReposResult(ok=False, detail=str(exc)[-400:])
+    return GitHubReposResult(ok=True, repos=[GitHubRepo.model_validate_json(out.splitlines()[-1])])
 
 
 @app.post("/github/pull-request", response_model=PullRequestState)
@@ -324,6 +349,19 @@ async def git_branch(ref: BranchRef) -> dict[str, str | None]:
         raise HTTPException(502, str(exc)[:600]) from exc
 
 
+@app.post("/files/remove", response_model=CheckResult)
+async def remove_files(body: ProjectFiles) -> CheckResult:
+    """What a deleted project leaves on this machine: its agents' folders, and the clones its trains were built in."""
+    folders = [trains.folder(key) for key in body.trains]
+    try:
+        if body.workspace:
+            folders.append(project_folder(body.workspace))
+        removed = await asyncio.to_thread(lambda: sum(remove_folder(folder) for folder in folders))
+    except (WorkspaceError, OSError) as exc:
+        return CheckResult(ok=False, detail=str(exc)[:400])
+    return CheckResult(ok=True, detail=f"{removed} folder{'' if removed == 1 else 's'} removed")
+
+
 class GitHubCheck(BaseModel):
     credentials: Credentials
     repo_urls: list[str] = []
@@ -339,10 +377,20 @@ async def check_github(body: GitHubCheck) -> CheckResult:
     ok = True
     if body.credentials.github_token:
         try:
-            login = await run_cmd(["gh", "api", "user", "--jq", ".login"], cwd=None, env=env, timeout=30)
-            parts.append(f"Authenticated as {login}")
+            answer = await run_cmd(["gh", "api", "-i", "user"], cwd=None, env=env, timeout=30)
         except WorkspaceError as exc:
             return CheckResult(ok=False, detail=f"Token rejected: {str(exc)[:300]}")
+        try:
+            login, scopes = github.token_summary(answer)
+        except (ValueError, KeyError):
+            parts.append("Token accepted")
+        else:
+            if scopes is None:
+                parts.append(f"Authenticated as {login} (fine-grained token: it reaches the repositories chosen for it)")
+            elif not {"repo", "public_repo"} & set(scopes):
+                return CheckResult(ok=False, detail=f"Authenticated as {login}, but the token lacks the scope 'repo': it cannot push or open pull requests")
+            else:
+                parts.append(f"Authenticated as {login} (scopes: {', '.join(scopes)})")
     elif not repos:
         return CheckResult(ok=False, detail="No GitHub token configured")
     for repo in repos:
