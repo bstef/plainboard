@@ -20,7 +20,7 @@ def test_a_quiet_project_has_no_findings(client, project):
     assert tool_results(client, manager_of(client, pid)["id"])[-1] == "PlainBoard's checks found nothing in the last 24 h that slows the team down."
 
 
-def test_a_base_branch_that_stays_red_and_the_checks_that_keep_failing_are_found(client, project):
+def test_a_base_branch_that_stays_red_and_the_checks_that_keep_failing_are_found(client, project, lands_on_red):
     from plainboard.models import utcnow
 
     pid = project["id"]

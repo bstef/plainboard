@@ -470,7 +470,9 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
   whose checks take long and often fail. Finished branches are merged at once, the checks run on
   the base branch afterwards, once for everything that landed, and if they fail one agent repairs
   the base branch. Nothing waits for a check run and a failure takes nothing back; the base branch
-  can be red for a while, so don't use it for a branch you release from.
+  can be red for a while, so don't use it for a branch you release from. While it is red, only its
+  repair lands and the other finished branches wait, at most 45 minutes: the agents go on working,
+  and the next check run shows whether the repair worked.
 - Time is measured and shown to the agents where they decide (how long a command took, work against
   waiting per assignment), because a model has no clock.
 - **Your decisions**: the manager can ask you on a ticket, e.g. to choose between two design

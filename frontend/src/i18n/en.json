@@ -149,7 +149,7 @@
     "repoAutoName": "(name from URL)",
     "repoCheckHint": "Decides whether work may stay: your test suite or CI script. Runs once for all finished branches together, with any git host. Empty: on GitHub, the checks of a pull request decide.",
     "repoLandFirst": "At once, checked afterwards",
-    "repoLandFirstHint": "A finished branch is merged at once, after the quick check. The full check runs on the base branch afterwards, once for everything that arrived; if it fails, an agent repairs it. Much faster where checks take long or often fail, but the base branch can be broken for a while: right for a development branch, not for one you release from.",
+    "repoLandFirstHint": "A finished branch is merged at once, after the quick check. The full check runs on the base branch afterwards, once for everything that arrived; if it fails, an agent repairs it, and until then (at most 45 minutes) only that repair is merged. Much faster where checks take long or often fail, but the base branch can be broken for a while: right for a development branch, not for one you release from.",
     "repoQuickCheckHint": "Runs the moment an agent hands over a branch: formatting, lint, whatever takes a minute or two. A failure goes straight back to that agent instead of costing everyone a full check. Empty: none.",
     "confirmRemoveRepo": "Remove repository \"{{name}}\" from the project? Existing clones stay on disk.",
     "pickFromGithub": "From GitHub: choose or create",

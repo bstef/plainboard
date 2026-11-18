@@ -1001,7 +1001,7 @@ def land_tick_at(client, when) -> None:
     client.portal.call(client.app_ref.state.landing.tick, when)
 
 
-def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(client, project):
+def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(client, project, lands_on_red):
     from plainboard.models import utcnow
 
     pid = project["id"]
@@ -1069,7 +1069,61 @@ def test_land_first_merges_at_once_and_a_red_base_is_repaired_by_one_assignment(
     assert stats["previous"] == {"tickets_done": 0, "branches_landed": 0, "landing_seconds": None, "check_runs": 0, "check_runs_failed": 0, "assignments_done": 0, "repairs": 0, "cost_usd": 0.0}
 
 
-def test_a_new_failure_on_a_red_base_gets_its_own_repair_without_what_is_being_repaired(client, project):
+def test_while_the_base_is_red_only_its_repair_lands_and_not_for_longer_than_the_hold(client, project):
+    """Seen in production: every batch broke something, and the next ones landed on top before the repair did.
+    The base branch was red for hours, each check run for another mix of reasons."""
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    manager = manager_of(client, pid)
+    red = [PullRequestCheck(name="Tests", state="fail", link="https://ci/t")]
+    green = [PullRequestCheck(name="Tests", state="pass")]
+    landed = lambda: [sorted(spec.delete_branches) for spec in fake.land_specs]  # noqa: E731
+    now = utcnow()  # the manager's turn looks at the clock, so the first red check run ends now
+    land_tick_at(client, now - timedelta(minutes=15))
+
+    # Red: PlainBoard has it repaired, and what was finished meanwhile waits instead of landing on top.
+    hand_over(client, pid, fake, "Dev2", "feat-b")
+    fake.commit_checks_of["train-1"] = red
+    land_tick_at(client, now)
+    wait_for(lambda: idle(client, pid) and repairs(client, pid) and repairs(client, pid)[0]["status"] == "done")
+    assert landed() == [["feat-a"]]
+
+    # The manager reads it with its turn, and that nobody repairs it now (PlainBoard's repair handed over no fix).
+    # Its own repair is marked as one: that branch lands, alone, while feat-b still waits.
+    fake.branches["fix-1"] = "sha-fix-1"
+    order = {"agent": "dev2", "title": "Fix the tests on main", "instructions": "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": "fix-1"}), "base_repair": True}
+    chat(client, manager["id"], "TOOL delegate " + json.dumps(order))
+    wait_for(lambda: idle(client, pid) and any(a["title"] == "Fix the tests on main" and a["status"] == "done" for a in assignments(client, pid)))
+    told = next(s.prompt for s in fake.specs if "TOOL delegate" in s.prompt and "Fix the tests on main" in s.prompt)
+    assert "Red base branch: main of api has failed its checks for" in told and "(Tests)" in told
+    assert "Finished branches wait for its repair (1 now), at most" in told and "delegate the repair with base_repair=true" in told
+    land_tick_at(client, now + timedelta(minutes=10))
+    wait_for(lambda: idle(client, pid))
+    assert landed() == [["feat-a"], ["fix-1"]]
+
+    # Green with the fix: what waited lands.
+    fake.commit_checks_of["train-2"] = green
+    land_tick_at(client, now + timedelta(minutes=25))
+    wait_for(lambda: idle(client, pid))
+    assert landed() == [["feat-a"], ["fix-1"], ["feat-b"]]
+
+    # Red again, and this time no fix comes. Finished work waits 45 minutes from the first red check run, not longer.
+    fake.commit_checks_of["train-3"] = red
+    hand_over(client, pid, fake, "Dev3", "feat-c")
+    land_tick_at(client, now + timedelta(minutes=40))
+    wait_for(lambda: idle(client, pid))
+    land_tick_at(client, now + timedelta(minutes=80))
+    assert len(landed()) == 3
+    land_tick_at(client, now + timedelta(minutes=86))
+    wait_for(lambda: idle(client, pid))
+    assert landed()[-1] == ["feat-c"]
+    events = [e["kind"] for e in flow_events(client, pid) if e["kind"] in ("base.hold", "base.red", "base.green")]
+    assert events == ["base.red", "base.hold", "base.green", "base.red", "base.hold"]
+
+
+def test_a_new_failure_on_a_red_base_gets_its_own_repair_without_what_is_being_repaired(client, project, lands_on_red):
     from plainboard.models import utcnow
 
     pid = project["id"]
@@ -1091,7 +1145,7 @@ def test_a_new_failure_on_a_red_base_gets_its_own_repair_without_what_is_being_r
     assert f"These failed too, and assignment #{first['id']} repairs them (its fix has not landed yet): Tests." in prompt
 
 
-def test_other_work_of_the_member_that_repaired_is_not_taken_for_the_fix(client, project):
+def test_other_work_of_the_member_that_repaired_is_not_taken_for_the_fix(client, project, lands_on_red):
     from plainboard.models import utcnow
 
     pid = project["id"]
@@ -1123,7 +1177,7 @@ def test_other_work_of_the_member_that_repaired_is_not_taken_for_the_fix(client,
     assert "repair 2 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
 
 
-def test_a_repair_that_was_cancelled_is_not_ordered_again_with_every_batch(client, project):
+def test_a_repair_that_was_cancelled_is_not_ordered_again_with_every_batch(client, project, lands_on_red):
     """Seen in production: the manager repaired a red base branch with assignments of its own and cancelled
     PlainBoard's. PlainBoard ordered it again with every red batch, and it was cancelled again: 28 times in a day."""
     from plainboard.models import utcnow
@@ -1158,7 +1212,7 @@ def test_a_repair_that_was_cancelled_is_not_ordered_again_with_every_batch(clien
     assert events == ["base.red", "base.repair_ordered", *["base.red", "base.left_alone"] * 4, "base.red", "base.repair_ordered"]
 
 
-def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(client, project):
+def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(client, project, lands_on_red):
     """Seen in production: eight red landings, each for other checks. After three repairs everything
     went to the manager, although none of the new failures had been repaired even once."""
     from plainboard.models import utcnow
@@ -1195,7 +1249,7 @@ def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(cli
     assert len(repairs(client, pid)) == 6 and len(told()) == 1
 
 
-def test_land_first_with_a_check_command_and_without_any_checks(client, project):
+def test_land_first_with_a_check_command_and_without_any_checks(client, project, lands_on_red):
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a"], land_first=True)
     land_tick(client)

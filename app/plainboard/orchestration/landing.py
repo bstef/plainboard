@@ -23,7 +23,10 @@ ready is merged into the base branch at once, and the checks run on the base bra
 once for everything that landed. Their result takes nothing back. If they fail, one agent repairs
 the base branch on a branch of its own, which lands like any other. The next batch lands when the
 checks of the last one are over, so a check run is never replaced by a newer push. A repair that
-someone cancelled is not ordered again for a few batches: they have it in hand.
+someone cancelled is not ordered again for a few batches: they have it in hand. While the base
+branch is red, only its repair lands (PlainBoard's, or one the manager ordered as such): the other
+finished branches wait, at most ``RED_HOLD_SECONDS`` from the first red check run. Agents wait for
+nothing; only merging does.
 """
 
 from __future__ import annotations
@@ -109,6 +112,7 @@ class LandingWatcher:
         self._runs = runs
         self._interval = interval
         self.linger = linger  # seconds a train waits for further branches before it leaves
+        self._holds: set[tuple[int, datetime]] = set()  # red phases whose hold is in the work log already
         self._task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
@@ -460,6 +464,16 @@ class LandingWatcher:
         """Merge everything that is ready into the base branch now. The checks run on the base
         branch afterwards (_watch_base) and take nothing back."""
         waiting = await self._ready(s, r)
+        red = await landing_service.red_base(s, r.repo.id, now)
+        if red is not None:
+            # The base branch is red: only what repairs it lands. The next check run then says whether the
+            # repair worked, and a new failure belongs to one batch instead of piling onto the old one.
+            fixes = {a.id for a in red.repairs}
+            held = [w for w in waiting if w.assignment_id not in fixes]
+            waiting = [w for w in waiting if w.assignment_id in fixes]
+            if held and (r.repo.id, red.since) not in self._holds:
+                self._holds.add((r.repo.id, red.since))
+                await flow_log.record(s, r.project.id, "base.hold", train_id=red.train.id, branches=len(held), minutes=landing_service.RED_HOLD_SECONDS // 60)
         pick = waiting[: landing_service.MAX_BATCH]
         if not pick or (self.linger > 0 and (now - min(p.updated_at for p in pick)).total_seconds() < self.linger):
             return

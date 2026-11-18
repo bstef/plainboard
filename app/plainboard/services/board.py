@@ -26,6 +26,7 @@ from ..models import (
     Landing,
     LandingStatus,
     Project,
+    Repository,
     Run,
     RunStatus,
     Task,
@@ -392,6 +393,38 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
             state = "goes on the next train"
         lines.append(f'- Branch {truncate(landing.branch, 60)}{ticket}, {names.get(landing.agent_id or 0, "?")}: {state}; PlainBoard lands it')
     return lines[:IN_FLIGHT_LINES], max(len(lines) - IN_FLIGHT_LINES, 0)
+
+
+async def red_bases(session: AsyncSession, project_id: int, now: datetime | None = None) -> list[str]:
+    """For the manager's turn: base branches that fail their checks while finished branches wait for the repair.
+    From the database, like everything in flight: who repairs it, and whether anybody does."""
+    from . import landings as landing_service
+
+    now = now or utcnow()
+    lines = []
+    for repo in list(await session.scalars(select(Repository).where(Repository.project_id == project_id, Repository.land_first).order_by(Repository.id))):
+        red = await landing_service.red_base(session, repo.id, now)
+        if red is None:
+            continue
+        fixes = [a.id for a in red.repairs]
+        waiting = list(await session.scalars(select(Landing).where(Landing.repository_id == repo.id, Landing.status == LandingStatus.WAITING)))
+        held = sum(1 for w in waiting if w.assignment_id not in fixes)
+        open_repairs = [a for a in red.repairs if a.status in OPEN_ASSIGNMENT_STATUSES]
+        checking = await session.scalar(select(Train.id).where(Train.repository_id == repo.id, Train.direct, Train.status == TrainStatus.CHECKING).limit(1))
+        if open_repairs:
+            repair = f"Assignment #{open_repairs[0].id} repairs it"
+        elif any(w.assignment_id in fixes for w in waiting):
+            repair = "Its fix is handed over and lands next"
+        elif checking:
+            repair = "The checks run again with what landed since"
+        else:
+            repair = "Nobody repairs it: delegate the repair with base_repair=true, so its branch lands while the others wait"
+        checks = ", ".join(red.train.failed_checks.split("\n")[:4]) or "its checks"
+        lines.append(
+            f"{red.train.base} of {repo.name} has failed its checks for {duration((now - red.since).total_seconds())} ({truncate(checks, 120)}). "
+            f"Finished branches wait for its repair ({held} now), at most {duration((red.until - now).total_seconds())} more; then they land as they are. {repair}."
+        )
+    return lines
 
 
 async def open_assignments(session: AsyncSession, task_id: int) -> list[Assignment]:

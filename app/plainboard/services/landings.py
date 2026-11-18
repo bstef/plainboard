@@ -9,7 +9,8 @@ The watcher (orchestration/landing.py) does this without any model.
 A repository can also land first and check after (``repository.land_first``): everything that is
 ready is merged into the base branch at once, the checks run on the base branch afterwards, and a
 failure is repaired there by one assignment. Nothing waits for a check run then, and a failure
-takes nothing back; the price is a base branch that is red for a while.
+takes nothing back; the price is a base branch that is red for a while. While it is red, only its
+repair lands (``red_base``), for a limited time.
 
 How a train is checked depends on the repository:
 - its check command (``repository.check_command``): PlainBoard runs it on the merged branches and
@@ -21,12 +22,14 @@ How a train is checked depends on the repository:
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from plainboard_protocol import RepoSpec
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Landing, LandingStatus, Repository, Task, Train, TrainStatus
+from ..models import Assignment, AssignmentStatus, Landing, LandingStatus, Repository, Task, Train, TrainStatus
 from .util import truncate
 from . import repositories as repo_service
 
@@ -38,6 +41,10 @@ MAX_BATCH = 30  # branches merged in one go where they land before their checks
 # A repair of a red base branch that was cancelled is not ordered again for this many red batches: whoever
 # cancelled it has the repair in hand. After them it is ordered again, so the branch does not stay red for good.
 LEFT_ALONE_BATCHES = 4
+# While a base branch is red, only its repair lands: the next check run then says whether the repair worked,
+# and what fails belongs to one batch. At most this long from the first red check run, then everything lands
+# again as it is: waiting for a repair that does not come must not stop the work.
+RED_HOLD_SECONDS = 45 * 60
 BASE_CHECK_MAX_SECONDS = 3600  # checks of the base branch that take longer are not waited for
 ACTIVE = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK)
 RUNNING_TRAINS = (TrainStatus.CHECKING, TrainStatus.BLOCKED)
@@ -159,6 +166,46 @@ async def carry(session: AsyncSession, carrier: Landing, train_id: int) -> list[
     carrier.title = truncate(f"{carrier.branch} carrying {listed}", 300)
     await session.commit()
     return group
+
+
+@dataclass
+class RedBase:
+    """A base branch that fails its checks with what landed, while finished branches wait for its repair."""
+
+    train: Train  # the latest batch whose checks failed
+    since: datetime  # when the first check run of this red phase ended
+    until: datetime  # from then on everything lands again
+    repairs: list[Assignment]  # ordered for it and not cancelled, newest first
+
+
+async def _last_result(session: AsyncSession, repository_id: int) -> Train | None:
+    """The latest batch that landed before its checks and has a result."""
+    done = Train.status.in_((TrainStatus.FAILED, TrainStatus.LANDED))
+    return await session.scalar(select(Train).where(Train.repository_id == repository_id, Train.direct, done).order_by(Train.id.desc()).limit(1))
+
+
+async def red_base(session: AsyncSession, repository_id: int, now: datetime) -> RedBase | None:
+    """Set while finished branches wait for the repair of this repository's base branch (RED_HOLD_SECONDS)."""
+    last = await _last_result(session, repository_id)
+    if last is None or last.status != TrainStatus.FAILED:
+        return None
+    streak = [last, *await red_streak(session, last)]
+    since = streak[-1].finished_at or streak[-1].created_at
+    until = since + timedelta(seconds=RED_HOLD_SECONDS)
+    if now >= until:
+        return None
+    ordered = select(Assignment).where(Assignment.train_id.in_([t.id for t in streak]), Assignment.status != AssignmentStatus.CANCELLED)
+    return RedBase(last, since, until, list(await session.scalars(ordered.order_by(Assignment.id.desc()))))
+
+
+async def latest_red(session: AsyncSession, project_id: int) -> Train | None:
+    """The batch a repair of a base branch is for: the latest one that failed, of a base branch that is red now."""
+    found: Train | None = None
+    for repository_id in list(await session.scalars(select(Repository.id).where(Repository.project_id == project_id, Repository.land_first))):
+        last = await _last_result(session, repository_id)
+        if last is not None and last.status == TrainStatus.FAILED and (found is None or last.id > found.id):
+            found = last
+    return found
 
 
 async def red_streak(session: AsyncSession, train: Train) -> list[Train]:

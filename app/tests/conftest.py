@@ -267,6 +267,15 @@ def empty_database() -> None:
 
 
 @pytest.fixture
+def lands_on_red(monkeypatch):
+    """The time after the hold: finished branches land although the base branch is red. What happens then
+    (which repair is ordered, and when the manager decides) is what these tests are about."""
+    from plainboard.services import landings
+
+    monkeypatch.setattr(landings, "RED_HOLD_SECONDS", 0)
+
+
+@pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("PLAINBOARD_UPLOADS_DIR", str(tmp_path / "uploads"))

@@ -794,6 +794,10 @@ def in_flight_block(lines: list[str], more: int) -> str:
     return "In flight (already ordered: don't delegate these again, their reports come by themselves):\n" + "\n".join(lines) + tail
 
 
+def red_bases_block(lines: list[str]) -> str:
+    return "\n".join(f"Red base branch: {line}" for line in lines)
+
+
 STALE_TODO_DAYS = 2
 
 

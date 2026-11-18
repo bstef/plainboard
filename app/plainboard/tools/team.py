@@ -14,6 +14,7 @@ from ..schemas import AgentCreate, AgentUpdate, ToolsetName
 from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import board as board_service
+from ..services import landings as landing_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services.errors import NotFound
@@ -66,6 +67,7 @@ class DelegateArgs(BaseModel):
         default=None, description="Reasoning effort for this assignment only; omit to use the agent's setting"
     )
     parallel: bool = Field(default=False, description="Only if the ticket already has open work and this is another, independent part of it")
+    base_repair: bool = Field(default=False, description="This repairs a base branch that fails its checks: its branch lands while the others wait")
 
 
 class ListAssignmentsArgs(BaseModel):
@@ -213,7 +215,10 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     if not args.parallel and (twin := await ctx.session.scalar(same.limit(1))):
         raise ToolError(f"{target.slug} already has the open assignment #{twin.id} with this title ({twin.status}). Its report comes by itself.")
     was_busy = bool(await ctx.session.scalar(select(Run.id).where(Run.agent_id == target.id, Run.status.in_(ACTIVE_RUN_STATUSES)).limit(1)))
-    assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort)
+    # A repair of a red base branch belongs to the batch that failed: PlainBoard then orders none of its own for
+    # it, and lets its branch land while the other finished branches wait.
+    red = await landing_service.latest_red(ctx.session, ctx.project.id) if args.base_repair else None
+    assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort, train_id=red.id if red else None)
     effort = f" (effort {args.effort})" if args.effort else ""
     limit = await project_service.parallel_limit(ctx.session, ctx.project)
     capacity = await board_service.capacity(
@@ -231,7 +236,10 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     else:
         state = f"{use[0].upper()}{use[1:]}." + ("" if capacity.free else " That is the limit: don't start further agents until one finishes.")
     split = await board_service.split_hint(ctx.session, task) if task else ""
-    return f"Assignment #{assignment.id} queued for {target.slug}{effort}. {state}{split}"
+    repair = ""
+    if args.base_repair:
+        repair = f" Its branch lands on {red.base} while the other finished branches wait." if red else " No base branch fails its checks right now: ordered as usual."
+    return f"Assignment #{assignment.id} queued for {target.slug}{effort}. {state}{split}{repair}"
 
 
 @tool("list_assignments", "List work orders, optionally by ticket, agent or status.", ListAssignmentsArgs)
