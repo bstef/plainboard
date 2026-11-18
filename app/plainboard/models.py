@@ -236,6 +236,9 @@ class Repository(Timestamps, Base):
     # quick check), and the checks run on the base branch afterwards; a red base is repaired by one
     # assignment. For a development branch. Off: nothing lands before its checks passed (trains).
     land_first: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Remove branches whose commits are all on the base branch already, once a day (orchestration/tidy.py).
+    tidy_branches: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    tidied_at: Mapped[datetime | None] = mapped_column(DateTime)
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")

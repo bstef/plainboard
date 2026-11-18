@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import ProjectFiles, CheckResult, CompletionResult, CompletionSpec, Credentials, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
+from plainboard_protocol import ProjectFiles, TidyResult, TidySpec, CheckResult, CompletionResult, CompletionSpec, Credentials, JobPort, JobSpec, JobState, LimitsEvent, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamState, parse_event
 
 
 class RunnerError(RuntimeError):
@@ -147,6 +147,15 @@ class RunnerClient:
         if resp.status_code >= 400:
             return {"ok": False, "detail": resp.text[:300], "repos": []}
         return resp.json()
+
+    async def tidy_branches(self, spec: TidySpec) -> TidyResult:
+        try:
+            resp = await self._client.post("/git/tidy", json=spec.model_dump(mode="json"), timeout=600)
+        except httpx.HTTPError as exc:
+            raise RunnerError(f"Runner unreachable: {exc}") from exc
+        if resp.status_code >= 400:
+            raise RunnerError(resp.text[:600])
+        return TidyResult.model_validate(resp.json())
 
     async def remove_files(self, spec: ProjectFiles) -> CheckResult:
         try:

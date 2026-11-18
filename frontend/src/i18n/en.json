@@ -206,6 +206,8 @@
     "repoDescription": "What is in it",
     "repoDescriptionHint": "One line. Helps the manager give the right work to the right agent.",
     "repoLanding": "Finished work",
+    "repoTidy": "Remove branches that are fully merged",
+    "repoTidyHint": "Once a day, PlainBoard deletes the branches whose commits are all on the base branch already: what merging by hand or old pull requests left behind. Only the name goes, no commit. A branch with work of its own stays, and so do the base and default branch, main, develop, release and hotfix branches, and anything younger than a day.",
     "repoLandingHint": "An agent hands over its finished branch and goes on with other work. PlainBoard brings the branches to the base branch by itself.",
     "repoLandWhen": "When does a finished branch reach the base branch?",
     "repoLandChecked": "After the checks pass",

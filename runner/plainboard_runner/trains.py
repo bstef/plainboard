@@ -6,9 +6,10 @@ what goes on a train and what happens after its checks; nothing here needs an ag
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
-from plainboard_protocol import CheckResult, Credentials, JobSpec, JobState, RepoSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
+from plainboard_protocol import CheckResult, Credentials, JobSpec, JobState, RepoSpec, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 
 from . import jobs
 from .workspace import WorkspaceError, config_args, git_env, run_cmd
@@ -148,6 +149,61 @@ async def _remove(git: Git, branches: dict[str, str]) -> None:
     landed: commits pushed to it since are not lost."""
     for branch, sha in branches.items():
         await git.ok("push", "-q", f"--force-with-lease=refs/heads/{branch}:{sha}", "origin", f":refs/heads/{branch}")
+
+
+# Branches that stay whatever points at them: a repository keeps these on purpose.
+KEPT_NAMES = {"main", "master", "develop", "development", "dev", "trunk", "staging", "production", "stable", "gh-pages"}
+KEPT_PREFIXES = ("release", "hotfix", "dependabot/")
+
+
+async def tidy(spec: TidySpec) -> TidyResult:
+    """Remove the branches whose commits are all on the base branch already: what merging left behind.
+    Only a name goes, never a commit. A branch stays if it has a commit of its own, if its last commit is
+    young (a branch just started from the base branch looks merged), if it is the base or the default
+    branch, has a name repositories keep on purpose, is named in ``spec.keep``, or is what an open pull
+    request on GitHub is based on."""
+    where = folder(spec.key)
+    url = spec.remote.url
+    async with _lock(spec.key):
+        where.mkdir(parents=True, exist_ok=True)
+        git = Git(spec.credentials, spec.remote, where)
+        if not (where / ".git").exists():
+            await git("init", "-q")
+            await git("remote", "add", "origin", url)
+        else:
+            await git("remote", "set-url", "origin", url)
+        heads = await remote_heads(git, url)
+        try:
+            default = await default_branch(git, url)
+        except WorkspaceError:
+            default = ""  # a remote whose HEAD names no branch
+        base = spec.base or default
+        if base not in heads:
+            raise WorkspaceError(f"Base branch {base or '?'} not found on the remote")
+        # Only the base branch is fetched: a commit that is not in it is unknown here, and so not merged.
+        await git("fetch", "-q", "--no-tags", "origin", f"+refs/heads/{base}:refs/remotes/origin/{base}")
+        tip = f"refs/remotes/origin/{base}"
+        keep = {base, default, *spec.keep, *KEPT_NAMES}  # whatever git says about them
+        if spec.github:
+            # A branch that open pull requests are based on: the host would close them with it. If this
+            # cannot be read, nothing is removed.
+            listed = await run_cmd(
+                ["gh", "api", "--paginate", f"repos/{spec.github}/pulls?state=open&per_page=100", "--jq", ".[].base.ref"], cwd=None, env=git.env, timeout=120
+            )
+            keep |= {line.strip() for line in listed.splitlines() if line.strip()}
+        young = time.time() - spec.min_age_hours * 3600
+        gone: dict[str, str] = {}
+        for name, sha in sorted(heads.items()):
+            if name in keep or name.startswith(KEPT_PREFIXES) or len(gone) >= spec.limit:
+                continue
+            if not await git.ok("merge-base", "--is-ancestor", sha, tip):
+                continue
+            if int(await git("show", "-s", "--format=%ct", sha)) > young:
+                continue
+            gone[name] = sha
+        await _remove(git, gone)
+        left = await remote_heads(git, url) if gone else {}
+        return TidyResult(deleted=[name for name in gone if name not in left])
 
 
 async def delete_branches(credentials: Credentials, remote: RepoSpec, key: str, branches: dict[str, str]) -> None:

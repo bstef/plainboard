@@ -961,3 +961,55 @@ def test_a_repository_is_created_on_github(monkeypatch):
     assert not taken["ok"] and "already exists" in taken["detail"]
     assert client.post("/github/repos/create", json={"credentials": {}, "name": "shop"}).json()["detail"] == "No GitHub token configured"
     assert client.post("/github/repos/create", json={"credentials": {"github_token": "tok"}, "name": "a/b"}).status_code == 422
+
+
+async def test_only_branches_that_are_fully_on_the_base_branch_are_removed(tmp_path, monkeypatch):
+    import subprocess
+
+    from plainboard_protocol import RepoSpec, TidySpec
+
+    from plainboard_runner import trains
+
+    monkeypatch.setattr(trains, "trains_root", lambda: tmp_path / "trains-root")
+    url = _git_repo(tmp_path / "origin", "base")
+    origin = tmp_path / "origin"
+    old = {"GIT_AUTHOR_DATE": "2020-01-01T00:00:00", "GIT_COMMITTER_DATE": "2020-01-01T00:00:00"}
+
+    def run(*args, env=None):
+        return subprocess.run(args, cwd=origin, check=True, capture_output=True, text=True, env={**__import__("os").environ, **(env or {})}).stdout.strip()
+
+    def commit(name: str, env=None):
+        (origin / f"{name}.txt").write_text(name)
+        run("git", "add", ".")
+        run("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", name, env=env)
+
+    # merged-old: its commit is on main. With main's own (young) commit on top, main's tip is not that commit.
+    run("git", "checkout", "-q", "-b", "merged-old")
+    commit("merged", env=old)
+    run("git", "checkout", "-q", "main")
+    run("git", "merge", "-q", "--ff-only", "merged-old")
+    run("git", "branch", "develop")  # merged and old, but a name repositories keep
+    run("git", "branch", "release/1.0")
+    run("git", "branch", "in-flight")  # merged and old, but PlainBoard has it
+    run("git", "branch", "stack-base")  # merged and old, but open pull requests are based on it
+    run("git", "checkout", "-q", "-b", "own-work")
+    commit("unmerged", env=old)  # a commit of its own: stays
+    run("git", "checkout", "-q", "main")
+    commit("young")
+    run("git", "branch", "just-started")  # no commit of its own yet, and main's tip is young: stays
+
+    real = trains.run_cmd
+
+    async def host(args, cwd, env, timeout=600):
+        if args[0] == "gh":
+            assert args[3] == "repos/acme/api/pulls?state=open&per_page=100"
+            return "main\nstack-base\n"
+        return await real(args, cwd, env, timeout)
+
+    monkeypatch.setattr(trains, "run_cmd", host)
+    spec = TidySpec(credentials=Credentials(), key="p1-r1", remote=RepoSpec(name="origin", url=url), base="main", keep=["in-flight"], github="acme/api")
+    result = await trains.tidy(spec)
+    assert result.deleted == ["merged-old"]
+    left = set(run("git", "branch", "--format=%(refname:short)").splitlines())
+    assert {"main", "develop", "release/1.0", "in-flight", "stack-base", "own-work", "just-started"} <= left and "merged-old" not in left
+    assert (await trains.tidy(spec)).deleted == []  # nothing left to remove

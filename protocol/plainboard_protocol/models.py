@@ -205,6 +205,24 @@ class CommitRef(BaseModel):
 TRAIN_KEY = r"^[\w.-]{1,80}$"
 
 
+class TidySpec(BaseModel):
+    """Remove the branches of a repository whose commits are all on its base branch already."""
+
+    credentials: Credentials
+    key: str = Field(pattern=TRAIN_KEY)  # names the runner's clone for this repository
+    remote: RepoSpec
+    base: str | None = None  # None: the repository's default branch
+    keep: list[str] = Field(default_factory=list)  # never these: in flight with PlainBoard, other base branches
+    # owner/name on GitHub: a branch that open pull requests are based on stays (deleting it would close them).
+    github: str | None = Field(default=None, pattern=r"^[\w.-]+/[\w.-]+$")
+    min_age_hours: int = 24  # a branch whose last commit is younger stays
+    limit: int = 300
+
+
+class TidyResult(BaseModel):
+    deleted: list[str] = Field(default_factory=list)
+
+
 class ProjectFiles(BaseModel):
     """What a deleted project leaves on the runner."""
 

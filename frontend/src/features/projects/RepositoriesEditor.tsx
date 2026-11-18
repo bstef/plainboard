@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/client";
 import type { RepoAuth, Repository } from "../../api/types";
-import { Button, Field, IconButton, Input, Segmented, Select, Textarea } from "../../components/ui";
+import { Button, Field, IconButton, Input, Segmented, Select, Textarea, Toggle } from "../../components/ui";
 import { GitHubRepoPicker } from "./GitHubRepoPicker";
 
 export interface RepoDraft {
@@ -15,6 +15,7 @@ export interface RepoDraft {
   check_command: string;
   quick_check_command: string;
   land_first: boolean;
+  tidy_branches: boolean;
   auth: RepoAuth;
   token: string; // write-only: empty keeps the stored one
   token_user: string;
@@ -36,6 +37,7 @@ export const emptyRepo = (): RepoDraft => ({
   check_command: "",
   quick_check_command: "",
   land_first: false,
+  tidy_branches: false,
   auth: "default",
   token: "",
   token_user: "",
@@ -54,6 +56,7 @@ export const toDraft = (r: Repository): RepoDraft => ({
   check_command: r.check_command ?? "",
   quick_check_command: r.quick_check_command ?? "",
   land_first: r.land_first ?? false,
+  tidy_branches: r.tidy_branches ?? false,
   auth: r.auth,
   token: "",
   token_user: r.token_user,
@@ -72,6 +75,7 @@ export const toBody = (d: RepoDraft) => ({
   check_command: d.check_command.trim(),
   quick_check_command: d.quick_check_command.trim(),
   land_first: d.land_first,
+  tidy_branches: d.tidy_branches,
   auth: d.auth,
   ...(d.auth === "token" ? { token_user: d.token_user.trim(), ...(d.token ? { token: d.token } : {}) } : {}),
   ...(d.auth === "ssh" && d.ssh_private_key.trim() ? { ssh_private_key: d.ssh_private_key } : {}),
@@ -288,6 +292,10 @@ export function RepositoriesEditor({
             <Field label={t("projects.repoCheck")} hint={t("projects.repoCheckHint")}>
               <Input placeholder="./scripts/ci.sh" value={editing.check_command} onChange={(e) => setEditing({ ...editing, check_command: e.target.value })} className="font-mono" />
             </Field>
+            <div className="space-y-1">
+              <Toggle checked={editing.tidy_branches} onChange={(v) => setEditing({ ...editing, tidy_branches: v })} label={t("projects.repoTidy")} />
+              <p className="text-fg-3">{t("projects.repoTidyHint")}</p>
+            </div>
           </div>
 
           <div className="space-y-3 border-t border-line pt-4">

@@ -28,6 +28,7 @@ from plainboard_protocol import (
     SessionEvent,
     ToolResultEvent,
     ToolUseEvent,
+    TidyResult,
     TrainResult,
     UsageEvent,
 )
@@ -225,6 +226,10 @@ class FakeRunner:
         self.github_token_used = credentials.github_token
         full = f"{owner or 'me'}/{name}"
         return {"ok": True, "detail": "", "repos": [{"full_name": full, "name": name, "clone_url": f"https://github.com/{full}.git", "private": private}]}
+
+    async def tidy_branches(self, spec):
+        self.tidy_specs = getattr(self, "tidy_specs", []) + [spec]
+        return TidyResult(deleted=[b for b in getattr(self, "merged_branches", []) if b not in spec.keep])
 
     async def remove_files(self, spec):
         self.removed = getattr(self, "removed", []) + [spec]

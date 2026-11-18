@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CheckResult, CommitRef, CompletionResult, CompletionSpec, Credentials, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RunSpec, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, UpstreamRef, UpstreamState
 from pydantic import BaseModel, Field
 
 from . import github
@@ -316,6 +316,15 @@ async def assemble_train(spec: TrainSpec) -> TrainResult:
             title = spec.title or f"Land {len(result.merged)} branches"
             result.number, result.url = await github.open_pull_request(spec.credentials, spec.github, result.base, spec.branch, title, spec.body)
         return result
+    except (WorkspaceError, ValueError, OSError) as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
+
+
+@app.post("/git/tidy", response_model=TidyResult)
+async def tidy_branches(spec: TidySpec) -> TidyResult:
+    """Remove the branches that are fully merged into the base branch."""
+    try:
+        return await trains.tidy(spec)
     except (WorkspaceError, ValueError, OSError) as exc:
         raise HTTPException(502, str(exc)[:600]) from exc
 

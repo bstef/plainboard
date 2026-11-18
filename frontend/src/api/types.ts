@@ -63,6 +63,8 @@ export interface Repository {
   check_command: string;
   quick_check_command: string;
   land_first: boolean;
+  /** Branches that are fully merged are removed, once a day. */
+  tidy_branches: boolean;
   agent_ids: number[];
   auth: RepoAuth;
   token_user: string;

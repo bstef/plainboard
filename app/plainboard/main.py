@@ -18,6 +18,7 @@ from .orchestration.run_manager import RunManager
 from .orchestration.runner_client import RunnerClient
 from .orchestration.job_watcher import JobWatcher
 from .orchestration.landing import LandingWatcher
+from .orchestration.tidy import BranchTidy
 from .orchestration.limits_watcher import LimitsWatcher
 from .orchestration.update_watcher import UpdateWatcher
 from .orchestration.scheduler import Scheduler
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI):
     landing = LandingWatcher(sessionmaker(), runs, config.landing_interval_seconds, config.landing_linger_seconds)
     app.state.runner, app.state.runs, app.state.scheduler, app.state.job_watcher = runner, runs, scheduler, job_watcher
     app.state.landing = landing
+    tidy = app.state.tidy = BranchTidy(sessionmaker(), runs, config.tidy_interval_seconds)
     standstill = app.state.standstill = StandstillWatcher(sessionmaker(), runs, config.standstill_interval_seconds)
     limits_watcher = LimitsWatcher(runs, config.limits_interval_seconds)
     updates = app.state.updates = UpdateWatcher(sessionmaker(), runner, config.update_interval_seconds)
@@ -55,6 +57,7 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     job_watcher.start()
     landing.start()
+    tidy.start()
     standstill.start()
     limits_watcher.start()
     updates.start()
@@ -65,6 +68,7 @@ async def lifespan(app: FastAPI):
         await updates.stop()
         await limits_watcher.stop()
         await standstill.stop()
+        await tidy.stop()
         await landing.stop()
         await job_watcher.stop()
         await scheduler.stop()
