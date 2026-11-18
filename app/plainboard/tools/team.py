@@ -197,7 +197,9 @@ async def delegate(ctx: ToolContext, args: DelegateArgs) -> str:
     assignment = await ctx.runs.delegate(ctx.session, ctx.agent, target, args.title, args.instructions, task, effort=args.effort)
     effort = f" (effort {args.effort})" if args.effort else ""
     limit = await project_service.parallel_limit(ctx.session, ctx.project)
-    capacity = await board_service.capacity(ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id, waiting=ctx.runs.waiting_for_job())
+    capacity = await board_service.capacity(
+        ctx.session, ctx.project.id, limit, except_run_id=ctx.run.run_id, waiting=ctx.runs.waiting_for_job(), backlog=ctx.project.continue_with_backlog
+    )
     use = f"{capacity.working} of {limit} parallel agents in use"
     if not target.enabled:
         state = f"{target.slug} is paused: it starts when the agent is enabled again (update_agent enabled=true, or resume_team)."

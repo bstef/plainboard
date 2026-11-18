@@ -952,7 +952,9 @@ class RunManager:
             board = ""
             if agent.is_manager:
                 limit = await project_service.parallel_limit(s, project)
-                capacity = await board_service.capacity(s, project.id, limit, except_run_id=run.id, waiting=self.waiting_for_job())
+                capacity = await board_service.capacity(
+                    s, project.id, limit, except_run_id=run.id, waiting=self.waiting_for_job(), backlog=project.continue_with_backlog
+                )
                 team = [a for a in await agent_service.list_for_project(s, project.id) if a.enabled and not a.is_manager]
                 open_todos = await todo_service.open_stats(s, [a.id for a in team])
                 todo_counts = [(a.name, *_count_and_age(open_todos.get(a.id))) for a in team[:12]]

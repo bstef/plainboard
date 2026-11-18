@@ -27,12 +27,13 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const [manager, setManager] = useState<Agent | null>(null);
   const [basics, setBasics] = useState({ name: "", description: "" });
   const [code, setCode] = useState({ workspace_path: "", github_token: "" });
-  const [team, setTeam] = useState<{ model: string; effort: string; account_id: number | null; parallel_agents: number | null; auto_wake_manager: boolean }>({
+  const [team, setTeam] = useState<{ model: string; effort: string; account_id: number | null; parallel_agents: number | null; auto_wake_manager: boolean; continue_with_backlog: boolean }>({
     model: "",
     effort: "",
     account_id: null,
     parallel_agents: null,
     auto_wake_manager: true,
+    continue_with_backlog: true,
   });
   const repos = useRepositories(project?.id ?? 0);
   const refreshRepos = () => project && qc.invalidateQueries({ queryKey: qk.repos(project.id) });
@@ -57,7 +58,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const saveTeam = async () => {
     if (!project) return;
     if (manager) setManager(await api.patch<Agent>(`/agents/${manager.id}`, { model: team.model, effort: team.effort || null }));
-    setProject(await api.patch<Project>(`/projects/${project.id}`, { account_id: team.account_id, parallel_agents: team.parallel_agents, auto_wake_manager: team.auto_wake_manager }));
+    setProject(await api.patch<Project>(`/projects/${project.id}`, { account_id: team.account_id, parallel_agents: team.parallel_agents, auto_wake_manager: team.auto_wake_manager, continue_with_backlog: team.continue_with_backlog }));
     await qc.invalidateQueries({ queryKey: qk.agents(project.id) });
   };
   const finish = async () => {
@@ -186,6 +187,8 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
           <div className="space-y-1">
             <Toggle checked={team.auto_wake_manager} onChange={(v) => setTeam({ ...team, auto_wake_manager: v })} label={t("projects.autoWake")} />
             <p className="text-fg-3">{t("projects.autoWakeHint")}</p>
+            <Toggle checked={team.continue_with_backlog} onChange={(v) => setTeam({ ...team, continue_with_backlog: v })} label={t("projects.backlogNext")} />
+            <p className="text-fg-3">{t("projects.backlogNextHint")}</p>
           </div>
         </div>
       ),

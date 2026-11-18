@@ -34,6 +34,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
     workspace_path: project.workspace_path ?? "",
     github_token: "",
     auto_wake_manager: project.auto_wake_manager,
+    continue_with_backlog: project.continue_with_backlog,
     parallel_agents: project.parallel_agents,
     account_id: project.account_id,
     auto_archive_days: project.auto_archive_days,
@@ -169,7 +170,14 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
             <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
             <p className="text-fg-3">{t("projects.autoWakeHint")}</p>
           </div>
-          <SaveRow dirty={dirty("parallel_agents", "account_id", "auto_wake_manager")} onSave={() => save("parallel_agents", "account_id", "auto_wake_manager")}>
+          <div className="space-y-1">
+            <Toggle checked={form.continue_with_backlog} onChange={(v) => set({ continue_with_backlog: v })} label={t("projects.backlogNext")} />
+            <p className="text-fg-3">{t("projects.backlogNextHint")}</p>
+          </div>
+          <SaveRow
+            dirty={dirty("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog")}
+            onSave={() => save("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog")}
+          >
             <Button variant="ghost" onClick={onOpenTeam}>
               {t("projectSettings.team.open")}
             </Button>

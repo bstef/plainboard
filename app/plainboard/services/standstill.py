@@ -8,6 +8,11 @@ that nothing happens on and that don't wait for the user, a free slot and a memb
 do, for a while after the manager's last turn. Then the manager gets one turn with exactly that, and
 decides: start it, or leave it.
 
+Where the project goes on with its Backlog (``Project.continue_with_backlog``, the default), the
+tickets there are shown as well, the most urgent first. A manager told to never let work stand still
+has been seen to rest for hours beside thirty such tickets, sure from memory that all of them needed
+the user, without reading the list once: named tickets have to be answered one by one.
+
 The same tickets are brought up at most twice: once while other work still runs, and once more when
 nothing runs at all, which is the standstill that costs most. New tickets are news, but not before
 an hour has passed. A ticket that waits for the user belongs on the user's list (``user_action``):
@@ -30,7 +35,8 @@ from .util import truncate
 
 QUIET_SECONDS = 15 * 60  # after the manager's last turn: it has just looked at the same board
 RETELL_SECONDS = 60 * 60  # after it was told: not again before this, whatever has changed
-MAX_TICKETS = 8
+MAX_TICKETS = 12
+URGENCY = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
 
 
 @dataclass
@@ -49,10 +55,21 @@ class Standstill:
 
 
 def is_news(found: Standstill, told: tuple[frozenset[int], bool] | None) -> bool:
-    """``told``: the tickets the manager heard of last, and whether the team rested then. Other
-    tickets are news. The same ones are, once, when the team has come to rest since: while work ran,
-    leaving them could mean "after that", and now nothing comes after."""
-    return told is None or found.ticket_ids != told[0] or (found.resting and not told[1])
+    """``told``: the tickets the manager heard of last, and whether the team rested then. A ticket
+    it has not heard of is news (fewer of the same are not). The same ones are, once, when the team
+    has come to rest since: while work ran, leaving them could mean "after that", and now nothing
+    comes after."""
+    return told is None or not found.ticket_ids <= told[0] or (found.resting and not told[1])
+
+
+async def ready(session: AsyncSession, project: Project) -> list[Task]:
+    """The tickets that could start: to do or in progress with nothing happening on them, and after
+    them the backlog's, the most urgent first, where the project goes on with it. None waits for the user."""
+    tickets = await board_service.untouched(session, project.id, (TaskStatus.IN_PROGRESS, TaskStatus.TODO))
+    if project.continue_with_backlog:
+        later = await board_service.untouched(session, project.id, (TaskStatus.BACKLOG,))
+        tickets += sorted(later, key=lambda t: URGENCY.get(t.priority, len(URGENCY)))  # stable: the board's order within a priority
+    return tickets
 
 
 async def find(session: AsyncSession, project: Project, limit: int, waiting: frozenset[int] | set[int], now: datetime) -> Standstill | None:
@@ -71,7 +88,7 @@ async def find(session: AsyncSession, project: Project, limit: int, waiting: fro
     capacity = await board_service.capacity(session, project.id, limit, except_run_id=0, waiting=waiting)
     if not capacity.free or not capacity.idle:
         return None
-    tickets = await board_service.untouched(session, project.id, (TaskStatus.IN_PROGRESS, TaskStatus.TODO))
+    tickets = await ready(session, project)
     if not tickets:
         return None
     open_work = await session.scalar(select(Assignment.id).where(Assignment.project_id == project.id, Assignment.status.in_(board_service.OPEN_ASSIGNMENT_STATUSES)).limit(1))
@@ -87,6 +104,7 @@ def text(found: Standstill) -> str:
         f"(idle: {', '.join(found.idle[:8])}), and nothing happens on these tickets, which don't wait for the user:\n"
         + "\n".join(lines)
         + more
+        + ("\nThis project goes on with its Backlog when nothing in To do can start." if any(t.status == TaskStatus.BACKLOG for t in found.tickets) else "")
         + "\nStart what can start now, on several members where the work is independent. Leave a ticket only if it depends on running "
         "work, would collide with it, or the user wants it later: then say which in one line. A ticket that waits for the user: set its "
         "user_action to what the user has to do (update_task). It is then on the user's list and not brought up here again."

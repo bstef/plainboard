@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false, true
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -133,6 +133,8 @@ class Project(Timestamps, Base):
     setup_script: Mapped[str] = mapped_column(Text, default="")
     github_token_enc: Mapped[str | None] = mapped_column(Text)
     auto_wake_manager: Mapped[bool] = mapped_column(Boolean, default=True)
+    # When nothing in To do can start, the team goes on with the Backlog. Off: Backlog waits until the user moves it.
+    continue_with_backlog: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # Members of this project working at the same time. Unset: the number from the settings (`max_parallel_runs`).
     parallel_agents: Mapped[int | None] = mapped_column(Integer)
     # The subscription this project's agents run on, unless an agent has its own. Unset: the one with the most room.

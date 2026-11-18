@@ -294,7 +294,7 @@ class Capacity:
     busy: int  # members with a turn working or waiting to start (not one that only waits for its own job, in a turn or between turns)
     waiting: list[str]  # this project's members whose turn has not started yet
     idle: list[str]  # this project's members with nothing to do: no turn and no open assignment
-    open_work: bool  # tickets to do or in progress
+    open_work: bool  # tickets to do or in progress (and in the backlog, where the project goes on with it)
 
     @property
     def working(self) -> int:
@@ -309,9 +309,12 @@ class Capacity:
         return max(self.busy - self.limit, 0)
 
 
-async def capacity(session: AsyncSession, project_id: int, limit: int, *, except_run_id: int, waiting: set[int] | frozenset[int] = frozenset()) -> Capacity:
+async def capacity(
+    session: AsyncSession, project_id: int, limit: int, *, except_run_id: int, waiting: set[int] | frozenset[int] = frozenset(), backlog: bool = False
+) -> Capacity:
     """The project's own use of its limit; other projects count by themselves.
-    ``waiting``: turns that only wait for a job right now (RunManager.waiting_for_job): they take no slot."""
+    ``waiting``: turns that only wait for a job right now (RunManager.waiting_for_job): they take no slot.
+    ``backlog``: the project goes on with its Backlog, so tickets there are open work too."""
     members = select(Agent.id).where(~Agent.is_manager)
     top_level = (Run.project_id == project_id, Run.status.in_(ACTIVE_RUN_STATUSES), Run.parent_run_id.is_(None), Run.id != except_run_id, Run.agent_id.in_(members))
     rows = [(a, st, p) for run_id, a, st, p in (await session.execute(select(Run.id, Run.agent_id, Run.status, Run.project_id).where(*top_level))).all() if run_id not in waiting]
@@ -321,7 +324,8 @@ async def capacity(session: AsyncSession, project_id: int, limit: int, *, except
     queued = {agent_id for agent_id, status, _project in rows if status == RunStatus.QUEUED and (agent_id in running or agent_id not in open_assignment)}
     team = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager).order_by(Agent.id)))
     active = {agent_id for agent_id, _status, project in rows if project == project_id}
-    open_tickets = select(Task.id).where(Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_((TaskStatus.TODO, TaskStatus.IN_PROGRESS)))
+    columns = (TaskStatus.TODO, TaskStatus.IN_PROGRESS, *((TaskStatus.BACKLOG,) if backlog else ()))
+    open_tickets = select(Task.id).where(Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_(columns))
     return Capacity(
         limit=limit,
         busy=len(running | queued),

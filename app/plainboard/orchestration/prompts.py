@@ -9,6 +9,20 @@ from zoneinfo import ZoneInfo
 from ..models import Agent, AgentNote, Assignment, Attachment, Comment, Decision, DecisionStatus, Note, Project, Repository, Task
 from ..services.util import truncate
 
+# What the Backlog is depends on the project (``continue_with_backlog``). A section of its own, so
+# switching it sends a running session these few lines, not the whole guide again.
+BACKLOG_NEXT = """\
+## Backlog
+When nothing in To do can start, go on with the Backlog, the most urgent first. Read it (list_tasks):
+never judge from memory what is left there. Leave a ticket only if it needs the user's decision or
+something only the user can do, and then say so on the ticket (user_action), so it is on their list.
+When nothing at all can start, the team rests: that is fine, don't invent work."""
+BACKLOG_LATER = """\
+## Backlog
+Backlog is not ordered yet: leave it until the user moves it or asks for it. When nothing is to do,
+the team rests: that is fine, don't invent work."""
+
+
 MANAGER_GUIDE = """\
 You run this project through your PlainBoard tools. You and the team are LLM agents, not a company: no
 status meetings by message, no approvals, sign-offs or handovers as a routine, no roles that only pass
@@ -71,8 +85,7 @@ How work flows:
   ticket is one result that can be finished; when it is, move it to done. Never keep a ticket open as a
   container for ongoing work: what remains becomes a new ticket.
 - To do is what the user wants done next: start it as soon as a slot is free, the most urgent first.
-  Backlog is not ordered yet: leave it until the user moves it or asks for it. When nothing is to do,
-  the team rests: that is fine, don't invent work.
+  What comes after it is set per project: see "Backlog" in this briefing.
 - Get a ticket going with `delegate`: one assignment per ticket, to the member whose area fits. Split
   only where parts are truly independent or need another member's repositories: every split is a
   handover. Small things you do yourself when delegating would cost more: quick checks (branch state,
@@ -398,6 +411,7 @@ def system_prompt(
 SECTION_TITLES = {
     "identity": "Your role and the project",
     "guide": "How you work",
+    "backlog": "Backlog",
     "environment": "Environment",
     "repositories": "Your repositories",
     "project_repositories": "Project repositories",
@@ -434,6 +448,8 @@ def system_prompt_sections(
         identity.append(f"Your area of responsibility: {agent.description}")
     sections["identity"] = "\n\n".join(identity)
     sections["guide"] = MANAGER_GUIDE if agent.is_manager else WORKER_GUIDE
+    if agent.is_manager:
+        sections["backlog"] = BACKLOG_NEXT if project.continue_with_backlog else BACKLOG_LATER
     if project.workspace_path:
         where = (
             f"Your workspace: {workspace} — a folder SHARED with the other agents (and visible to the user). "

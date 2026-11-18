@@ -12,6 +12,8 @@ export interface Project {
   workspace_path: string | null;
   has_github_token: boolean;
   auto_wake_manager: boolean;
+  /** When nothing in To do can start, the team goes on with the Backlog. */
+  continue_with_backlog: boolean;
   parallel_agents: number | null;
   /** The subscription the project's agents run on; null: the one with the most room. */
   account_id: number | null;

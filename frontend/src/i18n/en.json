@@ -136,6 +136,8 @@
     "githubTokenSet": "A project token is stored. Enter a new one to replace it.",
     "autoWake": "Tell the manager when work is finished",
     "autoWakeHint": "The manager gets the reports of finished work by itself and goes on from there. Switched off, it looks at them only when you write to it.",
+    "backlogNext": "Go on with the Backlog when To Do cannot start",
+    "backlogNextHint": "When nothing in To Do can start, the team takes the next Backlog tickets, the most urgent first, and leaves only what needs you. Switched off, the Backlog waits until you move a ticket to To Do, and the team rests when To Do is empty.",
     "confirmDelete": "Delete project \"{{name}}\" with all tickets, agents and notes?",
     "repositories": "Repositories",
     "repositoriesHint": "Every agent gets its own copy of each repository; in the team you choose which agent gets which.",

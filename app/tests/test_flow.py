@@ -919,7 +919,38 @@ def test_the_same_ready_tickets_are_told_once_while_work_runs_and_once_more_when
     assert is_news(found([1, 2], resting=True), (frozenset({1, 2}), False))
     assert not is_news(found([1, 2], resting=True), (frozenset({1, 2}), True))
     assert not is_news(found([1, 2], resting=False), (frozenset({1, 2}), True))
-    assert is_news(found([1, 2, 3], resting=False), (frozenset({1, 2}), True))  # another ticket is news
+    assert is_news(found([1, 2, 3], resting=False), (frozenset({1, 2}), True))  # a ticket it has not heard of is news
+    assert not is_news(found([1], resting=True), (frozenset({1, 2}), True))  # fewer of the same are not
+
+
+def test_a_project_goes_on_with_its_backlog_unless_it_is_switched_off(client, project):
+    pid = project["id"]
+    make_member(client, pid, "Dev1")
+    fake = runner(client)
+    assert client.get(f"/api/projects/{pid}").json()["continue_with_backlog"] is True  # the default
+    # Nothing is to do, but two tickets are in the backlog, one of them urgent.
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Tidy the imports", "priority": "low"})
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Fix the crash", "priority": "urgent"})
+    wait_for(lambda: idle(client, pid))
+    turns = len(fake.specs)
+
+    assert stand_tick(client, 20) == 1
+    wait_for(lambda: idle(client, pid) and len(fake.specs) == turns + 1)
+    told = fake.specs[-1].prompt
+    # The tickets are named, the most urgent first: the manager answers to them, not to its memory of the backlog.
+    assert told.index("- #2 Fix the crash (backlog)") < told.index("- #1 Tidy the imports (backlog)") and "goes on with its Backlog" in told
+    assert "## Backlog\nWhen nothing in To do can start, go on with the Backlog" in fake.specs[-1].system_prompt
+
+    # Switched off, the backlog is the user's again: nobody is woken for it, and the manager is told to leave it.
+    assert client.patch(f"/api/projects/{pid}", json={"continue_with_backlog": False}).json()["continue_with_backlog"] is False
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "A third"})
+    wait_for(lambda: idle(client, pid))
+    assert stand_tick(client, 200) == 0
+    chat(client, manager_of(client, pid)["id"], "SAY ok")
+    wait_for(lambda: idle(client, pid) and fake.specs[-1].prompt.endswith("SAY ok"))
+    # Its running session gets the few lines of that rule, not the whole guide again.
+    update = fake.specs[-1].prompt
+    assert "[Briefing update]" in update and "Backlog is not ordered yet" in update and "How work flows" not in update
 
 
 def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(client, project):

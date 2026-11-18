@@ -208,6 +208,7 @@ class ProjectUpdate(BaseModel):
     setup_script: str | None = None
     github_token: str | None = None  # "" clears the override
     auto_wake_manager: bool | None = None
+    continue_with_backlog: bool | None = None
     parallel_agents: int | None = Field(default=None, ge=0, le=20)  # null: the number from the settings again
     account_id: int | None = None  # null: the subscription with the most room again
     auto_archive_days: int | None = Field(default=None, ge=0, le=3650)
@@ -222,6 +223,7 @@ class ProjectOut(ORM):
     workspace_path: str | None
     has_github_token: bool = False
     auto_wake_manager: bool
+    continue_with_backlog: bool = True
     parallel_agents: int | None = None
     account_id: int | None = None
     role: ProjectRole | None = None  # the asking user's role; not part of events, which go to everyone
