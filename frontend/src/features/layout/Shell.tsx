@@ -184,7 +184,7 @@ function UpdateNotice({ wide }: { wide: boolean }) {
   const body = (
     <>
       <ArrowUpCircle className="size-4 shrink-0" />
-      {wide && <span className="truncate">{t("update.available")}</span>}
+      {wide && <span className="label-line">{t("update.available")}</span>}
     </>
   );
   return version.url ? (
@@ -316,7 +316,7 @@ function ProjectWorkspace({
                   )}
                 >
                   {v.icon("size-4 shrink-0")}
-                  {wide && <span className="truncate">{t(`nav.${v.id}`)}</span>}
+                  {wide && <span className="label-line">{t(`nav.${v.id}`)}</span>}
                   {/* The wide sidebar lists the previews themselves, below. */}
                   {!wide && marked(v.id) && <span className="mk mk-run absolute top-1 right-1 scale-75 bg-current" />}
                 </button>

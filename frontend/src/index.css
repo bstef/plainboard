@@ -139,6 +139,18 @@
   .scroll-thin {
     scrollbar-width: thin;
   }
+  /* A label of one line beside an icon. Its box is its capital letters, so what centres the box centres
+     the letters, whatever the font's ascent and the line height are (measured in a 32px row: Inter sat
+     1px low at 100% screen scaling, Sofia Sans 0.8px high). Cut with an ellipsis like `truncate`, but
+     clipped sideways only, so descenders stay. A browser without text-box keeps the line box. */
+  .label-line {
+    min-width: 0;
+    overflow-x: clip;
+    overflow-y: visible;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-box: trim-both cap alphabetic;
+  }
   /* Rank by case: column heads, section heads. */
   .caps {
     text-transform: uppercase;
