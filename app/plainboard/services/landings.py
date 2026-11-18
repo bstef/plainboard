@@ -46,6 +46,9 @@ LEFT_ALONE_BATCHES = 4
 # again as it is: waiting for a repair that does not come must not stop the work.
 RED_HOLD_SECONDS = 45 * 60
 BASE_CHECK_MAX_SECONDS = 3600  # checks of the base branch that take longer are not waited for
+# Checks that cannot be read at all (the host answers with an error, e.g. a token without read access to
+# checks): a short failure is waited out, after this the batch counts as unchecked and landing goes on.
+UNREADABLE_GRACE_SECONDS = 600
 ACTIVE = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK)
 RUNNING_TRAINS = (TrainStatus.CHECKING, TrainStatus.BLOCKED)
 COMMAND, GITHUB = "command", "github"
@@ -196,6 +199,14 @@ async def red_base(session: AsyncSession, repository_id: int, now: datetime) -> 
         return None
     ordered = select(Assignment).where(Assignment.train_id.in_([t.id for t in streak]), Assignment.status != AssignmentStatus.CANCELLED)
     return RedBase(last, since, until, list(await session.scalars(ordered.order_by(Assignment.id.desc()))))
+
+
+async def checks_unreadable(session: AsyncSession, train: Train) -> bool:
+    """Whether the batch before this one was given up because its checks could not be read: this one is then
+    not waited for either, and nobody is told a second time."""
+    before = select(Train).where(Train.repository_id == train.repository_id, Train.direct, Train.id < train.id).order_by(Train.id.desc()).limit(1)
+    last = await session.scalar(before)
+    return last is not None and last.status == TrainStatus.ABORTED and last.escalated
 
 
 async def latest_red(session: AsyncSession, project_id: int) -> Train | None:

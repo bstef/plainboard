@@ -828,7 +828,7 @@
       "label": "Code access",
       "title": "How do agents reach your repositories?",
       "intro": "Agents clone, push and open pull requests. Whatever you set here holds for every project; a project or a single repository can have its own access instead.",
-      "advice": "Nothing here is required. With GitHub: a token (fine-grained, with access to the repositories' contents and pull requests). With any other host: the SSH key, added to your account there. Public repositories that are only read need neither.",
+      "advice": "Nothing here is required. With GitHub: a token (fine-grained, for the repositories: contents and pull requests read and write; actions and commit statuses read). With any other host: the SSH key, added to your account there. Public repositories that are only read need neither.",
       "tokenHint": "Not set. Leave it empty if you don't use GitHub.",
       "authorHint": "The name and address on the agents' commits."
     },

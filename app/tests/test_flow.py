@@ -1385,3 +1385,43 @@ def test_a_file_a_member_shows_in_its_own_chat_is_named_to_the_manager(client, p
     file_id = client.get(f"/api/agents/{dev['id']}/conversation").json()["messages"][-2]["meta"]["attachments"][0]["id"]
     assert f"Dev1 showed files in its own chat, which the user may not have open: access.txt (attachment {file_id})" in last_update(fake)
     assert "show in your chat: send_files attachment_ids" in last_update(fake)
+
+
+def test_checks_that_cannot_be_read_do_not_stop_landing(client, project, lands_on_red):
+    """Seen in production: the token of a project could not read the checks of GitHub. The watcher asked again with
+    every look, for hours, without a word, and fifteen finished branches waited behind one batch."""
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    landed = lambda: [sorted(spec.delete_branches) for spec in fake.land_specs]  # noqa: E731
+    now = utcnow()
+    land_tick_at(client, now - timedelta(minutes=30))
+    hand_over(client, pid, fake, "Dev2", "feat-b")
+
+    # A short failure (GitHub or the runner does not answer) is waited out.
+    fake.checks_error = "gh api failed: Resource not accessible by personal access token (HTTP 403)"
+    land_tick_at(client, now - timedelta(minutes=25))
+    assert landed() == [["feat-a"]]
+
+    # It lasts: the batch counts as unchecked, the next one lands, and the manager hears why, once.
+    land_tick_at(client, now - timedelta(minutes=15))
+    wait_for(lambda: idle(client, pid) and any("cannot be read from GitHub" in s.prompt for s in fake.specs))
+    assert landed() == [["feat-a"], ["feat-b"]]
+    said = next(s.prompt for s in fake.specs if "cannot be read from GitHub" in s.prompt)
+    assert "Resource not accessible by personal access token" in said and "read access to Actions" in said and "set a check command" in said
+    told = len([s for s in fake.specs if "cannot be read from GitHub" in s.prompt])
+
+    # The next batch is not waited for at all, and nobody is told again.
+    hand_over(client, pid, fake, "Dev3", "feat-c")
+    land_tick_at(client, now - timedelta(minutes=14))
+    wait_for(lambda: idle(client, pid))
+    assert landed()[-1] == ["feat-c"]
+    assert len([s for s in fake.specs if "cannot be read from GitHub" in s.prompt]) == told
+
+    # Readable again (the token got the permission): checked as usual.
+    fake.checks_error = ""
+    fake.commit_checks_of["train-3"] = [PullRequestCheck(name="Tests", state="pass")]
+    land_tick_at(client, now)
+    events = [e["kind"] for e in flow_events(client, pid) if e["kind"].startswith("base.")]
+    assert events == ["base.unchecked", "base.unchecked", "base.green"]

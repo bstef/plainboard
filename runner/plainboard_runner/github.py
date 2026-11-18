@@ -90,12 +90,35 @@ async def merge(credentials: Credentials, repo: str, number: int, methods: tuple
 
 async def commit_checks(credentials: Credentials, repo: str, sha: str) -> list[PullRequestCheck]:
     """The check runs of a commit (what a push to a branch started), the latest per name. For a base
-    branch that got its branches before the checks."""
-    out = await run_cmd(
-        ["gh", "api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100", "--paginate", "--jq", ".check_runs[] | {name, status, conclusion, html_url}"],
-        cwd=None, env=git_env(credentials), timeout=90,
-    )  # fmt: skip
-    return parse_check_runs([json.loads(line) for line in out.splitlines() if line.strip()])
+    branch that got its branches before the checks. With a token that may not read check runs: the
+    workflow runs of Actions for the commit, and its statuses."""
+    env = git_env(credentials)
+    try:
+        out = await run_cmd(
+            ["gh", "api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100", "--paginate", "--jq", ".check_runs[] | {name, status, conclusion, html_url}"],
+            cwd=None, env=env, timeout=90,
+        )  # fmt: skip
+        return parse_check_runs([json.loads(line) for line in out.splitlines() if line.strip()])
+    except WorkspaceError as refused:
+        # Not every token may read check runs (seen with a project's own fine-grained token). What Actions
+        # ran for the commit is asked instead ("Actions: read"), and the commit's statuses.
+        try:
+            out = await run_cmd(
+                ["gh", "api", f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100", "--jq", ".workflow_runs[] | {name, status, conclusion, html_url}"],
+                cwd=None, env=env, timeout=90,
+            )  # fmt: skip
+        except WorkspaceError as also:
+            raise WorkspaceError(f"{str(refused)[-250:]} | the runs of Actions neither: {str(also)[-250:]}") from also
+    checks = {c.name: c for c in parse_check_runs([json.loads(line) for line in out.splitlines() if line.strip()])}
+    try:
+        out = await run_cmd(["gh", "api", f"repos/{repo}/commits/{sha}/status", "--jq", ".statuses[] | {context, state, target_url}"], cwd=None, env=env, timeout=60)
+    except WorkspaceError:
+        out = ""  # without "Commit statuses: read": the runs of Actions are what there is
+    for item in (json.loads(line) for line in out.splitlines() if line.strip()):
+        state = {"success": "pass", "pending": "pending"}.get(item.get("state") or "", "fail")
+        name = item.get("context") or "status"
+        checks.setdefault(name, PullRequestCheck(name=name, state=state, link=item.get("target_url") or ""))  # type: ignore[arg-type]
+    return list(checks.values())
 
 
 def parse_check_runs(items: list[dict[str, Any]]) -> list[PullRequestCheck]:

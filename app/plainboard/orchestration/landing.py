@@ -158,8 +158,25 @@ class LandingWatcher:
             redact=secret_service.redactor(env),
         )
         train = await landing_service.running_train(s, repo.id)
-        if train is not None and not await (self._watch_base(s, r, train, now) if train.direct else self._watch(s, r, train, now)):
-            return
+        if train is not None:
+            try:
+                over = await (self._watch_base(s, r, train, now) if train.direct else self._watch(s, r, train, now))
+            except RunnerError as exc:
+                # A train whose state cannot be read for long (e.g. a token that may not read checks): it can
+                # only wait, but not silently. The manager hears it once.
+                if not train.direct and not train.escalated and (now - train.created_at).total_seconds() >= landing_service.UNREADABLE_GRACE_SECONDS:
+                    train.escalated = True
+                    await s.commit()
+                    await flow_log.record(s, project.id, "train.unreadable", train_id=train.id, what=truncate(str(exc), 300))
+                    await self._tell_manager(
+                        s, r,
+                        f"The train of {repo.name} cannot be read from the git host ({truncate(str(exc), 200)}), so nothing of {repo.name} lands until it can. "
+                        "Most likely the access token may not read checks or pull requests. Tell the user; or set a check command for this repository "
+                        "(update_repository), which needs no checks of the host.",
+                    )
+                raise
+            if not over:
+                return
         if self._runs.paused:
             return  # everything is paused: the train on its way is watched to its end, no new one leaves
         await (self._land_first(s, r, now) if repo.land_first else self._depart(s, r, now))
@@ -549,7 +566,10 @@ class LandingWatcher:
                 failed = ["check command"]
                 evidence = f"Check command: {r.repo.check_command.strip()}\nIt ended with exit code {state.exit_code}. Last output:\n{r.redact(state.tail)}\nFull log: {state.log_path}"  # type: ignore[operator]
         else:
-            checks = await self._runs.runner.commit_checks(r.credentials, r.slug, train.head_sha) if r.slug else []
+            try:
+                checks = await self._runs.runner.commit_checks(r.credentials, r.slug, train.head_sha) if r.slug else []
+            except RunnerError as exc:
+                return await self._unreadable(s, r, train, now, exc)
             result = base_result(checks, (now - train.created_at).total_seconds())
             if result == "pending":
                 return False
@@ -563,6 +583,27 @@ class LandingWatcher:
         await flow_log.record(s, r.project.id, {"failed": "base.red", "passed": "base.green"}.get(result, "base.unchecked"), train_id=train.id, checks=failed, check_seconds=train.check_seconds)
         if result == "failed":
             await self._base_red(s, r, train, failed, evidence, links)
+        return True
+
+    async def _unreadable(self, s: AsyncSession, r: Repo, train: Train, now: datetime, exc: RunnerError) -> bool:
+        """The checks of a batch that landed cannot be read (the host answers with an error, e.g. a token that may not read them).
+        Seen in production: the watcher tried again with every look, for hours, and nothing landed. A short
+        failure is waited out. After that the batch counts as unchecked, landing goes on, and the manager
+        hears once why nobody will be told when the base branch breaks."""
+        known = await landing_service.checks_unreadable(s, train)
+        if not known and (now - train.created_at).total_seconds() < landing_service.UNREADABLE_GRACE_SECONDS:
+            raise exc
+        self._finished(train, now)
+        train.status, train.escalated = TrainStatus.ABORTED, True
+        await s.commit()
+        await flow_log.record(s, r.project.id, "base.unchecked", train_id=train.id, unreadable=truncate(str(exc), 300))
+        if not known:
+            await self._tell_manager(
+                s, r,
+                f"The checks of {train.base} in {r.repo.name} cannot be read from GitHub ({truncate(str(exc), 200)}). PlainBoard goes on landing without their "
+                f"result, so nobody is told when {train.base} breaks. "
+                "Most likely the GitHub token used for this repository lacks a read permission: with a fine-grained token, read access to Actions and to Commit statuses. Tell the user; or set a check command for this repository (update_repository), which needs no checks of GitHub.",
+            )
         return True
 
     @staticmethod

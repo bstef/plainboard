@@ -173,6 +173,8 @@ class FakeRunner:
         return result
 
     async def commit_checks(self, credentials, repo: str, sha: str) -> list:
+        if getattr(self, "checks_error", ""):
+            raise RunnerError(self.checks_error)
         return list(self.commit_checks_of.get(sha, []))
 
     async def check_train(self, spec) -> JobState:

@@ -1013,3 +1013,29 @@ async def test_only_branches_that_are_fully_on_the_base_branch_are_removed(tmp_p
     left = set(run("git", "branch", "--format=%(refname:short)").splitlines())
     assert {"main", "develop", "release/1.0", "in-flight", "stack-base", "own-work", "just-started"} <= left and "merged-old" not in left
     assert (await trains.tidy(spec)).deleted == []  # nothing left to remove
+
+
+async def test_a_token_that_cannot_read_check_runs_reads_the_runs_of_actions(monkeypatch):
+    """Seen in production: a fine-grained token got a 403 for the check runs of a commit, and the result of a
+    check run that had long passed was never read."""
+    from plainboard_runner import github
+
+    asked = []
+
+    async def host(args, cwd, env, timeout=600):
+        asked.append(args[2])
+        if "check-runs" in args[2]:
+            raise WorkspaceError("gh api failed: Resource not accessible by personal access token (HTTP 403)")
+        if "actions/runs" in args[2]:
+            if env.get("GH_TOKEN") == "nothing":
+                raise WorkspaceError("gh api failed: Resource not accessible by personal access token (HTTP 403)")
+            return '{"name":"Deploy","status":"completed","conclusion":"success","html_url":"https://ci/1"}\n{"name":"Tests","status":"in_progress","conclusion":null,"html_url":"https://ci/2"}'
+        return '{"context":"security/scan","state":"failure","target_url":"https://scan/1"}'
+
+    monkeypatch.setattr(github, "run_cmd", host)
+    checks = {c.name: (c.state, c.link) for c in await github.commit_checks(Credentials(github_token="fine"), "acme/api", "abc")}
+    assert checks == {"Deploy": ("pass", "https://ci/1"), "Tests": ("pending", "https://ci/2"), "security/scan": ("fail", "https://scan/1")}
+    assert asked == ["repos/acme/api/commits/abc/check-runs?per_page=100", "repos/acme/api/actions/runs?head_sha=abc&per_page=100", "repos/acme/api/commits/abc/status"]
+    # Neither can be read: the error names both, so the user sees what the token lacks.
+    with pytest.raises(WorkspaceError, match="the runs of Actions neither"):
+        await github.commit_checks(Credentials(github_token="nothing"), "acme/api", "abc")
