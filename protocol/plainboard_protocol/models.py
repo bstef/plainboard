@@ -165,7 +165,8 @@ class JobPort(BaseModel):
 
     port: int
     local: bool = False  # listens on 127.0.0.1 only: reachable from inside the runner, not through the app
-    title: str = ""  # of the page at its root
+    title: str = ""  # of the page it starts with
+    base: bool = False  # it has /preview-base/<port>/ as its base path and answers only there
 
 
 class PullRequestRef(BaseModel):

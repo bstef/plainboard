@@ -82,10 +82,12 @@ export interface PauseStatus {
 /** A web server an agent has started and left running. */
 export interface Preview {
   port: number;
-  /** Of the page at its root; may be empty. */
+  /** Of the page it starts with; may be empty. */
   title: string;
   /** Listens on 127.0.0.1 only: it opens in the browser window, not at /preview/<port>/. */
   local: boolean;
+  /** It has /preview-base/<port>/ as its base path: that is where it opens. */
+  base: boolean;
   job_id: number;
   agent_id: number;
   command: string;

@@ -12,9 +12,9 @@ import { useShell } from "../layout/shell-context";
 /** What a preview is called: the title of its page, else where it runs. */
 const nameOf = (p: Preview) => p.title || `localhost:${p.port}`;
 /** Where PlainBoard serves it, for a tab of the user's own browser. */
-const tabOf = (p: Preview) => `/preview/${p.port}/`;
-/** Where it is inside the agents' environment, for the browser window. */
-const addressOf = (p: Preview) => `http://localhost:${p.port}/`;
+const tabOf = (p: Preview) => `/${p.base ? "preview-base" : "preview"}/${p.port}/`;
+/** Where it is inside the agents' environment, for the browser window. A server with a base path answers only under it. */
+const addressOf = (p: Preview) => `http://localhost:${p.port}${p.base ? `/preview-base/${p.port}/` : "/"}`;
 
 /** The servers the project's agents have left running. Only asked for while a job runs at all. */
 export function useActivePreviews(projectId: number, agents: Agent[]): Preview[] {

@@ -388,6 +388,11 @@ import http.server, socket, threading
 
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.server.server_port == 18734 and not self.path.startswith("/preview-base/18734/"):
+            self.send_response(401)  # a server with a base path: nothing outside it
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if self.path == "/":
             self.send_response(302)
             self.send_header("Location", "/home")
@@ -408,6 +413,7 @@ def serve(host, port):
 
 threading.Thread(target=serve, args=("0.0.0.0", 18731), daemon=True).start()
 threading.Thread(target=serve, args=("127.0.0.1", 18732), daemon=True).start()
+threading.Thread(target=serve, args=("0.0.0.0", 18734), daemon=True).start()
 silent = socket.socket()  # listens and never answers: not a web server
 silent.bind(("0.0.0.0", 18733))
 silent.listen()
@@ -429,11 +435,18 @@ async def test_the_web_servers_of_a_job_are_found_without_anyone_naming_a_port(w
     found = {}
     for _ in range(100):
         found = await ports.of_jobs(["b1", "b2", "ffff"])
-        if len(found.get("b1", [])) == 2:
+        if len(found.get("b1", [])) == 3:
             break
         await asyncio.sleep(0.1)
-    # The title is of the page "/" leads to. The second server is only reachable from inside the runner.
-    assert found == {"b1": [JobPort(port=18731, title="Paper & Paw shop"), JobPort(port=18732, local=True, title="Paper & Paw shop")]}
+    # The title is of the page "/" leads to. The second server is only reachable from inside the runner,
+    # the third has /preview-base/<port>/ as its base path and answers nowhere else.
+    assert found == {
+        "b1": [
+            JobPort(port=18731, title="Paper & Paw shop"),
+            JobPort(port=18732, local=True, title="Paper & Paw shop"),
+            JobPort(port=18734, title="Paper & Paw shop", base=True),
+        ]
+    }
 
     assert jobs.stop("b1") and jobs.stop("b2")
     await ended("b1")

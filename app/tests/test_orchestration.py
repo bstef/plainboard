@@ -1374,10 +1374,13 @@ def test_running_previews_are_listed_for_their_project_and_a_member_stops_one(cl
     start_job(client, dev["id"], "npm run dev -- --host 0.0.0.0")
     wait_for(lambda: idle(client, pid))
     (spec,) = runner(client).job_specs
-    # What the runner found: the dev server, one on 127.0.0.1 only, and a port that is never previewed (the runner's own).
-    runner(client).ports = {spec.id: [JobPort(port=5173, title="Shop"), JobPort(port=9000, local=True), JobPort(port=8090, title="Runner")]}
+    # A server that listens on 127.0.0.1 only is a preview for the browser window; the runner's own port never is one.
+    runner(client).ports = {spec.id: [JobPort(port=9000, local=True, title="Docs"), JobPort(port=8090, title="Runner")]}
+    assert [(p["port"], p["title"], p["local"]) for p in client.get(f"/api/projects/{pid}/previews").json()] == [(9000, "Docs", True)]
+    # The dev server, and what stands behind it on 127.0.0.1: only the first is a preview. One with a base path says so.
+    runner(client).ports = {spec.id: [JobPort(port=5173, title="Shop"), JobPort(port=6000, base=True), JobPort(port=9000, local=True, title="Shop")]}
     shown = client.get(f"/api/projects/{pid}/previews").json()
-    assert [(p["port"], p["title"], p["local"], p["access"]) for p in shown] == [(5173, "Shop", False, "private"), (9000, "", True, "private")]
+    assert [(p["port"], p["title"], p["local"], p["base"], p["access"]) for p in shown] == [(5173, "Shop", False, False, "private"), (6000, "", False, True, "private")]
     assert shown[0]["agent_id"] == dev["id"] and shown[0]["command"].startswith("npm run dev") and shown[0]["started_at"].endswith("Z")
     assert client.get(f"/api/projects/{other['id']}/previews").json() == []  # another project's servers are not this one's
 

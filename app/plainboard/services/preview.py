@@ -181,15 +181,27 @@ def servers(jobs: list[Job]) -> list[Job]:
     return [job for job in jobs if job.assignment_id is None]
 
 
+def _previewed(port: int) -> bool:
+    try:
+        check_port(port)
+    except ServiceError:
+        return False
+    return True
+
+
 async def running(session: AsyncSession, project_id: int, jobs: list[Job], ports: dict[str, list[JobPort]]) -> list[PreviewOut]:
-    """``ports``: what the runner found for these jobs (its job id -> the ports a web server answers on)."""
+    """``ports``: what the runner found for these jobs (its job id -> the ports a web server answers on).
+
+    A job that answers on a port the app reaches keeps its ports on 127.0.0.1 to itself: they are what
+    stands behind it (the backend behind a gateway, a dev server behind a proxy), often on another port
+    after every start. Opened directly such a page breaks as soon as that part is replaced."""
     shares = {share.port: share for share in await shares_for_project(session, project_id)}
     out = []
     for job in jobs:
-        for found in ports.get(job.runner_id, []):
-            try:
-                check_port(found.port)
-            except ServiceError:
+        answering = [found for found in ports.get(job.runner_id, []) if _previewed(found.port)]
+        reachable = any(not found.local for found in answering)
+        for found in answering:
+            if found.local and reachable:
                 continue
             share = shares.get(found.port)
             out.append(
@@ -197,6 +209,7 @@ async def running(session: AsyncSession, project_id: int, jobs: list[Job], ports
                     port=found.port,
                     title=found.title,
                     local=found.local,
+                    base=found.base,
                     job_id=job.id,
                     agent_id=job.agent_id,
                     command=truncate(job.command, 200),

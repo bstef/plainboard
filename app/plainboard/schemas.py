@@ -846,8 +846,9 @@ class PreviewOut(BaseModel):
     """A web server an agent has started and left running, as the UI lists it."""
 
     port: int
-    title: str  # of the page at its root; may be empty
+    title: str  # of the page it starts with; may be empty
     local: bool  # listens on 127.0.0.1 only: it opens in the browser window, not at /preview/<port>/
+    base: bool = False  # it has /preview-base/<port>/ as its base path: that is where it opens
     job_id: int
     agent_id: int
     command: str
