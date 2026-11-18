@@ -22,7 +22,8 @@ A repository that lands first (``repository.land_first``) does it the other way 
 ready is merged into the base branch at once, and the checks run on the base branch afterwards,
 once for everything that landed. Their result takes nothing back. If they fail, one agent repairs
 the base branch on a branch of its own, which lands like any other. The next batch lands when the
-checks of the last one are over, so a check run is never replaced by a newer push.
+checks of the last one are over, so a check run is never replaced by a newer push. A repair that
+someone cancelled is not ordered again for a few batches: they have it in hand.
 """
 
 from __future__ import annotations
@@ -566,6 +567,15 @@ class LandingWatcher:
         # A repair that was cancelled before it began repaired nothing.
         repairs = list(await s.scalars(select(Assignment).where(Assignment.train_id.in_(ids), Assignment.status != AssignmentStatus.CANCELLED).order_by(Assignment.id.desc()))) if ids else []
         known = {name for names in was_red.values() for name in names}
+        # The latest repair of this red phase was cancelled: the manager has it in hand (it ordered one of its
+        # own, or knows one cause behind several checks). Ordered again with every batch, it was cancelled again
+        # with every batch, a manager turn each time.
+        cancelled = await s.scalar(select(Assignment).where(Assignment.train_id.in_(ids), Assignment.status == AssignmentStatus.CANCELLED).order_by(Assignment.id.desc()).limit(1)) if ids else None
+        if cancelled is not None and (not repairs or cancelled.id > repairs[0].id):
+            batches = sum(1 for t in streak if t.id > (cancelled.train_id or 0)) + 1
+            if batches <= landing_service.LEFT_ALONE_BATCHES:
+                await flow_log.record(s, r.project.id, "base.left_alone", train_id=train.id, assignment_id=cancelled.id, batches=batches)
+                return
         if repairs:
             last = repairs[0]
             # The branch that was handed over while that repair was worked on, not any branch of the same agent.

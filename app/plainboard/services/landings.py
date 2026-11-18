@@ -35,6 +35,9 @@ MAX_FAILED_ROUNDS = 3  # after this many, the author stops getting it back and t
 MAX_TRAIN = 12  # branches on one train, while trains pass
 SIZE_WINDOW = 8  # trains whose results decide the size of the next one
 MAX_BATCH = 30  # branches merged in one go where they land before their checks
+# A repair of a red base branch that was cancelled is not ordered again for this many red batches: whoever
+# cancelled it has the repair in hand. After them it is ordered again, so the branch does not stay red for good.
+LEFT_ALONE_BATCHES = 4
 BASE_CHECK_MAX_SECONDS = 3600  # checks of the base branch that take longer are not waited for
 ACTIVE = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK)
 RUNNING_TRAINS = (TrainStatus.CHECKING, TrainStatus.BLOCKED)

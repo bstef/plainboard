@@ -1123,6 +1123,41 @@ def test_other_work_of_the_member_that_repaired_is_not_taken_for_the_fix(client,
     assert "repair 2 of 3" in next(s.prompt for s in reversed(fake.specs) if "Nothing is taken back" in s.prompt)
 
 
+def test_a_repair_that_was_cancelled_is_not_ordered_again_with_every_batch(client, project):
+    """Seen in production: the manager repaired a red base branch with assignments of its own and cancelled
+    PlainBoard's. PlainBoard ordered it again with every red batch, and it was cancelled again: 28 times in a day."""
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a"], url="https://github.com/acme/api.git", check_command="", land_first=True)
+    manager = manager_of(client, pid)
+    dev1 = agents_by_slug(client, pid)["dev1"]["id"]
+    red = [PullRequestCheck(name="Tests", state="fail", link="https://ci/t")]
+    start = utcnow() - timedelta(hours=3)
+    land_tick_at(client, start)
+    hand_over(client, pid, fake, "Dev2", "work-2")
+    # Dev1 wrote what landed and is in the middle of something: the repair waits for it, and the manager cancels it.
+    chat(client, dev1, "HOLD\nSAY done")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    fake.commit_checks_of["train-1"] = red
+    land_tick_at(client, start + timedelta(minutes=15))
+    wait_for(lambda: len(repairs(client, pid)) == 1)
+    chat(client, manager["id"], "TOOL cancel_assignment " + json.dumps({"assignment_id": repairs(client, pid)[0]["id"]}))
+    wait_for(lambda: repairs(client, pid)[0]["status"] == "cancelled")
+    fake.released = True
+    wait_for(lambda: idle(client, pid))
+
+    # Red again and again: four batches order nothing. Then it is ordered once more, so the branch cannot stay red for good.
+    for batch in range(2, 7):
+        fake.commit_checks_of[f"train-{batch}"] = red
+        hand_over(client, pid, fake, f"Dev{batch + 1}", f"work-{batch + 1}")
+        land_tick_at(client, start + timedelta(minutes=15 * batch))
+        wait_for(lambda: idle(client, pid))
+        assert len(repairs(client, pid)) == (1 if batch < 6 else 2), batch
+    events = [e["kind"] for e in flow_events(client, pid) if e["kind"].startswith("base.")]
+    assert events == ["base.red", "base.repair_ordered", *["base.red", "base.left_alone"] * 4, "base.red", "base.repair_ordered"]
+
+
 def test_a_base_that_is_red_for_a_new_reason_each_time_keeps_getting_repairs(client, project):
     """Seen in production: eight red landings, each for other checks. After three repairs everything
     went to the manager, although none of the new failures had been repaired even once."""
