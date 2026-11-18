@@ -226,6 +226,8 @@ class ProjectOut(ORM):
     slug: str
     description: str
     language: str = ""
+    paused_at: UTCDateTime | None = None  # paused for good by a person, since then
+    paused_by: str = ""
     workspace_path: str | None
     has_github_token: bool = False
     auto_wake_manager: bool

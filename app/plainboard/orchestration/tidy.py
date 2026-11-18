@@ -74,7 +74,7 @@ class BranchTidy:
 
     async def _tidy(self, s: AsyncSession, repo: Repository, now: datetime) -> None:
         project = await s.get(Project, repo.project_id)
-        if project is None:
+        if project is None or project.paused_at is not None:
             return
         env = secret_service.env(await secret_service.effective(s, project.id))
         credentials = settings_service.credentials(await settings_service.get_all(s), project_service.github_token(project), env)

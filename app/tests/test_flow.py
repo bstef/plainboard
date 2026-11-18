@@ -1425,3 +1425,51 @@ def test_checks_that_cannot_be_read_do_not_stop_landing(client, project, lands_o
     land_tick_at(client, now)
     events = [e["kind"] for e in flow_events(client, pid) if e["kind"].startswith("base.")]
     assert events == ["base.unchecked", "base.unchecked", "base.green"]
+
+
+def test_a_paused_project_starts_nothing_until_a_person_resumes_it(client, project):
+    from datetime import datetime
+
+    pid = project["id"]
+    other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
+    manager = manager_of(client, pid)
+    dev = make_member(client, pid, "Dev1")
+    fake = runner(client)
+    turns = lambda: len(fake.specs)  # noqa: E731
+
+    # A turn that runs is told to wrap up, and the job of an agent without a turn is stopped.
+    chat(client, dev["id"], 'TOOL start_job {"command": "npm run dev"}')
+    wait_for(lambda: idle(client, pid) and agents_by_slug(client, pid)["dev1"]["running_jobs"] == 1)
+    chat(client, manager["id"], "HOLD\nSAY wrapped up")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    paused = client.post(f"/api/projects/{pid}/pause").json()
+    assert paused["paused_at"] and paused["paused_by"]
+    assert any("You are being paused" in text and "paused this project" in text for _, text in fake.notices)
+    assert agents_by_slug(client, pid)["dev1"]["running_jobs"] == 0
+    fake.released = True
+    wait_for(lambda: idle(client, pid))
+    before = turns()
+
+    # Whoever asks: a chat, a hand-over to the manager, a schedule, the end of "pause everything". Nothing starts.
+    chat(client, manager["id"], "SAY one")
+    chat(client, dev["id"], "SAY two")
+    when = (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S")
+    assert client.post(f"/api/projects/{pid}/schedules", json={"agent_id": dev["id"], "name": "Nightly", "prompt": "SAY nightly", "kind": "once", "run_at": when}).status_code == 201
+    client.portal.call(client.app_ref.state.scheduler.tick)
+    assert client.post("/api/pause").json()["paused"]
+    assert client.delete("/api/pause").json()["paused"] is False
+    client.portal.call(client.app_ref.state.standstill.tick)
+    # Another project works on meanwhile.
+    chat(client, manager_of(client, other)["id"], "SAY elsewhere")
+    wait_for(lambda: idle(client, other) and turns() == before + 1)
+    waiting = [r["status"] for r in runs_of(client, pid) if r["status"] in ("queued", "running")]
+    assert waiting and set(waiting) == {"queued"}  # ("pause everything" drops what a member had not started: its own rule)
+    assert not any("SAY one" in s.prompt or "SAY two" in s.prompt for s in fake.specs)
+    assert client.get(f"/api/projects/{pid}").json()["paused_at"]
+
+    # A person resumes it: what waited starts. The schedule's time passed without a turn.
+    assert client.delete(f"/api/projects/{pid}/pause").json()["paused_at"] is None
+    wait_for(lambda: idle(client, pid) and any("SAY one" in s.prompt for s in fake.specs))
+    assert not any("SAY nightly" in s.prompt for s in fake.specs)
+    kinds = [e["kind"] for e in flow_events(client, pid) if e["kind"].startswith("project.")]
+    assert kinds == ["project.paused", "project.resumed"]

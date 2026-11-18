@@ -7,7 +7,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..models import Agent, RunTrigger, utcnow
+from ..models import Agent, Project, RunTrigger, utcnow
 from ..services import board as board_service
 from ..services import own_notes as own_note_service
 from ..services import schedules as schedule_service
@@ -47,7 +47,9 @@ class Scheduler:
             for schedule in await schedule_service.due(s, now):
                 run_id = None
                 agent = await s.get(Agent, schedule.agent_id)
-                if agent is not None and agent.enabled:
+                project = await s.get(Project, agent.project_id) if agent is not None else None
+                # A paused project: the time passes without a turn, so nothing piles up for the day it goes on.
+                if agent is not None and agent.enabled and project is not None and project.paused_at is None:
                     text = f'Scheduled task "{schedule.name}" (schedule {schedule.id}):\n\n{schedule.prompt}'
                     run = await self._runs.enqueue(s, agent, RunTrigger.SCHEDULE, text, schedule_id=schedule.id)
                     run_id = run.id

@@ -13,6 +13,7 @@ import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
+import { ProjectPauseSwitch } from "./ProjectPause";
 import { ExportProject } from "./MoveProject";
 import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
 
@@ -154,6 +155,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
       description: t("projectSettings.team.description"),
       content: (
         <div className="space-y-4">
+          <ProjectPauseSwitch project={project} />
           <Field label={t("projects.parallel")} hint={t("projects.parallelHint", { count: defaultParallel })}>
             <Input
               type="number"

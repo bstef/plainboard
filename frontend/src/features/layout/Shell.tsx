@@ -21,6 +21,7 @@ import { ProjectWizard } from "../onboarding/ProjectWizard";
 import { ProjectSettings } from "../projects/ProjectSettings";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
 import { SchedulesView } from "../schedules/SchedulesView";
+import { ProjectPauseBanner } from "../projects/ProjectPause";
 import { PauseBanner } from "../settings/PauseEditor";
 import { SettingsDialog } from "../settings/SettingsDialog";
 import { StatsView } from "../stats/StatsView";
@@ -357,6 +358,7 @@ function ProjectWorkspace({
             </header>
           )}
           <PauseBanner onDetails={onPause} />
+          <ProjectPauseBanner project={project} isOwner={project.role === "owner"} />
           {!isDesktop && view === "board" && <RunningNow variant="strip" />}
           {project.role === "viewer" && (
             <p role="status" className="shrink-0 border-b border-line px-4 py-1.5 text-fg-2">

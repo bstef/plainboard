@@ -82,6 +82,21 @@ async def update_project(project_id: int, body: ProjectUpdate, session: Session,
     return out
 
 
+@router.post("/projects/{project_id}/pause", response_model=ProjectOut)
+async def pause_project(project_id: int, session: Session, runs: Runs, who: Who) -> ProjectOut:
+    """Bring this project to rest for good: nothing of it starts until a person resumes it."""
+    project = await project_service.get(session, project_id)
+    await runs.pause_project(session, project, who.name)
+    return project_service.to_out(project, await user_service.role_in(session, who.user, project_id) if who.user else None)
+
+
+@router.delete("/projects/{project_id}/pause", response_model=ProjectOut)
+async def resume_project(project_id: int, session: Session, runs: Runs, who: Who) -> ProjectOut:
+    project = await project_service.get(session, project_id)
+    await runs.resume_project(session, project)
+    return project_service.to_out(project, await user_service.role_in(session, who.user, project_id) if who.user else None)
+
+
 @router.delete("/projects/{project_id}", status_code=204)
 async def delete_project(project_id: int, session: Session, runs: Runs, files: bool = False) -> None:
     """``files``: also the folders its agents worked in on the runner."""

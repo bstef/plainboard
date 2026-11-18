@@ -115,7 +115,7 @@ whole installation. Everyone finds their own account here; the rest is for admin
 |---|---|
 | General | The project's name, description, and the language its agents write to you in |
 | Repositories | The repositories: by address, chosen from GitHub, or newly created there. Click one for its address, base branch, checks and access |
-| Team | How many agents work at once, which subscription they run on, whether the manager is told when work is finished |
+| Team | Pause this project for good; how many agents work at once, which subscription they run on, whether the manager is told when work is finished |
 | Board | When tickets leave *Review* and when done tickets are archived |
 | Secrets | Keys and tokens for this project's agents only |
 | Members | Who sees the project, as viewer, member or owner |

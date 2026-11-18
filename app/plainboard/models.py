@@ -141,6 +141,10 @@ class Project(Timestamps, Base):
     parallel_agents: Mapped[int | None] = mapped_column(Integer)
     # The subscription this project's agents run on, unless an agent has its own. Unset: the one with the most room.
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
+    # Paused by a person, for good: nothing of this project starts until a person resumes it
+    # (RunManager.pause_project). Not ended by a restart, nor when "pause everything" ends.
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime)
+    paused_by: Mapped[str] = mapped_column(String(100), default="", server_default="")
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never

@@ -693,14 +693,39 @@ class RunManager:
                 bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
         await self._pause_changed(s)
 
-    async def _rest_jobs(self, s: AsyncSession, agent_id: int | None = None) -> int:
+    async def pause_project(self, s: AsyncSession, project: Project, by: str) -> None:
+        """One project comes to rest and stays there until a person resumes it. Nothing of it starts,
+        whoever asks for it: the turns that run are told to wrap up, the background jobs are stopped,
+        and what is queued or gets queued waits. Unlike "pause everything" it does not end by itself."""
+        project.paused_at, project.paused_by = project.paused_at or utcnow(), project.paused_by or by
+        await s.commit()
+        reason = f"{by} paused this project. Your open work goes on by itself when it is resumed."
+        turns = select(Run).where(Run.project_id == project.id, Run.status == RunStatus.RUNNING, Run.stop_requested_at.is_(None))
+        for run in list(await s.scalars(turns)):
+            if await self.runner.notify_run(run.id, prompts.wind_down_notice(reason, jobs_end=True), urgent=True):
+                run.stop_requested_at = utcnow()
+                await s.commit()
+                bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
+        await self._rest_jobs(s, project_id=project.id)  # of everyone without a turn; a turn that still runs wraps up first
+        await flow_log.record(s, project.id, "project.paused", by=by)
+        bus.publish(project.id, "project.updated", project_service.to_out(project))
+
+    async def resume_project(self, s: AsyncSession, project: Project) -> None:
+        """End a project's pause: what waited starts, and open assignments go on with their next turn."""
+        project.paused_at, project.paused_by = None, ""
+        await s.commit()
+        await flow_log.record(s, project.id, "project.resumed")
+        bus.publish(project.id, "project.updated", project_service.to_out(project))
+        self._wake.set()
+
+    async def _rest_jobs(self, s: AsyncSession, agent_id: int | None = None, project_id: int | None = None) -> int:
         """Everything is paused: stop the background jobs of agents that have no turn (of one agent, or
         of all). A restart would end them anyway, and nobody should have to decide it: no turn is spent.
         The agent reads which ones with its next turn and starts again what it still needs.
         Returns how many were stopped."""
         stopped: dict[int, list[str]] = {}
         for job in await job_service.running(s):
-            if (agent_id is not None and job.agent_id != agent_id) or job.agent_id in self._busy_agents:
+            if (agent_id is not None and job.agent_id != agent_id) or (project_id is not None and job.project_id != project_id) or job.agent_id in self._busy_agents:
                 continue
             try:
                 if await self.stop_job(s, job, settle=False):
@@ -797,6 +822,9 @@ class RunManager:
             limits = {pid: default if own is None else own for pid, own in (await s.execute(select(Project.id, Project.parallel_agents))).all()} if queued else {}
             project_of = dict((await s.execute(select(Run.id, Run.project_id).where(Run.id.in_(list(self._running))))).all()) if queued and self._running else {}
             managers = set(await s.scalars(select(Agent.id).where(Agent.is_manager))) if queued else set()
+            # Projects a person paused for good. Read from the database with every look: whoever queued
+            # a turn for one of them (a chat, a schedule, a report), it does not start.
+            resting = set(await s.scalars(select(Project.id).where(Project.paused_at.is_not(None)))) if queued else set()
             # A paused agent keeps its assignments in the queue; only its turn to wrap up still runs.
             paused = set(await s.scalars(select(Agent.id).where(~Agent.enabled))) if queued else set()
             # An agent finishes its open assignment before it starts another one.
@@ -820,7 +848,7 @@ class RunManager:
                 for r in sorted(queued, key=order)
                 if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied) and not (r.agent_id in paused and r.assignment_id and not r.stop_requested_at)
                 # Everything is paused: only what wraps up still starts, and the answer a turn that wraps up waits for.
-                and not (self.paused and not r.stop_requested_at and r.parent_run_id is None)
+                and not ((self.paused or r.project_id in resting) and not r.stop_requested_at and r.parent_run_id is None)
             ]
         in_use: dict[int, int] = {}  # project -> its members at work
         for run_id in self._running.keys() - self._unlimited - self.waiting_for_job():
@@ -879,7 +907,8 @@ class RunManager:
             self._wake.set()
             try:
                 async with self._sm() as s:
-                    if self.paused:  # its turn wrapped up: what it left running stops now
+                    rests = select(Project.id).join(Agent, Agent.project_id == Project.id).where(Agent.id == agent_id, Project.paused_at.is_not(None))
+                    if self.paused or await s.scalar(rests):  # its turn wrapped up: what it left running stops now
                         await self._rest_jobs(s, agent_id)
                     await self._settle(s, agent_id)
                     await agent_service.publish_by_id(s, agent_id)

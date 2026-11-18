@@ -177,8 +177,8 @@ class LandingWatcher:
                 raise
             if not over:
                 return
-        if self._runs.paused:
-            return  # everything is paused: the train on its way is watched to its end, no new one leaves
+        if self._runs.paused or project.paused_at is not None:
+            return  # paused (everything, or this project): the train on its way is watched to its end, no new one leaves
         await (self._land_first(s, r, now) if repo.land_first else self._depart(s, r, now))
 
     # ------------------------------------------------------------------ a train on its way
