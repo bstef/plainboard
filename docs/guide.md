@@ -323,6 +323,16 @@ server {
 }
 ```
 
+If it does not work:
+
+- **A TLS or handshake error** (Cloudflare: 525): the proxy has no entry for the name you opened, so
+  it has no certificate for it. Add the name to the proxy's configuration and reload it.
+- **502 Bad Gateway:** the proxy cannot reach PlainBoard. With the proxy on another machine,
+  `PLAINBOARD_BIND` is missing (PlainBoard listens on `127.0.0.1` only), or the port is another one
+  than the proxy points at. From the proxy's machine, `curl http://<address>:<port>/api/health` must
+  answer `{"status":"ok"}`.
+- **The board loads but never changes by itself:** WebSockets do not get through.
+
 ## PostgreSQL
 
 PlainBoard keeps its data in one SQLite file in the data volume. That needs nothing and is the right
