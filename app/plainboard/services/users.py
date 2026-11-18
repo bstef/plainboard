@@ -87,7 +87,7 @@ async def setup(session: AsyncSession, username: str, name: str, password: str, 
         raise ServiceError("This PlainBoard is already set up. Sign in.", 409)
     expected = get_config().password
     if expected and not password_matches(setup_password or "", expected):
-        raise ServiceError("Wrong setup password (PLAINBOARD_PASSWORD of this installation).", 403)
+        raise ServiceError("Wrong setup password. It is the value of PLAINBOARD_PASSWORD in the .env file next to your docker-compose.yml.", 403)
     user = await create(session, username, name, password, is_admin=True, may_create_projects=True)
     # Two people at the same moment: only the first account stays.
     if await session.scalar(select(func.min(User.id))) != user.id:

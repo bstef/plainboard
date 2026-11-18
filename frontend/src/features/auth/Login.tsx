@@ -63,6 +63,8 @@ export function Login() {
   );
 }
 
+const LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
 /** A new installation: whoever opens it first creates the admin account. */
 export function CreateAdmin({ status }: { status: AuthStatus }) {
   const { t } = useTranslation();
@@ -91,6 +93,13 @@ export function CreateAdmin({ status }: { status: AuthStatus }) {
   return (
     <AuthPage title={t("auth.setupTitle")} intro={t("auth.setupIntro")}>
       <form onSubmit={submit} className="space-y-4">
+        {/* Opened over the network without a setup password: the first visitor would own the server. On this machine it is fine. */}
+        {!status.setup_password_required && !LOCAL_HOSTS.includes(window.location.hostname) && (
+          <div role="alert" className="rounded-sm bg-you-bg px-3 py-2 text-you-fg">
+            <p className="font-semibold">{t("auth.setupOpen")}</p>
+            <p>{t("auth.setupOpenHint")}</p>
+          </div>
+        )}
         {status.setup_password_required && (
           <Field label={t("auth.setupPassword")} hint={t("auth.setupPasswordHint")}>
             <Input type="password" autoFocus autoComplete="off" value={form.setup_password} onChange={(e) => set({ setup_password: e.target.value })} />

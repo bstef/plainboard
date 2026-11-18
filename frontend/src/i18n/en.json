@@ -22,7 +22,9 @@
     "setupTitle": "Set up PlainBoard",
     "setupIntro": "This installation is new. Create the admin account: it runs the installation, adds further people and sees every project.",
     "setupPassword": "Setup password",
-    "setupPasswordHint": "PLAINBOARD_PASSWORD of this installation. It is asked once, so nobody else can claim a new server.",
+    "setupPasswordHint": "The value of PLAINBOARD_PASSWORD in the .env file next to your docker-compose.yml. It is asked once, so nobody else can claim a new server.",
+    "setupOpen": "This installation has no setup password",
+    "setupOpenHint": "Whoever opens this address first becomes its admin. If others can reach it, stop here: write PLAINBOARD_PASSWORD=your-own-password into the .env file next to your docker-compose.yml, run docker compose up -d and open this page again.",
     "setupCreate": "Create account"
   },
   "nav": {
