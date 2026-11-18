@@ -55,10 +55,37 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       {...rest}
     >
       {loading ? <Loader2 className="size-3.5 animate-spin" /> : icon}
-      {children}
+      {labelled(children)}
     </button>
   );
 });
+
+/** Text that stands directly in a button gets a box of its capital letters (`label-line`), so it sits
+    in the middle of the button like the icon beside it. Text next to text stays one piece. */
+function labelled(children: ReactNode): ReactNode {
+  const out: ReactNode[] = [];
+  let text: (string | number)[] = [];
+  const close = () => {
+    // Only spaces between two elements: no piece of its own, it would widen the gap.
+    if (text.join("").trim()) {
+      out.push(
+        <span key={`label-${out.length}`} className="label-line">
+          {text}
+        </span>,
+      );
+    }
+    text = [];
+  };
+  for (const child of Children.toArray(children)) {
+    if (typeof child === "string" || typeof child === "number") text.push(child);
+    else {
+      close();
+      out.push(child);
+    }
+  }
+  close();
+  return out;
+}
 
 export function IconButton({ label, className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (

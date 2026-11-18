@@ -123,11 +123,11 @@ export function Board() {
         </div>
         <div className="hidden flex-1 sm:block" />
         <Button variant="ghost" className="max-sm:w-11 max-sm:px-0" icon={<Archive className="size-4" />} aria-label={t("archive.title")} onClick={() => setArchiveOpen(true)}>
-          <span className="max-sm:hidden">{t("archive.title")}</span>
+          <span className="label-line max-sm:hidden">{t("archive.title")}</span>
         </Button>
         {canWrite && (
           <Button variant="primary" className="max-sm:w-11 max-sm:px-0" icon={<Plus className="size-4" />} aria-label={t("board.addTicket")} onClick={() => setAdding("backlog")}>
-            <span className="max-sm:hidden">{t("board.addTicket")}</span>
+            <span className="label-line max-sm:hidden">{t("board.addTicket")}</span>
           </Button>
         )}
       </div>
