@@ -997,7 +997,7 @@
     "bannerStanding": "PlainBoard is paused by {{by}}. Everything is at rest; nothing starts until it is resumed."
   },
   "move": {
-    "label": "Move to another PlainBoard",
+    "label": "Move the project",
     "description": "The whole project as one file: its settings, the team with its notes and task lists, the board with its history, notes, schedules and repositories. On the other PlainBoard, choose New project and bring the file along. The code is not in the file: it comes from git again, so everything the agents built should be pushed first.",
     "passphrase": "Passphrase",
     "passphraseHint": "Optional. With one, the file also carries the credentials (GitHub tokens, SSH keys, secrets, the environment of MCP servers), sealed with it. Without one they stay here and are entered again on the other side.",
@@ -1008,7 +1008,7 @@
     "exportNote": "Best when the project is at rest (PlainBoard settings, Pause everything): work that is still open is closed on the other side and ordered again from there. This project stays as it is.",
     "importTitle": "Or bring a project from another PlainBoard",
     "file": "Project file",
-    "fileHint": "The .plainboard.zip that the other PlainBoard made under Project settings, Move to another PlainBoard.",
+    "fileHint": "The .plainboard.zip that the other PlainBoard made under Project settings, Move the project.",
     "choose": "Choose file",
     "import": "Bring it in",
     "imported": "{{name}} is here.",

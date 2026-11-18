@@ -237,7 +237,7 @@ Built from a clone instead: `git pull`, then `docker compose up -d --build`.
 
 A project can be taken along as one file, e.g. from your machine to a server.
 
-1. On the old PlainBoard: **Project settings → Move to another PlainBoard → Download the project
+1. On the old PlainBoard: **Project settings → Move the project → Download the project
    file**. Best while the project is at rest (**PlainBoard settings → Pause everything**), and after
    the agents have pushed their work: the code is not in the file, it comes from git again.
 2. On the new one: **New project → Or bring a project from another PlainBoard**, choose the file.

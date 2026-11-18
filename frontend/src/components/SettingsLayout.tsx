@@ -38,6 +38,8 @@ export function SettingsLayout({ sections, current, onChange, label }: { section
               onClick={() => onChange(s.id)}
               className={clsx(
                 "flex h-8 shrink-0 items-center rounded-sm px-2 text-left whitespace-nowrap transition-colors touch:h-11 touch:px-3",
+                // In the column a label that is too long wraps instead of being cut off.
+                "@2xl:h-auto @2xl:min-h-8 @2xl:py-1.5 @2xl:whitespace-normal touch:@2xl:min-h-11",
                 s.id === section.id ? "plate" : "text-fg-2 hover:bg-sunk hover:text-fg",
               )}
             >
