@@ -215,6 +215,8 @@ docker compose up -d
 
 To update cleanly, pause first: **PlainBoard settings → Pause everything**. Every project comes to
 rest: agents that are working finish their current step and save their work, and nothing new starts.
+PlainBoard stops their background jobs and preview servers itself (a restart would end them anyway);
+every agent reads which ones afterwards and starts again what it still needs.
 The page lists what still moves and says when everything is at rest; then update, and press
 **Resume** afterwards (the pause holds across the restart, and a band at the top of every screen says
 so). Nothing is lost: every agent goes on with what it had open.

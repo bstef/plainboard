@@ -695,13 +695,25 @@ def wake_prompt(is_manager: bool = True) -> str:
     )
 
 
-def wind_down_notice(reason: str = "") -> str:
+def wind_down_notice(reason: str = "", jobs_end: bool = False) -> str:
+    """``jobs_end``: everything is paused, and PlainBoard stops what still runs when the turn is over."""
     why = f" Reason: {reason}" if reason else ""
+    jobs = (
+        "leave your background jobs alone: PlainBoard stops the ones still running when your turn ends and tells you which"
+        if jobs_end
+        else "stop background jobs you started unless they must finish"
+    )
     return (
         f"[PlainBoard] You are being paused.{why} Don't start anything new. Finish only the current step up to a "
-        "safe point, save your work (commit and push it, or write down where it is) and stop background jobs you "
-        "started unless they must finish. Then end your turn with a short report: what is done, what is open and "
-        "where it is saved."
+        f"safe point, save your work (commit and push it, or write down where it is) and {jobs}. "
+        "Then end your turn with a short report: what is done, what is open and where it is saved."
+    )
+
+
+def jobs_stopped_for_pause(jobs: list[str]) -> str:
+    return (
+        f"PlainBoard was paused for maintenance and stopped these background jobs of yours before they ended: {'; '.join(jobs)}. "
+        "Start again what you still need: the servers of a preview, a check you waited for."
     )
 
 

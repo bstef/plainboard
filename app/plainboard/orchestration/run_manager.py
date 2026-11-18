@@ -635,10 +635,11 @@ class RunManager:
                 if report.windows:
                     await limits_service.record(s, account.key, report.windows, complete=report.complete)
 
-    async def wind_down(self, s: AsyncSession, agent: Agent, reason: str = "") -> bool:
+    async def wind_down(self, s: AsyncSession, agent: Agent, reason: str = "", *, jobs_end: bool = False) -> bool:
         """Let an agent finish safely: drop what it has not started and tell its running turn to wrap up.
         An agent that only has background jobs left gets a turn for that, even if it is paused.
         A paused (disabled) agent keeps its assignments: they go on when it is enabled again (``resume``).
+        ``jobs_end``: everything is paused, so its jobs are stopped for it (``_rest_jobs``).
         Returns whether the agent is still wrapping up."""
         rows = (await s.execute(select(Run.id, Run.status, Run.assignment_id).where(Run.agent_id == agent.id, Run.status.in_((RunStatus.QUEUED, RunStatus.RUNNING))))).all()
         running = False
@@ -646,7 +647,7 @@ class RunManager:
             if status == RunStatus.QUEUED:
                 if agent.enabled or assignment_id is None:
                     await self.cancel_run(run_id)
-            elif await self.runner.notify_run(run_id, prompts.wind_down_notice(reason), urgent=True):
+            elif await self.runner.notify_run(run_id, prompts.wind_down_notice(reason, jobs_end), urgent=True):
                 running = True
                 run = await s.get(Run, run_id)
                 run.stop_requested_at = run.stop_requested_at or utcnow()
@@ -671,16 +672,37 @@ class RunManager:
         """Bring every project to rest (services/pause.py). Calling it again reaches what started meanwhile."""
         self.paused = True  # first: from here on nothing new starts
         reason = "PlainBoard is paused for maintenance. Your open work goes on by itself afterwards."
-        for member in await pause_service.begin(s, by):
-            await self.wind_down(s, member, reason)
+        members = await pause_service.begin(s, by)
+        await self._rest_jobs(s)  # of everyone without a turn; a turn that still runs wraps up first
+        for member in members:
+            await self.wind_down(s, member, reason, jobs_end=True)
         # Managers stay switched on, and what waits for them stays in the queue. Their running turn wraps up too.
         turns = select(Run).join(Agent, Agent.id == Run.agent_id).where(Run.status == RunStatus.RUNNING, Run.stop_requested_at.is_(None), Agent.is_manager)
         for run in list(await s.scalars(turns)):
-            if await self.runner.notify_run(run.id, prompts.wind_down_notice(reason), urgent=True):
+            if await self.runner.notify_run(run.id, prompts.wind_down_notice(reason, jobs_end=True), urgent=True):
                 run.stop_requested_at = utcnow()
                 await s.commit()
                 bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
         await self._pause_changed(s)
+
+    async def _rest_jobs(self, s: AsyncSession, agent_id: int | None = None) -> int:
+        """Everything is paused: stop the background jobs of agents that have no turn (of one agent, or
+        of all). A restart would end them anyway, and nobody should have to decide it: no turn is spent.
+        The agent reads which ones with its next turn and starts again what it still needs.
+        Returns how many were stopped."""
+        stopped: dict[int, list[str]] = {}
+        for job in await job_service.running(s):
+            if (agent_id is not None and job.agent_id != agent_id) or job.agent_id in self._busy_agents:
+                continue
+            try:
+                if await self.stop_job(s, job, settle=False):
+                    stopped.setdefault(job.agent_id, []).append(job_service.label(job))
+            except ServiceError as exc:
+                log.warning("Pause: job %s was not stopped: %s", job.id, exc)
+        for owner, jobs in stopped.items():
+            await inbox.push(s, owner, prompts.jobs_stopped_for_pause(jobs))
+            await flow_log.record(s, (await s.get(Agent, owner)).project_id, "pause.jobs_stopped", agent_id=owner, jobs=len(jobs))
+        return sum(len(jobs) for jobs in stopped.values())
 
     async def resume_all(self, s: AsyncSession) -> None:
         """End the pause: the members it switched off work on with what they had open, and what waited starts."""
@@ -849,6 +871,8 @@ class RunManager:
             self._wake.set()
             try:
                 async with self._sm() as s:
+                    if self.paused:  # its turn wrapped up: what it left running stops now
+                        await self._rest_jobs(s, agent_id)
                     await self._settle(s, agent_id)
                     await agent_service.publish_by_id(s, agent_id)
             except Exception:

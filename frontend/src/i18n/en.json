@@ -955,7 +955,7 @@
   },
   "pause": {
     "title": "Pause everything",
-    "description": "Brings every project to rest, for an update or a restart of the server. Agents finish their current step and save their work; nothing is lost, and everything goes on where it stopped when you resume.",
+    "description": "Brings every project to rest, for an update or a restart of the server. Agents finish their current step and save their work, and PlainBoard stops their background jobs and preview servers. Nothing is lost: everything goes on where it stopped when you resume, and agents start again what they still need.",
     "step1": "Pause everything. Agents that are working are told to wrap up; nothing new starts.",
     "step2": "Wait until this page says that everything is at rest. That usually takes a few minutes.",
     "step3": "Update or restart PlainBoard. The pause holds across the restart.",
@@ -975,8 +975,8 @@
       "job": "waits for its job",
       "check": "check of finished branches"
     },
-    "servers_one": "{{count}} server an agent left running (a preview) still runs. It ends if the runner restarts.",
-    "servers_other": "{{count}} servers agents left running (previews) still run. They end if the runner restarts.",
+    "servers_one": "{{count}} server of a preview still runs. It is stopped as soon as its agent has finished its step.",
+    "servers_other": "{{count}} servers of previews still run. They are stopped as soon as their agents have finished their step.",
     "bannerMoving_one": "PlainBoard is being paused by {{by}}: {{count}} thing is still wrapping up.",
     "bannerMoving_other": "PlainBoard is being paused by {{by}}: {{count}} things are still wrapping up.",
     "bannerStanding": "PlainBoard is paused by {{by}}. Everything is at rest; nothing starts until it is resumed."

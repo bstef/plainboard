@@ -2,9 +2,11 @@
 
 PlainBoard does it itself, no manager is asked and no turn is spent on it: every member is paused as
 ``pause_team`` does (its open assignment stays and goes on afterwards), the turns that run are told to
-wrap up, and nothing new starts: no turn, no train (``RunManager.pause_all``). What still moves is
-counted from the database, so "everything is at rest" is known, not guessed. The pause is a setting:
-it survives the restart it was made for, until someone resumes.
+wrap up, and nothing new starts: no turn, no train (``RunManager.pause_all``). Background jobs are
+stopped by PlainBoard itself as soon as their agent has no turn any more, servers of previews
+included: the restart would end them anyway, and their agent reads with its next turn which ones to
+start again. What still moves is counted from the database, so "everything is at rest" is known, not
+guessed. The pause is a setting: it survives the restart it was made for, until someone resumes.
 """
 
 from __future__ import annotations

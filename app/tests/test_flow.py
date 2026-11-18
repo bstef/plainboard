@@ -817,6 +817,37 @@ def test_everything_is_paused_at_once_and_goes_on_where_it_stopped(client, proje
     wait_for(lambda: all(r["status"] == "succeeded" for r in runs_of(client, pid) if r["agent_id"] == manager["id"]))
 
 
+def test_pausing_everything_stops_the_jobs_itself_and_their_agents_read_which(client, project):
+    pid = project["id"]
+    manager = manager_of(client, pid)
+    dev = make_member(client, pid, "Dev1")
+    fake = runner(client)
+    jobs = lambda: {slug: a["running_jobs"] for slug, a in agents_by_slug(client, pid).items()}  # noqa: E731
+
+    # A preview's server that nobody waits for, and a job of the manager, which is in the middle of a turn.
+    chat(client, dev["id"], 'TOOL start_job {"command": "npm run dev"}')
+    chat(client, manager["id"], 'TOOL start_job {"command": "cargo build"}')
+    wait_for(lambda: idle(client, pid) and jobs() == {"manager": 1, "dev1": 1})
+    chat(client, manager["id"], "HOLD\nSAY wrapped up")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    turns = len(fake.specs)
+
+    # The idle member's job stops at once, without a turn for it; the manager's when its turn has wrapped up.
+    assert client.post("/api/pause").json()["paused"]
+    assert jobs() == {"manager": 1, "dev1": 0}
+    assert any("leave your background jobs alone" in text for _, text in fake.notices)
+    fake.released = True
+    wait_for(lambda: client.get("/api/pause").json()["standing"] and jobs() == {"manager": 0, "dev1": 0})
+    assert len(fake.specs) == turns and client.get("/api/pause").json()["servers"] == 0
+
+    # Afterwards each reads which jobs were stopped, with the turn it has anyway.
+    assert client.delete("/api/pause").json()["paused"] is False
+    chat(client, dev["id"], "SAY back")
+    wait_for(lambda: idle(client, pid))
+    told = [note for m in client.get(f"/api/agents/{dev['id']}/conversation").json()["messages"] for note in m["meta"].get("inbox", [])]
+    assert len(told) == 1 and "npm run dev" in told[0] and "Start again what you still need" in told[0]
+
+
 def stand_tick(client, minutes: int = 0) -> int:
     """Look at the boards as the standstill watcher does, ``minutes`` from now. Returns how many managers it woke."""
     from plainboard.models import utcnow
