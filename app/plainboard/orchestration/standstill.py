@@ -29,9 +29,9 @@ class StandstillWatcher:
         self._runs = runs
         self._interval = interval
         self._task: asyncio.Task[None] | None = None
-        # project -> the situation its manager was told about last, and when. In memory: after a
-        # restart a manager may hear of the same one once more.
-        self._told: dict[int, tuple[object, datetime]] = {}
+        # project -> what its manager was told about last (the tickets, and whether the team rested),
+        # and when. In memory: after a restart a manager may hear of the same once more.
+        self._told: dict[int, tuple[tuple[frozenset[int], bool], datetime]] = {}
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop(), name="standstill-watcher")
@@ -60,11 +60,12 @@ class StandstillWatcher:
                 if found is None:
                     continue
                 told = self._told.get(project.id)
-                if told and (told[0] == found.situation or (now - told[1]).total_seconds() < standstill_service.RETELL_SECONDS):
+                if told and (not standstill_service.is_news(found, told[0]) or (now - told[1]).total_seconds() < standstill_service.RETELL_SECONDS):
                     continue
-                self._told[project.id] = (found.situation, now)
+                rested = found.resting or bool(told and told[0][0] == found.ticket_ids and told[0][1])
+                self._told[project.id] = ((found.ticket_ids, rested), now)
                 await inbox.push(s, found.manager_id, standstill_service.text(found))
                 await self._runs.request_wake(s, found.manager_id)
-                await flow_log.record(s, project.id, "manager.told_of_standstill", agent_id=found.manager_id, tickets=[t.number for t in found.tickets], free=found.free, limit=found.limit, quiet_minutes=round(found.quiet_seconds / 60))
+                await flow_log.record(s, project.id, "manager.told_of_standstill", agent_id=found.manager_id, tickets=[t.number for t in found.tickets], free=found.free, limit=found.limit, resting=found.resting, quiet_minutes=round(found.quiet_seconds / 60))
                 woken += 1
         return woken

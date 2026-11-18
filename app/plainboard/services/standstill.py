@@ -8,9 +8,11 @@ that nothing happens on and that don't wait for the user, a free slot and a memb
 do, for a while after the manager's last turn. Then the manager gets one turn with exactly that, and
 decides: start it, or leave it.
 
-It is not brought up again while nothing changes, and after a change not before an hour has passed.
-A project with nothing to do, or one that works one step at a time on purpose, costs nothing or
-next to nothing.
+The same tickets are brought up at most twice: once while other work still runs, and once more when
+nothing runs at all, which is the standstill that costs most. New tickets are news, but not before
+an hour has passed. A ticket that waits for the user belongs on the user's list (``user_action``):
+the manager is told so, and such a ticket is not counted. A project with nothing to do, or one that
+works one step at a time on purpose, costs nothing or next to nothing.
 """
 
 from __future__ import annotations
@@ -39,12 +41,18 @@ class Standstill:
     limit: int
     idle: list[str]
     quiet_seconds: float
-    in_flight: frozenset[int]  # the open assignments: one that ends may free what waited for it
+    resting: bool  # no assignment is open: nothing will report back, the whole team rests
 
     @property
-    def situation(self) -> tuple[frozenset[int], frozenset[int]]:
-        """What the manager is told about. The same one again is no news."""
-        return frozenset(t.id for t in self.tickets), self.in_flight
+    def ticket_ids(self) -> frozenset[int]:
+        return frozenset(t.id for t in self.tickets)
+
+
+def is_news(found: Standstill, told: tuple[frozenset[int], bool] | None) -> bool:
+    """``told``: the tickets the manager heard of last, and whether the team rested then. Other
+    tickets are news. The same ones are, once, when the team has come to rest since: while work ran,
+    leaving them could mean "after that", and now nothing comes after."""
+    return told is None or found.ticket_ids != told[0] or (found.resting and not told[1])
 
 
 async def find(session: AsyncSession, project: Project, limit: int, waiting: frozenset[int] | set[int], now: datetime) -> Standstill | None:
@@ -66,8 +74,8 @@ async def find(session: AsyncSession, project: Project, limit: int, waiting: fro
     tickets = await board_service.untouched(session, project.id, (TaskStatus.IN_PROGRESS, TaskStatus.TODO))
     if not tickets:
         return None
-    in_flight = frozenset(await session.scalars(select(Assignment.id).where(Assignment.project_id == project.id, Assignment.status.in_(board_service.OPEN_ASSIGNMENT_STATUSES))))
-    return Standstill(manager.id, tickets, capacity.free, limit, capacity.idle, quiet, in_flight)
+    open_work = await session.scalar(select(Assignment.id).where(Assignment.project_id == project.id, Assignment.status.in_(board_service.OPEN_ASSIGNMENT_STATUSES)).limit(1))
+    return Standstill(manager.id, tickets, capacity.free, limit, capacity.idle, quiet, resting=open_work is None)
 
 
 def text(found: Standstill) -> str:
@@ -80,5 +88,6 @@ def text(found: Standstill) -> str:
         + "\n".join(lines)
         + more
         + "\nStart what can start now, on several members where the work is independent. Leave a ticket only if it depends on running "
-        "work, would collide with it, or the user wants it later: then say which in one line. You are not asked again while nothing changes."
+        "work, would collide with it, or the user wants it later: then say which in one line. A ticket that waits for the user: set its "
+        "user_action to what the user has to do (update_task). It is then on the user's list and not brought up here again."
     )

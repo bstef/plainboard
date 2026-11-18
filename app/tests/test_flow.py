@@ -883,6 +883,7 @@ def test_a_manager_is_told_once_when_ready_work_stands_next_to_free_slots(client
     wait_for(lambda: idle(client, pid) and "- #2 Fix the login (todo)" in fake.specs[-1].prompt)
     # And then never again, however long nothing changes: a project with nothing to start costs nothing.
     assert stand_tick(client, 200) == 0 and stand_tick(client, 2000) == 0
+    assert "set its user_action to what the user has to do" in fake.specs[-1].prompt  # how a waiting ticket leaves this list
 
     # No ready work, no question: a ticket that waits for the user, members switched off by the limit, everything paused.
     client.post(f"/api/projects/{pid}/tasks", json={"title": "Third", "status": "todo"})
@@ -901,6 +902,24 @@ def test_a_manager_is_told_once_when_ready_work_stands_next_to_free_slots(client
     assert stand_tick(client, 4000) == 0
     assert client.delete("/api/pause").json()["paused"] is False
     assert stand_tick(client, 4000) == 1  # and with all that gone, it is asked about the ticket that is left
+
+
+def test_the_same_ready_tickets_are_told_once_while_work_runs_and_once_more_when_all_rests():
+    from types import SimpleNamespace
+
+    from plainboard.services.standstill import Standstill, is_news
+
+    def found(tickets: list[int], resting: bool) -> Standstill:
+        return Standstill(1, [SimpleNamespace(id=t) for t in tickets], free=3, limit=4, idle=["Dev"], quiet_seconds=900, resting=resting)
+
+    assert is_news(found([1, 2], resting=False), None)
+    # While other work comes and goes, the same tickets are no news: that cost a turn an hour for tickets that waited for the user.
+    assert not is_news(found([1, 2], resting=False), (frozenset({1, 2}), False))
+    # Once nothing runs at all, they are told once more, and then never again, also not when work starts and ends later.
+    assert is_news(found([1, 2], resting=True), (frozenset({1, 2}), False))
+    assert not is_news(found([1, 2], resting=True), (frozenset({1, 2}), True))
+    assert not is_news(found([1, 2], resting=False), (frozenset({1, 2}), True))
+    assert is_news(found([1, 2, 3], resting=False), (frozenset({1, 2}), True))  # another ticket is news
 
 
 def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(client, project):
