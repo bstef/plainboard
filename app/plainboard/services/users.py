@@ -196,6 +196,30 @@ async def humans(session: AsyncSession, project_id: int) -> int:
     return int(await session.scalar(select(func.count(User.id)).where(User.enabled, User.is_admin | User.id.in_(writers))) or 0)
 
 
+AVATAR_TYPES = {"image/webp": b"RIFF", "image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG"}  # and how such a file begins
+AVATAR_MAX_BYTES = 300_000  # the browser sends a small square; this is far above one
+
+
+async def set_avatar(session: AsyncSession, user: User, data: bytes | None, content_type: str = "") -> User:
+    """A new profile picture, or none (``data`` None). Only pictures a browser shows as a picture."""
+    if data is not None:
+        start = AVATAR_TYPES.get(content_type)
+        if start is None or not data.startswith(start):
+            raise ServiceError("A profile picture is a PNG, JPEG or WebP image.")
+        if len(data) > AVATAR_MAX_BYTES:
+            raise ServiceError("The picture is too large.")
+    user.avatar, user.avatar_type = data, content_type if data is not None else None
+    user.avatar_version = int(time.time()) if data is not None else 0  # a new address every time
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def avatar(session: AsyncSession, user_id: int) -> tuple[bytes, str] | None:
+    row = (await session.execute(select(User.avatar, User.avatar_type).where(User.id == user_id))).first()
+    return (row[0], row[1] or "image/png") if row and row[0] else None
+
+
 async def author(session: AsyncSession, user: User | None, project_id: int) -> str | None:
     """The name to put on what a person writes in a project: only where several people work, so
     agents and people can tell them apart. Alone, "the user" says it all and costs no tokens."""

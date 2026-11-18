@@ -33,8 +33,8 @@ async def get_conversation(agent_id: int, session: Session, before_id: int | Non
 @router.post("/agents/{agent_id}/messages", response_model=RunOut, status_code=202)
 async def send_message(agent_id: int, body: ChatMessageIn, session: Session, runs: Runs, who: Who) -> RunOut:
     agent = await agent_service.get(session, agent_id)
-    author = await user_service.author(session, who.user, agent.project_id)
-    return RunOut.model_validate(await runs.chat(session, agent, body.text, body.attachment_ids, author=author))
+    several = bool(await user_service.author(session, who.user, agent.project_id))
+    return RunOut.model_validate(await runs.chat(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several))
 
 
 @router.delete("/runs/{run_id}/message", status_code=204)

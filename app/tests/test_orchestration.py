@@ -1413,8 +1413,11 @@ def test_work_ordered_from_a_paused_agent_waits_for_it_and_an_assignment_without
 
     # Ordered while the team is paused: the assignment waits with its turn, it is not left behind without one.
     chat(client, manager["id"], "TOOL delegate " + json.dumps({"agent": "dev", "title": "Write the docs", "instructions": "SAY docs written", "ticket_number": 1}))
-    wait_for(lambda: client.get(f"/api/projects/{pid}/assignments").json())
-    result = next(m["meta"]["result"] for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool" and m["content"] == "delegate")
+    def answer() -> str | None:
+        return next((m["meta"].get("result") for m in conversation(client, manager["id"])["messages"] if m["kind"] == "tool" and m["content"] == "delegate"), None)
+
+    wait_for(answer)  # the assignment exists a moment before the tool's answer is written
+    result = answer()
     assert "queued for dev" in result and "dev is paused: it starts when the agent is enabled again" in result
     (waiting,) = [r for r in runs_of(client, pid, agent_id=dev["id"]) if r["trigger"] == "assignment"]
     assert waiting["status"] == "queued"

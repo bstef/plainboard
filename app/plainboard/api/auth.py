@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, File, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from ..models import User
@@ -83,3 +83,20 @@ async def update_me(body: MeUpdate, who: Who, session: Session, response: Respon
         user = await user_service.change_own_password(session, user, body.current_password or "", body.new_password)
         _sign_in(response, user)
     return UserOut.model_validate(user)
+
+
+@router.put("/me/avatar", response_model=UserOut)
+async def set_avatar(who: Who, session: Session, file: UploadFile = File(...)) -> UserOut:
+    """One's own profile picture: a small square image, which the browser makes from what was chosen."""
+    if who.user is None:
+        raise ServiceError("Only a signed-in user has an account.", 403)
+    user = await user_service.get(session, who.user.id)
+    data = await file.read(user_service.AVATAR_MAX_BYTES + 1)
+    return UserOut.model_validate(await user_service.set_avatar(session, user, data, file.content_type or ""))
+
+
+@router.delete("/me/avatar", response_model=UserOut)
+async def remove_avatar(who: Who, session: Session) -> UserOut:
+    if who.user is None:
+        raise ServiceError("Only a signed-in user has an account.", 403)
+    return UserOut.model_validate(await user_service.set_avatar(session, await user_service.get(session, who.user.id), None))

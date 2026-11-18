@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from ..schemas import MemberIn, MemberOut, PersonOut, UserCreate, UserOut, UserUpdate
 from ..services import projects as project_service
 from ..services import users as user_service
+from ..services.errors import NotFound
 from .deps import Session
 
 router = APIRouter(prefix="/api", tags=["users"])
@@ -19,6 +20,16 @@ async def list_users(session: Session) -> list[UserOut]:
 async def directory(session: Session) -> list[PersonOut]:
     """Names only, for everyone signed in: whom a project can be shared with."""
     return [PersonOut.model_validate(u) for u in await user_service.list_all(session) if u.enabled]
+
+
+@router.get("/avatars/{user_id}")
+async def avatar(user_id: int, session: Session) -> Response:
+    """A user's profile picture. Its address carries the version, so it may be kept for good."""
+    found = await user_service.avatar(session, user_id)
+    if found is None:
+        raise NotFound("No picture")
+    data, content_type = found
+    return Response(data, media_type=content_type, headers={"Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/users", response_model=UserOut, status_code=201)

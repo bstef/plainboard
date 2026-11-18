@@ -95,7 +95,7 @@
 }
 @media (max-width: 639px), (pointer: coarse) {
   [data-design="classic"] body {
-    font-size: 16px;
+    font-size: 1rem;
   }
 }
 [data-design="classic"] ::selection {
@@ -429,9 +429,9 @@
   }
 }
 
-/* The chat: what you wrote is a bubble at the right, an agent's answer is plain text at the left,
-   events are small notes. No rules between them. A chat is between two, so the side says who
-   wrote: no name on every message, and the time sits small under it instead of opposite the name. */
+/* The chat: an agent's answer is plain text over the full width under its name, what a person
+   wrote is a bubble at the right under their name and picture, events are small notes. No rules
+   between them. One's own bubble is in the accent, another person's is quiet. */
 [data-design="classic"] [data-part="msg"] {
   display: flex;
   flex-direction: column;
@@ -439,42 +439,75 @@
   padding-block: 7px;
 }
 [data-design="classic"] [data-part="msg"] [data-part="msg-head"] {
-  order: 1;
-  margin: 2px 0 0;
+  margin: 0 0 2px;
+  gap: 6px;
 }
-[data-design="classic"] [data-part="msg"] [data-part="msg-head"] b {
-  display: none;
-}
-[data-design="classic"] [data-part="msg"][data-role="agent"] time {
+[data-design="classic"] [data-part="msg"] [data-part="msg-head"] time {
   margin-left: 0;
   padding-left: 0;
+  font-size: 0.85em;
+}
+/* What the agent goes on to say a moment later belongs to the same answer: no second name. */
+[data-design="classic"] [data-part="msg"][data-role="agent"] {
+  padding-top: 12px;
+}
+[data-design="classic"] [data-part="msg"][data-role="agent"][data-follows] {
+  padding-top: 0;
+}
+[data-design="classic"] [data-part="msg"][data-role="agent"][data-follows] [data-part="msg-head"] {
+  display: none;
 }
 [data-design="classic"] [data-part="msg"][data-role="error"] {
   flex-direction: row;
 }
-[data-design="classic"] [data-part="msg"][data-role="user"],
+/* A person: time, name and picture in one line at the right, the bubble under it with its corner
+   towards the picture. */
+[data-design="classic"] [data-part="msg"][data-role="user"] {
+  align-items: flex-end;
+  padding: 10px 16px 6px;
+  background: transparent;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] {
+  flex-direction: row-reverse;
+  align-items: center;
+  max-width: 100%;
+  margin: 0 2px 4px 0;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] b {
+  font-size: 0.9em;
+}
+/* An older message names nobody: only its time stands there. */
+[data-design="classic"] [data-part="msg"][data-role="user"]:not([data-known]) [data-part="msg-head"] b {
+  display: none;
+}
+[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="bubble"] {
+  width: fit-content;
+  max-width: min(85%, 46rem);
+  padding: 8px 14px;
+  border-radius: 18px 6px 18px 18px;
+  background: var(--sunk);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+[data-design="classic"] [data-part="msg"][data-role="user"][data-own] [data-part="bubble"] {
+  background: var(--accent);
+  box-shadow: none;
+  color: #fff;
+}
+/* Marked text is in the accent everywhere, which is this bubble's own colour: here it is light. */
+[data-design="classic"] [data-part="msg"][data-role="user"][data-own] [data-part="bubble"] ::selection {
+  background: #fff;
+  color: #312e81;
+}
+/* Not sent yet: a bubble of its own at the right, outlined. Its head says for whom it waits. */
 [data-design="classic"] [data-part="msg"][data-role="queued"] {
   width: fit-content;
   max-width: min(85%, 46rem);
   margin: 8px 16px 8px auto;
   padding: 8px 14px;
-  border-radius: 18px 18px 6px 18px;
-  background: var(--accent);
-  color: #fff;
-}
-/* Not sent yet: the same bubble, outlined instead of filled. Its head (waiting for whom, delete)
-   stays on top. */
-[data-design="classic"] [data-part="msg"][data-role="queued"] {
+  border-radius: 18px 6px 18px 18px;
   background: var(--sunk);
   color: var(--fg);
   box-shadow: inset 0 0 0 1px var(--line-2);
-}
-[data-design="classic"] [data-part="msg"][data-role="queued"] [data-part="msg-head"] {
-  order: 0;
-  margin: 0 0 2px;
-}
-[data-design="classic"] [data-part="msg"][data-role="user"] time {
-  color: rgb(255 255 255 / 0.75);
 }
 [data-design="classic"] [data-part="msg"][data-role="error"] {
   margin: 8px 16px;

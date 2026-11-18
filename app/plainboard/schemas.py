@@ -39,6 +39,7 @@ class UserOut(ORM):
     is_admin: bool
     may_create_projects: bool
     enabled: bool
+    avatar_version: int = 0  # 0: no picture; otherwise part of its address (/api/avatars/{id}?v=...)
     created_at: UTCDateTime
 
 
@@ -48,6 +49,7 @@ class PersonOut(ORM):
     id: int
     username: str
     name: str
+    avatar_version: int = 0
 
 
 class UserCreate(BaseModel):
@@ -625,6 +627,7 @@ class RunOut(ORM):
     schedule_id: int | None
     source_agent_id: int | None
     parent_run_id: int | None
+    author_name: str | None = None  # a chat message: the person who wrote it
     result_text: str | None
     error: str | None
     input_tokens: int

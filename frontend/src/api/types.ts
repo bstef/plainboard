@@ -288,6 +288,8 @@ export interface Run {
   /** A waiting chat message: when its busy agent read it (before the turn that answers it). */
   read_at: string | null;
   input_text: string;
+  /** A chat message: the person who wrote it. */
+  author_name: string | null;
   attachment_ids: number[];
   effort: string | null;
   task_id: number | null;
@@ -504,6 +506,8 @@ export interface User {
   is_admin: boolean;
   may_create_projects: boolean;
   enabled: boolean;
+  /** 0: no profile picture. */
+  avatar_version: number;
   created_at: string;
 }
 
@@ -512,6 +516,7 @@ export interface Person {
   id: number;
   username: string;
   name: string;
+  avatar_version: number;
 }
 
 export interface Member {

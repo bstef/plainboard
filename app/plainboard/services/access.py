@@ -102,6 +102,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/github", Need.ADMIN),  # lists what the installation's GitHub token sees
     Rule("/api/users", Need.ADMIN),
     Rule("/api/users/directory", Need.USER),  # names only: whom a project can be shared with
+    Rule("/api/avatars", Need.USER),  # the profile pictures of those names
     Rule("/api/projects", Need.USER, Need.CREATOR),  # the list holds the user's own projects only
     # --- a project. Everything in it can be read by its viewers; what is not listed is changed by owners only.
     _project(""),

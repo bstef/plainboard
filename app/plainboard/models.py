@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text, UniqueConstraint, false
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -185,6 +185,11 @@ class User(Timestamps, Base):
     may_create_projects: Mapped[bool] = mapped_column(Boolean, default=False)  # projects use the installation's subscriptions
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     session_version: Mapped[int] = mapped_column(Integer, default=0)  # raised to sign the user out everywhere
+    # The profile picture: a small square the browser made. Read only where it is shown (deferred);
+    # the version is part of its address, so a new one is seen at once and the old one may be cached for good.
+    avatar: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    avatar_type: Mapped[str | None] = mapped_column(String(30))
+    avatar_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # 0: none
 
 
 class ProjectRole(StrEnum):
@@ -534,6 +539,7 @@ class Run(Base):
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey("schedules.id", ondelete="SET NULL"))
     source_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     parent_run_id: Mapped[int | None] = mapped_column(Integer)
+    author_name: Mapped[str | None] = mapped_column(String(100))  # a chat message: the person who wrote it
     result_text: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)

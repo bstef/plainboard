@@ -269,6 +269,7 @@ class RunManager:
         attachment_ids: list[int] | None = None,
         stopping: bool = False,
         paused_ok: bool = False,
+        author_name: str | None = None,
     ) -> Run:
         """``paused_ok``: a turn for a paused agent is kept: it waits in the queue until the agent is enabled again."""
         if not agent.enabled and not stopping and not paused_ok:
@@ -286,6 +287,7 @@ class RunManager:
             effort=effort,
             attachment_ids=attachment_ids or [],
             stop_requested_at=utcnow() if stopping else None,
+            author_name=author_name,
         )
         s.add(run)
         await s.commit()
@@ -298,14 +300,19 @@ class RunManager:
         """Look at the waiting turns again, e.g. after the number of parallel agents changed."""
         self._wake.set()
 
-    async def chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None = None, *, author: str | None = None) -> Run:
-        """``author``: the person's name, where several people work in the project (``users.author``).
-        It stands in front of the text, so the agent and everyone reading the chat know who wrote."""
-        if author and text.strip():
+    async def chat(
+        self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None = None, *, author: str | None = None, several: bool = False
+    ) -> Run:
+        """``author``: the person who writes; the chat shows the name and picture with the message.
+        ``several``: several people work in the project (``users.author``). Then the name also stands
+        in front of the text, which is what the agent reads: it has to tell them apart."""
+        if author and several and text.strip():
             text = f"[{author}] {text}"
         if attachment_ids and len(await board_service.chat_attachments(s, agent.project_id, attachment_ids)) != len(set(attachment_ids)):
             raise ServiceError("Unknown attachment")
-        run = await self._join_waiting_chat(s, agent, text, attachment_ids) or await self.enqueue(s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids)
+        run = await self._join_waiting_chat(s, agent, text, attachment_ids) or await self.enqueue(
+            s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids, author_name=author
+        )
         # A working agent reads the message after its current step instead of after its whole turn.
         # Nothing is interrupted, and the message stays queued as its next turn.
         busy_run = await s.scalar(select(Run.id).where(Run.agent_id == agent.id, Run.status == RunStatus.RUNNING).limit(1))
@@ -894,6 +901,8 @@ class RunManager:
                 meta["assignment_id"] = run.assignment_id
             if run.source_agent_id:
                 meta["source_agent_id"] = run.source_agent_id
+            if run.author_name:
+                meta["author"] = run.author_name
             if updates:
                 meta["inbox"] = updates
             if files:

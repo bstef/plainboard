@@ -95,10 +95,26 @@
     line-height: 1.4;
     font-variant-numeric: tabular-nums;
   }
-  /* Touch screens: 16px keeps iOS from zooming into focused inputs. */
+  /* Touch screens: larger type. */
   @media (max-width: 639px), (pointer: coarse) {
     body {
-      font-size: 16px;
+      font-size: 1rem;
+    }
+  }
+  /* Phones are between 320 and 430 points wide: what sits well on a wide one is too big on a narrow
+     one. Below 412 points the type size follows the width, and with it everything measured in rem
+     (icons, spacing), so every phone shows about as much as a wide one. */
+  @media (max-width: 639px) {
+    html {
+      font-size: clamp(13.5px, 3.8835vw, 16px);
+    }
+  }
+  /* iOS zooms into a focused field whose type is smaller than 16px: fields keep that size there. */
+  @supports (-webkit-touch-callout: none) {
+    input,
+    textarea,
+    select {
+      font-size: max(1em, 16px);
     }
   }
   ::selection {
@@ -169,7 +185,7 @@
     border-bottom: 2px solid var(--ok);
     transform: rotate(-45deg) translate(1px, -2px);
   }
-  /* Code is set a touch smaller than text; on touch screens it stays at 16px (see body). */
+  /* Code is set a touch smaller than text; on touch screens it stays at the text's size (see body). */
   @media (pointer: fine) and (min-width: 640px) {
     code,
     pre,

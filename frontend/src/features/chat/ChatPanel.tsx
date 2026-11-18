@@ -7,6 +7,7 @@ import { api, errorMessage } from "../../api/client";
 import { useStreamingText } from "../../api/events";
 import { qk, useConversation, useRuns } from "../../api/queries";
 import type { Attachment, Conversation } from "../../api/types";
+import { Avatar } from "../../components/Avatar";
 import { Markdown } from "../../components/Markdown";
 import { AgentSquare, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
@@ -14,8 +15,10 @@ import { useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useShell } from "../layout/shell-context";
 import { LimitsRing } from "./LimitsRing";
-import { CHAT_ROW, Head, MessageItem } from "./MessageItem";
+import { CHAT_ROW, Head, MessageItem, usePeople, writtenParts } from "./MessageItem";
 import { StoppingAgents } from "./StoppingAgents";
+
+const GROUP_MS = 5 * 60_000;
 
 export function ChatPanel({
   agentId,
@@ -37,6 +40,7 @@ export function ChatPanel({
   const conversation = useConversation(agentId);
   const runs = useRuns(project.id);
   const streaming = useStreamingText(agentId);
+  const people = usePeople();
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -59,6 +63,12 @@ export function ChatPanel({
   ]
     .map((item, index) => ({ ...item, index }))
     .sort((a, b) => a.at - b.at || a.index - b.index);
+  // What the agent writes in one go reads as one answer: the name stands on its first part only.
+  const said = (m: (typeof messages)[number] | null) => !!m && m.role !== "user" && (m.kind === "text" || m.kind === "files");
+  const shown = timeline.filter(({ message }) => !message || details || (message.kind !== "tool" && message.kind !== "summary"));
+  const follows = new Set(
+    shown.filter((item, i) => i > 0 && said(item.message) && said(shown[i - 1].message) && item.at - shown[i - 1].at < GROUP_MS).map((item) => item.message!.id),
+  );
   // Works only until the agent's turn starts; if it just did, the refreshed list shows the message as sent.
   const deleteWaiting = (runId: number) =>
     api
@@ -68,7 +78,7 @@ export function ChatPanel({
 
   const waitingRow = (r: (typeof queued)[number]) => (
     <div key={`run-${r.id}`} data-part="msg" data-role="queued" className={clsx(CHAT_ROW, "bg-sunk")}>
-      <Head name={t("chat.you")}>
+      <Head name={r.author_name ?? t("chat.you")} avatar={r.author_name ? <Avatar name={r.author_name} person={people.get(r.author_name.toLowerCase())} /> : undefined}>
         <span className="mk mk-plan self-center" />
         <span className="min-w-0 flex-1 truncate text-fg-3">{t(r.read_at ? "chat.readWaiting" : "chat.waiting", { name: agent?.name ?? "" })}</span>
         {!r.read_at && (
@@ -77,7 +87,11 @@ export function ChatPanel({
           </IconButton>
         )}
       </Head>
-      <div className="break-words whitespace-pre-wrap text-fg-2">{r.input_text}</div>
+      <div className="break-words whitespace-pre-wrap text-fg-2">
+        {writtenParts(r.input_text, r.author_name, people)
+          .map((part) => (part.author && part.author !== r.author_name ? `${part.author}: ${part.text}` : part.text))
+          .join("\n")}
+      </div>
       {r.attachment_ids.length > 0 && (
         <span className="mt-1 flex items-center gap-1 text-fg-3">
           <Paperclip className="size-4" />
@@ -189,9 +203,11 @@ export function ChatPanel({
         {!conversation.isLoading && messages.length === 0 && !queued.length && (
           <ChatIntro isManager={agent.is_manager} onPick={canWrite && agent.enabled ? (text) => setSeed((last) => ({ text, n: (last?.n ?? 0) + 1 })) : undefined} />
         )}
-        {timeline.map(({ message, run: r }) => (message ? <MessageItem key={message.id} message={message} agent={agent} details={details} /> : r && waitingRow(r)))}
+        {timeline.map(({ message, run: r }) =>
+          message ? <MessageItem key={message.id} message={message} agent={agent} details={details} follows={follows.has(message.id)} /> : r && waitingRow(r),
+        )}
         {running && streaming && (
-          <div data-part="msg" data-role="agent" className={CHAT_ROW}>
+          <div data-part="msg" data-role="agent" data-follows={said(shown[shown.length - 1]?.message ?? null) ? "" : undefined} className={CHAT_ROW}>
             <Head name={agent.name} />
             <Markdown>{streaming}</Markdown>
           </div>

@@ -184,7 +184,9 @@ a project (**Project settings → Members**):
 Admins run the installation (settings, subscriptions, people) and see every project. Whoever
 creates a project owns it; an admin decides per person who may create projects, because every
 project uses the installation's subscriptions. A project can name the subscription its agents run
-on. Where several people work in a project, agents see who wrote a message or a comment.
+on. Where several people work in a project, agents see who wrote a message or a comment. The chat
+shows each person's name and profile picture above what they wrote; you set your picture under
+PlainBoard settings, Your account.
 
 Know the limit: all agents share one runner container. Someone who can chat with agents can have
 them read whatever the runner holds, also of other projects. Give roles to people you trust.

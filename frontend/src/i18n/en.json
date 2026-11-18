@@ -732,7 +732,12 @@
   },
   "account": {
     "title": "Your account",
-    "hint": "Your name and your password.",
+    "hint": "Your picture, your name and your password.",
+    "addPicture": "Add a picture",
+    "changePicture": "Change picture",
+    "removePicture": "Remove",
+    "pictureHint": "Shown with what you write in the chat. Without one, your initial stands there.",
+    "pictureUnreadable": "This file is not a picture the browser can read.",
     "signedInAs": "Signed in as {{username}}.",
     "currentPassword": "Current password",
     "newPassword": "New password",

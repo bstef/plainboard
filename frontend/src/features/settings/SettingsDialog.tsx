@@ -277,13 +277,23 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
       ];
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("settings.title")} className="fixed inset-0 z-50 flex flex-col bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-      <PageHead title={t("settings.title")}>
-        <IconButton label={t("common.close")} onClick={onClose}>
-          <X className="size-4" />
-        </IconButton>
-      </PageHead>
-      <SettingsLayout label={t("settings.title")} sections={[account, ...admin]} current={current} onChange={setCurrent} />
+    // A window over the page where there is room for one (it keeps its size from section to section); the whole screen on a phone.
+    <div className="fixed inset-0 z-50 flex sm:items-center sm:justify-center sm:bg-black/55 sm:p-6" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("settings.title")}
+        data-part="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="flex min-h-0 w-full flex-col overflow-hidden bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:h-[min(42rem,100%)] sm:max-w-[60rem] sm:rounded-sm sm:pt-0 sm:pb-0 sm:shadow-lg sm:ring-1 sm:ring-line-2"
+      >
+        <PageHead title={t("settings.title")}>
+          <IconButton label={t("common.close")} onClick={onClose}>
+            <X className="size-4" />
+          </IconButton>
+        </PageHead>
+        <SettingsLayout label={t("settings.title")} sections={[account, ...admin]} current={current} onChange={setCurrent} />
+      </div>
     </div>
   );
 }

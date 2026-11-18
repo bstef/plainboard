@@ -2,8 +2,10 @@ import clsx from "clsx";
 import { AlertCircle, Archive, Bell, CalendarClock, ChevronRight, ClipboardList, HelpCircle, Mail, Paperclip, RefreshCw, Ticket, Wrench } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { Agent, Message } from "../../api/types";
+import { useDirectory, useMe } from "../../api/queries";
+import type { Agent, Message, Person } from "../../api/types";
 import { AttachmentLink } from "../../components/AttachmentLink";
+import { Avatar } from "../../components/Avatar";
 import { Lightbox } from "../../components/Lightbox";
 import { Markdown, TicketText } from "../../components/Markdown";
 import { chatTime, formatDateTime, formatTokens } from "../../lib/format";
@@ -14,8 +16,9 @@ export const CHAT_ROW = "border-b border-line px-4 py-2.5";
 const LINK = "shrink-0 underline decoration-line-2 underline-offset-[3px] hover:decoration-current";
 
 /** `details` shows tool activity, compression markers and full event cards; otherwise the chat
- * stays clean (messages only, events as one-line notes). */
-export function MessageItem({ message, agent, details }: { message: Message; agent: Agent; details: boolean }) {
+ * stays clean (messages only, events as one-line notes). `follows`: the agent wrote the message
+ * before it too, a moment ago, so a design may leave the name out. */
+export function MessageItem({ message, agent, details, follows = false }: { message: Message; agent: Agent; details: boolean; follows?: boolean }) {
   switch (message.kind) {
     case "tool":
       return details ? <ToolLine message={message} /> : null;
@@ -34,23 +37,24 @@ export function MessageItem({ message, agent, details }: { message: Message; age
   if (message.role === "user") return <UserMessage message={message} details={details} />;
   if (message.kind === "files")
     return (
-      <div data-part="msg" data-role="agent" className={CHAT_ROW}>
+      <div data-part="msg" data-role="agent" data-follows={follows ? "" : undefined} className={CHAT_ROW}>
         <Head name={agent.name} at={message.created_at} />
         <MessageFiles files={message.meta.attachments ?? []} />
       </div>
     );
   return (
-    <div data-part="msg" data-role="agent" className={CHAT_ROW}>
+    <div data-part="msg" data-role="agent" data-follows={follows ? "" : undefined} className={CHAT_ROW}>
       <Head name={agent.name} at={message.created_at} />
       <Markdown>{message.content}</Markdown>
     </div>
   );
 }
 
-/** Who wrote the row, and when: name at the left, time in a fixed place at the right. */
-export function Head({ name, at, children }: { name: string; at?: string; children?: ReactNode }) {
+/** Who wrote the row, and when: a person's picture and the name at the left, time in a fixed place at the right. */
+export function Head({ name, at, avatar, children }: { name: string; at?: string; avatar?: ReactNode; children?: ReactNode }) {
   return (
     <div data-part="msg-head" className="mb-0.5 flex items-baseline gap-2">
+      {avatar && <span className="flex shrink-0 self-center">{avatar}</span>}
       <b className="min-w-0 truncate font-semibold">{name}</b>
       {children}
       {at && <MessageTime at={at} />}
@@ -66,9 +70,33 @@ function MessageTime({ at }: { at: string }) {
   );
 }
 
+/** The people of the installation by name, for the pictures in the chat. */
+export function usePeople(): Map<string, Person> {
+  const directory = useDirectory().data;
+  return new Map((directory ?? []).map((p) => [p.name.toLowerCase(), p]));
+}
+
+/** What people wrote in one message, each with its writer. Where several people work in a project
+ * the text carries their names in brackets, for the agent: the chat shows name and picture instead.
+ * Usually one part; several when messages of different people waited for the same turn.
+ * `author`: who wrote it, if the message says so. Without a name it is an older message. */
+export function writtenParts(text: string, author: string | null, people: Map<string, Person>): { author: string | null; text: string }[] {
+  const known = (name: string) => people.has(name.toLowerCase()) || name.toLowerCase() === author?.toLowerCase();
+  const parts: { author: string | null; text: string }[] = [];
+  for (const line of text.split("\n")) {
+    const named = /^\[([^\]\n]{1,100})\] (.*)$/s.exec(line);
+    if (named && known(named[1])) parts.push({ author: named[1], text: named[2] });
+    else if (parts.length) parts[parts.length - 1].text += `\n${line}`;
+    else parts.push({ author, text: line });
+  }
+  return parts.map((p) => ({ ...p, text: p.text.trim() })).filter((p, i) => p.text || i === 0);
+}
+
 function UserMessage({ message, details }: { message: Message; details: boolean }) {
   const { t } = useTranslation();
   const { agentById, openTask } = useShell();
+  const people = usePeople();
+  const me = useMe();
   const trigger: string = message.meta.trigger ?? "chat";
   const inbox: string[] = message.meta.inbox ?? [];
   const source = agentById(message.meta.source_agent_id);
@@ -96,15 +124,28 @@ function UserMessage({ message, details }: { message: Message; details: boolean 
   );
 
   if (trigger === "chat") {
+    const parts = writtenParts(message.content, message.meta.author ?? null, people);
     return (
       <>
         {briefingNote}
         {updates}
-        <div data-part="msg" data-role="user" className={clsx(CHAT_ROW, "bg-sunk")}>
-          <Head name={t("chat.you")} at={message.created_at} />
-          {message.meta.attachments?.length > 0 && <MessageFiles files={message.meta.attachments} />}
-          {message.content && <UserText text={message.content} />}
-        </div>
+        {parts.map((part, i) => {
+          // An older message names nobody: it looks like one's own, as it always did.
+          const own = !part.author || part.author.toLowerCase() === me?.name.toLowerCase();
+          return (
+            <div key={i} data-part="msg" data-role="user" data-own={own ? "" : undefined} data-known={part.author ? "" : undefined} className={clsx(CHAT_ROW, "bg-sunk")}>
+              <Head
+                name={part.author ?? t("chat.you")}
+                at={message.created_at}
+                avatar={part.author ? <Avatar name={part.author} person={people.get(part.author.toLowerCase())} /> : undefined}
+              />
+              <div data-part="bubble">
+                {i === 0 && message.meta.attachments?.length > 0 && <MessageFiles files={message.meta.attachments} />}
+                {part.text && <UserText text={part.text} />}
+              </div>
+            </div>
+          );
+        })}
       </>
     );
   }

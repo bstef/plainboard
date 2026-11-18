@@ -111,6 +111,7 @@ def test_a_project_is_seen_by_its_members_only_and_a_role_limits_what_they_do(cl
     # Several people work here: what one writes carries the name, for the agents and for each other.
     chat = client.get(f"/api/agents/{manager['id']}/conversation").json()
     assert any(m["content"] == "[Max] SAY hi" for m in chat["messages"]) or any(r["input_text"] == "[Max] SAY hi" for r in client.get(f"/api/projects/{pid}/runs").json())
+    assert any(r["author_name"] == "Max" for r in client.get(f"/api/projects/{pid}/runs").json())  # the chat shows name and picture from this
     assert client.post(f"/api/tasks/{task['id']}/comments", json={"body": "Looks good"}).json()["author_name"] == "Max"
 
     # An owner does all of that in this project, and nothing in another one.
@@ -155,6 +156,27 @@ def test_admins_manage_users_and_one_admin_always_remains(client, project):
     assert client.patch(f"/api/users/{user['id']}", json={"enabled": False}).status_code == 200
     client.cookies.clear()
     assert client.post("/api/auth/login", json={"username": "max", "password": "a-new-password"}).status_code == 401
+
+
+def test_a_profile_picture_is_set_by_its_user_and_a_chat_message_knows_who_wrote_it(client, project):
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    me = client.get("/api/auth/status").json()["user"]
+    assert me["avatar_version"] == 0 and client.get(f"/api/avatars/{me['id']}").status_code == 404
+    version = client.put("/api/auth/me/avatar", files={"file": ("me.png", png, "image/png")}).json()["avatar_version"]
+    shown = client.get(f"/api/avatars/{me['id']}")
+    assert version > 0 and shown.content == png and shown.headers["content-type"] == "image/png" and "immutable" in shown.headers["cache-control"]
+    assert [p["avatar_version"] for p in client.get("/api/users/directory").json()] == [version]
+
+    # Only pictures: a file that merely says it is one is refused, and so is a large one.
+    for name, data, content_type in (("x.svg", b"<svg/>", "image/svg+xml"), ("x.png", b"<html>", "image/png"), ("x.png", png + b"0" * 300_000, "image/png")):
+        assert client.put("/api/auth/me/avatar", files={"file": (name, data, content_type)}).status_code == 400
+    assert client.get(f"/api/avatars/{me['id']}").content == png
+    assert client.delete("/api/auth/me/avatar").json()["avatar_version"] == 0 and client.get(f"/api/avatars/{me['id']}").status_code == 404
+
+    # Alone in a project nobody's name is put into the text (the agent needs none), and the message still knows its writer.
+    manager = agents_by_slug(client, project["id"])["manager"]
+    run = client.post(f"/api/agents/{manager['id']}/messages", json={"text": "SAY hi"}).json()
+    assert (run["input_text"], run["author_name"]) == ("SAY hi", me["name"])
 
 
 def test_every_route_has_a_rule(client):
