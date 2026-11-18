@@ -276,6 +276,7 @@ class Agent(Timestamps, Base):
     context_limit_tokens: Mapped[int] = mapped_column(Integer, default=350000)
     keep_recent_messages: Mapped[int] = mapped_column(Integer, default=6)
     summary_model: Mapped[str] = mapped_column(String(100), default="claude-haiku-5-5")
+    summary_effort: Mapped[str | None] = mapped_column(String(20))  # None: the installation's (default_summary_effort)
     max_turns: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Paused together with the rest of the team (pause_team): resume_team enables exactly these again.

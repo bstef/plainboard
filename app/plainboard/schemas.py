@@ -271,6 +271,7 @@ class AgentCreate(BaseModel):
     context_limit_tokens: int | None = Field(default=None, ge=5000)
     keep_recent_messages: int | None = Field(default=None, ge=0, le=50)
     summary_model: str | None = None
+    summary_effort: str | None = None  # "" or None: the installation's
     max_turns: int | None = Field(default=None, ge=1)
     color: str | None = None
     mcp_server_ids: list[int] | None = None
@@ -291,6 +292,7 @@ class AgentUpdate(BaseModel):
     context_limit_tokens: int | None = Field(default=None, ge=5000)
     keep_recent_messages: int | None = Field(default=None, ge=0, le=50)
     summary_model: str | None = None
+    summary_effort: str | None = None  # "" or None: the installation's
     max_turns: int | None = Field(default=None, ge=1)
     enabled: bool | None = None
     color: str | None = None
@@ -316,6 +318,7 @@ class AgentOut(ORM):
     context_limit_tokens: int
     keep_recent_messages: int
     summary_model: str
+    summary_effort: str | None
     max_turns: int | None
     enabled: bool
     color: str

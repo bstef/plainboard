@@ -115,6 +115,7 @@ export interface Agent {
   context_limit_tokens: number;
   keep_recent_messages: number;
   summary_model: string;
+  summary_effort: string | null;
   max_turns: number | null;
   enabled: boolean;
   color: string;

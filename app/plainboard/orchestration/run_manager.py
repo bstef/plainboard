@@ -609,7 +609,7 @@ class RunManager:
                     system_prompt=ticket_state.SYSTEM,
                     prompt=ticket_state.prompt(task, before, reports, names),
                     credentials=credentials,
-                    effort=values["default_summary_effort"] or None,
+                    effort=manager.summary_effort or values["default_summary_effort"] or None,
                 )
                 await s.commit()  # no transaction is held while the model writes
                 result = await self.runner.complete(spec)

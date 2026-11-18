@@ -14,7 +14,7 @@ from . import todos as todo_service
 from .errors import NotFound, ServiceError
 from .util import slugify
 
-NULLABLE_FIELDS = {"effort", "max_turns", "account_id"}
+NULLABLE_FIELDS = {"effort", "summary_effort", "max_turns", "account_id"}
 PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#84cc16", "#f97316"]
 
 
@@ -85,6 +85,7 @@ async def create(
         context_limit_tokens=data.context_limit_tokens or int(s["default_context_limit"]),
         keep_recent_messages=data.keep_recent_messages if data.keep_recent_messages is not None else int(s["default_keep_recent"]),
         summary_model=summary_model,
+        summary_effort=data.summary_effort or None,
         max_turns=data.max_turns,
         color=data.color or PALETTE[count % len(PALETTE)],
         all_repos=data.all_repos,
@@ -146,7 +147,7 @@ async def update(session: AsyncSession, agent: Agent, data: AgentUpdate, catalog
     if agent.is_manager and fields.get("enabled") is False:
         raise ServiceError("The manager cannot be disabled")
     for key, value in fields.items():
-        if key == "effort" and value == "":
+        if key in ("effort", "summary_effort") and value == "":
             value = None
         if value is None and key not in NULLABLE_FIELDS:
             continue  # "not provided" for required columns

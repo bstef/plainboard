@@ -111,6 +111,11 @@ def test_thinking_effort_by_what_a_model_does(client):
     dev = client.post(f"/api/projects/{pid}/agents", json={"name": "Dev", "role": "developer"}).json()
     assert (manager["effort"], dev["effort"]) == ("high", "low")
 
+    # Summaries: the installation's effort unless the agent has its own; "" gives it up again.
+    assert dev["summary_effort"] is None
+    assert client.patch(f"/api/agents/{dev['id']}", json={"summary_effort": "medium"}).json()["summary_effort"] == "medium"
+    assert client.patch(f"/api/agents/{dev['id']}", json={"summary_effort": ""}).json()["summary_effort"] is None
+
 
 def test_local_workspace_folder(client):
     from plainboard.models import Agent, Project

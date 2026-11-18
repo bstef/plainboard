@@ -828,9 +828,10 @@ def test_pausing_everything_stops_the_jobs_itself_and_their_agents_read_which(cl
     chat(client, dev["id"], 'TOOL start_job {"command": "npm run dev"}')
     chat(client, manager["id"], 'TOOL start_job {"command": "cargo build"}')
     wait_for(lambda: idle(client, pid) and jobs() == {"manager": 1, "dev1": 1})
+    turns = len(fake.specs) + 1
     chat(client, manager["id"], "HOLD\nSAY wrapped up")
-    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
-    turns = len(fake.specs)
+    # Its turn is under way at the runner too: a run counts as running a moment before its spec arrives there.
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)) and len(fake.specs) == turns)
 
     # The idle member's job stops at once, without a turn for it; the manager's when its turn has wrapped up.
     assert client.post("/api/pause").json()["paused"]
@@ -989,6 +990,7 @@ def test_a_ticket_with_several_reports_keeps_its_state_and_work_starts_from_it(c
     order("Fifth", "x")
     order("Sixth", "y")
     wait_for(lambda: len(fake.completions) == 2 and client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "SUMMARY #2")
+    assert fake.completions[-1].effort == "high"  # no effort of the manager's own: the installation's for summaries
     assert "State so far:\nSUMMARY #1" in fake.completions[-1].prompt and "Assignment #6" in fake.completions[-1].prompt and "Assignment #3 " not in fake.completions[-1].prompt
 
 

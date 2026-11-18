@@ -341,7 +341,7 @@ def test_messages_reach_a_teammate_with_its_next_turn_and_share_it(client, proje
 
 def test_compression_resets_session_and_carries_memory(client, project):
     pid = project["id"]
-    dev = make_dev(client, pid, context_limit_tokens=5000, keep_recent_messages=2)
+    dev = make_dev(client, pid, context_limit_tokens=5000, keep_recent_messages=2, summary_effort="low")
     chat(client, dev["id"], "SAY first answer")  # fresh session: base context 1000
     wait_for(lambda: idle(client, pid))
     assert conversation(client, dev["id"])["session_base_tokens"] == 1000
@@ -351,7 +351,7 @@ def test_compression_resets_session_and_carries_memory(client, project):
     assert conv["compressions"] == 1 and conv["provider_session_id"] is None
     assert conv["messages"][-1]["kind"] == "summary" and conv["messages"][-1]["content"] == "SUMMARY #1"
     assert runner(client).completions[-1].model == "claude-haiku-5-5"
-    assert runner(client).completions[-1].effort == "high"  # summaries think as long as the installation says
+    assert runner(client).completions[-1].effort == "low"  # the agent's own effort for its summaries
 
     chat(client, dev["id"], "SAY second")
     wait_for(lambda: idle(client, pid))

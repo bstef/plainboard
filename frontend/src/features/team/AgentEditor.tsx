@@ -64,6 +64,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
     context_limit_tokens: agent?.context_limit_tokens ?? defaults.default_context_limit ?? 350000,
     keep_recent_messages: agent?.keep_recent_messages ?? defaults.default_keep_recent ?? 6,
     summary_model: agent?.summary_model ?? "",
+    summary_effort: agent?.summary_effort ?? "",
     max_turns: agent?.max_turns ?? "",
     enabled: agent?.enabled ?? true,
     color: agent?.color ?? "",
@@ -87,6 +88,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
       model: form.model || null,
       summary_model: form.summary_model || null,
       effort: form.effort || (agent ? "" : null),
+      summary_effort: form.summary_effort || (agent ? "" : null),
       max_turns: form.max_turns === "" ? null : Number(form.max_turns),
       context_limit_tokens: Number(form.context_limit_tokens),
       keep_recent_messages: Number(form.keep_recent_messages),
@@ -277,8 +279,18 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
             >
               <Input type="number" min={5000} step={5000} value={form.context_limit_tokens} onChange={(e) => set({ context_limit_tokens: Number(e.target.value) })} />
             </Field>
-            <Field label={t("team.summaryModel")} hint={t("team.summaryModelHint")}>
-              <ModelSelect provider={provider} value={form.summary_model} onChange={(summary_model) => set({ summary_model })} />
+            <Field group label={t("team.summaryModel")} hint={t("team.summaryModelHint")}>
+              <div className="space-y-1.5">
+                <ModelSelect provider={provider} value={form.summary_model} onChange={(summary_model) => set({ summary_model })} />
+                <Select aria-label={t("team.summaryEffort")} value={form.summary_effort} onChange={(e) => set({ summary_effort: e.target.value })}>
+                  <option value="">{t("team.summaryEffortDefault", { effort: defaults.default_summary_effort || t("team.effortDefault") })}</option>
+                  {[...(provider?.efforts ?? []), ...(form.summary_effort && !provider?.efforts.includes(form.summary_effort) ? [form.summary_effort] : [])].map((e) => (
+                    <option key={e} value={e}>
+                      {t("settings.effortOption", { effort: e })}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </Field>
             <Field label={t("team.keepRecent")} hint={t("team.keepRecentHint")}>
               <Input type="number" min={0} max={50} value={form.keep_recent_messages} onChange={(e) => set({ keep_recent_messages: Number(e.target.value) })} />
