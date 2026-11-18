@@ -17,6 +17,7 @@ How to set PlainBoard up, use it, and find every setting. For the design of the 
 - [Updating](#updating)
 - [Moving a project to another PlainBoard](#moving-a-project-to-another-plainboard)
 - [On a server](#on-a-server)
+- [Behind a reverse proxy](#behind-a-reverse-proxy)
 - [PostgreSQL](#postgresql)
 - [Preview](#preview)
 - [Browser window](#browser-window)
@@ -258,10 +259,69 @@ there when the new one works.
 
 By default workspaces live in a Docker volume and every agent gets its own clones of the
 repositories it may use (branches and pull requests, no conflicts between parallel agents). To reach
-PlainBoard from other machines, set `PLAINBOARD_BIND=0.0.0.0` and `PLAINBOARD_PASSWORD` in `.env`
-(`.env.example` explains both) and put a reverse proxy with TLS in front. The password is the setup
-password: it is asked once, when the first account is created in the browser, so nobody else can
-claim a new server. Browsers offer to install PlainBoard as an app only over HTTPS or on `localhost`.
+PlainBoard from other machines, set `PLAINBOARD_PASSWORD` in `.env` and put a reverse proxy with TLS
+in front ([Behind a reverse proxy](#behind-a-reverse-proxy) says how, and when `PLAINBOARD_BIND` is
+needed). The password is the setup password: it is asked once, when the first account is created in
+the browser, so nobody else can claim a new server. Browsers offer to install PlainBoard as an app
+only over HTTPS or on `localhost`.
+
+## Behind a reverse proxy
+
+PlainBoard speaks plain HTTP on one port. For HTTPS and a name of your own, put a reverse proxy in
+front (Caddy, nginx, Traefik). Where the proxy runs decides what you set in `.env`:
+
+- **On the same machine** (the usual case): leave `PLAINBOARD_BIND` unset. PlainBoard then listens on
+  `127.0.0.1` only, so nothing reaches it except through the proxy. Point the proxy at
+  `127.0.0.1:8080`.
+- **On another machine:** `PLAINBOARD_BIND=0.0.0.0`, so the proxy can reach the port, and close that
+  port to everyone else in your firewall: on it PlainBoard is not encrypted.
+- **As a container next to PlainBoard:** put it on the same Docker network and let it proxy to
+  `app:8080`. No port has to be published then.
+
+In every case set `PLAINBOARD_PASSWORD` before the first start, so nobody else can claim the new
+server. If port 8080 is taken, choose another one with `PLAINBOARD_PORT=9000` and point the proxy
+there (inside the container it stays 8080).
+
+What the proxy has to do:
+
+- **Pass WebSockets.** Live updates, the browser window and previews use them. Without them the board
+  loads but never changes by itself.
+- **Keep quiet connections open**, an hour or more: a WebSocket on which nothing happens is not broken.
+- **Let uploads through**, up to 50 MB.
+- **Give PlainBoard a name of its own** (`board.example.com`), not a path under another site
+  (`example.com/board/`): the previews at `/preview/<port>/` need the root of the name.
+
+Caddy does all of that by itself:
+
+```
+board.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+nginx needs it spelled out:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name board.example.com;
+    # ssl_certificate and ssl_certificate_key: your certificate
+
+    client_max_body_size 50m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 1h;
+        proxy_buffering off;
+    }
+}
+```
 
 ## PostgreSQL
 

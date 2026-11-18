@@ -13,7 +13,7 @@ services:
     image: thoenehannes/plainboard:latest
     restart: unless-stopped
     ports:
-      # On a server: PLAINBOARD_BIND=0.0.0.0 and a PLAINBOARD_PASSWORD, behind a reverse proxy with TLS.
+      # On a server: a PLAINBOARD_PASSWORD, behind a reverse proxy with TLS (PLAINBOARD_BIND only if the proxy is on another machine).
       - "${PLAINBOARD_BIND:-127.0.0.1}:${PLAINBOARD_PORT:-8080}:8080"
     environment:
       # The setup password: asked once, when the first account is created in the browser.

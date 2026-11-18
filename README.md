@@ -41,7 +41,7 @@ services:
     image: thoenehannes/plainboard:latest
     restart: unless-stopped
     ports:
-      # On a server: PLAINBOARD_BIND=0.0.0.0 and a PLAINBOARD_PASSWORD, behind a reverse proxy with TLS.
+      # On a server: a PLAINBOARD_PASSWORD, behind a reverse proxy with TLS (PLAINBOARD_BIND only if the proxy is on another machine).
       - "${PLAINBOARD_BIND:-127.0.0.1}:${PLAINBOARD_PORT:-8080}:8080"
     environment:
       # The setup password: asked once, when the first account is created in the browser.
@@ -197,7 +197,8 @@ flowchart LR
 | Look at what agents built | The link an agent posts (`/preview/<port>/`), or the **Browser** view |
 | Show progress on your website | **Project settings → Public API** |
 | Change the look | The palette button: two designs, each light and dark |
-| Run it on a server | `.env`: `PLAINBOARD_BIND=0.0.0.0` and a setup password, behind a reverse proxy with TLS |
+| Run it on a server | `.env`: a setup password (`PLAINBOARD_PASSWORD`), behind a reverse proxy with TLS: [guide](docs/guide.md#behind-a-reverse-proxy) |
+| Use another port than 8080 | `.env`: `PLAINBOARD_PORT=9000` |
 | Let agents work in a folder on your machine | `.env`: `PLAINBOARD_WORKSPACES_DIR`, then **Project settings → Advanced → Shared folder** |
 
 `.env` is optional: a file next to your `docker-compose.yml`. [`.env.example`](.env.example) explains each line. The [guide](docs/guide.md) walks
