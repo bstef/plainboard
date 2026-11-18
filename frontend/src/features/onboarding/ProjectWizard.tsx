@@ -11,6 +11,7 @@ import { RepositoriesEditor, toBody, toDraft } from "../projects/RepositoriesEdi
 import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { ModelSelect } from "../team/AgentEditor";
+import { equivalentModel } from "../../lib/models";
 import { usable } from "./SetupWizard";
 import { Advice, Wizard, type WizardStep } from "./Wizard";
 
@@ -28,7 +29,8 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const [manager, setManager] = useState<Agent | null>(null);
   const [basics, setBasics] = useState({ name: "" });
   const [code, setCode] = useState({ workspace_path: "", github_token: "" });
-  const [team, setTeam] = useState<{ model: string; effort: string; account_id: number | null; parallel_agents: number | null; auto_wake_manager: boolean; continue_with_backlog: boolean }>({
+  const [team, setTeam] = useState<{ provider: string; model: string; effort: string; account_id: number | null; parallel_agents: number | null; auto_wake_manager: boolean; continue_with_backlog: boolean }>({
+    provider: "",
     model: "",
     effort: "",
     account_id: null,
@@ -38,7 +40,17 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   });
   const repos = useRepositories(project?.id ?? 0);
   const refreshRepos = () => project && qc.invalidateQueries({ queryKey: qk.repos(project.id) });
-  const provider = (meta.data?.providers ?? []).find((p) => p.name === (manager?.provider ?? defaults.default_provider ?? "claude_code"));
+  const providers = meta.data?.providers ?? [];
+  const provider = providers.find((p) => p.name === (team.provider || manager?.provider || defaults.default_provider || "claude_code"));
+  // Another provider: its model of the same size, and nothing that belongs to the old one.
+  const setProvider = (name: string) =>
+    setTeam((f) => ({
+      ...f,
+      provider: name,
+      model: equivalentModel(providers, f.model, name),
+      effort: providers.find((p) => p.name === name)?.efforts.includes(f.effort) ? f.effort : "",
+      account_id: null,
+    }));
   const usableAccounts = (accounts.data ?? []).filter((a) => usable(a) && a.provider === provider?.name);
 
   const saveBasics = async () => {
@@ -49,7 +61,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
     if (!manager) {
       const found = (await api.get<Agent[]>(`/projects/${saved.id}/agents`)).find((a) => a.is_manager) ?? null;
       setManager(found);
-      if (found) setTeam((f) => ({ ...f, model: found.model, effort: found.effort ?? "" }));
+      if (found) setTeam((f) => ({ ...f, provider: found.provider, model: found.model, effort: found.effort ?? "" }));
     }
   };
   const saveCode = async () => {
@@ -59,7 +71,10 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   };
   const saveTeam = async () => {
     if (!project) return;
-    if (manager) setManager(await api.patch<Agent>(`/agents/${manager.id}`, { model: team.model, effort: team.effort || null }));
+    if (manager) {
+      const moved = team.provider && team.provider !== manager.provider ? { provider: team.provider } : {};
+      setManager(await api.patch<Agent>(`/agents/${manager.id}`, { ...moved, model: team.model, effort: team.effort || null }));
+    }
     setProject(await api.patch<Project>(`/projects/${project.id}`, { account_id: team.account_id, parallel_agents: team.parallel_agents, auto_wake_manager: team.auto_wake_manager, continue_with_backlog: team.continue_with_backlog }));
     await qc.invalidateQueries({ queryKey: qk.agents(project.id) });
   };
@@ -147,6 +162,17 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
       content: (
         <div className="space-y-4">
           <Advice>{t("newProject.team.advice")}</Advice>
+          {providers.length > 1 && (
+            <Field label={t("team.provider")} hint={t("newProject.team.providerHint")}>
+              <Select value={provider?.name ?? ""} onChange={(e) => setProvider(e.target.value)}>
+                {providers.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <FieldRow>
             <Field label={t("settings.managerModel")} hint={t("setup.models.managerHint")}>
               <ModelSelect provider={provider} value={team.model} onChange={(v) => setTeam({ ...team, model: v })} />

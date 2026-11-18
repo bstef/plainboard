@@ -864,6 +864,7 @@
       "advice": "The defaults from the settings are filled in. Change them only if this project differs: a small side project runs fine on a smaller model and fewer agents.",
       "subscription": "Subscription",
       "subscriptionHint": "Which subscription this project's agents run on. Useful when a project should use up its own quota; an agent can still be given another one.",
+      "providerHint": "Whose models the manager runs on. The one from the PlainBoard settings is filled in; members can each run on another.",
       "subscriptionAuto": "Automatic: the one with the most room left"
     },
     "secrets": {
