@@ -16,6 +16,7 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # the suite takes about 3; a hang ends here, with stacks (faulthandler_timeout)
     steps:
       - uses: actions/checkout@v7
       - name: Build backend image
@@ -26,6 +27,7 @@ jobs:
   backend-postgres:
     name: Backend tests (PostgreSQL)
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # the suite takes about 3; a hang ends here, with stacks (faulthandler_timeout)
     steps:
       - uses: actions/checkout@v7
       - name: Build backend image

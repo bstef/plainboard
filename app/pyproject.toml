@@ -37,3 +37,5 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
+# A test that hangs prints every thread's stack after two minutes instead of keeping its CI job silent.
+faulthandler_timeout = 120
