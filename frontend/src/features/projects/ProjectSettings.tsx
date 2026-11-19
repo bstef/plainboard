@@ -276,12 +276,12 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           </div>
           <Modal
             open={deleting}
-            onClose={() => setDeleting(false)}
+            onClose={() => !removing && setDeleting(false)} // on its way: the window stays until it is over
             width="max-w-lg"
             title={t("projectSettings.advanced.deleteTitle", { name: project.name })}
             footer={
               <>
-                <Button variant="ghost" onClick={() => setDeleting(false)}>
+                <Button variant="ghost" disabled={removing} onClick={() => setDeleting(false)}>
                   {t("common.cancel")}
                 </Button>
                 <Button variant="danger" loading={removing} onClick={remove}>
@@ -296,10 +296,11 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
                 <p className="text-fg-3">{t("projectSettings.advanced.folderStays", { folder: project.workspace_path })}</p>
               ) : (
                 <div className="space-y-1">
-                  <Toggle checked={withFiles} onChange={setWithFiles} label={t("projectSettings.advanced.deleteFiles")} />
+                  <Toggle checked={withFiles} onChange={(v) => !removing && setWithFiles(v)} label={t("projectSettings.advanced.deleteFiles")} />
                   <p className="text-fg-3">{t("projectSettings.advanced.deleteFilesHint")}</p>
                 </div>
               )}
+              {removing && <p className="text-fg-2">{t("projectSettings.advanced.deletingNote")}</p>}
               <ErrorText error={error} />
             </div>
           </Modal>

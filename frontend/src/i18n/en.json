@@ -987,6 +987,7 @@
       "delete": "Delete this project",
       "deleteTitle": "Delete \"{{name}}\"?",
       "deleteFiles": "Also delete the folders its agents worked in",
+      "deletingNote": "Deleting. With its folders this can take a few minutes; the window closes when it is done.",
       "deleteFilesHint": "Their clones of your repositories on this server, with everything in them that was never pushed. If they stay, a new project with the same name works in them again and finds the old state.",
       "folderStays": "The project works in your folder \"{{folder}}\". It stays as it is.",
       "deleteHint": "Deletes the board with all tickets, the team with its chats, the notes and the schedules. The code in your repositories stays. This cannot be undone.",

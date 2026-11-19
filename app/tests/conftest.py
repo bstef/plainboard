@@ -301,6 +301,8 @@ class FakeRunner:
 
     async def remove_files(self, spec):
         self.removed = getattr(self, "removed", []) + [spec]
+        while getattr(self, "remove_holds", False):  # large folders: it takes a while
+            await asyncio.sleep(0.01)
         return CheckResult(ok=not getattr(self, "remove_fails", False), detail="2 folders removed" if not getattr(self, "remove_fails", False) else "Permission denied")
 
     async def check_github(self, credentials, repo_url):

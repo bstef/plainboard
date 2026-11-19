@@ -108,6 +108,29 @@ def test_deleting_a_project_can_take_its_folders_along(client):
     assert client.delete(f"/api/projects/{local['id']}?files=true").status_code == 204
     assert runner.removed[-1].workspace is None
 
+    # Large folders take minutes. Until they are gone the project rests, so nothing starts in them, and
+    # asking again (the window can be opened a second time, or by someone else) deletes nothing twice.
+    from concurrent.futures import ThreadPoolExecutor
+
+    from conftest import wait_for
+
+    slow = client.post("/api/projects", json={"name": "Slow"}).json()
+    runner.remove_holds, before = True, len(runner.removed)
+    with ThreadPoolExecutor(1) as pool:
+        first = pool.submit(client.delete, f"/api/projects/{slow['id']}?files=true")
+        wait_for(lambda: len(runner.removed) > before)
+        assert next(p for p in client.get("/api/projects").json() if p["id"] == slow["id"])["paused_at"] is not None
+        again = client.delete(f"/api/projects/{slow['id']}?files=true")
+        assert again.status_code == 409 and "being deleted already" in again.json()["detail"]
+        runner.remove_holds = False
+        assert first.result(timeout=10).status_code == 204
+    assert len(runner.removed) == before + 1 and all(p["id"] != slow["id"] for p in client.get("/api/projects").json())
+    # Folders that cannot be deleted: the project stays, and goes on as before.
+    stays = client.post("/api/projects", json={"name": "Stays"}).json()
+    runner.remove_fails = True
+    assert client.delete(f"/api/projects/{stays['id']}?files=true").status_code == 400
+    assert next(p for p in client.get("/api/projects").json() if p["id"] == stays["id"])["paused_at"] is None
+
 
 def test_thinking_effort_by_what_a_model_does(client):
     # A new installation: managers on medium, members and summaries on high.
