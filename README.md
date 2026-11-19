@@ -187,7 +187,9 @@ docker compose up -d --build
 - **A board that shows who is doing what.** Every ticket shows which agent works on it and for how
   long. Tickets take Markdown, labels, priorities, attachments and comments.
 - **A team per project.** Each agent has a role, a model, an effort level and its own tools. Claude
-  and Codex work side by side, on API keys or on your subscriptions.
+  and Codex work side by side, on API keys or on your subscriptions. Agents can also run on a model
+  server of your own (Ollama, LM Studio, llama.cpp, vLLM) and on other hosts: Gemini, OpenRouter,
+  DeepSeek, Kimi, GLM, Mistral, Groq and more.
 - **A look at what was built.** Agents post a link to the page they started, and the **Browser** view
   shows it as the agent sees it.
 - **Numbers to steer by.** How fast work lands, what it costs, how full your plans are, and what
@@ -260,6 +262,9 @@ through the first project, lists every setting and has the details.
 - An Anthropic API key is the officially supported way to use the Claude Agent SDK. Whether you may
   use your own Claude login or ChatGPT subscription depends on the provider's terms for your plan;
   check them before relying on it. PlainBoard is not affiliated with Anthropic or OpenAI.
+- Agents on other models (a model server of your own, Gemini, another host) run in the same harness
+  as agents on Claude. Anthropic does not support that harness on models that are not Claude's: it
+  works as far as the model does.
 - Secrets are encrypted at rest with a key generated in the `data` volume.
 
 ## Development
