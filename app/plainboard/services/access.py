@@ -114,6 +114,7 @@ RULES: tuple[Rule, ...] = (
     _project("/previews", write=Need.MEMBER),  # which servers run; a member stops one
     _project("/export", read=Need.OWNER),  # the whole project as a file, credentials included
     _project("/secrets", read=Need.OWNER),
+    _project("/accounts", read=Need.ADMIN, write=Need.ADMIN),  # which of the installation's subscriptions it may use: not its owner's call
     _project("/public-api-keys", read=Need.OWNER),
     _of("/api/agents/{agent_id}", "agent_id", Agent),
     _of("/api/agent-notes/{note_id}", "note_id", AgentNote),

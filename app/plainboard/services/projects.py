@@ -133,6 +133,8 @@ async def update(session: AsyncSession, project: Project, data: ProjectUpdate) -
         fields["workspace_path"] = normalize_workspace_path(fields["workspace_path"])
     if fields.get("account_id") is not None:
         await account_service.get(session, fields["account_id"])
+        if project.account_ids and fields["account_id"] not in project.account_ids:
+            raise ServiceError("This project may not use that account")
     if "language" in fields:
         fields["language"] = (fields["language"] or "").strip()
     for key, value in fields.items():

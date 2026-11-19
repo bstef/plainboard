@@ -84,6 +84,10 @@ MAX_ASK_DEPTH = 3
 ASK_TIMEOUT_SECONDS = 900
 ASK_BUSY_TIMEOUT_SECONDS = 120  # the teammate is in a turn of unknown length, so don't block the asker for long
 CANCEL_GRACE_SECONDS = 15
+# The state of tickets that were moved to done after it was last written (refresh_closed_tickets).
+CLOSED_STATES_LOOKED_AT = 20
+CLOSED_STATES_AT_ONCE = 2  # rewrites running at a time: an installation with many old tickets catches up over minutes
+CLOSED_STATE_RETRY_SECONDS = 3600
 RESTARTED = "Interrupted by a restart"
 MAX_RESTART_RESUMES = 3  # an assignment cut off this often by restarts goes to the manager instead of on
 # ... if those turns were cut off right after they began: restarts that leave no time to work. A turn
@@ -142,6 +146,7 @@ class RunManager:
         self._limits_asked = 0.0
         self._limits_task: asyncio.Task[None] | None = None
         self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
+        self._state_tried: dict[int, float] = {}  # closed tickets whose last rewrite was started then (see refresh_closed_tickets)
         self._unread: dict[int, set[int]] = {}  # running turn -> waiting chat messages (runs) it was told about and has not read yet
         self._wake = asyncio.Event()
         self._dispatcher: asyncio.Task[None] | None = None
@@ -590,12 +595,25 @@ class RunManager:
         if running is None or running.done():
             self._state_tasks[task_id] = asyncio.create_task(self._refresh_ticket_state(task_id), name=f"ticket-state-{task_id}")
 
+    async def refresh_closed_tickets(self, s: AsyncSession) -> None:
+        """Tickets that were moved to done after their state was last written get it written once
+        more, a few per look: also the ones from before this existed. One that fails (no model to
+        ask) is not asked for again within the hour."""
+        if self.paused:
+            return
+        now = time.monotonic()
+        waiting = [task_id for task_id in await ticket_state.behind_closed(s, CLOSED_STATES_LOOKED_AT) if now - self._state_tried.get(task_id, -CLOSED_STATE_RETRY_SECONDS) >= CLOSED_STATE_RETRY_SECONDS]
+        for task_id in waiting[: max(0, CLOSED_STATES_AT_ONCE - len(self._state_tasks))]:
+            self._state_tried[task_id] = now
+            self.refresh_ticket_state(task_id)
+
     async def _refresh_ticket_state(self, task_id: int) -> None:
         try:
             async with self._sm() as s:
                 task = await s.get(Task, task_id)
-                reports = await ticket_state.due(s, task) if task else []
-                if not task or not reports:
+                closed = await ticket_state.closed(s, task) if task else ""
+                reports = await ticket_state.due(s, task, final=bool(closed)) if task else []
+                if not task or not (reports or closed):
                     return
                 manager = await agent_service.get_manager(s, task.project_id)
                 account = await account_service.pick(s, manager.provider, manager, model=manager.summary_model)
@@ -607,7 +625,7 @@ class RunManager:
                     provider=manager.provider,
                     model=manager.summary_model,
                     system_prompt=ticket_state.SYSTEM,
-                    prompt=ticket_state.prompt(task, before, reports, names),
+                    prompt=ticket_state.prompt(task, before, reports, names, closed),
                     credentials=credentials,
                     effort=manager.summary_effort or values["default_summary_effort"] or None,
                 )
@@ -615,8 +633,12 @@ class RunManager:
                 result = await self.runner.complete(spec)
                 if not result.text.strip():
                     return
-                state = await ticket_state.store(s, task, result.text, reports[-1].id)
-                await flow_log.record(s, task.project_id, "ticket.state_written", task_id=task.id, reports=len(reports), until=state.until_assignment_id, chars=len(state.text), cost_usd=result.cost_usd)
+                until = reports[-1].id if reports else (await ticket_state.get(s, task.id)).until_assignment_id
+                state = await ticket_state.store(s, task, result.text, until)
+                self._state_tried.pop(task_id, None)  # written: only a failure is held back
+                await flow_log.record(
+                    s, task.project_id, "ticket.state_written", task_id=task.id, reports=len(reports), until=state.until_assignment_id, chars=len(state.text), cost_usd=result.cost_usd, closed=bool(closed)
+                )  # fmt: skip
                 await board_service.publish_task_id(s, task.id)
         except Exception:
             log.exception("Could not write the state of ticket %s", task_id)
@@ -1028,6 +1050,8 @@ class RunManager:
                 bus.publish(project.id, "message.updated", MessageOut.model_validate(message))
             secret_env = secret_service.env(await secret_service.effective(s, project.id))
             account = await account_service.pick(s, agent.provider, agent, conv)
+            if account is None and (why := await account_service.shut_out(s, agent.provider, agent)):
+                raise RuntimeError(why)  # the turn fails with the reason, instead of at the provider for a missing key
             if account:
                 conv.account_key, run.account_key = account.key, account.key
                 await s.commit()

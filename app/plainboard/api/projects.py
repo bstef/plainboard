@@ -9,9 +9,10 @@ from plainboard_protocol import ProviderInfo
 from sqlalchemy import select
 from starlette.background import BackgroundTask
 
+from ..events import bus
 from ..models import ACTIVE_RUN_STATUSES, ProjectRole, Run
 from ..orchestration.runner_client import RunnerError
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ExportIn, ImportOut, PreviewOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ExportIn, ImportOut, PreviewOut, ProjectAccountsIn, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
 from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
@@ -80,6 +81,15 @@ async def update_project(project_id: int, body: ProjectUpdate, session: Session,
     role = await user_service.role_in(session, who.user, project_id) if who.user else None
     out = project_service.to_out(await project_service.update(session, project, body), role)
     runs.recheck()  # more parallel agents: waiting turns may start now
+    return out
+
+
+@router.put("/projects/{project_id}/accounts", response_model=ProjectOut)
+async def limit_accounts(project_id: int, body: ProjectAccountsIn, session: Session, who: Who) -> ProjectOut:
+    """The only subscriptions this project's agents may run on; none: any of the installation's."""
+    project = await account_service.limit_project(session, await project_service.get(session, project_id), body.account_ids)
+    out = project_service.to_out(project, await user_service.role_in(session, who.user, project_id) if who.user else None)
+    bus.publish(project.id, "project.updated", project_service.to_out(project))
     return out
 
 

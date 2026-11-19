@@ -9,6 +9,7 @@ import { Button, ErrorText, Field, Input, Modal, Select, Textarea, Toggle } from
 import { formatTokens } from "../../lib/format";
 import { equivalentModel } from "../../lib/models";
 import { useShell } from "../layout/shell-context";
+import { allowedAccounts } from "../projects/ProjectAccounts";
 
 const CUSTOM = "__custom__";
 
@@ -78,7 +79,7 @@ export function AgentEditor({ agent, onClose }: { agent?: Agent; onClose: () => 
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
   const provider = useMemo(() => meta.data?.providers.find((p) => p.name === form.provider), [meta.data, form.provider]);
   const selectableServers = (mcp.data ?? []).filter((s) => !s.all_agents);
-  const providerAccounts = (accounts.data ?? []).filter((a) => a.provider === form.provider);
+  const providerAccounts = allowedAccounts(project, accounts.data ?? []).filter((a) => a.provider === form.provider);
 
   const save = async () => {
     setBusy(true);

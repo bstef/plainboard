@@ -150,6 +150,10 @@ The set-up asks for these; later they are under **PlainBoard settings → Subscr
   every subscription is used up.
 - A project can name the subscription its agents run on (**Project settings → Team**), and an agent
   can have its own (**Team**).
+- An admin can limit a project to some subscriptions (**Project settings → Team → Subscriptions this
+  project may use**). Its agents then run on those only: no choice inside the project gets around
+  it, and a used-up subscription is not replaced by one from outside. For a project you share with
+  others while another subscription is meant for your own work. Nothing ticked means any.
 - The plan limits of every subscription are shown under the chat's message field, one ring per
   subscription; a click shows the windows, their resets and a forecast.
 

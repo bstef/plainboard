@@ -68,7 +68,7 @@ async def create(
     if catalog and provider != s["default_provider"]:
         model = data.model or equivalent_model(catalog, model, provider) or model
         summary_model = data.summary_model or equivalent_model(catalog, summary_model, provider) or summary_model
-    await account_service.check_pin(session, data.account_id, provider)
+    await account_service.check_pin(session, data.account_id, provider, project_id)
     count = await session.scalar(select(func.count(Agent.id)).where(Agent.project_id == project_id)) or 0
     agent = Agent(
         project_id=project_id,
@@ -139,7 +139,7 @@ async def update(session: AsyncSession, agent: Agent, data: AgentUpdate, catalog
         if "account_id" not in fields and agent.account_id:
             fields["account_id"] = None  # the pinned account belongs to the old provider
     if fields.get("account_id") is not None:
-        await account_service.check_pin(session, fields["account_id"], fields.get("provider") or agent.provider)
+        await account_service.check_pin(session, fields["account_id"], fields.get("provider") or agent.provider, agent.project_id)
     mcp_ids = fields.pop("mcp_server_ids", None)
     repo_ids = fields.pop("repository_ids", None)
     if "name" in fields and fields["name"] != agent.name:

@@ -1581,6 +1581,13 @@ def test_a_status_schedule_spends_no_turn_on_nothing_new(client, project):
         client.portal.call(scheduler.tick)
         wait_for(lambda: idle(client, pid))
 
+    def ran_at(schedule_id: int):  # as stored: the API's seconds are too coarse for a test that takes less than one
+        async def read():
+            async with sessionmaker()() as s:
+                return (await s.get(Schedule, schedule_id)).last_run_at
+
+        return client.portal.call(read)
+
     body = {"agent_id": manager["id"], "name": "Status", "prompt": "SAY status", "kind": "cron", "cron": "0 */2 * * *", "skip_quiet": True}
     status = client.post(f"/api/projects/{pid}/schedules", json=body).json()
     assert status["skip_quiet"] is True
@@ -1590,12 +1597,12 @@ def test_a_status_schedule_spends_no_turn_on_nothing_new(client, project):
     wait_for(lambda: idle(client, pid) and said() == 1)  # its first run: there is no "since the last one" yet
     # No language is set: the manager is asked to set it, once, with the call that ends the asking.
     assert "No language is set for this project" in fake.specs[-1].prompt and "update_project language" in fake.specs[-1].prompt
-    last = next(row for row in client.get(f"/api/projects/{pid}/schedules").json() if row["id"] == status["id"])["last_run_at"]
+    last = ran_at(status["id"])
 
     due(status["id"])
     assert said() == 1  # nothing happened since: no turn
     row = next(row for row in client.get(f"/api/projects/{pid}/schedules").json() if row["id"] == status["id"])
-    assert row["last_run_at"] == last and row["next_run_at"] > last  # its next time is set; the last run is the one that happened
+    assert ran_at(status["id"]) == last and row["next_run_at"] > row["last_run_at"]  # its next time is set; the last run is the one that happened
     due(status["id"])
     assert said() == 1  # still nothing, and the note in the work log about the run left out is not "something"
     assert [e["kind"] for e in flow_events(client, pid) if e["kind"] == "schedule.skipped"] == ["schedule.skipped"] * 2
@@ -1605,10 +1612,58 @@ def test_a_status_schedule_spends_no_turn_on_nothing_new(client, project):
     wait_for(lambda: idle(client, pid))
     due(status["id"])
     assert said() == 2 and "No language is set" not in fake.specs[-1].prompt
-    assert next(row for row in client.get(f"/api/projects/{pid}/schedules").json() if row["id"] == status["id"])["last_run_at"] != last
+    assert ran_at(status["id"]) > last
 
     # Without the setting a schedule runs whatever happened.
     client.patch(f"/api/projects/{pid}/schedules/{status['id']}", json={"skip_quiet": False})
     due(status["id"])
     due(status["id"])
     assert said() == 4
+
+
+def test_a_ticket_that_is_done_does_not_keep_open_points_from_before(client, project):
+    """Seen in production: a ticket on done still said "Open: not yet on main", from the last rewrite of its
+    state before its branch landed. Whoever reopens it must not start that work again."""
+    pid = project["id"]
+    make_member(client, pid)
+    manager = manager_of(client, pid)
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Support tickets", "description": "With e-mail", "status": "in_progress"}).json()
+    fake = runner(client)
+    scheduler = client.app_ref.state.scheduler
+
+    def order(title: str, report: str) -> None:
+        chat(client, manager["id"], delegate("dev", title, f"SAY {report}", ticket_number=1))
+        wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in assignments(client, pid)))
+
+    for title in ("Build", "Review fixes", "Screenshots"):
+        order(title, f"{title}: done on feat/support, not yet on main")
+    wait_for(lambda: client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "SUMMARY #1")
+    order("Lock file", "merged origin/main, pushed")  # one more report: not enough for a rewrite
+    client.portal.call(scheduler.tick)
+    assert len(fake.completions) == 1  # the ticket is still worked on: nothing to bring up to date
+
+    # It is moved to done: the state is written once more, with the report it lacked and with what
+    # PlainBoard knows about the ticket being finished.
+    assert client.patch(f"/api/tasks/{ticket['id']}", json={"status": "done"}).status_code == 200
+    client.portal.call(scheduler.tick)
+    wait_for(lambda: client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "SUMMARY #2")
+    closing = fake.completions[-1]
+    assert 'call the first part "Left open:" instead of "Open:"' in closing.system_prompt
+    assert "State so far:\nSUMMARY #1" in closing.prompt and "Assignment #4 (Dev, done): Lock file" in closing.prompt and "Assignment #3 " not in closing.prompt
+    assert "The ticket is closed: it was moved to done on " in closing.prompt and "landed on the base branch: none recorded." in closing.prompt
+    client.portal.call(scheduler.tick)
+    client.portal.call(scheduler.tick)
+    assert len(fake.completions) == 2  # once
+    written = [e for e in flow_events(client, pid) if e["kind"] == "ticket.state_written"]
+    assert [e["data"]["closed"] for e in written] == [False, True]
+
+    # Reopened, the next piece of work starts from that state.
+    client.patch(f"/api/tasks/{ticket['id']}", json={"status": "in_progress"})
+    order("One more thing", "done")
+    prompt = next(s.prompt for s in reversed(fake.specs) if "Assignment #5 from Manager" in s.prompt)
+    assert "SUMMARY #2" in prompt
+    # Moved to done again with a report it lacks: written again, with no report at all it would be too.
+    client.patch(f"/api/tasks/{ticket['id']}", json={"status": "done"})
+    client.portal.call(scheduler.tick)
+    wait_for(lambda: client.get(f"/api/tasks/{ticket['id']}").json()["state"] == "SUMMARY #3")
+    assert "Assignment #5 (Dev, done): One more thing" in fake.completions[-1].prompt

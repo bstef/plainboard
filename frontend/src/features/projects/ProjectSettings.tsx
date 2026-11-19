@@ -13,6 +13,7 @@ import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
+import { ProjectAccounts, allowedAccounts } from "./ProjectAccounts";
 import { ProjectPauseSwitch } from "./ProjectPause";
 import { ExportProject } from "./MoveProject";
 import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
@@ -170,7 +171,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           <Field label={t("newProject.team.subscription")} hint={t("newProject.team.subscriptionHint")}>
             <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
               <option value="">{t("newProject.team.subscriptionAuto")}</option>
-              {(accounts.data ?? [])
+              {allowedAccounts(project, accounts.data ?? [])
                 .filter((a) => a.enabled)
                 .map((a) => (
                   <option key={a.id} value={a.id}>
@@ -179,6 +180,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
                 ))}
             </Select>
           </Field>
+          <ProjectAccounts project={project} />
           <div className="space-y-1">
             <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
             <p className="text-fg-3">{t("projects.autoWakeHint")}</p>

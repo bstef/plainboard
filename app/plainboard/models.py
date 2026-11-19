@@ -147,6 +147,9 @@ class Project(Timestamps, Base):
     parallel_agents: Mapped[int | None] = mapped_column(Integer)
     # The subscription this project's agents run on, unless an agent has its own. Unset: the one with the most room.
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))
+    # The only accounts this project's agents may run on, set by an admin (empty: any). A project
+    # shared with others does not draw on a subscription that is meant for something else.
+    account_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     # Paused by a person, for good: nothing of this project starts until a person resumes it
     # (RunManager.pause_project). Not ended by a restart, nor when "pause everything" ends.
     paused_at: Mapped[datetime | None] = mapped_column(DateTime)

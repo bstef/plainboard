@@ -58,6 +58,7 @@ class Scheduler:
                     run_id = run.id
                     fired += 1
                 await schedule_service.mark_fired(s, schedule, run_id, now)
+            await self._runs.refresh_closed_tickets(s)
             await board_service.accept_reviews(s)
             await board_service.auto_archive(s)
             await todo_service.purge(s)

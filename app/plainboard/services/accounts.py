@@ -121,9 +121,44 @@ async def delete(session: AsyncSession, account: Account) -> None:
     await session.commit()
 
 
-async def check_pin(session: AsyncSession, account_id: int | None, provider: str) -> None:
-    if account_id is not None and (await get(session, account_id)).provider != provider:
+async def check_pin(session: AsyncSession, account_id: int | None, provider: str, project_id: int | None = None) -> None:
+    if account_id is None:
+        return
+    if (await get(session, account_id)).provider != provider:
         raise ServiceError("The account belongs to another provider")
+    project = await session.get(Project, project_id) if project_id else None
+    if project is not None and project.account_ids and account_id not in project.account_ids:
+        raise ServiceError("This project may not use that account")
+
+
+async def limit_project(session: AsyncSession, project: Project, account_ids: list[int]) -> Project:
+    """The only accounts the project's agents may run on from now on; none: any. What the project or
+    one of its agents had chosen outside of them is chosen automatically again."""
+    known = {a.id for a in await list_accounts(session)}
+    if unknown := [i for i in account_ids if i not in known]:
+        raise NotFound(f"Account not found: {unknown[0]}")
+    project.account_ids = list(dict.fromkeys(account_ids))
+    if project.account_ids:
+        if project.account_id not in project.account_ids:
+            project.account_id = None
+        await session.execute(sql_update(Agent).where(Agent.project_id == project.id, Agent.account_id.is_not(None), Agent.account_id.not_in(project.account_ids)).values(account_id=None))
+    await session.commit()
+    return project
+
+
+async def shut_out(session: AsyncSession, provider: str, agent: Agent) -> str:
+    """Why no account was picked, if the project's limit is the reason: the installation has
+    accounts of this provider, the project may use none of them. Else ""."""
+    project = await session.get(Project, agent.project_id)
+    if project is None or not project.account_ids:
+        return ""
+    accounts = [a for a in await list_accounts(session, provider) if a.enabled]
+    if not accounts or any(a.id in project.account_ids for a in accounts):
+        return ""
+    return (
+        f"This project may only use some of the installation's subscriptions, and none of them is for {agent.provider}. "
+        "An admin can change that (Project settings, Team), or the agent can be given a provider the project has a subscription for."
+    )
 
 
 USED_UP = 3
@@ -141,6 +176,9 @@ async def pick(session: AsyncSession, provider: str, agent: Agent | None = None,
     """The account for an agent's next turn; None if the provider has no (enabled) account.
     ``model``: what the turn runs on, the agent's own model if not given."""
     accounts = [a for a in await list_accounts(session, provider) if a.enabled]
+    project = await session.get(Project, agent.project_id) if agent else None
+    if project is not None and project.account_ids:  # a project limited to some accounts never gets another one
+        accounts = [a for a in accounts if a.id in project.account_ids]
     if not accounts:
         return None
     # Endpoints of one provider differ in what they offer (two model servers, say): one that names the model.
@@ -148,8 +186,8 @@ async def pick(session: AsyncSession, provider: str, agent: Agent | None = None,
     accounts = [a for a in accounts if model and model in (a.models or [])] or accounts
     # The agent's own subscription, else its project's. One of another provider does not count.
     wanted = agent.account_id if agent else None
-    if agent and wanted is None:
-        wanted = await session.scalar(select(Project.account_id).where(Project.id == agent.project_id))
+    if wanted is None and project is not None:
+        wanted = project.account_id
     if wanted and (pinned := next((a for a in accounts if a.id == wanted), None)):
         return pinned
     used = await limits_service.usage(session)

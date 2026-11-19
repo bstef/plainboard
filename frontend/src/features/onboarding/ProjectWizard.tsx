@@ -1,3 +1,4 @@
+import { allowedAccounts } from "../projects/ProjectAccounts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -51,7 +52,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
       effort: providers.find((p) => p.name === name)?.efforts.includes(f.effort) ? f.effort : "",
       account_id: null,
     }));
-  const usableAccounts = (accounts.data ?? []).filter((a) => usable(a) && a.provider === provider?.name);
+  const usableAccounts = allowedAccounts(project, accounts.data ?? []).filter((a) => usable(a) && a.provider === provider?.name);
 
   const saveBasics = async () => {
     // A project made here starts with the two tickets that set it up.

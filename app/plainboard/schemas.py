@@ -229,6 +229,10 @@ class ProjectUpdate(BaseModel):
     review_days: int | None = Field(default=None, ge=0, le=365)
 
 
+class ProjectAccountsIn(BaseModel):
+    account_ids: list[int] = Field(max_length=200)  # the only accounts the project may use; empty: any
+
+
 class ProjectOut(ORM):
     id: int
     name: str
@@ -243,6 +247,7 @@ class ProjectOut(ORM):
     continue_with_backlog: bool = True
     parallel_agents: int | None = None
     account_id: int | None = None
+    account_ids: list[int] = []  # the only accounts it may use, set by an admin; empty: any
     role: ProjectRole | None = None  # the asking user's role; not part of events, which go to everyone
     auto_archive_days: int
     review_days: int = 3

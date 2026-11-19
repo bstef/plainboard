@@ -256,3 +256,52 @@ def test_a_model_server_of_one_s_own_is_an_account_with_its_address_and_models(c
     messages = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"]
     listed = next(m["meta"]["result"] for m in messages if m["kind"] == "tool" and m["content"] == "list_models")
     assert "ollama: coder (medium), small-one (medium), large-one (medium)" in listed and "gemini" not in listed
+
+
+def test_a_project_can_be_limited_to_some_subscriptions(client, project):
+    """A project shared with others must not draw on a subscription that is meant for something else:
+    an admin names the ones it may use, and no choice inside the project gets around that."""
+    from test_users import as_admin, new_user, sign_in
+
+    pid = project["id"]
+    own = accounts(client)["Claude"]
+    client.patch(f"/api/accounts/{own['id']}", json={"auth_mode": "oauth_token", "secret": "tok-own"})
+    shared = client.post("/api/accounts", json={"provider": "claude_code", "label": "Shared", "auth_mode": "oauth_token", "secret": "tok-shared"}).json()
+    dev = make_dev(client, pid)
+    assert client.get(f"/api/projects/{pid}").json()["account_ids"] == []  # any, as before
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-own"
+
+    # Limited to the shared one. An agent that was pinned to the other one is automatic again.
+    client.patch(f"/api/agents/{dev['id']}", json={"account_id": own["id"]})
+    assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": [shared["id"]]}).json()["account_ids"] == [shared["id"]]
+    assert agents_by_slug(client, pid)["dev"]["account_id"] is None
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-shared"
+    # Used up or not: the other subscription does not step in.
+    turn(client, pid, dev["id"], "LIMITS seven_day 1.0 3600")
+    assert turn(client, pid, dev["id"]).claude_oauth_token == "tok-shared"
+    # Nobody chooses another one, for an agent or for the project.
+    assert client.patch(f"/api/agents/{dev['id']}", json={"account_id": own["id"]}).status_code == 400
+    assert client.patch(f"/api/projects/{pid}", json={"account_id": own["id"]}).status_code == 400
+    assert client.patch(f"/api/projects/{pid}", json={"account_id": shared["id"]}).status_code == 200
+    assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": [999]}).status_code == 404
+
+    # A provider the project has no subscription for: the turn fails and says why, instead of using another one.
+    client.patch(f"/api/agents/{dev['id']}", json={"provider": "codex"})
+    chat(client, dev["id"], "SAY hi")
+    wait_for(lambda: idle(client, pid))
+    failed = client.get(f"/api/projects/{pid}/runs?limit=1").json()[0]
+    assert failed["status"] == "failed" and "may only use some of the installation's subscriptions, and none of them is for codex" in failed["error"]
+    # Another project is not touched by any of this.
+    other = client.post("/api/projects", json={"name": "Mine"}).json()["id"]
+    mine = make_dev(client, other)
+    assert turn(client, other, mine["id"]).claude_oauth_token == "tok-own"
+
+    # It is the admin's call: the project's owner cannot lift it.
+    friend = new_user(client, "frieda")
+    assert client.put(f"/api/projects/{pid}/members/{friend['id']}", json={"role": "owner"}).status_code in (200, 201, 204)
+    sign_in(client, "frieda", "frieda-password")
+    assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": []}).status_code == 403
+    assert client.patch(f"/api/projects/{pid}", json={"account_id": own["id"]}).status_code == 400
+    assert client.get(f"/api/projects/{pid}").json()["account_ids"] == [shared["id"]]
+    as_admin(client)
+    assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": []}).json()["account_ids"] == []

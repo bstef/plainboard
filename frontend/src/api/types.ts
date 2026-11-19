@@ -22,6 +22,8 @@ export interface Project {
   parallel_agents: number | null;
   /** The subscription the project's agents run on; null: the one with the most room. */
   account_id: number | null;
+  /** The only subscriptions it may use, set by an admin; empty: any. */
+  account_ids: number[];
   /** The signed-in user's role in the project. */
   role: ProjectRole | null;
   auto_archive_days: number;

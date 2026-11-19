@@ -645,6 +645,11 @@
     "confirmDelete": "Delete account \"{{name}}\"? A ChatGPT sign-in on the runner is signed out.",
     "rotationHint": "Each agent stays on its subscription until that reaches 95 %, then moves to the one with the most room. The last 5 % of every subscription are used once all are that full, API keys only after that. A project or an agent can be given one of its own: Project settings → Team, or the agent in Team."
   },
+  "projectAccounts": {
+    "label": "Subscriptions this project may use",
+    "hint": "Nothing ticked: any of the installation's. Tick some, and this project's agents run on those only, whatever anyone chooses for an agent. For a project you share with others, when another subscription is meant for your own work.",
+    "readonly": "This project may only use: {{names}}. An admin decides that."
+  },
   "endpoints": {
     "title": "Other models",
     "hint": "Models of your own or of other hosts: a model server on your machine or in your network (Ollama, LM Studio, llama.cpp, vLLM), Gemini, or a host or gateway that speaks one of the two common interfaces. An agent on such a model works with the same tools as one on Claude. How well it does depends on the model: it has to call tools reliably and read a long prompt.",
