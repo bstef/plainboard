@@ -13,7 +13,7 @@ import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
-import { ProjectAccounts, allowedAccounts } from "./ProjectAccounts";
+import { ProjectAccounts, allowedAccounts, sameAccounts } from "./ProjectAccounts";
 import { ProjectPauseSwitch } from "./ProjectPause";
 import { ExportProject } from "./MoveProject";
 import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
@@ -41,6 +41,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
     continue_with_backlog: project.continue_with_backlog,
     parallel_agents: project.parallel_agents,
     account_id: project.account_id,
+    account_ids: project.account_ids ?? [],
     auto_archive_days: project.auto_archive_days,
     review_days: project.review_days,
   });
@@ -56,6 +57,14 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
     await api.patch<Project>(`/projects/${project.id}`, body);
     set({ github_token: "" });
     await qc.invalidateQueries({ queryKey: qk.projects });
+  };
+  // Which subscriptions the project may use is an admin's call and has a route of its own, but it is
+  // one form: stored with the same button as the fields around it, and first, because the
+  // subscription chosen below it has to be one of them.
+  const accountsDirty = !sameAccounts(form.account_ids, project.account_ids ?? []);
+  const saveTeam = async () => {
+    if (accountsDirty) await api.put(`/projects/${project.id}/accounts`, { account_ids: form.account_ids });
+    await save("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog");
   };
   const refreshRepos = () => qc.invalidateQueries({ queryKey: qk.repos(project.id) });
   // Deleting asks first, and asks what happens to the folders the agents worked in.
@@ -171,7 +180,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           <Field label={t("newProject.team.subscription")} hint={t("newProject.team.subscriptionHint")}>
             <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
               <option value="">{t("newProject.team.subscriptionAuto")}</option>
-              {allowedAccounts(project, accounts.data ?? [])
+              {allowedAccounts(form, accounts.data ?? [])
                 .filter((a) => a.enabled)
                 .map((a) => (
                   <option key={a.id} value={a.id}>
@@ -180,7 +189,10 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
                 ))}
             </Select>
           </Field>
-          <ProjectAccounts project={project} />
+          <ProjectAccounts
+            value={form.account_ids}
+            onChange={(ids) => set({ account_ids: ids, account_id: ids.length && form.account_id !== null && !ids.includes(form.account_id) ? null : form.account_id })}
+          />
           <div className="space-y-1">
             <Toggle checked={form.auto_wake_manager} onChange={(v) => set({ auto_wake_manager: v })} label={t("projects.autoWake")} />
             <p className="text-fg-3">{t("projects.autoWakeHint")}</p>
@@ -189,10 +201,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
             <Toggle checked={form.continue_with_backlog} onChange={(v) => set({ continue_with_backlog: v })} label={t("projects.backlogNext")} />
             <p className="text-fg-3">{t("projects.backlogNextHint")}</p>
           </div>
-          <SaveRow
-            dirty={dirty("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog")}
-            onSave={() => save("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog")}
-          >
+          <SaveRow dirty={accountsDirty || dirty("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog")} onSave={saveTeam}>
             <Button variant="ghost" onClick={onOpenTeam}>
               {t("projectSettings.team.open")}
             </Button>
