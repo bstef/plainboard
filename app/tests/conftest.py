@@ -6,13 +6,13 @@ import inspect
 import json
 import os
 import time
+import weakref
 from collections.abc import AsyncIterator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import Pool
 from plainboard_protocol import (
     EndpointInfo,
     LimitsEvent,
@@ -42,9 +42,12 @@ from plainboard_protocol import (
 from plainboard.orchestration.runner_client import RunnerError, RunnerUnavailable
 
 
-# Database connections with a write that is not committed yet, and the task that wrote. Looked at
-# when the runner is called (FakeRunner.database_free): no waiting, so looking changes nothing.
-_writes: dict[int, asyncio.Task | None] = {}
+# Transactions with a write that is not committed yet, and the task that wrote. Looked at when the
+# runner is called (FakeRunner.database_free): no waiting, so looking changes nothing. Kept by the
+# Connection object, which lives as long as its transaction, and never asked for anything: asking
+# one that was cut off for its database connection makes it connect again, in the middle of the
+# app's shutdown.
+_writes: dict[int, tuple[weakref.ref, weakref.ref]] = {}
 
 
 def _current_task() -> asyncio.Task | None:
@@ -56,26 +59,21 @@ def _current_task() -> asyncio.Task | None:
 
 @event.listens_for(Engine, "before_cursor_execute")
 def _wrote(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
-    if statement.lstrip()[:7].split(" ")[0].upper() in ("INSERT", "UPDATE", "DELETE"):
-        _writes[id(conn.connection.dbapi_connection)] = _current_task()
+    task = _current_task()
+    if task is not None and statement.lstrip()[:7].split(" ")[0].upper() in ("INSERT", "UPDATE", "DELETE"):
+        _writes[id(conn)] = (weakref.ref(conn), weakref.ref(task))
 
 
 @event.listens_for(Engine, "commit")
 @event.listens_for(Engine, "rollback")
 def _ended(conn):  # noqa: ANN001
-    _writes.pop(id(conn.connection.dbapi_connection), None)
-
-
-@event.listens_for(Pool, "checkin")
-@event.listens_for(Pool, "reset")
-def _returned(dbapi_connection, *_):  # noqa: ANN001
-    _writes.pop(id(dbapi_connection), None)
+    _writes.pop(id(conn), None)
 
 
 def writing() -> bool:
     """Has the task that asks written to the database without committing?"""
     task = _current_task()
-    return task is not None and any(writer is task for writer in _writes.values())
+    return task is not None and any(conn() is not None and writer() is task for conn, writer in list(_writes.values()))
 
 
 class FakeRunner:

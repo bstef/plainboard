@@ -74,8 +74,10 @@ def answer_summary(decision: Decision) -> str:
 
 
 async def answer(
-    session: AsyncSession, decision: Decision, *, option_index: int | None = None, text: str = "", by: str = "user", agent_id: int | None = None
-) -> Decision:
+    session: AsyncSession, decision: Decision, *, option_index: int | None = None, text: str = "", by: str = "user", agent_id: int | None = None,
+    author_name: str | None = None,
+) -> Decision:  # fmt: skip
+    """``author_name``: the person who answered, where several work in the project (``users.author``)."""
     text = text.strip()
     if decision.status != DecisionStatus.OPEN:
         raise ServiceError("This decision is already closed", 409)
@@ -91,7 +93,7 @@ async def answer(
     await session.commit()
     task = await board_service.get_task(session, decision.task_id)
     # The comment keeps the outcome in the ticket history that agents read.
-    await board_service.add_comment(session, task, f"**Decision:** {decision.question}\n\n{answer_summary(decision)}", author_kind=by, agent_id=agent_id)
+    await board_service.add_comment(session, task, f"**Decision:** {decision.question}\n\n{answer_summary(decision)}", author_kind=by, agent_id=agent_id, author_name=author_name)
     await _publish(session, decision, task)
     return decision
 

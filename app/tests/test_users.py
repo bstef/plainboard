@@ -126,6 +126,52 @@ def test_a_project_is_seen_by_its_members_only_and_a_role_limits_what_they_do(cl
     assert client.get("/api/projects").json() == [] and client.get(f"/api/projects/{pid}/tasks").status_code == 404
 
 
+def test_what_a_person_does_on_a_ticket_reaches_the_agents_with_the_name(client, project):
+    """Seen in production: a friend answered a question on a ticket, and the manager wrote the answer into the
+    ticket as the owner's decision. It was told "User decided", and put down the one name it knew."""
+    import json
+
+    from conftest import idle, wait_for
+    from test_orchestration import chat, runner
+
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    fake = runner(client)
+    task = client.post(f"/api/projects/{pid}/tasks", json={"title": "Game repository"}).json()
+
+    def decide(answer: str) -> None:
+        question = {"task_number": task["number"], "question": "Extra service on the nodes?", "options": [{"label": "Yes"}, {"label": "No"}]}
+        chat(client, manager["id"], "Ask us." + chr(10) + "TOOL request_decision " + json.dumps(question))  # a line of its own: the first one gets the name
+        wait_for(lambda: idle(client, pid))
+        decision = next(d for d in client.get(f"/api/tasks/{task['id']}").json()["decisions"] if d["status"] == "open")
+        assert client.post(f"/api/decisions/{decision['id']}/answer", json={"option_index": 0, "text": answer}).status_code == 200
+        wait_for(lambda: idle(client, pid) and "decided on ticket" in fake.specs[-1].prompt)
+
+    # One person: "User" says it all.
+    decide("go")
+    assert f"User decided on ticket #{task['number']}" in fake.specs[-1].prompt
+
+    # A friend joins and decides: the manager reads who it was, and so does everyone in the ticket.
+    friend = new_user(client, "luchs")
+    assert client.put(f"/api/projects/{pid}/members/{friend['id']}", json={"role": "member"}).status_code == 200
+    sign_in(client, "luchs", "luchs-password")
+    decide("build it now")
+    assert f"User Luchs decided on ticket #{task['number']}" in fake.specs[-1].prompt and "build it now" in fake.specs[-1].prompt
+    assert client.get(f"/api/tasks/{task['id']}").json()["comments"][-1]["author_name"] == "Luchs"
+
+    # The same for what only a person can do, and for handing a ticket to the manager.
+    as_admin(client)
+    assert client.patch(f"/api/tasks/{task['id']}", json={"user_action": "Try it on a node"}).status_code == 200
+    sign_in(client, "luchs", "luchs-password")
+    assert client.post(f"/api/tasks/{task['id']}/user-action/done", json={"note": "works"}).status_code == 200
+    wait_for(lambda: idle(client, pid) and "finished" in fake.specs[-1].prompt)
+    assert f'User Luchs finished "Try it on a node" on ticket #{task["number"]}: works' in fake.specs[-1].prompt
+    assert client.get(f"/api/tasks/{task['id']}").json()["comments"][-1]["author_name"] == "Luchs"
+    assert client.post(f"/api/tasks/{task['id']}/start").status_code == 200
+    wait_for(lambda: idle(client, pid) and "handed you this ticket" in fake.specs[-1].prompt)
+    assert "User Luchs handed you this ticket" in fake.specs[-1].prompt
+
+
 def test_admins_manage_users_and_one_admin_always_remains(client, project):
     user = new_user(client, "max")
     assert client.post("/api/users", json={"username": "Max", "password": "max-password"}).status_code == 400  # taken, whatever the case

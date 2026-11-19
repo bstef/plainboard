@@ -58,12 +58,12 @@ async def get_task(task_id: int, session: Session) -> TaskDetail:
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskOut)
-async def update_task(task_id: int, body: TaskUpdate, session: Session, runs: Runs) -> TaskOut:
+async def update_task(task_id: int, body: TaskUpdate, session: Session, runs: Runs, who: Who) -> TaskOut:
     task, previous = await board_service.update_task(session, await board_service.get_task(session, task_id), body)
     # Moving a ticket to "In Progress" on the board hands it to the manager.
     if task.status == TaskStatus.IN_PROGRESS and previous != TaskStatus.IN_PROGRESS:
         try:
-            await runs.hand_ticket(session, task)
+            await runs.hand_ticket(session, task, await user_service.author(session, who.user, task.project_id))
         except ServiceError:
             pass
     (out,) = await board_service.task_outs(session, [task])
@@ -76,17 +76,19 @@ async def delete_task(task_id: int, session: Session) -> None:
 
 
 @router.post("/tasks/{task_id}/start", response_model=RunOut)
-async def start_task(task_id: int, session: Session, runs: Runs) -> RunOut:
+async def start_task(task_id: int, session: Session, runs: Runs, who: Who) -> RunOut:
     """Hand the ticket to the manager, who plans and delegates it."""
-    run = await runs.hand_ticket(session, await board_service.get_task(session, task_id))
+    task = await board_service.get_task(session, task_id)
+    run = await runs.hand_ticket(session, task, await user_service.author(session, who.user, task.project_id))
     return RunOut.model_validate(run)
 
 
 @router.post("/tasks/{task_id}/user-action/done", response_model=TaskOut)
-async def user_action_done(task_id: int, body: UserActionDone, session: Session, runs: Runs) -> TaskOut:
+async def user_action_done(task_id: int, body: UserActionDone, session: Session, runs: Runs, who: Who) -> TaskOut:
     task = await board_service.get_task(session, task_id)
-    action = await board_service.finish_user_action(session, task, body.note)
-    await runs.user_action_done(session, task, action, body.note)
+    author = await user_service.author(session, who.user, task.project_id)
+    action = await board_service.finish_user_action(session, task, body.note, author)
+    await runs.user_action_done(session, task, action, body.note, author)
     (out,) = await board_service.task_outs(session, [task])
     return out
 
@@ -153,10 +155,11 @@ async def upload(task_id: int, session: Session, files: list[UploadFile] = File(
 
 
 @router.post("/decisions/{decision_id}/answer", response_model=DecisionOut)
-async def answer_decision(decision_id: int, body: DecisionAnswer, session: Session, runs: Runs) -> DecisionOut:
+async def answer_decision(decision_id: int, body: DecisionAnswer, session: Session, runs: Runs, who: Who) -> DecisionOut:
     decision = await decision_service.get(session, decision_id)
-    await decision_service.answer(session, decision, option_index=body.option_index, text=body.text)
-    await runs.decision_answered(session, decision)
+    author = await user_service.author(session, who.user, decision.project_id)
+    await decision_service.answer(session, decision, option_index=body.option_index, text=body.text, author_name=author)
+    await runs.decision_answered(session, decision, author)
     return DecisionOut.model_validate(decision)
 
 

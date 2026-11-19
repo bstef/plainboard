@@ -419,8 +419,9 @@ class RunManager:
         if project and await inbox.pending_count(s, agent_id):
             await self._maybe_wake(s, project, agent_id)
 
-    async def hand_ticket(self, s: AsyncSession, task: Task) -> Run:
-        """Give a ticket to the project manager, who plans and delegates it."""
+    async def hand_ticket(self, s: AsyncSession, task: Task, author: str | None = None) -> Run:
+        """Give a ticket to the project manager, who plans and delegates it. ``author``: who did, where
+        several people work in the project (as for ``decision_answered`` and ``user_action_done``)."""
         manager = await agent_service.get_manager(s, task.project_id)
         busy = await s.scalar(
             select(Run.id).where(Run.agent_id == manager.id, Run.task_id == task.id, Run.trigger == RunTrigger.TICKET, Run.status.in_((RunStatus.QUEUED, RunStatus.RUNNING)))
@@ -430,7 +431,7 @@ class RunManager:
         if task.status in (TaskStatus.BACKLOG, TaskStatus.TODO):
             await board_service.update_task(s, task, TaskUpdate(status="in_progress"))
         brief = await board_service.ticket_text(s, task)
-        run = await self.enqueue(s, manager, RunTrigger.TICKET, prompts.ticket_handoff(brief), task_id=task.id)
+        run = await self.enqueue(s, manager, RunTrigger.TICKET, prompts.ticket_handoff(brief, author), task_id=task.id)
         await board_service.publish_task(s, task)
         return run
 
@@ -1299,21 +1300,21 @@ class RunManager:
             )
             await self._maybe_wake(s, project, recipient)
 
-    async def decision_answered(self, s: AsyncSession, decision: Decision) -> None:
+    async def decision_answered(self, s: AsyncSession, decision: Decision, author: str | None = None) -> None:
         """Tell the agent that asked (or the manager, if it is gone) what the user decided."""
         project = await s.get(Project, decision.project_id)
         task = await s.get(Task, decision.task_id)
         if project is None or task is None:
             return
         recipient = decision.requested_by_agent_id or (await agent_service.get_manager(s, project.id)).id
-        await inbox.push(s, recipient, f'User decided on ticket #{task.number} ("{decision.question}"): {decision_service.answer_summary(decision)}')
+        await inbox.push(s, recipient, f'{prompts.person(author)} decided on ticket #{task.number} ("{decision.question}"): {decision_service.answer_summary(decision)}')
         await self._maybe_wake(s, project, recipient)
 
-    async def user_action_done(self, s: AsyncSession, task: Task, action: str, note: str) -> None:
+    async def user_action_done(self, s: AsyncSession, task: Task, action: str, note: str, author: str | None = None) -> None:
         """Tell the manager that the user did what the ticket was waiting for."""
         project = await s.get(Project, task.project_id)
         manager = await agent_service.get_manager(s, task.project_id)
-        await inbox.push(s, manager.id, f'User finished "{action}" on ticket #{task.number}' + (f": {note.strip()}" if note.strip() else "."))
+        await inbox.push(s, manager.id, f'{prompts.person(author)} finished "{action}" on ticket #{task.number}' + (f": {note.strip()}" if note.strip() else "."))
         await self._maybe_wake(s, project, manager.id)
 
     # ------------------------------------------------------------------ background jobs

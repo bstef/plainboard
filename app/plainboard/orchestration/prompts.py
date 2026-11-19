@@ -551,9 +551,15 @@ def comment_lines(comments: list[Comment], names: dict[int, str], max_len: int) 
     return out
 
 
-def ticket_handoff(brief: str) -> str:
+def person(author: str | None) -> str:
+    """Who did something in the UI, as an agent reads it. With a name where several people work in
+    the project (``users.author``): told only "User", an agent puts down the one name it knows."""
+    return f"User {author}" if author else "User"
+
+
+def ticket_handoff(brief: str, author: str | None = None) -> str:
     return (
-        f"The user handed you this ticket to work on:\n\n{brief}\n\n"
+        f"{person(author) if author else 'The user'} handed you this ticket to work on:\n\n{brief}\n\n"
         "Get it done: delegate it as one complete assignment to the member whose area fits, and split it only where parts are truly independent. "
         "Where the ticket leaves something open that is yours to decide, decide it and say so in the assignment; ask the user "
         "(request_decision) only for what is theirs to decide."

@@ -215,7 +215,7 @@ async def accept_reviews(session: AsyncSession) -> int:
     return accepted
 
 
-async def finish_user_action(session: AsyncSession, task: Task, note: str = "") -> str:
+async def finish_user_action(session: AsyncSession, task: Task, note: str = "", author_name: str | None = None) -> str:
     """The user did what the ticket waited for. Returns what that was."""
     action = task.user_action
     # Taken by whoever empties it: a second click while the first one is on its way tells the manager nothing twice.
@@ -225,7 +225,7 @@ async def finish_user_action(session: AsyncSession, task: Task, note: str = "") 
         raise ServiceError("This ticket is not waiting for you")
     task.user_action = ""
     body = f"Done: {action}" + (f"\n\n{note.strip()}" if note.strip() else "")
-    await add_comment(session, task, body)
+    await add_comment(session, task, body, author_name=author_name)
     return action
 
 

@@ -228,7 +228,8 @@ a project (**Project settings → Members**):
 Admins run the installation (settings, subscriptions, people) and see every project. Whoever
 creates a project owns it; an admin decides per person who may create projects, because every
 project uses the installation's subscriptions. A project can name the subscription its agents run
-on. Where several people work in a project, agents see who wrote a message or a comment. The chat
+on. Where several people work in a project, agents see who wrote a message or a comment, who
+answered a question on a ticket, who finished what a ticket waited for and who handed a ticket over. The chat
 shows each person's name and profile picture above what they wrote; you set your picture under
 PlainBoard settings, Your account.
 
