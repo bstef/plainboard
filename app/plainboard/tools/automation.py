@@ -20,6 +20,7 @@ class CreateScheduleArgs(BaseModel):
     cron: str | None = Field(default=None, description="Recurring: 5-field cron, e.g. '0 9 * * 1-5' (weekdays 09:00)")
     run_at: datetime | None = Field(default=None, description="One-off: local date-time, e.g. '2026-11-02T14:30'")
     timezone: str | None = Field(default=None, description="IANA zone; default from settings")
+    skip_quiet: bool = Field(default=False, description="Leave out a run when nothing happened in the project since the last one (a status report)")
 
 
 class UpdateScheduleArgs(BaseModel):
@@ -31,6 +32,7 @@ class UpdateScheduleArgs(BaseModel):
     run_at: datetime | None = None
     timezone: str | None = None
     enabled: bool | None = None
+    skip_quiet: bool | None = None
 
 
 class ScheduleRef(BaseModel):
@@ -48,7 +50,7 @@ async def list_schedules(ctx: ToolContext, _args) -> str:
     lines = []
     for s in rows:
         when = s.cron if s.kind == "cron" else schedule_service.to_local(s.run_at, s.timezone)
-        state = "" if s.enabled else " (disabled)"
+        state = ("" if s.enabled else " (disabled)") + (" (left out when nothing happened)" if s.skip_quiet else "")
         lines.append(f"{s.id}: {s.name} → {names.get(s.agent_id, s.agent_id)} | {s.kind} {when} | next {schedule_service.to_local(s.next_run_at, s.timezone)}{state}")
     return "\n".join(lines) or "No schedules."
 
@@ -59,7 +61,9 @@ async def create_schedule(ctx: ToolContext, args: CreateScheduleArgs) -> str:
     schedule = await schedule_service.create(
         ctx.session,
         ctx.project.id,
-        ScheduleCreate(name=args.name, agent_id=agent.id, prompt=args.prompt, kind=_kind(args.cron, args.run_at), run_at=args.run_at, cron=args.cron, timezone=args.timezone),
+        ScheduleCreate(
+            name=args.name, agent_id=agent.id, prompt=args.prompt, kind=_kind(args.cron, args.run_at), run_at=args.run_at, cron=args.cron, timezone=args.timezone, skip_quiet=args.skip_quiet
+        ),  # fmt: skip
         by_agent_id=ctx.agent.id,
     )
     return f"Schedule {schedule.id} created; next run {schedule_service.to_local(schedule.next_run_at, schedule.timezone)}."

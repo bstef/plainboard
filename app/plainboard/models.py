@@ -447,6 +447,10 @@ class Landing(Timestamps, Base):
     # again as that group, before anything new joins them.
     group_no: Mapped[int | None] = mapped_column(Integer)
     merged_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # It could not be merged: since when, and in which files while its author resolves that. Until it
+    # is back, branches that change these files wait (landings.busy); once it is, it goes first.
+    conflict_at: Mapped[datetime | None] = mapped_column(DateTime)
+    conflict_files: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
 class Train(Timestamps, Base):
@@ -677,6 +681,9 @@ class Schedule(Timestamps, Base):
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_run_id: Mapped[int | None] = mapped_column(Integer)
+    # A run is left out when nothing happened in the project since the last one (schedules.quiet):
+    # a status report that would say "nothing new" costs a turn for nothing.
+    skip_quiet: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
 
 

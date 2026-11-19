@@ -6,15 +6,18 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, Schedule, utcnow
+from ..models import Agent, FlowEvent, Run, Schedule, TaskTransition, utcnow
 from ..schemas import ScheduleCreate, ScheduleOut, ScheduleUpdate
+from . import flow_log
 from . import settings as settings_service
 from .errors import NotFound, ServiceError
 
+
+SKIPPED = "schedule.skipped"  # in the work log: a run left out because nothing had happened
 
 # Every project starts with this schedule for its manager. It is an ordinary schedule: the user
 # (or the manager) can change its prompt or interval, pause it or delete it.
@@ -109,6 +112,7 @@ async def create(session: AsyncSession, project_id: int, data: ScheduleCreate, *
         cron=data.cron,
         timezone=tz,
         enabled=data.enabled,
+        skip_quiet=data.skip_quiet,
         created_by_agent_id=by_agent_id,
     )
     schedule.run_at = to_utc(data.run_at, tz) if data.run_at else None
@@ -164,6 +168,31 @@ async def list_for_project(session: AsyncSession, project_id: int) -> list[Sched
 async def due(session: AsyncSession, now: datetime) -> list[Schedule]:
     q = select(Schedule).where(Schedule.enabled.is_(True), Schedule.next_run_at.is_not(None), Schedule.next_run_at <= now)
     return list((await session.scalars(q)).all())
+
+
+async def quiet(session: AsyncSession, schedule: Schedule) -> bool:
+    """Whether nothing happened in the schedule's project since its last run: no turn but its own, no
+    ticket moved, nothing landed or noted in the work log."""
+    since = schedule.last_run_at
+    if since is None:
+        return False
+    turn = select(Run.id).where(Run.project_id == schedule.project_id, Run.created_at > since, or_(Run.schedule_id.is_(None), Run.schedule_id != schedule.id))
+    moved = select(TaskTransition.id).where(TaskTransition.project_id == schedule.project_id, TaskTransition.at > since)
+    noted = select(FlowEvent.id).where(FlowEvent.project_id == schedule.project_id, FlowEvent.at > since, FlowEvent.kind != SKIPPED)
+    for something in (turn, moved, noted):
+        if await session.scalar(something.limit(1)) is not None:
+            return False
+    return True
+
+
+async def mark_skipped(session: AsyncSession, schedule: Schedule, now: datetime) -> None:
+    """Its time passed without a turn. The last run stays the last one that happened."""
+    if schedule.kind == "once":
+        schedule.enabled = False
+    schedule.next_run_at = compute_next_run(schedule, after=now)
+    await session.commit()
+    await flow_log.record(session, schedule.project_id, SKIPPED, agent_id=schedule.agent_id, schedule=schedule.name)
+    bus.publish(schedule.project_id, "schedule.upserted", ScheduleOut.model_validate(schedule))
 
 
 async def mark_fired(session: AsyncSession, schedule: Schedule, run_id: int | None, now: datetime) -> None:

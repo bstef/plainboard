@@ -345,6 +345,8 @@ export interface Schedule {
   cron: string | null;
   timezone: string;
   enabled: boolean;
+  /** A run is left out when nothing happened in the project since the last one. */
+  skip_quiet: boolean;
   next_run_at: string | null;
   last_run_at: string | null;
   last_run_id: number | null;

@@ -554,8 +554,9 @@ You ──chat──▶ Manager ──delegate──▶ Agent A ─┐
 - **Notes** are shared knowledge; pinned notes are in every prompt. One note per topic (similar
   titles are rejected in favour of updating), list views show each note's age and size, pinned notes
   have a fixed token budget, and the manager is reminded to consolidate as the collection grows.
-- **Schedules** run one-off or by cron. **MCP servers** (stdio, http, sse) can be given to all or to
-  selected agents.
+- **Schedules** run one-off or by cron. A schedule can leave out a run when nothing happened in the
+  project since the last one, so a status report costs no turn for "nothing new". **MCP servers**
+  (stdio, http, sse) can be given to all or to selected agents.
 - **Clean chat by default**: only messages, with events as one-line notes. The eye icon in the chat
   header shows agent activity (tool calls, compressions, context gauge, full event cards).
 - **Responsive**: desktop with a sidebar, a resizable chat panel or a full-page chat; phones get a

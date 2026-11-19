@@ -747,6 +747,7 @@ class ScheduleCreate(BaseModel):
     cron: str | None = None
     timezone: str | None = None
     enabled: bool = True
+    skip_quiet: bool = False  # leave out a run when nothing happened in the project since the last one
 
 
 class ScheduleUpdate(BaseModel):
@@ -758,6 +759,7 @@ class ScheduleUpdate(BaseModel):
     cron: str | None = None
     timezone: str | None = None
     enabled: bool | None = None
+    skip_quiet: bool | None = None
 
 
 class ScheduleOut(ORM):
@@ -771,6 +773,7 @@ class ScheduleOut(ORM):
     cron: str | None
     timezone: str
     enabled: bool
+    skip_quiet: bool = False
     next_run_at: UTCDateTime | None
     last_run_at: UTCDateTime | None
     last_run_id: int | None

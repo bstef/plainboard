@@ -113,6 +113,9 @@ class LandingWatcher:
         self._interval = interval
         self.linger = linger  # seconds a train waits for further branches before it leaves
         self._holds: set[tuple[int, datetime]] = set()  # red phases whose hold is in the work log already
+        # Branches held back because they change a file someone resolves a conflict in, with what was
+        # being resolved then (Busy.key). While that is the same, they are not tried again.
+        self._held: dict[int, tuple] = {}
         self._task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
@@ -374,7 +377,7 @@ class LandingWatcher:
 
     async def _depart(self, s: AsyncSession, r: Repo, now: datetime) -> None:
         """Assemble the next train from what is ready, and start its check."""
-        waiting = await self._ready(s, r)
+        waiting, busy = await self._ready(s, r, now)
         # Branches that were repaired together go first and on their own: what fails then is theirs.
         groups = {w.group_no for w in waiting if w.group_no is not None}
         group = min(groups) if groups else None
@@ -411,6 +414,7 @@ class LandingWatcher:
             members=[p.branch for p in pick],
             # A group failed together: a branch of it that needed no change still belongs on the train.
             skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha} if group is None else {},
+            busy_files=list(busy.files),
             github=r.slug if r.mode == landing_service.GITHUB else None,
             title="Land " + truncate(", ".join(p.branch for p in pick), 200),
             body=body,
@@ -420,6 +424,7 @@ class LandingWatcher:
         on_train = [by_branch[b] for b in result.merged if b in by_branch]
         for landing in on_train:
             landing.status, landing.train_id, landing.head_sha = LandingStatus.TRAIN, train.id, result.merged[landing.branch]
+            landing.conflict_at, landing.conflict_files = None, []
         train.branch, train.base, train.head_sha, train.size = spec.branch, result.base, result.head_sha, len(on_train)
         train.number, train.url = result.number, result.url
         if on_train and r.mode == landing_service.COMMAND:
@@ -431,28 +436,36 @@ class LandingWatcher:
         await flow_log.record(
             s, r.project.id, "train.departed" if on_train else "train.empty", train_id=train.id if on_train else None, branches=[p.branch for p in on_train],
             ready=len(waiting), size_limit=size, repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
-            missing=list(result.missing), unchanged=list(result.unchanged),
+            missing=list(result.missing), unchanged=list(result.unchanged), waits=list(result.waits), held=list(result.held),
         )  # fmt: skip
 
-        await self._left_out(s, r, result, by_branch, tickets, now)
+        await self._left_out(s, r, result, by_branch, tickets, now, busy)
 
-    async def _ready(self, s: AsyncSession, r: Repo) -> list[Landing]:
-        """What can go to the base branch next: handed over, or repaired since it came back."""
+    async def _ready(self, s: AsyncSession, r: Repo, now: datetime) -> tuple[list[Landing], landing_service.Busy]:
+        """What can go to the base branch next: handed over, or repaired since it came back. A branch
+        whose conflict was resolved, or that waited behind another one, goes first: what lands before
+        it could put it in conflict again. Without the branches that are held back for the files
+        someone still resolves a conflict in (the second value)."""
         ready = select(Landing).where(Landing.repository_id == r.repo.id)
         for landing in list(await s.scalars(ready.where(Landing.status == LandingStatus.BACK))):
             if not await open_repair(s, landing):  # repaired: it goes on by itself
-                landing.status = LandingStatus.WAITING
+                landing.status, landing.conflict_files = LandingStatus.WAITING, []
         await s.commit()
         waiting = list(await s.scalars(ready.where(Landing.status == LandingStatus.WAITING).order_by(Landing.id)))
+        waiting.sort(key=lambda w: (w.conflict_at is None, w.conflict_at or datetime.min, w.id))
+        busy = await landing_service.busy(s, r.repo.id, now)  # after the look above: who is back resolves nothing any more
+        waiting = [w for w in waiting if not (busy.files and self._held.get(w.id) == busy.key)]
         for landing in [w for w in waiting if not w.branch]:  # handed over as a pull request number, before trains
             state = await self._runs.runner.pull_request(r.credentials, r.slug, landing.number) if r.slug and landing.number else None
             landing.branch = state.branch if state and state.state == "open" else ""
             if not landing.branch:
                 landing.status = LandingStatus.CLOSED
         await s.commit()
-        return [w for w in waiting if w.branch]
+        return [w for w in waiting if w.branch], busy
 
-    async def _left_out(self, s: AsyncSession, r: Repo, result: TrainResult, by_branch: dict[str, Landing], tickets: dict[int, Task | None], now: datetime) -> None:
+    async def _left_out(
+        self, s: AsyncSession, r: Repo, result: TrainResult, by_branch: dict[str, Landing], tickets: dict[int, Task | None], now: datetime, busy: landing_service.Busy
+    ) -> None:
         """What could not be merged with the others."""
         for branch in result.landed:
             landing = by_branch[branch]
@@ -463,11 +476,28 @@ class LandingWatcher:
             await self._tell_manager(s, r, f"{await self._label(s, landing)} is on {result.base} in {r.repo.name} already. Move the ticket this finishes to done.")
         for branch in result.conflicts:
             landing = by_branch[branch]
+            files = list(result.conflict_files.get(branch, []))
             # A conflict is no failed check: it does not use up a round. Unchanged, it is not tried again.
             landing.failed_sha = landing.head_sha or ""
+            # While its author resolves it, branches that change these files wait (landings.busy).
+            landing.conflict_at, landing.conflict_files = now, files
             await self._back(
-                s, r, landing, f"conflicts with {result.base} or a branch that lands before it", f"Resolve the conflicts of branch {branch}", prompts.conflict_instructions(branch, result.base), counts=False
+                s, r, landing, f"conflicts with {result.base}", f"Resolve the conflicts of branch {branch}", prompts.conflict_instructions(branch, result.base, files), counts=False
             )  # fmt: skip
+        for branch in result.waits:
+            # It merges onto the base branch, but not with a branch that went before it on this train.
+            # Its author could resolve nothing yet: what it conflicts with is not on the base branch.
+            # It stays ready and goes first next time. If the train lands, it conflicts with the base
+            # branch then and goes to its author; if not, it may just land.
+            landing = by_branch[branch]
+            landing.conflict_at = landing.conflict_at or now
+            await s.commit()
+            await flow_log.record(s, r.project.id, "landing.waits", landing_id=landing.id, task_id=landing.task_id, branch=branch, files=list(result.conflict_files.get(branch, [])))
+        for branch in result.held:
+            landing = by_branch[branch]
+            if self._held.get(landing.id) != busy.key:
+                self._held[landing.id] = busy.key
+                await flow_log.record(s, r.project.id, "landing.held", landing_id=landing.id, task_id=landing.task_id, branch=branch, files=list(busy.files), minutes=landing_service.CONFLICT_HOLD_SECONDS // 60)
         for branch, why in [*((b, "is not on the remote any more") for b in result.missing), *((b, "still fails, and nothing new was pushed since") for b in result.unchanged)]:
             landing = by_branch[branch]
             landing.status, landing.group_no = LandingStatus.STUCK, None
@@ -480,7 +510,7 @@ class LandingWatcher:
     async def _land_first(self, s: AsyncSession, r: Repo, now: datetime) -> None:
         """Merge everything that is ready into the base branch now. The checks run on the base
         branch afterwards (_watch_base) and take nothing back."""
-        waiting = await self._ready(s, r)
+        waiting, busy = await self._ready(s, r, now)
         red = await landing_service.red_base(s, r.repo.id, now)
         if red is not None:
             # The base branch is red: only what repairs it lands. The next check run then says whether the
@@ -506,6 +536,7 @@ class LandingWatcher:
             branch=f"plainboard/land-{train.id}",
             members=[p.branch for p in pick],
             skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha},
+            busy_files=list(busy.files),
         )
         result = await self._runs.runner.assemble_train(spec)
         by_branch = {p.branch: p for p in pick}
@@ -531,6 +562,7 @@ class LandingWatcher:
         else:
             for landing in landed:
                 landing.status, landing.train_id, landing.head_sha, landing.merged_at, landing.group_no = LandingStatus.MERGED, train.id, result.merged[landing.branch], now, None
+                landing.conflict_at, landing.conflict_files = None, []
             train.branch, train.base, train.head_sha, train.size = spec.branch, result.base, result.head_sha, len(landed)
             if r.mode == landing_service.COMMAND:
                 train.job_id = secrets.token_hex(8)
@@ -541,7 +573,7 @@ class LandingWatcher:
             timing_service.forget_cache()
             await flow_log.record(
                 s, r.project.id, "train.landed", train_id=train.id, branches=[m.branch for m in landed], direct=True, ready=len(waiting), mode=train.mode,
-                conflicts=list(result.conflicts), missing=list(result.missing), unchanged=list(result.unchanged),
+                conflicts=list(result.conflicts), missing=list(result.missing), unchanged=list(result.unchanged), waits=list(result.waits), held=list(result.held),
             )  # fmt: skip
             for landing in landed:
                 if ticket := tickets[landing.id]:
@@ -549,7 +581,7 @@ class LandingWatcher:
             listing = "; ".join([await label(s, m) for m in landed])
             checks = "This repository has no checks." if r.mode is None else f"Its checks run on {result.base} now, once for all of this; PlainBoard has a failure repaired."
             await self._tell_manager(s, r, f"Landed on {result.base} in {r.repo.name}: {listing}. {checks} Move the tickets this finishes to done.")
-        await self._left_out(s, r, result, by_branch, tickets, now)
+        await self._left_out(s, r, result, by_branch, tickets, now, busy)
 
     async def _watch_base(self, s: AsyncSession, r: Repo, train: Train, now: datetime) -> bool:
         """A batch that landed before its checks: look at the checks of the base branch at that

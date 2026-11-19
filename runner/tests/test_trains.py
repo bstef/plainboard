@@ -57,11 +57,35 @@ async def test_a_train_holds_every_branch_that_merges_and_leaves_out_the_rest(re
     result = await trains.assemble(spec(remote, ["feat-a", "feat-b", "feat-c", "gone"]))
     assert result.base == "main"
     assert set(result.merged) == {"feat-a", "feat-b"} and result.merged["feat-a"] == heads(remote)["feat-a"]
-    assert result.conflicts == ["feat-c"] and result.missing == ["gone"]  # a conflict keeps one branch back, not the train
+    # A conflict keeps one branch back, not the train. c merges onto main but not with a, which is before it on this
+    # train: nothing its author could resolve yet, so it is not called a conflict.
+    assert result.waits == ["feat-c"] and not result.conflicts and result.missing == ["gone"]
+    assert result.conflict_files == {"feat-c": ["a.txt"]}
     clone = trains.folder("p1-r1")
     assert (clone / "a.txt").read_text() == "from a\n" and (clone / "b.txt").exists()
     assert git(clone, "rev-parse", "HEAD") == result.head_sha
     assert "plainboard/train-1" not in heads(remote)  # checked by a command: nothing is pushed until it has passed
+
+
+async def test_what_conflicts_with_the_base_branch_goes_to_its_author_and_what_touches_a_file_being_resolved_is_held(remote, tmp_path):
+    """Seen in production: a branch came back seven times in an hour. Twice its author could do nothing (the
+    conflict was with a branch on the same train), and each time it resolved the lock file, another branch
+    that changed the lock file had landed in between."""
+    work = tmp_path / "work"
+    git(work, "merge", "-q", "--no-ff", "-m", "land a", "feat-a")
+    git(work, "push", "-q", "origin", "main")
+    # c conflicts with main itself now: that is its author's to resolve, and the file is named.
+    result = await trains.assemble(spec(remote, ["feat-b", "feat-c"]))
+    assert result.conflicts == ["feat-c"] and not result.waits and set(result.merged) == {"feat-b"}
+    assert result.conflict_files == {"feat-c": ["a.txt"]}
+    # While c's author resolves a.txt, a branch that changes a.txt is held; one that does not goes.
+    git(work, "checkout", "-q", "-b", "feat-e", "main")
+    commit(work, "a.txt", "from a\nand e\n", "work on feat-e")
+    git(work, "push", "-q", "origin", "feat-e")
+    result = await trains.assemble(spec(remote, ["feat-e", "feat-b"], busy_files=["a.txt", "other.txt"]))
+    assert result.held == ["feat-e"] and set(result.merged) == {"feat-b"} and not result.conflicts
+    result = await trains.assemble(spec(remote, ["feat-e", "feat-b"]))
+    assert set(result.merged) == {"feat-e", "feat-b"} and not result.held
 
 
 async def test_a_branch_built_on_another_rides_along_and_landed_or_unchanged_ones_are_left_out(remote, tmp_path):

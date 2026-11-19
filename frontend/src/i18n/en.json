@@ -605,6 +605,8 @@
       "weekdays": "Weekdays 09:00",
       "weekly": "Mondays 09:00"
     },
+    "skipQuiet": "Leave out a run when nothing happened since the last one",
+    "skipQuietHint": "For status reports: no turn is spent on \"nothing new\". What counts: an agent's turn, a ticket moved, a branch landed. Leave it off for a schedule that looks at something outside the project.",
     "runAt": "Run at",
     "timezone": "Timezone",
     "confirmDelete": "Delete this schedule?"

@@ -45,6 +45,11 @@ LEFT_ALONE_BATCHES = 4
 # and what fails belongs to one batch. At most this long from the first red check run, then everything lands
 # again as it is: waiting for a repair that does not come must not stop the work.
 RED_HOLD_SECONDS = 45 * 60
+# While an author resolves a conflict, branches that change the same files wait, at most this long.
+# Seen in production: a branch came back seven times in an hour, because each time its author had
+# merged the lock file, another branch that changed the lock file had landed in between. Waiting
+# costs no turn; resolving the same conflict again does.
+CONFLICT_HOLD_SECONDS = 20 * 60
 BASE_CHECK_MAX_SECONDS = 3600  # checks of the base branch that take longer are not waited for
 # Checks that cannot be read at all (the host answers with an error, e.g. a token without read access to
 # checks): a short failure is waited out, after this the batch counts as unchecked and landing goes on.
@@ -239,3 +244,19 @@ async def next_group(session: AsyncSession, repository_id: int) -> int:
         await session.scalar(select(func.max(Train.group_no)).where(Train.repository_id == repository_id)) or 0,
     ]
     return max(used) + 1
+
+
+@dataclass(frozen=True)
+class Busy:
+    """The files in which authors resolve conflicts of this repository's branches right now."""
+
+    files: tuple[str, ...] = ()
+    key: tuple = ()  # changes when one of them is back, gives up, or another one starts
+
+
+async def busy(session: AsyncSession, repository_id: int, now: datetime) -> Busy:
+    since = now - timedelta(seconds=CONFLICT_HOLD_SECONDS)
+    q = select(Landing).where(Landing.repository_id == repository_id, Landing.status == LandingStatus.BACK, Landing.conflict_at.is_not(None), Landing.conflict_at > since)
+    resolving = [landing for landing in await session.scalars(q.order_by(Landing.id)) if landing.conflict_files]
+    files = tuple(sorted({name for landing in resolving for name in landing.conflict_files}))
+    return Busy(files, tuple((landing.id, landing.conflict_at.isoformat()) for landing in resolving))

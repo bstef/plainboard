@@ -1003,6 +1003,7 @@ class RunManager:
                     prompts.capacity_line(capacity),
                     prompts.team_todos_line(todo_counts),
                     timing_service.waiting_line(await timing_service.cached_overview(s, project.id, 24)),
+                    prompts.language_note(project.language),
                 )
                 board = "\n\n".join(c for c in checks if c)
             elif run.trigger == RunTrigger.ASSIGNMENT and assignment:

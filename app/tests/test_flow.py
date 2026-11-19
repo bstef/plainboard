@@ -1474,3 +1474,141 @@ def test_a_paused_project_starts_nothing_until_a_person_resumes_it(client, proje
     assert not any("SAY nightly" in s.prompt for s in fake.specs)
     kinds = [e["kind"] for e in flow_events(client, pid) if e["kind"].startswith("project.")]
     assert kinds == ["project.paused", "project.resumed"]
+
+
+def test_a_conflict_costs_its_author_one_turn_not_one_per_train(client, project):
+    """Seen in production: 44 of 99 finished branches came back for conflicts in one night, one of them seven
+    times in an hour. Twice its author could do nothing, because the conflict was with a branch on the same
+    train that had not landed yet. And each time it had merged the lock file, another branch that changed
+    the lock file had landed in between."""
+    from plainboard.models import utcnow
+
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a", "feat-b"])
+    dev2 = agents_by_slug(client, pid)["dev2"]
+    kinds = lambda: [e["kind"] for e in flow_events(client, pid) if e["kind"] in ("landing.waits", "landing.held", "landing.back")]  # noqa: E731
+
+    def check_passes() -> None:  # like finish_check, while a member is in the middle of a turn
+        fake.jobs[fake.check_specs[-1].id] = JobState(running=False, exit_code=0, log_path="/jobs/check.log", tail="all passed")
+        land_tick(client)
+
+    def finished(name: str, branch: str, files: set[str]) -> None:  # like hand_over, while a member is in the middle of a turn
+        member = make_member(client, pid, name)
+        fake.branches[branch], fake.touches[branch] = f"sha-{branch}", files
+        chat(client, member["id"], "TOOL merge_when_green " + json.dumps({"repository": "api", "branch": branch}))
+        wait_for(lambda: any(r["agent_id"] == member["id"] and r["status"] == "succeeded" for r in runs_of(client, pid)))
+
+    # feat-b merges onto main, but not with feat-a, which goes before it. Its author could resolve nothing
+    # yet: no assignment. It waits for the next train.
+    fake.behind, fake.touches["feat-b"] = {"feat-b"}, {"package-lock.json"}
+    land_tick(client)
+    assert fake.train_results[-1].merged == {"feat-a": "sha-feat-a"} and fake.train_results[-1].waits == ["feat-b"]
+    assert not assignments(client, pid) and landing_row(client, "feat-b")["status"] == "open" and kinds() == ["landing.waits"]
+
+    # feat-a lands, so feat-b conflicts with main: that is its author's, with the file named. The author is
+    # busy, so the resolving takes a while.
+    fake.behind, fake.conflicting = set(), {"feat-b"}
+    chat(client, dev2["id"], "HOLD\nSAY busy")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    check_passes()
+    (order,) = assignments(client, pid)
+    assert order["title"] == "Resolve the conflicts of branch feat-b" and "It conflicts in: package-lock.json." in order["instructions"]
+    assert "the other finished branches that change these files wait for you" in order["instructions"]
+
+    # Meanwhile two more branches are finished. The one that changes the lock file waits: landing it would put
+    # feat-b in conflict again the moment its author is done. The other one goes.
+    finished("Dev3", "feat-c", {"package-lock.json", "src/app.ts"})
+    finished("Dev4", "feat-d", {"README.md"})
+    land_tick(client)
+    assert fake.train_specs[-1].busy_files == ["package-lock.json"]
+    assert fake.train_results[-1].held == ["feat-c"] and fake.train_results[-1].merged == {"feat-d": "sha-feat-d"}
+    assert len(assignments(client, pid)) == 1 and kinds() == ["landing.waits", "landing.back", "landing.held"]
+    check_passes()
+    trains = len(fake.train_specs)
+    land_tick(client)
+    land_tick(client)
+    assert len(fake.train_specs) == trains and kinds().count("landing.held") == 1  # not tried again while nothing changed
+
+    # The author is done: feat-b goes first, and what waited for it goes with it.
+    fake.conflicting, fake.branches["feat-b"] = set(), "sha-feat-b-2"
+    fake.released = True
+    wait_for(lambda: idle(client, pid) and assignments(client, pid)[0]["status"] == "done")
+    land_tick(client)
+    assert fake.train_specs[-1].members == ["feat-b", "feat-c"] and fake.train_specs[-1].busy_files == []
+    assert fake.train_results[-1].merged == {"feat-b": "sha-feat-b-2", "feat-c": "sha-feat-c"}
+    finish_check(client, fake)
+    assert len(assignments(client, pid)) == 1  # one conflict, one turn
+
+    # An author that does not come back holds nobody for long.
+    finished("Dev5", "feat-e", {"styles.css"})
+    finished("Dev6", "feat-f", {"styles.css"})
+    fake.conflicting = {"feat-e"}
+    fake.released = False
+    chat(client, agents_by_slug(client, pid)["dev5"]["id"], "HOLD\nSAY busy")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    now = utcnow()
+    land_tick_at(client, now)
+    # Both were ready together: feat-e conflicts and goes to its author. feat-f, after it, merged in the same go;
+    # the next one that changes styles.css is held.
+    finished("Dev7", "feat-g", {"styles.css"})
+    fake.jobs[fake.check_specs[-1].id] = JobState(running=False, exit_code=0, log_path="/jobs/check.log", tail="all passed")
+    land_tick_at(client, now + timedelta(minutes=1))
+    assert fake.train_results[-1].held == ["feat-g"]
+    land_tick_at(client, now + timedelta(minutes=21))
+    assert fake.train_specs[-1].busy_files == [] and fake.train_results[-1].merged == {"feat-g": "sha-feat-g"}
+    fake.released = True
+    wait_for(lambda: idle(client, pid))
+
+
+def test_a_status_schedule_spends_no_turn_on_nothing_new(client, project):
+    """Seen in production: a status report every two hours said "nothing new" through a quiet morning, a turn
+    each. And a project from before the language setting answered its user in English after a night of notices."""
+    from plainboard.db import sessionmaker
+    from plainboard.models import Schedule, utcnow
+
+    pid = project["id"]
+    manager = manager_of(client, pid)
+    fake = runner(client)
+    scheduler = client.app_ref.state.scheduler
+
+    def due(schedule_id: int) -> None:  # its time has come again
+        async def set_due() -> None:
+            async with sessionmaker()() as s:
+                (await s.get(Schedule, schedule_id)).next_run_at = utcnow() - timedelta(minutes=1)
+                await s.commit()
+
+        client.portal.call(set_due)
+        client.portal.call(scheduler.tick)
+        wait_for(lambda: idle(client, pid))
+
+    body = {"agent_id": manager["id"], "name": "Status", "prompt": "SAY status", "kind": "cron", "cron": "0 */2 * * *", "skip_quiet": True}
+    status = client.post(f"/api/projects/{pid}/schedules", json=body).json()
+    assert status["skip_quiet"] is True
+    said = lambda: len([s for s in fake.specs if "SAY status" in s.prompt])  # noqa: E731
+
+    due(status["id"])
+    wait_for(lambda: idle(client, pid) and said() == 1)  # its first run: there is no "since the last one" yet
+    # No language is set: the manager is asked to set it, once, with the call that ends the asking.
+    assert "No language is set for this project" in fake.specs[-1].prompt and "update_project language" in fake.specs[-1].prompt
+    last = next(row for row in client.get(f"/api/projects/{pid}/schedules").json() if row["id"] == status["id"])["last_run_at"]
+
+    due(status["id"])
+    assert said() == 1  # nothing happened since: no turn
+    row = next(row for row in client.get(f"/api/projects/{pid}/schedules").json() if row["id"] == status["id"])
+    assert row["last_run_at"] == last and row["next_run_at"] > last  # its next time is set; the last run is the one that happened
+    due(status["id"])
+    assert said() == 1  # still nothing, and the note in the work log about the run left out is not "something"
+    assert [e["kind"] for e in flow_events(client, pid) if e["kind"] == "schedule.skipped"] == ["schedule.skipped"] * 2
+
+    # Something happens: a person writes to the manager, who sets the language. The next run takes place.
+    chat(client, manager["id"], 'TOOL update_project {"language": "German"}')
+    wait_for(lambda: idle(client, pid))
+    due(status["id"])
+    assert said() == 2 and "No language is set" not in fake.specs[-1].prompt
+    assert next(row for row in client.get(f"/api/projects/{pid}/schedules").json() if row["id"] == status["id"])["last_run_at"] != last
+
+    # Without the setting a schedule runs whatever happened.
+    client.patch(f"/api/projects/{pid}/schedules/{status['id']}", json={"skip_quiet": False})
+    due(status["id"])
+    due(status["id"])
+    assert said() == 4

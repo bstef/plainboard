@@ -69,9 +69,21 @@ async def branch_head(credentials: Credentials, remote: RepoSpec, branch: str) -
     return (await remote_heads(Git(credentials, remote, None), remote.url)).get(branch)
 
 
+CONFLICT_FILES_NAMED = 20
+
+
+def _files(listing: str) -> list[str]:
+    return [name for name in listing.split("\0") if name]
+
+
 async def assemble(spec: TrainSpec) -> TrainResult:
     """Merge the member branches, in order, onto the base branch. A branch that conflicts is left
-    out; the others still go. With ``spec.github`` the result is pushed as the train's branch."""
+    out; the others still go. With ``spec.github`` the result is pushed as the train's branch.
+
+    A left-out branch is one of three: it conflicts with the base branch (``conflicts``: its author
+    can resolve that), only with a branch before it on this train (``waits``: there is nothing to
+    resolve until that one has landed), or it changes a file someone resolves a conflict in right
+    now (``held``)."""
     where = folder(spec.key)
     url = spec.remote.url
     async with _lock(spec.key):
@@ -101,13 +113,20 @@ async def assemble(spec: TrainSpec) -> TrainResult:
         await git("checkout", "-q", "-f", "-B", spec.branch, f"refs/remotes/origin/{base}")
         await git("clean", "-q", "-fdx")
         base_sha = await git("rev-parse", "HEAD")
+        busy = set(spec.busy_files)
         for branch in members:
             before = await git("rev-parse", "HEAD")
             ref = f"refs/remotes/origin/{branch}"
-            if not await git.ok("merge", "-q", "--no-ff", "--no-edit", "-m", f"Land {branch}", ref):
+            if busy and busy & set(_files(await git("diff", "--name-only", "-z", f"{base_sha}...{ref}"))):
+                result.held.append(branch)
+            elif not await git.ok("merge", "-q", "--no-ff", "--no-edit", "-m", f"Land {branch}", ref):
+                unmerged = _files(await git("diff", "--name-only", "-z", "--diff-filter=U"))
                 if not await git.ok("merge", "--abort"):
                     await git("reset", "-q", "--hard", before)
-                result.conflicts.append(branch)
+                result.conflict_files[branch] = unmerged[:CONFLICT_FILES_NAMED]
+                # With the base branch alone it may merge: then a branch before it on this train is in its way.
+                alone = before != base_sha and await git.ok("merge-tree", "--write-tree", "--no-messages", base_sha, ref)
+                (result.waits if alone else result.conflicts).append(branch)
             elif await git("rev-parse", "HEAD") != before or not await git.ok("merge-base", "--is-ancestor", ref, base_sha):
                 result.merged[branch] = heads[branch]  # also a branch that an earlier member already brought along
             else:

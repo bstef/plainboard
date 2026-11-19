@@ -257,6 +257,9 @@ class TrainSpec(BaseModel):
     members: list[str]  # branches, in the order they are merged
     # Leave a branch out while its head is still this commit: it failed like this before.
     skip_unchanged: dict[str, str] = Field(default_factory=dict)
+    # Files in which an author resolves a conflict right now. A member that changes one of them is
+    # left out: landing it would undo that work before it is back.
+    busy_files: list[str] = Field(default_factory=list)
     # owner/name on GitHub: push the train's branch and open a pull request, whose checks check the
     # train. None: the train is checked by a command in the clone and never pushed as a branch.
     github: str | None = Field(default=None, pattern=r"^[\w.-]+/[\w.-]+$")
@@ -270,7 +273,12 @@ class TrainResult(BaseModel):
     number: int | None = None  # the train's pull request, if it has one
     url: str = ""
     merged: dict[str, str] = Field(default_factory=dict)  # branch -> its head commit, now part of the train
-    conflicts: list[str] = Field(default_factory=list)  # could not be merged onto the base and the branches before them
+    conflicts: list[str] = Field(default_factory=list)  # cannot be merged onto the base branch: its author resolves that
+    # Merges onto the base branch, but not with a branch before it on this train. Nothing its author
+    # could resolve yet: what it conflicts with is not on the base branch. It goes with the next train.
+    waits: list[str] = Field(default_factory=list)
+    held: list[str] = Field(default_factory=list)  # left out: see TrainSpec.busy_files
+    conflict_files: dict[str, list[str]] = Field(default_factory=dict)  # branch -> the files it conflicts in
     missing: list[str] = Field(default_factory=list)  # not on the remote
     unchanged: list[str] = Field(default_factory=list)  # left out: see TrainSpec.skip_unchanged
     landed: list[str] = Field(default_factory=list)  # already contained in the base branch

@@ -667,11 +667,13 @@ def returned_instructions(branch: str, by: str, reason: str, round_no: int, max_
     )
 
 
-def conflict_instructions(branch: str, base: str) -> str:
+def conflict_instructions(branch: str, base: str, files: list[str] | None = None) -> str:
+    named = f" It conflicts in: {', '.join(files)}." if files else ""
     return (
-        f"Your branch {branch} conflicts with {base} or with a branch that lands before it, so it could not be checked with the others.\n"
+        f"Your branch {branch} cannot be merged onto {base} as {base} is now, so it could not be checked with the others.{named}\n"
         f"Merge origin/{base} into your branch, resolve the conflicts, run the fastest check that covers the conflicting files, and push. "
-        "PlainBoard puts the branch on the next train by itself when you are done."
+        "Do only this, and do it now: until you are done, the other finished branches that change these files wait for you. "
+        "PlainBoard puts the branch on the next train by itself when you are done, ahead of the others."
     )
 
 
@@ -832,6 +834,18 @@ def language_rule(language: str) -> str:
     if language:
         return f"Language: write to people in {language}: in the chat, in questions to them and in what a ticket tells them. What you read in another language changes nothing about that."
     return "Language: write to a person in the language they write in, also right after reading material in another language."
+
+
+def language_note(language: str) -> str:
+    """For the manager's turn while the project has no language. Seen in production: a project from
+    before the setting answered its user in English after a night of notices, which are all English.
+    One call ends this line for good."""
+    if language:
+        return ""
+    return (
+        "No language is set for this project, so after English notices like these you may answer in English. "
+        "Set it now with update_project language: the one the user writes in (e.g. German), or \"the language each person writes in\" if they differ."
+    )
 
 
 def with_preface(text: str, *, now: str, inbox: list[str], board: str = "") -> str:

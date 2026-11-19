@@ -62,6 +62,8 @@ class FakeRunner:
         # Landing: what the git host would say.
         self.branches: dict[str, str] = {}  # branch -> head commit on the remote
         self.conflicting: set[str] = set()  # branches that cannot be merged onto the base
+        self.behind: set[str] = set()  # branches that merge onto the base, but not with a branch before them on the train
+        self.touches: dict[str, set[str]] = {}  # branch -> the files it changes
         self.commit_checks_of: dict[str, list] = {}  # commit -> the checks GitHub ran for it on the base branch
         self.on_base: set[str] = set()  # branches the base branch already contains
         self.train_specs: list = []
@@ -161,8 +163,14 @@ class FakeRunner:
                 result.unchanged.append(branch)
             elif branch in self.on_base:
                 result.landed.append(branch)
+            elif set(spec.busy_files) & self.touches.get(branch, set()):
+                result.held.append(branch)
             elif branch in self.conflicting:
                 result.conflicts.append(branch)
+                result.conflict_files[branch] = sorted(self.touches.get(branch, set()))
+            elif branch in self.behind and result.merged:
+                result.waits.append(branch)
+                result.conflict_files[branch] = sorted(self.touches.get(branch, set()))
             else:
                 result.merged[branch] = self.branches[branch]
         if spec.github and result.merged:

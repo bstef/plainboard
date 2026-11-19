@@ -87,6 +87,7 @@ function ScheduleEditor({ schedule, onClose }: { schedule?: Schedule; onClose: (
     cron: schedule?.cron ?? "0 9 * * 1-5",
     run_at: toLocalInput(schedule?.run_at),
     timezone: schedule?.timezone ?? settings.data?.values.timezone ?? "UTC",
+    skip_quiet: schedule?.skip_quiet ?? false,
   });
   const [error, setError] = useState<unknown>(null);
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
@@ -102,6 +103,7 @@ function ScheduleEditor({ schedule, onClose }: { schedule?: Schedule; onClose: (
       // The browser's local time is sent with its offset, so the server stores the exact instant.
       run_at: form.kind === "once" && form.run_at ? new Date(form.run_at).toISOString() : null,
       timezone: form.timezone,
+      skip_quiet: form.skip_quiet,
     };
     try {
       if (schedule) await api.patch(`/projects/${project.id}/schedules/${schedule.id}`, body);
@@ -176,6 +178,10 @@ function ScheduleEditor({ schedule, onClose }: { schedule?: Schedule; onClose: (
         <Field label={t("schedules.timezone")}>
           <Input value={form.timezone} onChange={(e) => set({ timezone: e.target.value })} />
         </Field>
+        <div className="space-y-1">
+          <Toggle checked={form.skip_quiet} onChange={(skip_quiet) => set({ skip_quiet })} label={t("schedules.skipQuiet")} />
+          <p className="text-fg-3">{t("schedules.skipQuietHint")}</p>
+        </div>
         <ErrorText error={error} />
       </div>
     </Modal>
