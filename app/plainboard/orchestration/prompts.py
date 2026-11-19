@@ -612,7 +612,11 @@ RESTART_NOTE = (
     "PlainBoard was restarted while you were working: your last turn was cut off, and its last step may be half done. "
     "Look at where the work stands (git status, your steps above), then go on. Nothing has to be started over."
 )
-RESUME_NOTE = "You were paused and are enabled again. Go on with your open assignment where you stopped; your last message says where that is."
+LOST_NOTE = (
+    "Your last turn broke off (PlainBoard lost the connection to it), and its last step may be half done. "
+    "Look at where the work stands (git status, your steps above), then go on. Nothing has to be started over."
+)
+RESUME_NOTE ="You were paused and are enabled again. Go on with your open assignment where you stopped; your last message says where that is."
 
 
 def checks_keep_failing(title: str, detail: str, action: str) -> str:

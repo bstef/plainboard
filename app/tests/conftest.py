@@ -103,6 +103,8 @@ class FakeRunner:
         self.limit_windows: list[LimitWindow] = []
         self.limit_calls: list = []
         self.unavailable = 0  # how many starts of a turn fail because the runner is not up yet
+        self.active: set[int] = set()  # turns streaming right now
+        self.forgotten: set[int] = set()  # turns the runner lost although the app still waits for them
         self.jobs: dict[str, JobState] = {}
         self.job_specs: list[JobSpec] = []
         self.ports: dict[str, list] = {}  # job id -> the web servers it has started (JobPort)
@@ -130,6 +132,19 @@ class FakeRunner:
         self.upstream_calls: list[tuple[str, str, str]] = []
 
     async def stream_run(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
+        self.active.add(int(spec.run_id))
+        try:
+            async for event in self._events(spec):
+                yield event
+        finally:
+            self.active.discard(int(spec.run_id))
+
+    async def active_runs(self) -> set[int]:
+        if not self.reachable:
+            raise RunnerError("Runner unreachable")
+        return self.active - self.forgotten
+
+    async def _events(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
         self.database_free("stream_run")
         if self.unavailable > 0:  # not up yet
             self.unavailable -= 1

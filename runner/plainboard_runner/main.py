@@ -139,6 +139,12 @@ async def start_run(spec: RunSpec) -> StreamingResponse:
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
+@app.get("/runs")
+async def active_runs() -> list[str]:
+    """The turns running here: one the app still waits for but that is not listed was lost."""
+    return [run_id for run_id, task in _active.items() if not task.done()]
+
+
 @app.post("/runs/{run_id}/cancel")
 async def cancel_run(run_id: str) -> dict[str, bool]:
     task = _active.get(run_id)

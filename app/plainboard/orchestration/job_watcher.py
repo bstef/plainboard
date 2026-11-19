@@ -42,6 +42,10 @@ class JobWatcher:
             await asyncio.sleep(self._interval)
 
     async def tick(self) -> None:
+        try:
+            await self._runs.check_turns()  # turns the runner lost: the same kind of look
+        except Exception:
+            log.exception("Turn check failed")
         async with self._sm() as s:
             # Rows first: each one was accepted by the runner, so the answer below must include it.
             jobs = await job_service.running(s)

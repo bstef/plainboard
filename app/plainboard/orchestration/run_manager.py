@@ -94,6 +94,8 @@ MAX_RESTART_RESUMES = 3  # an assignment cut off this often by restarts goes to 
 # that had worked for a while when an update came is no sign of that, however many updates there are.
 CUT_SHORT_SECONDS = 300
 RUNNER_TRIES, RUNNER_RETRY_SECONDS = 12, 5.0  # how long a turn waits for a runner that is not up yet (about a minute, plus connect timeouts)
+LOST = "The turn broke off: the runner no longer had it"
+LOST_AFTER_SECONDS = 60  # a turn the runner does not list for this long is over (check_turns)
 
 
 @dataclass
@@ -143,6 +145,9 @@ class RunManager:
         self._turn_waits: dict[int, list[tuple[str, asyncio.Future[str]]]] = {}
         self._waits_for: dict[int, dict[int, int]] = {}
         self._cancel_requested: set[int] = set()
+        self._streams: dict[int, float] = {}  # run id -> when its current request to the runner began
+        self._missing: dict[int, float] = {}  # running turn -> since when the runner does not list it
+        self._lost: set[int] = set()  # turns being ended because the runner lost them
         self._limits_asked = 0.0
         self._limits_task: asyncio.Task[None] | None = None
         self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
@@ -787,6 +792,48 @@ class RunManager:
                 stopped += await self.stop_job(s, job, settle=False)
         return stopped
 
+    async def check_turns(self) -> None:
+        """Turns that only still run in the database: the runner does not have them any more (its
+        stream broke off without an end), so no model works on them, nobody can tell them to wrap up,
+        and a pause would wait for them for ever. One the runner has not listed for a minute is ended
+        here, like one a restart cut off: its assignment goes on with the agent's next turn."""
+        async with self._sm() as s:
+            running = dict((await s.execute(select(Run.id, Run.agent_id).where(Run.status == RunStatus.RUNNING))).all())
+        if not running:
+            self._missing.clear()
+            return
+        try:
+            alive = await self.runner.active_runs()
+        except RunnerError as exc:  # e.g. rebuilding: decide when it is back
+            log.info("Skipping turn check: %s", exc)
+            return
+        now = time.monotonic()
+        for run_id in list(self._missing):
+            if run_id not in running or run_id in alive:
+                del self._missing[run_id]
+        for run_id in running.keys() - alive:
+            since = max(self._missing.setdefault(run_id, now), self._streams.get(run_id, 0.0))  # a request still being made is not lost
+            if now - since >= LOST_AFTER_SECONDS and run_id not in self._lost:
+                del self._missing[run_id]
+                await self._lose(run_id, running[run_id])
+
+    async def _lose(self, run_id: int, agent_id: int) -> None:
+        async with self._sm() as s:
+            run = await s.get(Run, run_id)
+            if run is None or run.status != RunStatus.RUNNING:
+                return
+            await flow_log.record(s, run.project_id, "run.lost", agent_id=agent_id, run_id=run_id, assignment_id=run.assignment_id, task_id=run.task_id)
+        task = self._running.get(run_id)
+        if task and not task.done():
+            self._lost.add(run_id)
+            task.cancel()  # _execute ends it as lost
+            return
+        await self._finish(run_id, Outcome(error=LOST))  # no task here at all: only the row was left
+        async with self._sm() as s:
+            await self._settle(s, agent_id)
+            await agent_service.publish_by_id(s, agent_id)
+        self._wake.set()
+
     def _force_cancel(self, run_id: int) -> None:
         task = self._running.get(run_id)
         if task and not task.done():
@@ -903,6 +950,7 @@ class RunManager:
             spec, ctx = prepared
             for attempt in range(RUNNER_TRIES):
                 try:
+                    self._streams[run_id] = time.monotonic()
                     outcome = await self._stream(spec, ctx)
                     break
                 except RunnerUnavailable:
@@ -913,7 +961,8 @@ class RunManager:
                     await asyncio.sleep(RUNNER_RETRY_SECONDS)
             await self._finish(run_id, outcome)
         except asyncio.CancelledError:
-            await asyncio.shield(self._finish(run_id, Outcome(error="Run cancelled", cancelled=True)))
+            ended = Outcome(error=LOST) if run_id in self._lost else Outcome(error="Run cancelled", cancelled=True)
+            await asyncio.shield(self._finish(run_id, ended))
             raise
         except Exception as exc:
             log.exception("Run %s failed", run_id)
@@ -924,6 +973,8 @@ class RunManager:
             self._running.pop(run_id, None)
             self._unlimited.discard(run_id)
             self._cancel_requested.discard(run_id)
+            self._streams.pop(run_id, None)
+            self._lost.discard(run_id)
             self._job_waits.pop(run_id, None)
             self._unread.pop(run_id, None)
             self._busy_agents.discard(agent_id)
@@ -1255,6 +1306,14 @@ class RunManager:
             # Paused, not finished: the assignment stays open and goes on when the agent is enabled again.
             bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
             return
+        if run.error == LOST:
+            # Not a failure of the work, like a restart: the agent goes on in its session with its next
+            # turn (_settle), or when it is enabled again. Only one that keeps breaking off goes to the manager.
+            earlier = await s.scalar(select(func.count(Run.id)).where(Run.assignment_id == assignment.id, Run.error == LOST))
+            if earlier <= MAX_RESTART_RESUMES:
+                await inbox.push(s, agent.id, prompts.LOST_NOTE)
+                bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
+                return
         assignment.status = {
             RunStatus.SUCCEEDED: AssignmentStatus.DONE,
             RunStatus.CANCELLED: AssignmentStatus.CANCELLED,

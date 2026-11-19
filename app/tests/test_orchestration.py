@@ -928,6 +928,29 @@ def test_a_paused_agent_keeps_its_assignments_and_goes_on_when_enabled_again(cli
     assert any("You were paused and are enabled again" in s.prompt and "Go on with assignment #1" in s.prompt for s in runner(client).specs)
 
 
+def test_a_turn_the_runner_lost_ends_and_its_assignment_goes_on(client, project, monkeypatch):
+    from plainboard.orchestration import run_manager
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    work = json.dumps({"agent": "dev", "title": "Work", "instructions": "HOLD"})
+    chat(client, manager["id"], f"TOOL delegate {work}")
+    turn = wait_for(lambda: next((r for r in runs_of(client, pid, agent_id=dev["id"]) if r["status"] == "running"), None))
+    monkeypatch.setattr(run_manager, "LOST_AFTER_SECONDS", 0)
+    client.portal.call(client.app_ref.state.job_watcher.tick)
+    assert runs_of(client, pid, agent_id=dev["id"])[0]["status"] == "running"  # the runner still has it
+
+    runner(client).forgotten.add(turn["id"])  # its stream broke off, the app still waits
+    client.portal.call(client.app_ref.state.job_watcher.tick)
+    wait_for(lambda: any(r["trigger"] == "wake" for r in runs_of(client, pid, agent_id=dev["id"])))
+    runner(client).released = True  # the turn that goes on repeats the instructions
+    wait_for(lambda: idle(client, pid) and client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "done")
+    lost = next(r for r in runs_of(client, pid, agent_id=dev["id"]) if r["id"] == turn["id"])
+    assert lost["status"] == "failed" and lost["error"] == run_manager.LOST
+    assert any("Your last turn broke off" in s.prompt and int(s.run_id) != turn["id"] for s in runner(client).specs)
+
+
 def test_working_teammate_is_told_to_wrap_up_not_aborted(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)

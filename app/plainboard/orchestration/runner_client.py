@@ -44,6 +44,15 @@ class RunnerClient:
         except httpx.HTTPError:
             pass
 
+    async def active_runs(self) -> set[int]:
+        """The turns the runner is running right now."""
+        try:
+            resp = await self._client.get("/runs", timeout=10)
+            resp.raise_for_status()
+            return {int(run_id) for run_id in resp.json()}
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RunnerError(f"Runner unreachable: {exc}") from exc
+
     async def _post_job(self, path: str, body: object) -> httpx.Response:
         try:
             resp = await self._client.post(path, json=body)

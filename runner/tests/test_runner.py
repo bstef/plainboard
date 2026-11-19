@@ -533,6 +533,10 @@ def test_notify_only_reaches_active_runs():
     assert TestClient(app).post("/runs/nope/notify", json={"text": "x"}).json() == {"delivered": False}
 
 
+def test_lists_the_turns_it_runs():
+    assert TestClient(app).get("/runs").json() == []
+
+
 def test_rate_limit_events_become_limit_windows():
     from claude_agent_sdk.types import RateLimitInfo
 
