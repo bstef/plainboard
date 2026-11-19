@@ -182,14 +182,21 @@ function UserAction({ taskId, action }: { taskId: number; action: string }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<unknown>(null);
 
+  const [busy, setBusy] = useState(false);
+
   const done = async () => {
+    if (busy) return; // one click tells the manager; the button shows that it is on its way
     setError(null);
+    setBusy(true);
     try {
       await api.post(`/tasks/${taskId}/user-action/done`, { note });
+      // The ticket no longer waits: shown at once, not after the ticket has been loaded again.
+      qc.setQueryData<TaskDetail>(qk.task(taskId), (old) => (old ? { ...old, user_action: "" } : old));
       qc.invalidateQueries({ queryKey: qk.task(taskId) });
       qc.invalidateQueries({ queryKey: qk.tasks(project.id) });
     } catch (err) {
       setError(err);
+      setBusy(false);
     }
   };
 
@@ -203,7 +210,7 @@ function UserAction({ taskId, action }: { taskId: number; action: string }) {
         <TicketText text={action} />
       </p>
       <Textarea rows={2} aria-label={t("ticket.userActionNote")} placeholder={t("ticket.userActionNote")} value={note} onChange={(e) => setNote(e.target.value)} />
-      <Button variant="primary" size="sm" icon={<Check className="size-3.5" />} onClick={done}>
+      <Button variant="primary" size="sm" icon={<Check className="size-3.5" />} loading={busy} onClick={done}>
         {t("ticket.userActionDone")}
       </Button>
       <ErrorText error={error} />

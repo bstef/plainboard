@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import json
 import os
 import time
@@ -8,6 +10,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import Pool
 from plainboard_protocol import (
     EndpointInfo,
     LimitsEvent,
@@ -37,12 +42,55 @@ from plainboard_protocol import (
 from plainboard.orchestration.runner_client import RunnerError, RunnerUnavailable
 
 
+# Database connections with a write that is not committed yet, and the task that wrote. Looked at
+# when the runner is called (FakeRunner.database_free): no waiting, so looking changes nothing.
+_writes: dict[int, asyncio.Task | None] = {}
+
+
+def _current_task() -> asyncio.Task | None:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:  # the migrations: no event loop
+        return None
+
+
+@event.listens_for(Engine, "before_cursor_execute")
+def _wrote(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+    if statement.lstrip()[:7].split(" ")[0].upper() in ("INSERT", "UPDATE", "DELETE"):
+        _writes[id(conn.connection.dbapi_connection)] = _current_task()
+
+
+@event.listens_for(Engine, "commit")
+@event.listens_for(Engine, "rollback")
+def _ended(conn):  # noqa: ANN001
+    _writes.pop(id(conn.connection.dbapi_connection), None)
+
+
+@event.listens_for(Pool, "checkin")
+@event.listens_for(Pool, "reset")
+def _returned(dbapi_connection, *_):  # noqa: ANN001
+    _writes.pop(id(dbapi_connection), None)
+
+
+def writing() -> bool:
+    """Has the task that asks written to the database without committing?"""
+    task = _current_task()
+    return task is not None and any(writer is task for writer in _writes.values())
+
+
 class FakeRunner:
     """Stands in for the runner service. Understands the same directives as the mock provider:
     ``TOOL <name> <json>`` and ``SAY <text>``; ``CONTEXT <n>`` sets the reported context size,
     ``COMPACT <n>`` reports a compaction by the provider."""
 
     app = None  # set by fixture; used to execute tools through the real RunManager
+    held: list[str] = []  # calls that were made while a write to the database was waiting for its commit
+
+    def database_free(self, call: str) -> None:
+        """What the runner does takes seconds (git, a model): nobody may call it between a write and
+        its commit. SQLite has one writer, so every write of everyone would wait that long."""
+        if writing():
+            self.held.append(call)
 
     def browser_url(self, key: str) -> str:
         return f"ws://runner/browser/{key}"
@@ -81,6 +129,7 @@ class FakeRunner:
         self.upstream_calls: list[tuple[str, str, str]] = []
 
     async def stream_run(self, spec: RunSpec) -> AsyncIterator[RunEvent]:
+        self.database_free("stream_run")
         if self.unavailable > 0:  # not up yet
             self.unavailable -= 1
             raise RunnerUnavailable("Runner unreachable: [Errno -2] Name or service not known")
@@ -266,6 +315,20 @@ class FakeRunner:
         pass
 
 
+def _with_free_database(method):
+    @functools.wraps(method)
+    async def call(self, *args, **kwargs):
+        self.database_free(method.__name__)
+        return await method(self, *args, **kwargs)
+
+    return call
+
+
+for _name, _method in list(vars(FakeRunner).items()):
+    if inspect.iscoroutinefunction(_method) and _name not in ("database_free", "aclose"):
+        setattr(FakeRunner, _name, _with_free_database(_method))
+
+
 ADMIN_PASSWORD = "admin-password"
 
 
@@ -316,12 +379,15 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "RunnerClient", FakeRunner)
     app = main.create_app()
     FakeRunner.app = app
+    FakeRunner.held = []
+    _writes.clear()
     with TestClient(app) as test_client:
         test_client.app_ref = app
         # A fresh installation has no users: its first admin is who the tests work as.
         assert test_client.post("/api/auth/setup", json={"username": "admin", "name": "Admin", "password": ADMIN_PASSWORD}).status_code == 201
         yield test_client
     config.get_config.cache_clear()
+    assert not FakeRunner.held, f"The runner was called between a write to the database and its commit: {sorted(set(FakeRunner.held))}"
 
 
 def wait_for(predicate, timeout: float = 10.0, interval: float = 0.05):

@@ -398,9 +398,6 @@ class LandingWatcher:
             await self._tell_manager(s, r, f"Not landed: {', '.join(p.branch for p in pick)}. " + landing_service.UNAVAILABLE.format(name=r.repo.name))
             return
 
-        train = Train(project_id=r.project.id, repository_id=r.repo.id, mode=r.mode, group_no=group, status=TrainStatus.CHECKING, created_at=now)
-        s.add(train)
-        await s.flush()
         tickets = {p.id: await self._ticket(s, p) for p in pick}
         body = "Checked together by PlainBoard, so the checks run once for all of these branches:\n\n" + "\n".join(
             f"- {p.branch}" + (f" (ticket #{tickets[p.id].number}: {tickets[p.id].title})" if tickets[p.id] else "") for p in pick
@@ -410,7 +407,7 @@ class LandingWatcher:
             key=r.key,
             remote=r.remote,
             base=r.repo.default_branch or None,
-            branch=f"plainboard/train-{train.id}",
+            branch=f"plainboard/train-{secrets.token_hex(4)}",  # not the train's number: see below
             members=[p.branch for p in pick],
             # A group failed together: a branch of it that needed no change still belongs on the train.
             skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha} if group is None else {},
@@ -419,22 +416,30 @@ class LandingWatcher:
             title="Land " + truncate(", ".join(p.branch for p in pick), 200),
             body=body,
         )
+        # The train is stored once it exists, not before. A row written first and committed after would keep
+        # the database's one writer for as long as git takes, and every write of everyone waits for
+        # that: seen as a click in a ticket that took nine seconds, and turns that started late.
+        await s.commit()
         result = await self._runs.runner.assemble_train(spec)
         by_branch = {p.branch: p for p in pick}
         on_train = [by_branch[b] for b in result.merged if b in by_branch]
-        for landing in on_train:
-            landing.status, landing.train_id, landing.head_sha = LandingStatus.TRAIN, train.id, result.merged[landing.branch]
-            landing.conflict_at, landing.conflict_files = None, []
-        train.branch, train.base, train.head_sha, train.size = spec.branch, result.base, result.head_sha, len(on_train)
-        train.number, train.url = result.number, result.url
-        if on_train and r.mode == landing_service.COMMAND:
-            train.job_id = secrets.token_hex(8)
-            await self._runs.runner.check_train(TrainCheckSpec(credentials=r.credentials, key=r.key, id=train.job_id, command=r.repo.check_command.strip()))
-        if not on_train:
-            await s.delete(train)
+        train = None
+        if on_train:
+            job_id = secrets.token_hex(8) if r.mode == landing_service.COMMAND else None
+            if job_id:
+                await self._runs.runner.check_train(TrainCheckSpec(credentials=r.credentials, key=r.key, id=job_id, command=r.repo.check_command.strip()))
+            train = Train(
+                project_id=r.project.id, repository_id=r.repo.id, mode=r.mode, group_no=group, status=TrainStatus.CHECKING, created_at=now, branch=spec.branch,
+                base=result.base, head_sha=result.head_sha, size=len(on_train), number=result.number, url=result.url, job_id=job_id,
+            )  # fmt: skip
+            s.add(train)
+            await s.flush()
+            for landing in on_train:
+                landing.status, landing.train_id, landing.head_sha = LandingStatus.TRAIN, train.id, result.merged[landing.branch]
+                landing.conflict_at, landing.conflict_files = None, []
         await s.commit()
         await flow_log.record(
-            s, r.project.id, "train.departed" if on_train else "train.empty", train_id=train.id if on_train else None, branches=[p.branch for p in on_train],
+            s, r.project.id, "train.departed" if train else "train.empty", train_id=train.id if train else None, branches=[p.branch for p in on_train],
             ready=len(waiting), size_limit=size, repaired_group=group is not None, mode=r.mode, landed_already=list(result.landed), conflicts=list(result.conflicts),
             missing=list(result.missing), unchanged=list(result.unchanged), waits=list(result.waits), held=list(result.held),
         )  # fmt: skip
@@ -524,20 +529,18 @@ class LandingWatcher:
         pick = waiting[: landing_service.MAX_BATCH]
         if not pick or (self.linger > 0 and (now - min(p.updated_at for p in pick)).total_seconds() < self.linger):
             return
-        train = Train(project_id=r.project.id, repository_id=r.repo.id, mode=r.mode or landing_service.UNCHECKED, direct=True, status=TrainStatus.CHECKING, created_at=now)
-        s.add(train)
-        await s.flush()
         tickets = {p.id: await self._ticket(s, p) for p in pick}
         spec = TrainSpec(
             credentials=r.credentials,
             key=r.key,
             remote=r.remote,
             base=r.repo.default_branch or None,
-            branch=f"plainboard/land-{train.id}",
+            branch=f"plainboard/land-{secrets.token_hex(4)}",
             members=[p.branch for p in pick],
             skip_unchanged={p.branch: p.failed_sha for p in pick if p.failed_sha},
             busy_files=list(busy.files),
         )
+        await s.commit()  # nothing of the database is held while the runner merges and pushes (see _depart)
         result = await self._runs.runner.assemble_train(spec)
         by_branch = {p.branch: p for p in pick}
         landed = [by_branch[b] for b in result.merged if b in by_branch]
@@ -546,8 +549,6 @@ class LandingWatcher:
             heads = {m.branch: result.merged[m.branch] for m in landed}
             pushed = await self._runs.runner.land_train(TrainLandSpec(credentials=r.credentials, key=r.key, remote=r.remote, base=result.base, head_sha=result.head_sha, delete_branches=heads))
         if pushed is None or not pushed.ok:
-            await s.delete(train)
-            await s.commit()
             if pushed is not None and base_moved(pushed.detail):
                 return  # someone else pushed to the base branch meanwhile: merged again with the next look
             if pushed is not None:
@@ -560,15 +561,20 @@ class LandingWatcher:
                     s, r, f"Not landed in {r.repo.name}: {listing} could not be pushed to {result.base}: {truncate(pushed.detail, 300)} Fix the cause, then hand them over again with merge_when_green."
                 )
         else:
-            for landing in landed:
-                landing.status, landing.train_id, landing.head_sha, landing.merged_at, landing.group_no = LandingStatus.MERGED, train.id, result.merged[landing.branch], now, None
-                landing.conflict_at, landing.conflict_files = None, []
-            train.branch, train.base, train.head_sha, train.size = spec.branch, result.base, result.head_sha, len(landed)
+            train = Train(
+                project_id=r.project.id, repository_id=r.repo.id, mode=r.mode or landing_service.UNCHECKED, direct=True, status=TrainStatus.CHECKING, created_at=now,
+                branch=spec.branch, base=result.base, head_sha=result.head_sha, size=len(landed),
+            )  # fmt: skip
             if r.mode == landing_service.COMMAND:
                 train.job_id = secrets.token_hex(8)
                 await self._runs.runner.check_train(TrainCheckSpec(credentials=r.credentials, key=r.key, id=train.job_id, command=r.repo.check_command.strip()))
             elif r.mode is None:
                 train.status, train.finished_at = TrainStatus.LANDED, now  # nothing checks this repository
+            s.add(train)
+            await s.flush()
+            for landing in landed:
+                landing.status, landing.train_id, landing.head_sha, landing.merged_at, landing.group_no = LandingStatus.MERGED, train.id, result.merged[landing.branch], now, None
+                landing.conflict_at, landing.conflict_files = None, []
             await s.commit()
             timing_service.forget_cache()
             await flow_log.record(

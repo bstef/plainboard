@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
@@ -218,7 +218,10 @@ async def accept_reviews(session: AsyncSession) -> int:
 async def finish_user_action(session: AsyncSession, task: Task, note: str = "") -> str:
     """The user did what the ticket waited for. Returns what that was."""
     action = task.user_action
-    if not action:
+    # Taken by whoever empties it: a second click while the first one is on its way tells the manager nothing twice.
+    taken = await session.execute(update(Task).where(Task.id == task.id, Task.user_action == action, Task.user_action != "").values(user_action=""))
+    if not taken.rowcount:
+        await session.rollback()
         raise ServiceError("This ticket is not waiting for you")
     task.user_action = ""
     body = f"Done: {action}" + (f"\n\n{note.strip()}" if note.strip() else "")

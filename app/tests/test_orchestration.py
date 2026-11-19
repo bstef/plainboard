@@ -973,6 +973,28 @@ def test_manager_marks_and_sorts_the_board(client, project):
     wait_for(lambda: idle(client, pid))
     assert 'User finished "Test it on a phone" on ticket #1: works' in runner(client).specs[-1].prompt
 
+    # Two clicks that both saw the ticket waiting (the first one was slow): the manager hears it once.
+    from plainboard.db import sessionmaker
+    from plainboard.models import Task
+    from plainboard.services import board
+    from plainboard.services.errors import ServiceError
+
+    client.patch(f"/api/tasks/{tickets[0]['id']}", json={"user_action": "Test it again"})
+
+    async def twice() -> list[str]:
+        async with sessionmaker()() as a, sessionmaker()() as b:
+            first, second = await a.get(Task, tickets[0]["id"]), await b.get(Task, tickets[0]["id"])
+            outcome = [await board.finish_user_action(a, first)]
+            try:
+                outcome.append(await board.finish_user_action(b, second))
+            except ServiceError as exc:
+                outcome.append(str(exc))
+            return outcome
+
+    assert client.portal.call(twice) == ["Test it again", "This ticket is not waiting for you"]
+    bodies = [c["body"] for c in client.get(f"/api/tasks/{tickets[0]['id']}").json()["comments"]]
+    assert len([body for body in bodies if "Test it again" in body]) == 1
+
 
 def test_manager_handles_tickets_in_batches(client, project):
     pid = project["id"]
