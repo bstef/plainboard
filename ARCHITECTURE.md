@@ -275,6 +275,8 @@ Migrations run automatically on startup.
   scoping and settings.
   The `FakeRunner` also fails a test when it is called between a write to the database and its commit
   (`database_free`).
+  The migrations run once per test run, not per test (`conftest.new_installation`): after the first
+  test SQLite gets a copy of its file, PostgreSQL has its tables emptied. Per test they were most of its time.
 - `runner/tests`: SDK event mapping, tool bridge, workspace safety, the mock provider over HTTP.
 - End-to-end without credentials: set an agent's provider to **Mock** and use the directives
   `TOOL <name> <json>` / `SAY <text>` in messages.

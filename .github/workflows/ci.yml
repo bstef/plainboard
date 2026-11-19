@@ -44,8 +44,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The image's slow layers (system packages, Chromium, the Codex CLI) change rarely and are taken
+      # from what the last publish built (publish.yml writes this cache); only the code is built here.
+      - uses: docker/setup-buildx-action@v3
       - name: Build runner image
-        run: docker build -f runner/Dockerfile -t plainboard-runner:ci .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: runner/Dockerfile
+          tags: plainboard-runner:ci
+          load: true
+          provenance: false
+          cache-from: type=gha,scope=plainboard-runner-amd64
       - name: Run tests
         run: docker run --rm -w /src/runner plainboard-runner:ci python -m pytest -q
 

@@ -5,9 +5,12 @@ import functools
 import inspect
 import json
 import os
+import shutil
+import tempfile
 import time
 import weakref
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -333,14 +336,20 @@ ADMIN_PASSWORD = "admin-password"
 POSTGRES = bool(os.environ.get("PLAINBOARD_DATABASE"))  # the whole suite runs against PostgreSQL
 
 
+# The database a new installation starts with, made once per test run (see new_installation):
+# SQLite: the file to copy. PostgreSQL: the tables are there and only have to be emptied.
+_made: dict = {"sqlite": None, "postgres": False}
+
+
 def empty_database() -> None:
-    """With PostgreSQL every test starts with an empty database; with SQLite each has a file of its own anyway."""
+    """PostgreSQL without any tables, for a test that starts an app of its own; with SQLite each test has a file of its own anyway."""
     if not POSTGRES:
         return
     from sqlalchemy import create_engine, text
 
     from plainboard import config
 
+    _made["postgres"] = False
     engine = create_engine(config.get_config().sync_database_url, isolation_level="AUTOCOMMIT")
     try:
         with engine.connect() as conn:
@@ -348,6 +357,39 @@ def empty_database() -> None:
             conn.execute(text("CREATE SCHEMA public"))
     finally:
         engine.dispose()
+
+
+def new_installation(monkeypatch) -> None:
+    """The database of a new installation, for the app the test is about to start. The migrations run
+    for the first test only: run for each, they were most of a test's time (1.6 of about 2 seconds).
+    After that SQLite gets a copy of the first test's file, and PostgreSQL has its tables emptied and
+    the rows of a new installation put back. The app's own migration at its start is left out."""
+    from sqlalchemy import create_engine, inspect, text
+
+    from plainboard import config, main, migrate
+
+    cfg = config.get_config()
+    if POSTGRES and _made["postgres"]:
+        engine = create_engine(cfg.sync_database_url)
+        try:
+            with engine.begin() as conn:
+                tables = [name for name in inspect(conn).get_table_names() if name != "alembic_version"]
+                conn.execute(text("TRUNCATE " + ", ".join(f'"{name}"' for name in tables) + " RESTART IDENTITY CASCADE"))
+            migrate._first_rows(engine)
+        finally:
+            engine.dispose()
+    elif POSTGRES:
+        empty_database()
+        migrate.upgrade()
+        _made["postgres"] = True
+    elif _made["sqlite"] is None:
+        migrate.upgrade()
+        _made["sqlite"] = Path(tempfile.mkdtemp(prefix="plainboard-tests-")) / "plainboard.db"
+        shutil.copyfile(cfg.data_dir / "plainboard.db", _made["sqlite"])
+    else:
+        cfg.data_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(_made["sqlite"], cfg.data_dir / "plainboard.db")
+    monkeypatch.setattr(main, "upgrade", lambda: None)
 
 
 @pytest.fixture
@@ -373,7 +415,7 @@ def client(tmp_path, monkeypatch):
     from plainboard import config, main
 
     config.get_config.cache_clear()
-    empty_database()
+    new_installation(monkeypatch)
     monkeypatch.setattr(main, "RunnerClient", FakeRunner)
     app = main.create_app()
     FakeRunner.app = app
