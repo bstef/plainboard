@@ -1381,7 +1381,8 @@ def test_a_file_a_member_shows_in_its_own_chat_is_named_to_the_manager(client, p
     sent = client.post(f"/api/internal/runs/{turn['id']}/chat-files", headers={"Authorization": "Bearer tok"}, files=[("files", ("access.txt", b"secret", "text/plain"))]).json()
     assert not sent["is_error"]
     fake.released = True
-    wait_for(lambda: idle(client, pid) and "set up, the access data is in the chat" in last_update(fake))
+    # The report's own words: what the member was told is in the manager's first turn already, as the order it gave.
+    wait_for(lambda: idle(client, pid) and "showed files in its own chat" in last_update(fake))
     file_id = client.get(f"/api/agents/{dev['id']}/conversation").json()["messages"][-2]["meta"]["attachments"][0]["id"]
     assert f"Dev1 showed files in its own chat, which the user may not have open: access.txt (attachment {file_id})" in last_update(fake)
     assert "show in your chat: send_files attachment_ids" in last_update(fake)
