@@ -122,6 +122,16 @@ class RunnerClient:
             raise RunnerError(resp.json().get("detail", resp.text)[:1000] if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:1000])
         return ProviderAccount.model_validate(resp.json())
 
+    async def provider_models(self, provider: str, credentials: Credentials) -> list[str]:
+        """The models the account in ``credentials`` is offered by its endpoint."""
+        try:
+            resp = await self._client.post(f"/providers/{provider}/models", json=credentials.model_dump(mode="json"), timeout=40)
+        except httpx.HTTPError as exc:
+            raise RunnerError(f"Runner unreachable: {exc}") from exc
+        if resp.status_code >= 400:
+            raise RunnerError(resp.json().get("detail", resp.text)[:1000] if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:1000])
+        return [str(m) for m in resp.json()]
+
     async def check_provider(self, spec: CompletionSpec) -> CheckResult:
         try:
             resp = await self._client.post("/checks/provider", json=spec.model_dump(mode="json"), timeout=180)

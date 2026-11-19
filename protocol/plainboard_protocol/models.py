@@ -19,12 +19,22 @@ class ModelInfo(BaseModel):
     tier: Literal["small", "medium", "large", "xlarge"] = "medium"
 
 
+class EndpointInfo(BaseModel):
+    """A provider that is an address anyone can run or rent: a local model server, a model host, a gateway.
+    Its accounts hold the address, the key and the models they offer."""
+
+    url: str = ""  # the usual address; empty: the user names it
+    key: bool = True  # whether it wants an API key
+    hint: str = ""  # one line for the settings: what it is, where the key comes from
+
+
 class ProviderInfo(BaseModel):
     name: str
     label: str
     models: list[ModelInfo]
     efforts: list[str] = Field(default_factory=list)
     supports_resume: bool = True
+    endpoint: EndpointInfo | None = None
 
 
 class Credentials(BaseModel):
@@ -38,6 +48,10 @@ class Credentials(BaseModel):
     codex_auth_mode: Literal["chatgpt", "api_key"] = "chatgpt"
     # Which of the runner's Codex sign-ins to use: every account has its own Codex home.
     codex_account: str = Field(default=DEFAULT_ACCOUNT, pattern=ACCOUNT_KEY_PATTERN)
+    # A provider that is an endpoint (ProviderInfo.endpoint): the account's address, empty for the usual one, and its key.
+    endpoint_url: str = ""
+    endpoint_key: str | None = None
+    endpoint_context: int = 0  # tokens its models take at once; 0: the runner's cautious guess
     github_token: str | None = None
     git_ssh_key: str | None = None  # private key for repositories with an SSH address and no key of their own
     git_author_name: str = "PlainBoard Agent"

@@ -206,3 +206,53 @@ def test_a_new_installation_is_not_set_up_until_its_admin_says_so(client):
     assert client.get("/api/settings").json()["values"]["setup_done"] is False
     client.put("/api/settings", json={"values": {"setup_done": True}})
     assert client.get("/api/settings").json()["values"]["setup_done"] is True
+
+
+def test_a_model_server_of_one_s_own_is_an_account_with_its_address_and_models(client, project):
+    """Providers that are an address (a model server, a model host): which ones exist is the runner's
+    list. An agent can be given one once an account names a model, and a turn goes to the account
+    that offers the agent's model."""
+    pid = project["id"]
+    meta = client.get("/api/meta").json()
+    assert [p["name"] for p in meta["providers"]] == ["claude_code", "codex"]
+    assert [p["name"] for p in meta["endpoints"]] == ["ollama", "gemini"] and meta["endpoints"][0]["endpoint"]["key"] is False
+    assert client.post("/api/accounts", json={"provider": "nowhere", "auth_mode": "api_key"}).status_code == 400
+    assert client.post("/api/accounts", json={"provider": "ollama", "auth_mode": "chatgpt"}).status_code == 400
+
+    home = client.post("/api/accounts", json={"provider": "ollama", "auth_mode": "api_key"}).json()
+    assert (home["label"], home["endpoint_url"], home["models"], home["context_tokens"]) == ("Ollama", "", [], 0)
+    # No model named yet: nothing an agent could run on.
+    assert [p["name"] for p in client.get("/api/meta").json()["providers"]] == ["claude_code", "codex"]
+    assert client.post(f"/api/accounts/{home['id']}/models").json() == {"models": ["a-model", "b-model"]}
+    assert runner(client).models_asked[0] == "ollama"
+
+    changed = client.patch(f"/api/accounts/{home['id']}", json={"endpoint_url": " http://models.lan:11434 ", "models": ["coder", " coder ", "small-one"], "context_tokens": 64000}).json()
+    assert (changed["endpoint_url"], changed["models"], changed["context_tokens"]) == ("http://models.lan:11434", ["coder", "small-one"], 64000)
+    offered = {p["name"]: [m["id"] for m in p["models"]] for p in client.get("/api/meta").json()["providers"]}
+    assert offered["ollama"] == ["coder", "small-one"] and "gemini" not in offered
+
+    # An agent moves to it: without a model named for it, it gets one the provider has, for its summaries too.
+    dev = make_dev(client, pid)
+    moved = client.patch(f"/api/agents/{dev['id']}", json={"provider": "ollama"}).json()
+    assert (moved["provider"], moved["model"], moved["summary_model"]) == ("ollama", "coder", "coder")
+    creds = turn(client, pid, dev["id"])
+    spec = runner(client).specs[-1]
+    assert (spec.provider, spec.model) == ("ollama", "coder")
+    assert (creds.endpoint_url, creds.endpoint_key, creds.endpoint_context) == ("http://models.lan:11434", None, 64000)
+
+    # A second server of the same provider with other models: the turn goes where the agent's model is.
+    client.post("/api/accounts", json={"provider": "ollama", "auth_mode": "api_key", "label": "Big box", "secret": "k-big", "endpoint_url": "http://big.lan:11434", "models": ["large-one"]})
+    assert [p["models"] for p in client.get("/api/meta").json()["providers"] if p["name"] == "ollama"][0][2]["id"] == "large-one"
+    client.patch(f"/api/agents/{dev['id']}", json={"model": "large-one"})
+    creds = turn(client, pid, dev["id"])
+    assert (creds.endpoint_url, creds.endpoint_key) == ("http://big.lan:11434", "k-big")
+    client.patch(f"/api/agents/{dev['id']}", json={"model": "coder"})
+    assert turn(client, pid, dev["id"]).endpoint_url == "http://models.lan:11434"  # not the account of its last turn
+
+    # The manager's list of models names it, and not the providers nobody set up.
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], "TOOL list_models {}")
+    wait_for(lambda: idle(client, pid))
+    messages = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"]
+    listed = next(m["meta"]["result"] for m in messages if m["kind"] == "tool" and m["content"] == "list_models")
+    assert "ollama: coder (medium), small-one (medium), large-one (medium)" in listed and "gemini" not in listed

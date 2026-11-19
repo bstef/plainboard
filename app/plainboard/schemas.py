@@ -150,6 +150,9 @@ class AccountCreate(BaseModel):
     label: str = Field(default="", max_length=100)
     auth_mode: str
     secret: str | None = None  # token or API key
+    endpoint_url: str = Field(default="", max_length=500)
+    models: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=200)
+    context_tokens: int = Field(default=0, ge=0, le=10_000_000)
 
 
 class AccountUpdate(BaseModel):
@@ -157,6 +160,9 @@ class AccountUpdate(BaseModel):
     auth_mode: str | None = None
     secret: str | None = None  # None = keep, "" = clear (then the environment's applies)
     enabled: bool | None = None
+    endpoint_url: str | None = Field(default=None, max_length=500)
+    models: list[Annotated[str, Field(min_length=1, max_length=200)]] | None = Field(default=None, max_length=200)
+    context_tokens: int | None = Field(default=None, ge=0, le=10_000_000)
 
 
 class AccountOut(ORM):
@@ -167,6 +173,9 @@ class AccountOut(ORM):
     enabled: bool
     secret_set: bool = False
     secret_from_env: bool = False  # no own secret, but the environment has one for this mode
+    endpoint_url: str = ""
+    models: list[str] = []
+    context_tokens: int = 0
 
 
 class RepositoryOut(ORM):

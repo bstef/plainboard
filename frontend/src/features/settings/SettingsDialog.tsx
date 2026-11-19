@@ -15,6 +15,7 @@ import { DefaultModels } from "./DefaultModels";
 import { GithubTokenField } from "./GithubTokenField";
 import { AccountEditor } from "./AccountEditor";
 import { AccountsEditor } from "./AccountsEditor";
+import { EndpointAccounts } from "./EndpointAccounts";
 import { PauseEditor } from "./PauseEditor";
 import { SecretsEditor } from "./SecretsEditor";
 import { UsersEditor } from "./UsersEditor";
@@ -108,6 +109,13 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   <h3 className="font-semibold">{t("settings.codex")}</h3>
                   <p className="text-fg-3">{t("settings.codexHint")}</p>
                   <AccountsEditor provider="codex" />
+                </div>
+              )}
+              {!!meta.data?.endpoints?.length && (
+                <div className="space-y-2">
+                  <h3 className="font-semibold">{t("endpoints.title")}</h3>
+                  <p className="text-fg-3">{t("endpoints.hint")}</p>
+                  <EndpointAccounts />
                 </div>
               )}
               <SavedAtOnce />

@@ -20,6 +20,7 @@ from . import jobs
 from . import notices
 from . import ports
 from . import trains
+from . import translate
 from .providers import get_provider, list_providers
 from .tool_bridge import ToolBridge
 from .workspace import WorkspaceError, config_args, git_env, prepare_workspace, project_folder, remove_folder, run_cmd
@@ -28,6 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("plainboard.runner")
 
 app = FastAPI(title="PlainBoard Runner")
+app.include_router(translate.router)  # for the harness of a turn on a model server that speaks Chat Completions
 _active: dict[str, asyncio.Task[None]] = {}
 
 
@@ -193,6 +195,17 @@ async def limits(name: str, credentials: Credentials) -> LimitsEvent:
         log.warning("No limits from %s: %s", provider.name, exc)
         return LimitsEvent()
     return LimitsEvent(windows=windows, complete=provider.limits_complete)
+
+
+@app.post("/providers/{name}/models", response_model=list[str])
+async def provider_models(name: str, credentials: Credentials) -> list[str]:
+    """What the endpoint of the account in ``credentials`` offers."""
+    try:
+        return await get_provider(name).models(credentials)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:1000]) from exc
 
 
 @app.post("/complete", response_model=CompletionResult)

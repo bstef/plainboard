@@ -643,6 +643,28 @@
     "confirmDelete": "Delete account \"{{name}}\"? A ChatGPT sign-in on the runner is signed out.",
     "rotationHint": "Each agent stays on its subscription until that reaches 95 %, then moves to the one with the most room. The last 5 % of every subscription are used once all are that full, API keys only after that. A project or an agent can be given one of its own: Project settings → Team, or the agent in Team."
   },
+  "endpoints": {
+    "title": "Other models",
+    "hint": "Models of your own or of other hosts: a model server on your machine or in your network (Ollama, LM Studio, llama.cpp, vLLM), Gemini, or a host or gateway that speaks one of the two common interfaces. An agent on such a model works with the same tools as one on Claude. How well it does depends on the model: it has to call tools reliably and read a long prompt.",
+    "choose": "Provider",
+    "add": "Add",
+    "confirmDelete": "Delete \"{{name}}\"? Agents that run on its models have no account for them then.",
+    "address": "Address",
+    "addressHint": "Empty: {{url}}. From inside PlainBoard's containers your own machine is host.docker.internal, not localhost.",
+    "addressNeeded": "Where the server answers, e.g. https://host/v1. From inside PlainBoard's containers your own machine is host.docker.internal, not localhost.",
+    "key": "API key",
+    "keyOptional": "API key (only if the server asks for one)",
+    "keyNotNeeded": "Not set, and usually not needed",
+    "models": "Models agents can be given",
+    "modelsHint": "One per line, named as the server names them.",
+    "modelsHintUsual": "One per line, named as the server names them. Empty: the usual ones, shown in grey.",
+    "context": "Context window (tokens)",
+    "contextHint": "How much these models take at once. The agent sums up its work before it gets there. Empty: 128,000. Too high, and the server refuses a long turn; a model server of your own often has far less until you raise it.",
+    "load": "Show what the server offers",
+    "loadEmpty": "The server named no models. Type them in above.",
+    "filter": "Filter",
+    "testNeedsModel": "Name a model first"
+  },
   "settings": {
     "updateCheck": "Tell me when a newer PlainBoard is available",
     "updateCheckHint": "Every few hours PlainBoard asks GitHub whether its repository has newer commits than the one that is running. Only that commit id is sent.",

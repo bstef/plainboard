@@ -403,8 +403,13 @@ class ClaudeCodeProvider(Provider):
     def info(self) -> ProviderInfo:
         return ProviderInfo(name=self.name, label="Claude Agent", models=MODELS, efforts=EFFORTS)
 
+    def auth_env(self, creds: Credentials, model: str = "") -> dict[str, str]:
+        """What tells Claude Code where the model is and how to sign in. ``model``: what the request
+        runs on, for a provider that has to name it more than once (providers/endpoints.py)."""
+        return auth_env(creds)
+
     def _options(self, spec: RunSpec, bridge: ToolBridge, stderr_tail: collections.deque[str], background: BackgroundWork | None = None) -> ClaudeAgentOptions:
-        env = {**tool_env(spec.credentials), **auth_env(spec.credentials), **spec.env}
+        env = {**tool_env(spec.credentials), **self.auth_env(spec.credentials, spec.model), **spec.env}
         mcp_servers: dict[str, Any] = {s.name: external_mcp_config(s) for s in spec.mcp_servers if s.name != MCP_SERVER_NAME}
         mcp_servers[MCP_SERVER_NAME] = build_mcp_server(bridge)
         timer = ToolTimer()
@@ -494,7 +499,7 @@ class ClaudeCodeProvider(Provider):
         return windows or await self._limits_of_a_turn(credentials)
 
     async def _usage(self, credentials: Credentials) -> list[LimitWindow]:
-        options = ClaudeAgentOptions(tools=[], setting_sources=[], cwd="/tmp", env=auth_env(credentials))
+        options = ClaudeAgentOptions(tools=[], setting_sources=[], cwd="/tmp", env=self.auth_env(credentials))
         async with ClaudeSDKClient(options) as client:
             # Claude Code's usage request has no public method in the SDK yet.
             answer = await client._query._send_control_request({"subtype": "get_usage", "skip_behaviors": True}, timeout=20)
@@ -507,7 +512,7 @@ class ClaudeCodeProvider(Provider):
         is shows them: one word to the small model, a few tokens. Without this, a subscription
         that no agent is running on keeps the numbers of its last turn for days."""
         options = ClaudeAgentOptions(
-            model=PROBE_MODEL, tools=[], system_prompt="Reply with the single word: ok", setting_sources=[], max_turns=1, cwd="/tmp", env=auth_env(credentials)
+            model=PROBE_MODEL, tools=[], system_prompt="Reply with the single word: ok", setting_sources=[], max_turns=1, cwd="/tmp", env=self.auth_env(credentials)
         )
         windows: dict[str, LimitWindow] = {}
 
@@ -533,7 +538,7 @@ class ClaudeCodeProvider(Provider):
             setting_sources=[],
             max_turns=1,
             cwd="/tmp",
-            env=auth_env(spec.credentials),
+            env=self.auth_env(spec.credentials, spec.model),
             stderr=stderr_tail.append,
             **({"effort": spec.effort} if spec.effort else {}),
         )

@@ -12,6 +12,8 @@
 │        ▼                                               │ (per-run token)  │
 │ runner  (internal only; user `agent` with sudo)                          │
 │  providers/      claude_code (Agent SDK) · codex (app server) · mock     │
+│                  endpoints: model servers and hosts, in claude_code's     │
+│                  harness (translate.py for Chat Completions)             │
 │  tool_bridge.py  proxies tool calls to the app; local tools (files)      │
 │  workspace.py    /workspaces/<project>/<agent>/<repo> or a shared folder  │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -191,6 +193,31 @@ cache is per provider account and model. Claude runs ask for the one-hour lifeti
 2. Register it in `providers/registry.py`.
 3. Add its credentials to `Credentials`, its sign-in kinds to `services/accounts.py` (`AUTH_MODES`, `fields`)
    and the accounts editor.
+
+A model server or host that speaks the Messages or the Chat Completions interface needs none of
+this: it is one line in `ENDPOINTS` (see below).
+
+**Providers that are an address** (`providers/endpoints.py`): a model server of one's own (Ollama, LM
+Studio, llama.cpp, vLLM), a model host (Gemini, OpenRouter, DeepSeek ...) or any gateway. Each line of
+`ENDPOINTS` is a provider: a name, the usual address, whether it wants a key, and which of two
+interfaces it speaks. The turn runs in Claude Code's harness (`EndpointProvider` is a
+`ClaudeCodeProvider` with another environment), so tools, notices, sub-agents and the session work as
+on Claude. A server that speaks Anthropic's Messages interface is talked to directly
+(`ANTHROPIC_BASE_URL`). For one that speaks Chat Completions the harness is pointed at the runner
+itself: `translate.py` (`/compat/<address>/v1/messages`) turns the request into a chat request and
+the streamed answer back into Messages events. It keeps nothing but what a model wants back with its
+tool calls (Gemini's thought signatures), guesses the prompt's size for the start of the answer (a
+chat server counts it at the end, the harness reads its context there), and leaves out the answer
+length for a server that refused it. The environment keeps the harness to what any server
+understands (no beta fields, no tool search, no thinking request, the context window the account
+names instead of the million tokens Claude Code assumes for an unknown model). No model names are
+kept: the account names them, `Provider.models` asks the server. Cost is reported as 0.
+
+On the app's side nothing names these providers. `ProviderInfo.endpoint` marks one; its accounts hold
+address, key, models and context window (`Account.endpoint_url`, `models`, `context_tokens`), which
+travel as `Credentials.endpoint_*`. `accounts.catalog` is the list agents choose from: the runner's
+providers, of which an endpoint counts once an account names a model. `accounts.pick` takes an
+account that offers the turn's model, so two servers of one provider work side by side.
 
 A provider that can't call Python tools in-process can serve the bridge as a stdio MCP server
 (`plainboard_runner/mcp_stdio.py`), as Codex does. Agents choose their provider; models of the same

@@ -34,7 +34,7 @@ class CreateAgentArgs(BaseModel):
     role: str = Field(description="Short job title, e.g. 'Backend Developer'")
     description: str = Field(description="Area of responsibility; keep it narrow")
     instructions: str = Field(default="", description="Extra standing instructions")
-    provider: str | None = Field(default=None, description="claude_code or codex; default from settings")
+    provider: str | None = Field(default=None, description="a provider of list_models; default from settings")
     model: str | None = Field(default=None, description="Model id of that provider; default from settings")
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     toolset: ToolsetName = Field(default="full", description="full = coding agent; board = coordination and small tasks, smaller prompt")
@@ -48,7 +48,7 @@ class UpdateAgentArgs(BaseModel):
     role: str | None = None
     description: str | None = None
     instructions: str | None = None
-    provider: str | None = Field(default=None, description="claude_code or codex")
+    provider: str | None = Field(default=None, description="a provider of list_models")
     model: str | None = None
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     toolset: ToolsetName | None = None
@@ -114,7 +114,7 @@ async def _catalog(ctx: ToolContext, provider: str | None) -> list[ProviderInfo]
     if not provider:
         return None
     try:
-        catalog = await ctx.runs.runner.providers()
+        catalog = await account_service.catalog(ctx.session, await ctx.runs.runner.providers())
     except RunnerError:
         return None
     if provider not in {p.name for p in catalog}:
@@ -128,7 +128,7 @@ CLASSES = ("xlarge", "large", "medium", "small")  # strongest first
 @tool("list_models", "The models an agent can run on, per provider, each with its class (xlarge > large > medium > small).", roles=(MANAGER,))
 async def list_models(ctx: ToolContext, _args) -> str:
     try:
-        catalog = await ctx.runs.runner.providers()
+        catalog = await account_service.catalog(ctx.session, await ctx.runs.runner.providers())
     except RunnerError as exc:
         raise ToolError("The models cannot be read right now: the runner does not answer. Try again later.") from exc
     subscribed = {a.provider for a in await account_service.list_accounts(ctx.session) if a.enabled}

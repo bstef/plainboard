@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 import pytest
 from fastapi.testclient import TestClient
 from plainboard_protocol import (
+    EndpointInfo,
     LimitsEvent,
     LimitWindow,
     AssistantTextEvent,
@@ -219,7 +220,14 @@ class FakeRunner:
                 label="Codex",
                 models=[ModelInfo(id="gpt-6.1-sol", label="Sol", tier="large"), ModelInfo(id="gpt-6.1-terra", label="Terra", tier="medium"), ModelInfo(id="gpt-6-luna", label="Luna", tier="small")],
             ),
+            # Providers that are an address. Agents can be given them once an account names a model.
+            ProviderInfo(name="ollama", label="Ollama", models=[], endpoint=EndpointInfo(url="http://host.docker.internal:11434", key=False, hint="A model server of your own.")),
+            ProviderInfo(name="gemini", label="Gemini (Google)", models=[], endpoint=EndpointInfo(url="https://generativelanguage.googleapis.com/v1beta/openai")),
         ]
+
+    async def provider_models(self, provider, credentials):
+        self.models_asked = (provider, credentials)
+        return ["a-model", "b-model"]
 
     async def check_provider(self, spec):
         return CheckResult(ok=True, detail="fake")

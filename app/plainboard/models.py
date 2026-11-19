@@ -108,6 +108,12 @@ class Account(Timestamps, Base):
     auth_mode: Mapped[str] = mapped_column(String(20))
     secret_enc: Mapped[str | None] = mapped_column(Text)  # token or API key; None = the environment's
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # A provider that is an endpoint (a local model server, a model host): where it is, empty for the
+    # provider's usual address, and the models this account offers (empty: the provider's own list).
+    endpoint_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    models: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # How many tokens these models take at once (0: not said). The agent's harness keeps its context below it.
+    context_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class Setting(Base):

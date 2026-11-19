@@ -598,7 +598,7 @@ class RunManager:
                 if not task or not reports:
                     return
                 manager = await agent_service.get_manager(s, task.project_id)
-                account = await account_service.pick(s, manager.provider, manager)
+                account = await account_service.pick(s, manager.provider, manager, model=manager.summary_model)
                 values = await settings_service.get_all(s)
                 credentials = settings_service.credentials(values, account=account_service.fields(account))
                 before = await ticket_state.text_for(s, task.id)

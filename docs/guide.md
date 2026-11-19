@@ -101,7 +101,7 @@ whole installation. Everyone finds their own account here; the rest is for admin
 |---|---|
 | Your account | Your name, your password, signing out |
 | People | Who may sign in, who is an admin, who may create projects |
-| Subscriptions | Claude and Codex subscriptions and API keys |
+| Subscriptions | Claude and Codex subscriptions and API keys; model servers of your own and other model hosts |
 | Models | The models new agents start with, each with its thinking effort (managers, members, summaries); when long chats are summarised |
 | Code access | GitHub token, SSH key, the name and address on the agents' commits |
 | Pace | How many agents work at the same time per project; how far a manager may raise that |
@@ -152,6 +152,38 @@ The set-up asks for these; later they are under **PlainBoard settings → Subscr
   can have its own (**Team**).
 - The plan limits of every subscription are shown under the chat's message field, one ring per
   subscription; a click shows the windows, their resets and a forecast.
+
+### Other models
+
+Agents can also run on models of your own or of other hosts (**Subscriptions → Other models**):
+
+| Kind | Providers |
+| --- | --- |
+| A model server of your own | Ollama, LM Studio, llama.cpp server, vLLM |
+| Model hosts | Gemini (Google), OpenRouter, DeepSeek, Kimi (Moonshot), GLM (Z.ai), MiniMax, Qwen (Alibaba), Grok (xAI), Mistral, Groq, Cerebras, Fireworks, Together, Hugging Face, Nvidia NIM, Azure OpenAI |
+| Anything else | A server or gateway that speaks Anthropic's Messages interface (LiteLLM, for one) or OpenAI's Chat Completions interface |
+
+Choose the provider, **Add**, and fill in:
+
+- **Address**: empty for a host's usual one. A model server on the machine PlainBoard runs on is
+  `http://host.docker.internal:<port>`, not `localhost`: agents work inside a container.
+- **API key**: for a host. A model server of your own usually needs none.
+- **Models agents can be given**: one per line, named as the server names them. **Show what the
+  server offers** lists them to tick. PlainBoard keeps no list of its own: model names change by the
+  month. A provider shows up in the model settings and for agents once it names a model.
+- **Context window**: how many tokens these models take at once. The agent sums up its work before
+  it gets there. A model server of your own often starts with a few thousand tokens until you raise
+  it; an agent needs 64,000 or more.
+- **Test connection** asks the first model for one word.
+
+Then pick the provider for an agent (**Team**), or as the default (**PlainBoard settings → Models**).
+
+What to expect: an agent on such a model works in the same harness and with the same tools as one on
+Claude, so everything in PlainBoard works the same. How well it works is the model's part. It has to
+call tools reliably and keep to a long prompt; small models lose the thread. Effort levels, plan
+limits and costs are not known for these models, so the statistics show their tokens and no price.
+Anthropic does not support its harness on models that are not Claude's; if a server refuses a
+request, the error in the agent's chat says what it did not take.
 
 ## Repositories and finished work
 

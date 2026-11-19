@@ -11,6 +11,7 @@ from ..models import TaskStatus
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
 from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SettingsOut, SettingsUpdate
 from ..services import access_keys as access_key_service
+from ..services import accounts as account_service
 from ..services import db_read as db_read_service
 from ..services import limits as limits_service
 from ..services import pause as pause_service
@@ -31,12 +32,15 @@ async def health() -> dict[str, str]:
 @router.get("/meta")
 async def meta(runner: Runner, session: Session) -> dict[str, Any]:
     try:
-        providers = [p.model_dump() for p in await runner.providers()]
+        every = await runner.providers()
+        providers = [p.model_dump() for p in await account_service.catalog(session, every)]
         runner_ok = True
     except RunnerError:
-        providers, runner_ok = [], False
+        every, providers, runner_ok = [], [], False
     return {
         "providers": providers,
+        # Providers that are an endpoint, set up or not: what an account can be added for.
+        "endpoints": [p.model_dump() for p in every if p.endpoint is not None],
         "runner_ok": runner_ok,
         "statuses": [s.value for s in TaskStatus],
         "pinned_note_budget_chars": PINNED_BUDGET_CHARS,

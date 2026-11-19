@@ -1,4 +1,5 @@
-"""Provider accounts: several Claude or Codex subscriptions (or API keys) side by side.
+"""Provider accounts: several Claude or Codex subscriptions (or API keys) side by side, and the
+endpoints of other providers (a local model server, a model host) with their address, key and models.
 
 A run uses the agent's pinned account, otherwise the account it ran on last (the provider's prompt
 cache is per account) as long as nothing better is free, otherwise the best one in this order:
@@ -12,6 +13,7 @@ import os
 import uuid
 from typing import Any
 
+from plainboard_protocol import ModelInfo, ProviderInfo
 from sqlalchemy import select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,16 +24,21 @@ from . import limits as limits_service
 from .errors import NotFound, ServiceError
 
 AUTH_MODES = {"claude_code": ("oauth_token", "api_key", "runner_login"), "codex": ("chatgpt", "api_key")}
+# Every other provider is an endpoint (ProviderInfo.endpoint): which ones exist is the runner's list, not the app's.
+ENDPOINT_MODES = ("api_key",)
 LABELS = {"claude_code": "Claude", "codex": "Codex"}
 ENV_SECRETS = {("claude_code", "oauth_token"): "CLAUDE_CODE_OAUTH_TOKEN", ("claude_code", "api_key"): "ANTHROPIC_API_KEY", ("codex", "api_key"): "OPENAI_API_KEY"}
 SWITCH_AT = 0.95  # an account this full hands new turns to one with more room; its rest is used last
 
 
 def _check_mode(provider: str, mode: str) -> None:
-    if provider not in AUTH_MODES:
-        raise ServiceError(f"{provider} has no accounts")
-    if mode not in AUTH_MODES[provider]:
+    if mode not in AUTH_MODES.get(provider, ENDPOINT_MODES):
         raise ServiceError(f"Unknown sign-in for {provider}: {mode}")
+
+
+def _models(names: list[str]) -> list[str]:
+    """As typed: without blanks, each once, in the order given."""
+    return list(dict.fromkeys(name.strip() for name in names if name.strip()))
 
 
 def has_plan(account: Account) -> bool:
@@ -65,11 +72,22 @@ async def get(session: AsyncSession, account_id: int) -> Account:
     return account
 
 
-async def create(session: AsyncSession, data: AccountCreate) -> Account:
+async def create(session: AsyncSession, data: AccountCreate, name: str = "") -> Account:
+    """``name``: what the provider is called, for the label of an account that got none."""
     _check_mode(data.provider, data.auth_mode)
     count = len(await list_accounts(session, data.provider))
-    label = data.label.strip() or (LABELS[data.provider] + (f" {count + 1}" if count else ""))
-    account = Account(provider=data.provider, label=label, key=uuid.uuid4().hex[:12], auth_mode=data.auth_mode, secret_enc=encrypt(data.secret), enabled=True)
+    label = data.label.strip() or ((name or LABELS.get(data.provider) or data.provider) + (f" {count + 1}" if count else ""))
+    account = Account(
+        provider=data.provider,
+        label=label[:100],
+        key=uuid.uuid4().hex[:12],
+        auth_mode=data.auth_mode,
+        secret_enc=encrypt(data.secret),
+        enabled=True,
+        endpoint_url=data.endpoint_url.strip(),
+        models=_models(data.models),
+        context_tokens=data.context_tokens,
+    )
     session.add(account)
     await session.commit()
     return account
@@ -87,6 +105,12 @@ async def update(session: AsyncSession, account: Account, data: AccountUpdate) -
         account.label = data.label.strip()
     if data.enabled is not None:
         account.enabled = data.enabled
+    if data.endpoint_url is not None:
+        account.endpoint_url = data.endpoint_url.strip()
+    if data.models is not None:
+        account.models = _models(data.models)
+    if data.context_tokens is not None:
+        account.context_tokens = data.context_tokens
     await session.commit()
     return account
 
@@ -113,11 +137,15 @@ def _rank(account: Account, used: dict[str, float]) -> tuple[int, float]:
     return (0 if utilization < SWITCH_AT else 1 if utilization < 1 else USED_UP), utilization
 
 
-async def pick(session: AsyncSession, provider: str, agent: Agent | None = None, conv: Conversation | None = None) -> Account | None:
-    """The account for an agent's next turn; None if the provider has no (enabled) account."""
+async def pick(session: AsyncSession, provider: str, agent: Agent | None = None, conv: Conversation | None = None, model: str | None = None) -> Account | None:
+    """The account for an agent's next turn; None if the provider has no (enabled) account.
+    ``model``: what the turn runs on, the agent's own model if not given."""
     accounts = [a for a in await list_accounts(session, provider) if a.enabled]
     if not accounts:
         return None
+    # Endpoints of one provider differ in what they offer (two model servers, say): one that names the model.
+    model = model or (agent.model if agent else None)
+    accounts = [a for a in accounts if model and model in (a.models or [])] or accounts
     # The agent's own subscription, else its project's. One of another provider does not count.
     wanted = agent.account_id if agent else None
     if agent and wanted is None:
@@ -141,4 +169,24 @@ def fields(account: Account | None) -> dict[str, Any]:
         return {"claude_auth_mode": account.auth_mode, "claude_oauth_token" if account.auth_mode == "oauth_token" else "anthropic_api_key": value}
     if account.provider == "codex":
         return {"codex_auth_mode": account.auth_mode, "codex_account": account.key, "openai_api_key": value}
-    return {}
+    return {"endpoint_url": account.endpoint_url, "endpoint_key": value, "endpoint_context": account.context_tokens}
+
+
+async def catalog(session: AsyncSession, providers: list[ProviderInfo]) -> list[ProviderInfo]:
+    """The providers agents can run on, from the runner's list. A provider that is an endpoint counts
+    once an account of it offers a model: what its accounts name, else its own usual models."""
+    accounts = [a for a in await list_accounts(session) if a.enabled]
+    out = []
+    for provider in providers:
+        if provider.endpoint is None:
+            out.append(provider)
+            continue
+        mine = [a for a in accounts if a.provider == provider.name]
+        if not mine:
+            continue
+        known = {m.id: m for m in provider.models}
+        named = list(dict.fromkeys(name for a in mine for name in a.models or []))
+        models = [known.get(name) or ModelInfo(id=name, label=name) for name in named] or provider.models
+        if models:
+            out.append(provider.model_copy(update={"models": models}))
+    return out

@@ -12,6 +12,7 @@ from starlette.background import BackgroundTask
 from ..models import ACTIVE_RUN_STATUSES, ProjectRole, Run
 from ..orchestration.runner_client import RunnerError
 from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ExportIn, ImportOut, PreviewOut, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
+from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
 from ..services import jobs as job_service
@@ -168,10 +169,10 @@ async def list_agents(project_id: int, session: Session) -> list[AgentOut]:
     return await agent_service.to_out(session, await agent_service.list_for_project(session, project_id))
 
 
-async def _catalog(runner: Runner, provider: str | None) -> list[ProviderInfo] | None:
-    """The runner's providers, after checking that ``provider`` is one of them. None if the runner is down."""
+async def _catalog(session: Session, runner: Runner, provider: str | None) -> list[ProviderInfo] | None:
+    """The providers agents can run on, after checking that ``provider`` is one of them. None if the runner is down."""
     try:
-        catalog = await runner.providers()
+        catalog = await account_service.catalog(session, await runner.providers())
     except RunnerError:
         return None
     if provider and provider not in {p.name for p in catalog}:
@@ -182,7 +183,7 @@ async def _catalog(runner: Runner, provider: str | None) -> list[ProviderInfo] |
 @router.post("/projects/{project_id}/agents", response_model=AgentOut, status_code=201)
 async def create_agent(project_id: int, body: AgentCreate, session: Session, runner: Runner) -> AgentOut:
     await project_service.get(session, project_id)
-    catalog = await _catalog(runner, body.provider)
+    catalog = await _catalog(session, runner, body.provider)
     agent = await agent_service.create(session, project_id, body, catalog=catalog)
     (out,) = await agent_service.to_out(session, [agent])
     return out
@@ -190,7 +191,7 @@ async def create_agent(project_id: int, body: AgentCreate, session: Session, run
 
 @router.patch("/agents/{agent_id}", response_model=AgentOut)
 async def update_agent(agent_id: int, body: AgentUpdate, session: Session, runner: Runner, runs: Runs) -> AgentOut:
-    catalog = await _catalog(runner, body.provider)
+    catalog = await _catalog(session, runner, body.provider)
     agent = await agent_service.get(session, agent_id)
     was_enabled = agent.enabled
     agent = await agent_service.update(session, agent, body, catalog)

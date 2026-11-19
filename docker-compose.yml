@@ -44,6 +44,9 @@ services:
         PLAINBOARD_BROWSER: ${PLAINBOARD_BROWSER:-1}
     image: plainboard-runner
     restart: unless-stopped
+    # A model server on this machine (Ollama, LM Studio ...) is reached as host.docker.internal, on Linux too.
+    extra_hosts:
+      - host.docker.internal:host-gateway
     volumes:
       - ${PLAINBOARD_WORKSPACES_DIR:-workspaces}:/workspaces
       - uploads:/uploads:ro

@@ -22,8 +22,17 @@ async def list_accounts(session: Session) -> list[AccountOut]:
 
 
 @router.post("", response_model=AccountOut, status_code=201)
-async def create(body: AccountCreate, session: Session) -> AccountOut:
-    return account_service.to_out(await account_service.create(session, body))
+async def create(body: AccountCreate, session: Session, runner: Runner) -> AccountOut:
+    name = ""
+    if body.provider not in account_service.AUTH_MODES:  # an endpoint: which ones exist is the runner's list
+        try:
+            found = next((p for p in await runner.providers() if p.name == body.provider and p.endpoint is not None), None)
+        except RunnerError as exc:
+            raise ServiceError(str(exc), 502) from exc
+        if found is None:
+            raise ServiceError(f"Unknown provider '{body.provider}'")
+        name = found.label
+    return account_service.to_out(await account_service.create(session, body, name))
 
 
 @router.patch("/{account_id}", response_model=AccountOut)
@@ -58,6 +67,21 @@ async def check(account_id: int, body: CheckIn, session: Session, runner: Runner
     )
     result = await runner.check_provider(spec)
     return CheckOut(ok=result.ok, detail=result.detail)
+
+
+class ModelsOut(BaseModel):
+    models: list[str]
+
+
+@router.post("/{account_id}/models", response_model=ModelsOut)
+async def offered_models(account_id: int, session: Session, runner: Runner) -> ModelsOut:
+    """What the account's endpoint says it offers, to choose from. Nothing is stored."""
+    account = await account_service.get(session, account_id)
+    credentials = settings_service.credentials(await settings_service.get_all(session), account=account_service.fields(account))
+    try:
+        return ModelsOut(models=await runner.provider_models(account.provider, credentials))
+    except RunnerError as exc:
+        raise ServiceError(str(exc), 502) from exc
 
 
 async def _signin(session: Session, runner: Runner, account_id: int, action: str | None = None) -> ProviderAccount:

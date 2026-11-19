@@ -35,6 +35,10 @@ class Provider(ABC):
     async def complete(self, spec: CompletionSpec) -> CompletionResult:
         """Plain tool-less completion (used for summaries)."""
 
+    async def models(self, credentials: Credentials) -> list[str]:
+        """The model ids the account in ``credentials`` is offered, asked from the provider. Empty: it has no such list."""
+        return []
+
     async def limits(self, credentials: Credentials) -> list[LimitWindow]:
         """The account's plan limits, without using the model. Empty if it has none or they are unknown."""
         return []

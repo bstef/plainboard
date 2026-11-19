@@ -377,10 +377,15 @@ export interface ProviderInfo {
   label: string;
   models: ModelInfo[];
   efforts: string[];
+  /** Set for a provider that is an address (a local model server, a model host): its usual address, whether it wants a key, what it is. */
+  endpoint?: { url: string; key: boolean; hint: string } | null;
 }
 
 export interface Meta {
+  /** The providers agents can run on. One that is an endpoint is here once it has an account. */
   providers: ProviderInfo[];
+  /** All providers that are an endpoint, set up or not. */
+  endpoints: ProviderInfo[];
   runner_ok: boolean;
   statuses: TaskStatus[];
   pinned_note_budget_chars: number;
@@ -447,6 +452,11 @@ export interface Account {
   enabled: boolean;
   secret_set: boolean;
   secret_from_env: boolean;
+  /** Of a provider that is an endpoint: its address (empty: the usual one) and the models it offers. */
+  endpoint_url: string;
+  models: string[];
+  /** How many tokens its models take at once; 0: not said. */
+  context_tokens: number;
 }
 
 export interface StatsDay {
