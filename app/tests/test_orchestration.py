@@ -937,6 +937,8 @@ def test_a_turn_the_runner_lost_ends_and_its_assignment_goes_on(client, project,
     work = json.dumps({"agent": "dev", "title": "Work", "instructions": "HOLD"})
     chat(client, manager["id"], f"TOOL delegate {work}")
     turn = wait_for(lambda: next((r for r in runs_of(client, pid, agent_id=dev["id"]) if r["status"] == "running"), None))
+    # Running in the database comes a moment before the runner has it; with no grace below, wait for that.
+    wait_for(lambda: turn["id"] in runner(client).active)
     monkeypatch.setattr(run_manager, "LOST_AFTER_SECONDS", 0)
     client.portal.call(client.app_ref.state.job_watcher.tick)
     assert runs_of(client, pid, agent_id=dev["id"])[0]["status"] == "running"  # the runner still has it
