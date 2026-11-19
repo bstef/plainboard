@@ -123,27 +123,30 @@ async def _red_base(session, project_id, repos, agents, since, now) -> list[Find
     return out
 
 
+FAILING_TOLD_SECONDS = 12 * 3600  # how often at most the manager is told by itself that a repository's check runs keep failing
+
+
+async def failing_checks(session: AsyncSession, repo: Repository, since: datetime) -> Finding | None:
+    """Most of a repository's check runs since then failed (and there were a few)."""
+    runs = (await session.execute(select(Train.status, Train.failed_checks).where(Train.repository_id == repo.id, Train.finished_at >= since, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED))))).all()
+    failed = [names for status, names in runs if status == TrainStatus.FAILED]
+    if len(runs) < 4 or len(failed) / len(runs) < 0.4:
+        return None
+    names = Counter(name for names_ in failed for name in names_.split("\n") if name)
+    often = [f"{name} ({count}x)" for name, count in names.most_common(4) if count >= 2]
+    quick = f"Its quick check: `{truncate(repo.quick_check_command.strip(), 160)}`." if repo.quick_check_command.strip() else "It has no quick check."
+    return Finding(
+        "failing_checks",
+        80,
+        f"{len(failed)} of {len(runs)} check runs of {repo.name} failed",
+        (f"Most often: {', '.join(often)}. " if often else "") + quick,
+        "What the quick check at hand-over catches never costs a check run: put the fast part of what keeps failing into it "
+        "(update_repository quick_check_command: a compile check, lint, the tests of what changed).",
+    )
+
+
 async def _failing_checks(session, project_id, repos, agents, since, now) -> list[Finding]:
-    out = []
-    for repo in repos:
-        runs = (await session.execute(select(Train.status, Train.failed_checks).where(Train.repository_id == repo.id, Train.finished_at >= since, Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED))))).all()
-        failed = [names for status, names in runs if status == TrainStatus.FAILED]
-        if len(runs) < 4 or len(failed) / len(runs) < 0.4:
-            continue
-        names = Counter(name for names_ in failed for name in names_.split("\n") if name)
-        often = [f"{name} ({count}x)" for name, count in names.most_common(4) if count >= 2]
-        quick = f"Its quick check: `{truncate(repo.quick_check_command.strip(), 160)}`." if repo.quick_check_command.strip() else "It has no quick check."
-        out.append(
-            Finding(
-                "failing_checks",
-                80,
-                f"{len(failed)} of {len(runs)} check runs of {repo.name} failed",
-                (f"Most often: {', '.join(often)}. " if often else "") + quick,
-                "What the quick check at hand-over catches never costs a check run: put the fast part of what keeps failing into it "
-                "(update_repository quick_check_command: a compile check, lint, the tests of what changed).",
-            )
-        )
-    return out
+    return [finding for repo in repos if (finding := await failing_checks(session, repo, since))]
 
 
 async def _slow_quick_check(session, project_id, repos, agents, since, now) -> list[Finding]:

@@ -40,6 +40,11 @@ def test_a_base_branch_that_stays_red_and_the_checks_that_keep_failing_are_found
     assert failing["title"] == "4 of 4 check runs of api failed" and "Most often: Tests (4x), Emulator (4x). It has no quick check." in failing["detail"]
     assert "quick_check_command" in failing["action"]
     assert list(findings)[:2] == ["red_base", "failing_checks"]  # heaviest first
+    # The manager did not have to ask: it read this with a turn it had anyway, when the fourth run failed,
+    # and once, not with every failure after that. (Seen: it heard it at the nightly tidy-up, after the night.)
+    told = [s.prompt for s in fake.specs if "check runs of api failed in the last 24 h" in s.prompt]
+    assert len(told) == 1 and "4 of 4 check runs of api failed in the last 24 h. Most often: Tests (4x), Emulator (4x). It has no quick check." in told[0]
+    assert "worth one assignment" in told[0]
 
     # The manager gets the same, as text it can act on.
     chat(client, manager_of(client, pid)["id"], "TOOL flow_check")

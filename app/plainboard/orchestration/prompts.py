@@ -615,6 +615,14 @@ RESTART_NOTE = (
 RESUME_NOTE = "You were paused and are enabled again. Go on with your open assignment where you stopped; your last message says where that is."
 
 
+def checks_keep_failing(title: str, detail: str, action: str) -> str:
+    """For the manager, with its next turn (landing._keeps_failing): PlainBoard's finding, as flow_check words it."""
+    return (
+        f"{title} in the last 24 h. {detail} {action} "
+        "PlainBoard has every failure repaired by itself; this is about what keeps causing them, and worth one assignment unless one is on its way."
+    )
+
+
 def repair_instructions(branch: str, evidence: str, round_no: int, max_rounds: int) -> str:
     return (
         f"Your branch {branch} did not pass the checks. It was checked on its own, so the cause is in it (or in the base branch):\n{evidence}\n\n"

@@ -35,7 +35,7 @@ import asyncio
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from plainboard_protocol import Credentials, PullRequestCheck, PullRequestState, RepoSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 from sqlalchemy import or_, select
@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..models import ACTIVE_RUN_STATUSES, Agent, Assignment, AssignmentStatus, Landing, LandingStatus, Project, Repository, Run, Task, Train, TrainStatus, utcnow
 from ..services import agents as agent_service
 from ..services import board as board_service
+from ..services import flow_check as flow_check_service
 from ..services import flow_log
 from ..services import landings as landing_service
 from ..services import projects as project_service
@@ -306,6 +307,7 @@ class LandingWatcher:
             s, r.project.id, "train.failed", train_id=train.id, branches=[m.branch for m in members], landing_ids=[m.id for m in members],
             repaired_group=train.group_no is not None, check_seconds=train.check_seconds, summary=summary, evidence=truncate(evidence, 4000),
         )  # fmt: skip
+        await self._keeps_failing(s, r, train.finished_at or utcnow())
         if len(members) == 1:
             instructions = prompts.repair_instructions(members[0].branch, evidence, members[0].failures + 1, landing_service.MAX_FAILED_ROUNDS)
             await self._back(s, r, members[0], f"did not pass on its own ({summary})", f"Repair branch {members[0].branch}", instructions)
@@ -621,6 +623,7 @@ class LandingWatcher:
         await flow_log.record(s, r.project.id, {"failed": "base.red", "passed": "base.green"}.get(result, "base.unchecked"), train_id=train.id, checks=failed, check_seconds=train.check_seconds)
         if result == "failed":
             await self._base_red(s, r, train, failed, evidence, links)
+            await self._keeps_failing(s, r, now)
         return True
 
     async def _unreadable(self, s: AsyncSession, r: Repo, train: Train, now: datetime, exc: RunnerError) -> bool:
@@ -745,6 +748,24 @@ class LandingWatcher:
 
     async def _tell_manager(self, s: AsyncSession, r: Repo, text: str) -> None:
         await tell_manager(s, self._runs, r.project, text)
+
+    async def _keeps_failing(self, s: AsyncSession, r: Repo, now: datetime) -> None:
+        """A check run failed, and so did most of the last day's: the manager reads which checks and what
+        the quick check covers with its next turn, at most every ``FAILING_TOLD_SECONDS`` per repository.
+        It gets no turn for it: every failure is repaired without the manager. Seen in production: 43
+        of 65 check runs of a night failed, mostly on the same check. The nightly tidy-up found it
+        (flow_check), but hours later, and in a turn in which the manager delegates nothing."""
+        told = r.repo.failing_told_at
+        if told is not None and (now - told).total_seconds() < flow_check_service.FAILING_TOLD_SECONDS:
+            return
+        finding = await flow_check_service.failing_checks(s, r.repo, now - timedelta(hours=24))
+        if finding is None:
+            return
+        r.repo.failing_told_at = now
+        await s.commit()
+        manager = await agent_service.get_manager(s, r.project.id)
+        await inbox.push(s, manager.id, prompts.checks_keep_failing(finding.title, finding.detail, finding.action))
+        await flow_log.record(s, r.project.id, "checks.failing_told", repository=r.repo.name, finding=finding.title)
 
 
 def can_repair(agent: Agent) -> bool:
