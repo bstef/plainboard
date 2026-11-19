@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useLimits } from "../../api/queries";
 import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types";
 import { timeAgo } from "../../lib/format";
+import { useShell } from "../layout/shell-context";
 
 const tone = (used: number) => (used >= 0.9 ? "red" : used >= 0.75 ? "amber" : "indigo");
 const stroke = { red: "text-you", amber: "text-fg", indigo: "text-fg-2" };
@@ -12,10 +13,17 @@ const percent = (used: number) => Math.round(used * 100);
 const fromUnix = (seconds: number) => new Date(seconds * 1000).toISOString();
 const STALE_AFTER = 45 * 60; // seconds
 
+/** The accounts whose limits matter here: all of them, or the ones the open project may use. */
+function useProjectLimits() {
+  const { data } = useLimits();
+  const allowed = useShell().project.account_ids ?? [];
+  return data && { accounts: allowed.length ? data.accounts.filter((a) => allowed.includes(a.account_id)) : data.accounts };
+}
+
 /** Plan limits (5-hour, weekly) as one small ring per account, filled to the fullest window; click
  * for the windows, resets and forecast. Sits under every composer, so usage is always in view. */
 export function LimitsRing() {
-  const { data } = useLimits();
+  const data = useProjectLimits();
   if (!data) return null;
   const known = data.accounts.filter((a) => a.windows.length);
   if (!known.length) return <Ring available={data.accounts.some((a) => a.available)} />;
@@ -31,7 +39,7 @@ export function LimitsRing() {
 /** Every account's limits written out, for where there is room (the chat's context column). */
 export function LimitsList() {
   const { t } = useTranslation();
-  const { data } = useLimits();
+  const data = useProjectLimits();
   if (!data) return null;
   const known = data.accounts.filter((a) => a.windows.length);
   if (!known.length) return <p className="px-2.5 py-2 text-fg-3">{t(data.accounts.some((a) => a.available) ? "chat.limits.unknown" : "chat.limits.noPlan")}</p>;

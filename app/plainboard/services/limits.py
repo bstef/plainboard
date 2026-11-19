@@ -159,7 +159,7 @@ async def usage(session: AsyncSession) -> dict[str, float]:
 
 async def current(session: AsyncSession) -> LimitsOut:
     _, stored = await _stored(session)
-    accounts = (await session.scalars(select(Account).where(Account.enabled.is_(True)).order_by(Account.id))).all()
+    accounts = (await session.scalars(select(Account).where(Account.enabled.is_(True)).order_by(Account.provider, Account.id))).all()  # as accounts.list_accounts
     now = time.time()
     out = []
     for account in accounts:

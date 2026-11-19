@@ -59,7 +59,7 @@ def to_out(account: Account) -> AccountOut:
 
 
 async def list_accounts(session: AsyncSession, provider: str | None = None) -> list[Account]:
-    query = select(Account).order_by(Account.id)
+    query = select(Account).order_by(Account.provider, Account.id)  # a provider's accounts stand together, in the order they were added
     if provider:
         query = query.where(Account.provider == provider)
     return list((await session.scalars(query)).all())
