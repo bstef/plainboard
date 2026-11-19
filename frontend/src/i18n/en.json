@@ -348,7 +348,10 @@
     "position": "{{current}} of {{total}}",
     "previous": "Previous image",
     "next": "Next image",
-    "openOriginal": "Open original"
+    "openOriginal": "Open original",
+    "zoomIn": "Zoom in (+, or the mouse wheel)",
+    "zoomOut": "Zoom out (-)",
+    "zoomReset": "Show the whole image (0)"
   },
   "chat": {
     "selectAgent": "Select agent",
