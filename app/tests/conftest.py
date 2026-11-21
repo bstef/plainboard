@@ -373,6 +373,10 @@ class FakeRunner:
         self.candidate_specs = [*getattr(self, "candidate_specs", []), spec]
         return [c.model_copy() for c in getattr(self, "candidates", [])]
 
+    async def unpushed_work(self, spec):
+        self.unpushed_specs = [*getattr(self, "unpushed_specs", []), spec]
+        return list(getattr(self, "unpushed", []))
+
     async def trim_caches(self, spec):
         self.trims = [*getattr(self, "trims", []), spec]
         return getattr(self, "trim_result", None) or CleanupResult()

@@ -1067,6 +1067,21 @@ class ProjectRunnerOut(BaseModel):
     busy: str = ""  # why it can't be switched right now; empty: it can
 
 
+class UnpushedItem(BaseModel):
+    agents: list[str]  # whose workspace it is (several: a project folder they share)
+    repo: str  # the clone, relative to the workspace
+    problems: list[str]
+
+
+class UnpushedOut(BaseModel):
+    """Work in the project's workspaces on its current runner that is on no remote: it stays behind on a move."""
+
+    runner: str  # the current runner's name
+    checked: bool  # False: the runner could not be asked (``detail`` says why)
+    detail: str = ""
+    items: list[UnpushedItem] = []
+
+
 class ProjectRunnerIn(BaseModel):
     runner_id: int | None
 

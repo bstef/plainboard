@@ -284,6 +284,20 @@ class CandidatesSpec(BaseModel):
     folders: list[CleanupFolder] = Field(default_factory=list)  # every agent folder of the projects without a folder of their own
 
 
+class UnpushedSpec(BaseModel):
+    """Folders whose clones are looked at for work that is nowhere else (before a project moves to another runner)."""
+
+    folders: list[str] = Field(default_factory=list)  # below the workspaces root
+
+
+class UnpushedWork(BaseModel):
+    """A clone with work that is on no remote (runner ``cleanup.unpushed_work``)."""
+
+    folder: str  # as asked
+    repo: str  # the clone, relative to the folder ("." : the folder itself)
+    problems: list[str]
+
+
 class TrimSpec(BaseModel):
     """Shrink the big shared tool caches, oldest files first (runner ``cleanup.trim``)."""
 

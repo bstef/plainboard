@@ -692,6 +692,14 @@ export interface RunnerCreated {
   compose: string;
 }
 
+/** Work in the project's workspaces on its current runner that is on no remote: it stays behind on a move. */
+export interface ProjectUnpushed {
+  runner: string;
+  checked: boolean;
+  detail: string;
+  items: { agents: string[]; repo: string; problems: string[] }[];
+}
+
 export interface ProjectRunner {
   runner_id: number | null;
   runners: { id: number | null; name: string; connected: boolean }[];

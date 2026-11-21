@@ -15,7 +15,7 @@ from starlette.websockets import WebSocketDisconnect
 from ..db import sessionmaker
 from ..events import bus
 from ..orchestration.tunnel import Tunnel, TunnelClosed
-from ..schemas import ProjectRunnerIn, ProjectRunnerOut, RunnerCreated, RunnerIn, RunnerOut
+from ..schemas import ProjectRunnerIn, ProjectRunnerOut, RunnerCreated, RunnerIn, RunnerOut, UnpushedOut
 from ..services import projects as project_service
 from ..services import runners as runner_service
 from .deps import Runs, Session
@@ -67,6 +67,12 @@ async def delete_runner(runner_id: int, session: Session, runs: Runs) -> None:
 @router.get("/projects/{project_id}/runner", response_model=ProjectRunnerOut)
 async def project_runner(project_id: int, session: Session, runs: Runs) -> ProjectRunnerOut:
     return await runner_service.choices(session, runs.runners, await project_service.get(session, project_id))
+
+
+@router.get("/projects/{project_id}/runner/unpushed", response_model=UnpushedOut)
+async def project_unpushed(project_id: int, session: Session, runs: Runs) -> UnpushedOut:
+    """Asked before a move: what of the agents' work on the current runner is on no remote."""
+    return await runner_service.unpushed(session, runs.runners, await project_service.get(session, project_id))
 
 
 @router.put("/projects/{project_id}/runner", response_model=ProjectRunnerOut)

@@ -34,7 +34,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from plainboard_protocol import CandidatesSpec, CleanedItem, CleanupCandidate, CleanupFolder, CleanupResult, CleanupSpec, DeleteSpec, TrimSpec
+from plainboard_protocol import CandidatesSpec, CleanedItem, CleanupCandidate, CleanupFolder, CleanupResult, CleanupSpec, DeleteSpec, TrimSpec, UnpushedSpec, UnpushedWork
 
 from . import config, jobs
 from .usage import folder_of
@@ -189,6 +189,63 @@ def unpushed(folder: Path) -> str | None:
         except (subprocess.SubprocessError, OSError) as exc:
             return f"{entry.name}: git could not tell ({type(exc).__name__})"
     return None
+
+
+MAX_BRANCHES = 200  # a clone with more: only these are looked at
+
+
+def _many(n: int, one: str, more: str = "") -> str:
+    return f"{n} {one if n == 1 else more or one + 's'}"
+
+
+def own_work(repo: Path) -> list[str]:
+    """All of a clone's work that is on no remote: uncommitted changes, stashes, commits on no remote
+    branch, local branches without an upstream (and none of that name on a remote)."""
+    found = []
+    if changes := len(_git(repo, "status", "--porcelain").splitlines()):
+        found.append(_many(changes, "uncommitted change"))
+    if stashes := len(_git(repo, "stash", "list").splitlines()):
+        found.append(_many(stashes, "stash", "stashes"))
+    on_remote = set(_git(repo, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes").split())
+    ahead, alone = [], []
+    for line in _git(repo, "for-each-ref", f"--count={MAX_BRANCHES}", "--format=%(refname:short)\t%(upstream)", "refs/heads").splitlines():
+        name, _, upstream = line.partition("\t")
+        if n := int(_git(repo, "rev-list", "--count", f"refs/heads/{name}", "--not", "--remotes").strip() or 0):
+            ahead.append(f"{name} ({n})")
+        elif not upstream and name not in on_remote:
+            alone.append(name)
+    try:
+        detached = _git(repo, "rev-parse", "--symbolic-full-name", "HEAD").strip() == "HEAD"
+    except subprocess.CalledProcessError:
+        detached = False  # no commit yet
+    if detached and (n := int(_git(repo, "rev-list", "--count", "HEAD", "--not", "--remotes").strip() or 0)):
+        ahead.append(f"detached HEAD ({n})")
+    if ahead:
+        found.append("commits on no remote branch: " + ", ".join(ahead))
+    if alone:
+        found.append("branches without upstream: " + ", ".join(alone))
+    return found
+
+
+def unpushed_work(spec: UnpushedSpec) -> list[UnpushedWork]:
+    """The clones in these folders with work that is on no remote (a project moves to another runner)."""
+    root = config.WORKSPACES_ROOT.resolve()
+    out = []
+    for raw in spec.folders:
+        folder = Path(raw)
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        folder = folder.resolve()
+        if folder == root or not folder.is_relative_to(root):
+            continue
+        for repo in repos(folder):
+            try:
+                problems = own_work(repo)
+            except (subprocess.SubprocessError, OSError, ValueError) as exc:
+                problems = [f"git could not tell ({type(exc).__name__})"]
+            if problems:
+                out.append(UnpushedWork(folder=raw, repo=repo.relative_to(folder).as_posix(), problems=problems))
+    return out
 
 
 def _remove(paths: list[Path], what: str, result: CleanupResult) -> None:
