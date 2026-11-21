@@ -8,14 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
 from datetime import UTC, datetime, timedelta
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from claude_agent_sdk import (
@@ -518,6 +520,40 @@ class EventMapper:
 PROBE_MODEL = next(m.id for m in MODELS if m.tier == "small")
 
 
+# How long the SDK waits for a starting CLI's answer to "initialize" (ms; the SDK's default is 60 s).
+# On a busy host, a CLI with MCP servers resuming a long session took longer. The SDK reads the
+# variable from this process only for that wait; Claude Code itself does not use it.
+os.environ.setdefault("CLAUDE_CODE_STREAM_CLOSE_TIMEOUT", "300000")
+START_ATTEMPTS = 2
+
+
+def _start_timed_out(exc: BaseException) -> bool:
+    return "Control request timeout: initialize" in str(exc)
+
+
+@contextlib.asynccontextmanager
+async def _started(options: Callable[[], ClaudeAgentOptions], run_id: str) -> AsyncIterator[ClaudeSDKClient]:
+    """A connected client; a CLI that did not start in time is started once more (nothing ran yet)."""
+    for attempt in range(1, START_ATTEMPTS + 1):
+        client = ClaudeSDKClient(options=options())
+        try:
+            await client.__aenter__()
+        except Exception as exc:
+            with contextlib.suppress(Exception):
+                await client.__aexit__(None, None, None)  # ends the CLI that hangs in its start
+            if not _start_timed_out(exc):
+                raise
+            log.warning("Run %s: Claude Code did not start in time (attempt %d of %d)", run_id, attempt, START_ATTEMPTS)
+            continue
+        try:
+            yield client
+        finally:
+            await client.__aexit__(None, None, None)
+        return
+    seconds = max(int(os.environ["CLAUDE_CODE_STREAM_CLOSE_TIMEOUT"]) // 1000, 60)
+    raise ProviderError(f"Claude Code did not start within {seconds} s, twice; the host is probably overloaded. The turn can simply be tried again.")
+
+
 class ClaudeCodeProvider(Provider):
     name = "claude_code"
 
@@ -580,7 +616,7 @@ class ClaudeCodeProvider(Provider):
         got_result = False
         paused: ResultEvent | None = None  # an end that only paused the turn; the result if nothing follows
         try:
-            async with ClaudeSDKClient(options=self._options(spec, bridge, stderr_tail, background)) as client:
+            async with _started(lambda: self._options(spec, bridge, stderr_tail, background), spec.run_id) as client:
                 watch = UrgentNoticeWatch(client, spec.run_id)
                 watchers = [asyncio.create_task(watch.watch()), asyncio.create_task(background.watch(client))]
                 try:
@@ -607,6 +643,8 @@ class ClaudeCodeProvider(Provider):
                 finally:
                     for watcher in watchers:
                         watcher.cancel()
+        except ProviderError:
+            raise
         except Exception as exc:
             detail = "\n".join(stderr_tail)
             raise ProviderError(f"{type(exc).__name__}: {exc}\n{detail}".strip()) from exc

@@ -932,6 +932,41 @@ async def test_a_session_that_ends_while_the_agent_waits_keeps_its_last_answer(m
     assert [(e.text, e.is_error) for e in events if e.type == "result"] == [("Interim note", False)]
 
 
+class SlowStartClient(FakeSessionClient):
+    """A CLI that does not answer "initialize" in time for its first ``slow`` starts (a busy host)."""
+
+    slow = 0
+    exits = 0
+
+    async def __aenter__(self):
+        if SlowStartClient.slow:
+            SlowStartClient.slow -= 1
+            raise Exception("Control request timeout: initialize")
+        return self
+
+    async def __aexit__(self, *exc):
+        SlowStartClient.exits += 1
+        return False
+
+
+async def test_a_cli_that_starts_too_slowly_is_started_once_more(monkeypatch, workspaces):
+    """Seen in production at load 37 on 18 cores: two turns failed with "Control request timeout: initialize"."""
+    from plainboard_runner.providers import claude_code
+    from plainboard_runner.providers.base import ProviderError
+
+    monkeypatch.setattr(claude_code, "ClaudeSDKClient", SlowStartClient)
+    FakeSessionClient.turns, FakeSessionClient.asked = [([says("Done."), turn_end("Done")], [])], []
+    spec = RunSpec(**{**run_spec(workspaces, "Go"), "credentials": {"claude_auth_mode": "runner_login"}})
+    SlowStartClient.slow, SlowStartClient.exits = 1, 0
+    events = [event async for event in ClaudeCodeProvider().run(spec, ToolBridge(spec.bridge, workspaces))]
+    assert [e.text for e in events if e.type == "result"] == ["Done"] and SlowStartClient.exits == 2
+
+    SlowStartClient.slow, FakeSessionClient.asked = 2, []
+    with pytest.raises(ProviderError, match="did not start within 300 s, twice"):
+        [event async for event in ClaudeCodeProvider().run(spec, ToolBridge(spec.bridge, workspaces))]
+    assert FakeSessionClient.asked == []
+
+
 async def test_a_waiting_agent_gets_messages_at_once_and_stops_waiting_for_silent_work(monkeypatch):
     from plainboard_protocol import ResultEvent
 
