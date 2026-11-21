@@ -178,6 +178,7 @@ class RunManager:
         self._waiters: dict[int, asyncio.Future[str]] = {}
         self._orphan_asks: set[int] = set()
         self._job_waiters: dict[int, asyncio.Future[str]] = {}  # job id -> the turn waiting for its result
+        self._job_waiter_runs: dict[int, int | None] = {}  # job id -> the run of that turn
         # run id -> what its turn waits for right now ("job" or "ask"), each with the way to end that wait
         self._turn_waits: dict[int, list[tuple[str, asyncio.Future[str]]]] = {}
         self._waits_for: dict[int, dict[int, int]] = {}
@@ -1682,6 +1683,7 @@ class RunManager:
         Raises WaitEnded when someone needs the agent before that."""
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self._job_waiters[job_id] = future
+        self._job_waiter_runs[job_id] = run_id
         started = time.monotonic()
         try:
             return await self._wait_in_turn(run_id, "job", future, seconds)
@@ -1692,6 +1694,7 @@ class RunManager:
                 self._job_waits[run_id] = self._job_waits.get(run_id, 0.0) + time.monotonic() - started
             if self._job_waiters.get(job_id) is future:
                 del self._job_waiters[job_id]
+                self._job_waiter_runs.pop(job_id, None)
 
     async def job_ended(self, s: AsyncSession, job: Job, state: JobState | None) -> None:
         """Record the end of a job and tell the agent that started it. ``state`` None = job lost."""
@@ -1706,9 +1709,13 @@ class RunManager:
             text = f"{job_service.label(job)} finished with exit code {state.exit_code} after {took}. Log: {job.log_path}\nLast output:\n{redact(state.tail)}"
         timing_service.forget_cache()
         waiter = self._job_waiters.pop(job.id, None)
+        waiter_run = self._job_waiter_runs.pop(job.id, None)
         if waiter and not waiter.done():
-            waiter.set_result(text)  # its turn is still running and takes the result from here
-            return
+            waiter.set_result(text)
+            if waiter_run is None or waiter_run in self._running:
+                return  # its turn is still running and takes the result from here
+            # The tool call outlived its turn (the agent's side gave up on it, e.g. a proxy's timeout): nobody
+            # reads that result, and the assignment that stayed open for this job must still get its turn.
         await inbox.push(s, job.agent_id, text)
         if job.assignment_id:
             self._job_news.add(job.agent_id)
