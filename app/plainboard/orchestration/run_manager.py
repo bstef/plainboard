@@ -167,6 +167,7 @@ class RunManager:
         self.runners.on_connect = lambda _runner_id: self._wake.set()
         self.context = ContextManager(self.runners)
         self._uploads: dict[int, set[str]] = {}  # external runner -> attachment files it has
+        self._copying: dict[tuple[int, int], asyncio.Task[None]] = {}  # (runner, project) -> attachments being copied in the background
         self._orphan_checks: set[asyncio.Task[None]] = set()  # looks at turns of an external runner nobody follows
         self._running: dict[int, asyncio.Task[None]] = {}
         self._unlimited: set[int] = set()  # running turns outside the parallel limit: nested ones and managers'
@@ -212,6 +213,9 @@ class RunManager:
         if restarted:
             log.warning("Runner %s was started anew: what ran on it is lost", runner_id)
         self._uploads.pop(runner_id, None)  # it may have been rebuilt
+        for key, task in list(self._copying.items()):
+            if key[0] == runner_id:
+                task.cancel()
         check = asyncio.create_task(self._drop_orphans(runner_id), name=f"orphans-{runner_id}")  # one per connection
         self._orphan_checks.add(check)
         check.add_done_callback(self._orphan_checks.discard)
@@ -268,29 +272,53 @@ class RunManager:
                     )
                     await self.request_wake(s, manager.id)
 
-    async def _sync_uploads(self, project_id: int) -> None:
-        """An external runner has no uploads volume: the project's attachments are copied to it, each once."""
+    async def _sync_uploads(self, project_id: int, prompt: str = "") -> None:
+        """An external runner lacks the project's attachments when its uploads are on no volume or it is
+        new: they are copied to it, each once. What the turn's prompt names is copied before the turn
+        starts, the rest in the background, the newest first."""
         runner_id = self.runners.runner_id(project_id)
         if runner_id is None:
             return
         async with self._sm() as s:
-            names = list(await s.scalars(select(Attachment.storage_name).where(Attachment.project_id == project_id)))
+            names = list(await s.scalars(select(Attachment.storage_name).where(Attachment.project_id == project_id).order_by(Attachment.id.desc())))
         have = self._uploads.setdefault(runner_id, set())
-        wanted = [n for n in names if n not in have]
-        if not wanted:
+        if not (wanted := [n for n in names if n not in have]):
             return
-        client = self.runners.client(runner_id)
         try:
-            missing = set(await client.missing_uploads(wanted))
-            for name in wanted:
-                if name in missing:
-                    path = get_config().uploads_dir / name
-                    if not path.is_file():
-                        continue
-                    await client.put_upload(name, await asyncio.to_thread(path.read_bytes))
-                have.add(name)
+            missing = set(await self.runners.client(runner_id).missing_uploads(wanted))
         except RunnerError as exc:
             log.warning("Attachments not copied to runner %s: %s", runner_id, exc)
+            return
+        have.update(n for n in wanted if n not in missing)
+        if first := [n for n in wanted if n in missing and n in prompt]:
+            await self._copy_uploads(runner_id, project_id, first, have)
+        key = (runner_id, project_id)
+        if key not in self._copying and (rest := [n for n in wanted if n in missing and n not in have]):
+            task = asyncio.create_task(self._copy_uploads(runner_id, project_id, rest, have), name=f"uploads-{runner_id}-{project_id}")
+            self._copying[key] = task
+            task.add_done_callback(lambda _t: self._copying.pop(key, None))
+
+    async def _copy_uploads(self, runner_id: int, project_id: int, names: list[str], have: set[str]) -> None:
+        """Copy these attachments to the runner; the chat shows how far it got ("uploads.copying")."""
+        client = self.runners.client(runner_id)
+        total, shown = len(names), 0.0
+        bus.publish(project_id, "uploads.copying", {"done": 0, "total": total})
+        try:
+            for done, name in enumerate(names, 1):
+                if name not in have:
+                    path = get_config().uploads_dir / name
+                    if path.is_file():
+                        await client.put_upload(name, await asyncio.to_thread(path.read_bytes))
+                    have.add(name)
+                if done == total or time.monotonic() - shown >= 1:
+                    shown = time.monotonic()
+                    bus.publish(project_id, "uploads.copying", {"done": done, "total": total})
+        except RunnerError as exc:
+            log.warning("Attachments not copied to runner %s: %s", runner_id, exc)
+            bus.publish(project_id, "uploads.copying", {"done": 0, "total": 0})
+        except asyncio.CancelledError:
+            bus.publish(project_id, "uploads.copying", {"done": 0, "total": 0})
+            raise
 
     async def start(self) -> None:
         async with self._sm() as s:
@@ -389,9 +417,10 @@ class RunManager:
     async def stop(self) -> None:
         if self._dispatcher:
             self._dispatcher.cancel()
-        for task in list(self._running.values()):
+        tasks = [*self._running.values(), *self._copying.values()]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._running.values(), return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def context_for_token(self, token: str, run_id: int) -> RunContext | None:
         ctx = self._tokens.get(token)
@@ -1124,7 +1153,7 @@ class RunManager:
             if prepared is None:
                 return
             spec, ctx = prepared
-            await self._sync_uploads(ctx.project_id)
+            await self._sync_uploads(ctx.project_id, spec.prompt)
             for attempt in range(RUNNER_TRIES):
                 try:
                     self._streams[run_id] = time.monotonic()

@@ -293,7 +293,7 @@ def _upload(name: str):
 
 @app.post("/uploads/missing")
 async def missing_uploads(names: list[str]) -> list[str]:
-    """An external runner has no uploads volume: which of the project's attachments it lacks (the app sends them)."""
+    """Which of the project's attachments an external runner lacks (the app sends them; they stay on its uploads volume)."""
     return [name for name in names if _UPLOAD_NAME.fullmatch(name) and ".." not in name and not _upload(name).is_file()]
 
 

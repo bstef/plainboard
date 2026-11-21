@@ -4,7 +4,7 @@ import { ArrowUp, ChevronDown, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, 
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { useStreamingText } from "../../api/events";
+import { useCopying, useStreamingText } from "../../api/events";
 import { qk, useConversation, useMe, useRuns, useSettings } from "../../api/queries";
 import type { Attachment, Conversation } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
@@ -42,6 +42,7 @@ export function ChatPanel({
   const conversation = useConversation(agentId);
   const runs = useRuns(project.id);
   const streaming = useStreamingText(agentId);
+  const copying = useCopying(project.id);
   const people = usePeople();
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -233,7 +234,9 @@ export function ChatPanel({
         className={column}
         status={
           activeRuns.length > 0
-            ? t(running ? "chat.working" : "chat.waiting", { name: agent.name })
+            ? running && copying
+              ? t("chat.copying", { name: agent.name, done: copying.done, total: copying.total })
+              : t(running ? "chat.working" : "chat.waiting", { name: agent.name })
             : agent.running_jobs > 0
               ? t("chat.jobsRunning", { count: agent.running_jobs })
               : undefined

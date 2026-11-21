@@ -235,7 +235,7 @@ class RunnerClient:
         return TidyResult.model_validate(resp.json())
 
     async def missing_uploads(self, names: list[str]) -> list[str]:
-        """Which of these attachment files the runner does not have (an external runner has no uploads volume)."""
+        """Which of these attachment files an external runner does not have (yet)."""
         return [str(n) for n in (await self._post_job("/uploads/missing", names)).json()]
 
     async def put_upload(self, name: str, content: bytes) -> None:

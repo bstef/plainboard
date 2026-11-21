@@ -964,7 +964,7 @@ def test_a_turn_still_being_handed_to_the_runner_is_not_lost(client, project, mo
 
     copying = {"done": False, "started": False}
 
-    async def slow_copy(self, project_id: int) -> None:
+    async def slow_copy(self, project_id: int, prompt: str = "") -> None:
         copying["started"] = True
         while not copying["done"]:
             await asyncio.sleep(0.01)
@@ -981,6 +981,60 @@ def test_a_turn_still_being_handed_to_the_runner_is_not_lost(client, project, mo
     copying["done"] = True
     wait_for(lambda: idle(client, pid))
     assert [r["status"] for r in runs_of(client, pid, agent_id=manager["id"])] == ["succeeded"]
+
+
+def test_attachments_the_prompt_names_are_copied_first_the_rest_in_the_background(client, project, monkeypatch):
+    """An external runner without the project's attachments: the turn waits only for those its prompt
+    names; the rest follows in the background, the newest first, each once, and what the runner already
+    has is not sent again."""
+    import asyncio
+
+    from plainboard.config import get_config
+    from plainboard.models import Attachment
+
+    rm = client.app_ref.state.runs
+    gate = asyncio.Event()
+
+    class External:
+        held = {"c.txt"}
+        puts: list[str] = []
+
+        async def missing_uploads(self, names):
+            return [n for n in names if n not in self.held]
+
+        async def put_upload(self, name, content):
+            if self.puts:
+                await gate.wait()
+            self.puts.append(name)
+            self.held.add(name)
+
+    external = External()
+    monkeypatch.setattr(rm.runners, "runner_id", lambda _pid: 99)
+    monkeypatch.setattr(rm.runners, "client", lambda _rid: external)
+    uploads = get_config().uploads_dir
+    uploads.mkdir(parents=True, exist_ok=True)
+
+    async def add() -> None:
+        async with rm._sm() as s:
+            for name in ("a.txt", "b.txt", "c.txt", "d.txt"):
+                (uploads / name).write_text(name)
+                s.add(Attachment(project_id=project["id"], filename=name, content_type="text/plain", size=5, storage_name=name))
+            await s.commit()
+
+    client.portal.call(add)
+    client.portal.call(rm._sync_uploads, project["id"], "Look at /uploads/b.txt")
+    assert external.puts == ["b.txt"]
+    client.portal.call(rm._sync_uploads, project["id"], "")  # a second turn starts no second copy
+    assert len(rm._copying) == 1
+
+    async def release() -> None:
+        gate.set()
+
+    client.portal.call(release)
+    wait_for(lambda: not rm._copying)
+    assert external.puts == ["b.txt", "d.txt", "a.txt"]
+    client.portal.call(rm._sync_uploads, project["id"], "")
+    assert external.puts == ["b.txt", "d.txt", "a.txt"]
 
 
 def test_working_teammate_is_told_to_wrap_up_not_aborted(client, project):
