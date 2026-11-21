@@ -13,6 +13,8 @@ services:
     volumes:
       - workspaces:/workspaces
       - agent-home:/home/agent
+      - uploads:/uploads                               # the project's attachments, copied once
 volumes:
   workspaces:
   agent-home:
+  uploads:

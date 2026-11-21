@@ -31,6 +31,27 @@ export function useStreamingText(agentId: number | null): string {
   return useSyncExternalStore(streamStore.subscribe, () => (agentId === null ? "" : (streams[agentId] ?? "")));
 }
 
+// --- attachments being copied to the project's external runner (live, not persisted) --------
+
+type Copying = { done: number; total: number };
+let copying: Record<number, Copying> = {};
+const copyListeners = new Set<() => void>();
+
+function setCopying(pid: number, value: Copying) {
+  const { [pid]: _, ...rest } = copying;
+  copying = value.done < value.total ? { ...rest, [pid]: value } : rest;
+  copyListeners.forEach((l) => l());
+}
+
+function subscribeCopying(listener: () => void) {
+  copyListeners.add(listener);
+  return () => copyListeners.delete(listener);
+}
+
+export function useCopying(pid: number): Copying | undefined {
+  return useSyncExternalStore(subscribeCopying, () => copying[pid]);
+}
+
 // --- websocket event handling ----------------------------------------------------------------
 
 interface ServerEvent {
@@ -114,6 +135,9 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
       break;
     case "pause":
       qc.invalidateQueries({ queryKey: qk.pause });
+      break;
+    case "uploads":
+      setCopying(pid, data);
       break;
   }
 }

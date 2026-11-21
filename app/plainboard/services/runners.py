@@ -44,7 +44,7 @@ def command(url: str, token: str) -> str:
         "docker run -d --name plainboard-runner --restart unless-stopped \\\n"
         f"  -e PLAINBOARD_URL={url} \\\n"
         f"  -e PLAINBOARD_RUNNER_TOKEN={token} \\\n"
-        "  -v plainboard-workspaces:/workspaces -v plainboard-home:/home/agent \\\n"
+        "  -v plainboard-workspaces:/workspaces -v plainboard-home:/home/agent -v plainboard-uploads:/uploads \\\n"
         f"  {IMAGE}"
     )
 
@@ -62,9 +62,11 @@ def compose(url: str, token: str) -> str:
         "    volumes:\n"
         "      - workspaces:/workspaces\n"
         "      - agent-home:/home/agent\n"
+        "      - uploads:/uploads\n"
         "volumes:\n"
         "  workspaces:\n"
         "  agent-home:\n"
+        "  uploads:\n"
     )
 
 
