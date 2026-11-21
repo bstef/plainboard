@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from conftest import agents_by_slug, idle, wait_for
 from plainboard_protocol import PullRequestCheck
-from test_flow import chat, delegate, hand_over, land_tick_at, make_member, manager_of, repairs, team_with_branches, tool_results
+from test_flow import chat, delegate, hand_over, land_tick_at, make_member, manager_of, team_with_branches, tool_results
 
 
 def found(client, pid: int) -> dict[str, dict]:
@@ -62,9 +62,9 @@ def test_repairs_that_wait_stuck_branches_and_full_notes_are_found_and_a_branch_
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a", "feat-b"])
     dev2, manager = agents_by_slug(client, pid)["dev2"], manager_of(client, pid)
-    # feat-b conflicts; its author is in the middle of long work, so the repair waits behind that.
-    chat(client, manager["id"], delegate("dev2", "Long work", "TOOL start_job " + json.dumps({"command": "make all"})))
-    wait_for(lambda: idle(client, pid) and fake.job_specs)
+    # feat-b conflicts; its author is in the middle of a long turn, so the repair waits behind that.
+    chat(client, manager["id"], delegate("dev2", "Long work", "HOLD"))
+    wait_for(lambda: any(a["agent_id"] == dev2["id"] and a["status"] == "running" for a in client.get(f"/api/projects/{pid}/assignments").json()))
     fake.conflicting = {"feat-b"}
     client.portal.call(client.app_ref.state.landing.tick)
     wait_for(lambda: len(client.get(f"/api/projects/{pid}/assignments").json()) == 2)  # the repair is queued: it waits behind the long work
@@ -93,6 +93,8 @@ def test_repairs_that_wait_stuck_branches_and_full_notes_are_found_and_a_branch_
     chat(client, manager["id"], "TOOL forget_branch " + json.dumps({"repository": "api", "branch": "old-work"}))
     wait_for(lambda: "off the list" in tool_results(client, manager["id"])[-1])
     assert "Branch old-work is off the list (it was stuck)" in tool_results(client, manager["id"])[-1] and "stuck" not in found(client, pid)
+    fake.released = True
+    wait_for(lambda: idle(client, pid))
 
 
 def test_refused_calls_and_a_slow_quick_check_are_found(client, project):
