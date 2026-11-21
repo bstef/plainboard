@@ -223,7 +223,8 @@ async def add_comment(ctx: ToolContext, args: CommentArgs) -> str:
     assignment = await ctx.session.get(Assignment, ctx.run.assignment_id) if ctx.run.assignment_id else None
     if assignment and assignment.task_id == task.id:
         raise ToolError(f"Not added: ticket #{args.number} shows the report of your assignment, so say it there, once.")
-    await board_service.add_comment(ctx.session, task, args.body, author_kind="agent", agent_id=ctx.agent.id)
+    comment = await board_service.add_comment(ctx.session, task, args.body, author_kind="agent", agent_id=ctx.agent.id)
+    await ctx.runs.comment_added(ctx.session, task, comment)
     return f"Commented on #{args.number}."
 
 

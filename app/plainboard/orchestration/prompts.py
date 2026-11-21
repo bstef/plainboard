@@ -552,6 +552,17 @@ def comment_lines(comments: list[Comment], names: dict[int, str], max_len: int) 
     return out
 
 
+COMMENT_UPDATE_CHARS = 1000
+
+
+def comment_update(author: str, number: int, body: str) -> str:
+    """A new comment on a ticket, for the agents working on it (and the manager, if the user wrote it)."""
+    body = body.strip()
+    if len(body) > COMMENT_UPDATE_CHARS:
+        body = truncate(body, COMMENT_UPDATE_CHARS) + f" [cut: get_task {number} shows it whole]"
+    return f"{author} commented on ticket #{number}: {body}"
+
+
 def person(author: str | None) -> str:
     """Who did something in the UI, as an agent reads it. With a name where several people work in
     the project (``users.author``): told only "User", an agent puts down the one name it knows."""

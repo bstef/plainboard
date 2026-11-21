@@ -1,4 +1,4 @@
-from conftest import ADMIN_PASSWORD, POSTGRES, agents_by_slug
+from conftest import ADMIN_PASSWORD, POSTGRES, agents_by_slug, idle, wait_for
 
 
 def test_project_gets_a_manager(client, project):
@@ -80,6 +80,7 @@ def test_ticket_crud_comments_attachments(client, project):
     from plainboard.config import get_config
 
     assert len(list(get_config().uploads_dir.iterdir())) == 1
+    wait_for(lambda: idle(client, pid))  # the user's comment woke the manager
     assert client.delete(f"/api/projects/{pid}").status_code == 204
     assert list(get_config().uploads_dir.iterdir()) == []
 

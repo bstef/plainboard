@@ -40,6 +40,7 @@ from ..models import (
     Assignment,
     AssignmentStatus,
     Attachment,
+    Comment,
     Conversation,
     Decision,
     Job,
@@ -175,6 +176,7 @@ class RunManager:
         self._unlimited: set[int] = set()  # running turns outside the parallel limit: nested ones and managers'
         self._busy_agents: set[int] = set()
         self._job_news: set[int] = set()  # agents whose open assignment has a job result they have not read yet
+        self._comment_news: dict[int, set[int]] = {}  # agent -> its open assignments with a ticket comment it has not read yet
         self._job_waits: dict[int, float] = {}  # run id -> seconds its turn spent waiting for jobs
         self._tokens: dict[str, RunContext] = {}
         self._waiters: dict[int, asyncio.Future[str]] = {}
@@ -1254,6 +1256,7 @@ class RunManager:
 
             updates = await inbox.consume(s, agent.id)
             self._job_news.discard(agent.id)
+            self._comment_news.pop(agent.id, None)
             files = await board_service.chat_attachments(s, project.id, run.attachment_ids) if run.attachment_ids else []
             if run.input_text or files:
                 text = run.input_text
@@ -1561,10 +1564,11 @@ class RunManager:
         await board_service.publish_task_id(s, run.task_id)
 
     async def _waits_for_job(self, s: AsyncSession, assignment: Assignment) -> bool:
-        """Whether an assignment has a job running, or a job result its agent has not read yet."""
+        """Whether an assignment has a job running, or a job result or ticket comment its agent has not read yet."""
         if await job_service.running_for_assignment(s, assignment.id):
             return True
-        return assignment.agent_id in self._job_news and bool(await inbox.pending_count(s, assignment.agent_id))
+        unread = assignment.agent_id in self._job_news or assignment.id in self._comment_news.get(assignment.agent_id, ())
+        return unread and bool(await inbox.pending_count(s, assignment.agent_id))
 
     async def _assignment_turn_ended(self, s: AsyncSession, run: Run, assignment: Assignment, agent: Agent, project: Project, outcome_text: str) -> None:
         """Close the assignment and send its one report, unless it still waits for a job of its own:
@@ -1640,6 +1644,30 @@ class RunManager:
         recipient = decision.requested_by_agent_id or (await agent_service.get_manager(s, project.id)).id
         await inbox.push(s, recipient, f'{prompts.person(author)} decided on ticket #{task.number} ("{decision.question}"): {decision_service.answer_summary(decision)}')
         await self._maybe_wake(s, project, recipient)
+
+    async def comment_added(self, s: AsyncSession, task: Task, comment: Comment) -> None:
+        """A comment reaches the agents with an open assignment on its ticket (not its author), and the manager
+        when the user wrote it. The assignment it arrives during stays open until its agent has read it."""
+        project = await s.get(Project, task.project_id)
+        if project is None:
+            return
+        author_agent = await s.get(Agent, comment.author_agent_id) if comment.author_agent_id else None
+        author = author_agent.name if author_agent else prompts.person(comment.author_name)
+        text = prompts.comment_update(author, task.number, comment.body)
+        recipients: list[int] = []
+        open_ = (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)
+        for assignment in await s.scalars(select(Assignment).where(Assignment.task_id == task.id, Assignment.status.in_(open_)).order_by(Assignment.id)):
+            if assignment.agent_id != comment.author_agent_id:
+                self._comment_news.setdefault(assignment.agent_id, set()).add(assignment.id)
+                if assignment.agent_id not in recipients:
+                    recipients.append(assignment.agent_id)
+        if comment.author_kind == "user":
+            manager = await agent_service.get_manager(s, project.id)
+            if manager.id not in recipients:
+                recipients.append(manager.id)
+        for agent_id in recipients:
+            await inbox.push(s, agent_id, text)
+            await self._maybe_wake(s, project, agent_id)
 
     async def user_action_done(self, s: AsyncSession, task: Task, action: str, note: str, author: str | None = None) -> None:
         """Tell the manager that the user did what the ticket was waiting for."""

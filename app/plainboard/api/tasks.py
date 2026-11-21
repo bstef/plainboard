@@ -137,10 +137,13 @@ async def list_comments(task_id: int, session: Session, before: int | None = Non
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut, status_code=201)
-async def add_comment(task_id: int, body: CommentCreate, session: Session, who: Who) -> CommentOut:
+async def add_comment(task_id: int, body: CommentCreate, session: Session, runs: Runs, who: Who) -> CommentOut:
     task = await board_service.get_task(session, task_id)
     author = await user_service.author(session, who.user, task.project_id)
-    return CommentOut.model_validate(await board_service.add_comment(session, task, body.body, author_name=author))
+    comment = await board_service.add_comment(session, task, body.body, author_name=author)
+    out = CommentOut.model_validate(comment)
+    await runs.comment_added(session, task, comment)
+    return out
 
 
 @router.post("/tasks/{task_id}/attachments", response_model=list[AttachmentOut], status_code=201)
