@@ -137,6 +137,7 @@ class Runner(Timestamps, Base):
     version: Mapped[str] = mapped_column(String(64), default="", server_default="")  # the commit it said it runs, last time
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
     away_told_at: Mapped[datetime | None] = mapped_column(DateTime)  # its managers heard it is away (once per absence)
+    update_told: Mapped[str] = mapped_column(String(80), default="", server_default="")  # its managers heard this about its self-update ("failed:<commit>", "manual:<commit>")
 
 
 # --- projects & agents ----------------------------------------------------------------------

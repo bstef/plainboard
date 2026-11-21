@@ -8,7 +8,8 @@ Control messages are JSON text frames, each with the stream it is about (``id``,
                     {"t": "ws", "id", "port", "path", "headers", "subprotocols"}
                     {"t": "cancel", "id"}                 the app no longer wants the response
                     {"t": "close", "id", "code"}          a socket ends
-    runner -> app   {"t": "hello", "version", "protocol", "instance"} first, once (instance: new with every start)
+    runner -> app   {"t": "hello", "version", "protocol", "instance", "update"} first, once (instance: new with every start;
+                                                          update: {"failed": {"commit", "reason", "at"}} after a self-update was rolled back)
                     {"t": "res", "id", "status", "headers"} then body data, then {"t": "end", "id"}
                     {"t": "ws_ok", "id", "subprotocol"}
                     {"t": "error", "id", "message", "connect"}  ``connect``: nothing was reached

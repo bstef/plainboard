@@ -14,6 +14,9 @@ COPY app/pyproject.toml /src/app/pyproject.toml
 COPY app/plainboard /src/app/plainboard
 RUN pip install --no-cache-dir /src/protocol "/src/app[dev]"
 COPY app/tests /src/app/tests
+# The runner's code of this version: external runners update themselves with it (services/runner_update.py).
+COPY runner/pyproject.toml runner/Dockerfile runner/launcher.py /src/runner/
+COPY runner/plainboard_runner /src/runner/plainboard_runner
 
 FROM backend AS final
 COPY --from=frontend /frontend/dist /app/static

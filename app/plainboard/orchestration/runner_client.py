@@ -35,6 +35,10 @@ class RunnerStreamBroken(RunnerError):
         self.events = events
 
 
+class UpdateRefused(RunnerError):
+    """The runner can't take this version by itself (it needs a new image, or can't update itself at all)."""
+
+
 def unreachable(exc: BaseException) -> str:
     """``Runner unreachable: ExceptionType: text``; some httpx errors (a reset connection) have no text at all."""
     text = str(exc).strip()
@@ -97,6 +101,31 @@ class RunnerClient:
             await self._client.post(f"/runs/{run_id}/cancel")
         except httpx.HTTPError:
             pass
+
+    async def stage_update(self, data: bytes, sha256: str, commit: str, timeout: float = 90) -> None:
+        """An external runner's self-update (services/runner_update.py): it checks and unpacks the code.
+        UpdateRefused: it can't take it; RunnerError: it did not arrive whole or the line broke."""
+        try:
+            resp = await self._client.post("/update", content=data, headers={"x-plainboard-sha256": sha256, "x-plainboard-commit": commit}, timeout=timeout)
+        except httpx.HTTPError as exc:
+            raise RunnerError(unreachable(exc)) from exc
+        if resp.status_code in (404, 405):
+            raise UpdateRefused("its image is from before runners could update themselves")
+        if resp.status_code >= 400:
+            try:
+                detail = str(resp.json().get("detail"))
+            except (ValueError, AttributeError):
+                detail = resp.text
+            raise (UpdateRefused if resp.status_code == 409 else RunnerError)(detail[:300])
+
+    async def restart_update(self, commit: str) -> None:
+        """The staged update starts: the runner restarts."""
+        try:
+            resp = await self._client.post("/update/restart", json={"commit": commit}, timeout=30)
+        except httpx.HTTPError as exc:
+            raise RunnerError(unreachable(exc)) from exc
+        if resp.status_code >= 400:
+            raise RunnerError(resp.text[:300])
 
     async def active_runs(self) -> set[int]:
         """The turns the runner is running right now."""
