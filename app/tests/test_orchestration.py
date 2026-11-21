@@ -1625,3 +1625,59 @@ async def test_the_runner_client_names_a_broken_stream():
         async for _ in client.stream_run(spec):
             pass
     assert caught.value.events == 1
+
+
+def test_a_users_comment_reaches_the_assignee_and_the_manager_and_keeps_the_final_turn_open(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Build the API"}).json()
+    work = json.dumps({"agent": "dev", "title": "Work", "instructions": "HOLD\nSAY first report", "ticket_number": 1})
+    chat(client, manager["id"], f"TOOL delegate {work}")
+    turn = wait_for(lambda: next((r for r in runs_of(client, pid, agent_id=dev["id"]) if r["status"] == "running"), None))
+    wait_for(lambda: turn["id"] in runner(client).active and not runs_of(client, pid, agent_id=manager["id"], active=True))
+
+    # Written while the assignment's (final) turn runs: the agent reads it before the assignment counts as finished.
+    resp = client.post(f"/api/tasks/{ticket['id']}/comments", json={"body": "Please also check the limits"})
+    assert resp.status_code == 201, resp.text
+    runner(client).released = True
+    wait_for(lambda: idle(client, pid) and client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "done")
+    turns = [r for r in runs_of(client, pid, agent_id=dev["id"]) if r["assignment_id"]]
+    assert len(turns) == 2
+    said = "commented on ticket #1: Please also check the limits"
+    later = next(s.prompt for s in runner(client).specs if int(s.run_id) == next(r["id"] for r in turns if r["id"] != turn["id"]))
+    first = next(s.prompt for s in runner(client).specs if int(s.run_id) == turn["id"])
+    assert said in later and said not in first
+    manager_turns = {r["id"] for r in runs_of(client, pid, agent_id=manager["id"])}
+    assert any(said in s.prompt for s in runner(client).specs if int(s.run_id) in manager_turns)  # the user wrote it
+
+
+def test_an_agents_comment_reaches_every_assignee_but_not_its_author(client, project):
+    from plainboard.orchestration.prompts import comment_update
+
+    pid = project["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    make_dev(client, pid)
+    make_dev(client, pid, name="QA", role="Tester")
+    manager = agents_by_slug(client, pid)["manager"]
+    client.post(f"/api/projects/{pid}/tasks", json={"title": "Build the API"})
+    lines = [
+        "TOOL delegate " + json.dumps({"agent": "dev", "title": "Build", "instructions": "SAY built", "ticket_number": 1}),
+        "TOOL delegate " + json.dumps({"agent": "qa", "title": "Test", "instructions": "SAY tested", "ticket_number": 1, "parallel": True}),
+        "TOOL add_comment " + json.dumps({"number": 1, "body": "The schema changed"}),
+    ]
+    chat(client, manager["id"], "\n".join(lines))
+    wait_for(lambda: not runs_of(client, pid, agent_id=manager["id"], active=True))
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 3}})
+    client.app_ref.state.runs._wake.set()
+    wait_for(lambda: idle(client, pid) and {a["status"] for a in client.get(f"/api/projects/{pid}/assignments").json()} == {"done"})
+    agents = agents_by_slug(client, pid)
+    said = f"{manager['name']} commented on ticket #1: The schema changed"
+    for slug in ("dev", "qa"):
+        ids = {r["id"] for r in runs_of(client, pid, agent_id=agents[slug]["id"])}
+        assert any(said in s.prompt for s in runner(client).specs if int(s.run_id) in ids), slug
+    manager_turns = {r["id"] for r in runs_of(client, pid, agent_id=manager["id"])}
+    assert not any("commented on ticket" in s.prompt for s in runner(client).specs if int(s.run_id) in manager_turns)
+
+    cut = comment_update("User", 7, "x" * 5000)
+    assert len(cut) < 1100 and cut.endswith("[cut: get_task 7 shows it whole]")
