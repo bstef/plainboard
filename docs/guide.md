@@ -317,7 +317,13 @@ connects out to PlainBoard, so it needs no open port, no TLS and no domain.
    command, behind "Use docker run instead".)
 3. In the project's settings, under **Runner**, choose it.
 
-To update a runner: `docker compose pull && docker compose up -d` in its folder.
+A runner updates itself to PlainBoard's version: when PlainBoard runs a newer one, it sends the
+runner its code through the runner's connection, then lets it run idle (new turns and jobs of its
+projects wait, running turns finish, running jobs, previews and check runs get up to 30 minutes; what
+still runs then ends, and the project's manager hears it), and the runner restarts with it (Settings >
+Runners shows "Updating…"). If the new version does not start, the runner goes back to its old one. When
+an update needs a new image (other system tools or Python packages), or fails, the project's manager
+hears it once; then update it by hand: `docker compose pull && docker compose up -d` in its folder.
 
 Everything of the project then runs there: its agents' turns, background jobs, check runs of its
 branches, previews and the browser window (both reach PlainBoard through the runner's connection).
@@ -332,7 +338,7 @@ it stopped, jobs and previews keep running. If the runner itself restarts, what 
 a restart of the built-in runner and goes on with the next turn. While it is away, new turns, check runs
 and branch tidying wait until it is back. After 10 minutes away the
 project's manager hears it once. A runner that runs another version than PlainBoard is marked in the
-list: update it with `docker compose pull && docker compose up -d`. A new token
+list until it has updated itself. A new token
 (key icon) ends the old one at once; removing a runner is possible once no project uses it.
 
 The address in the file is the one you opened PlainBoard at. It has to be reachable from the

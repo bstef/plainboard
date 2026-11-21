@@ -24,6 +24,8 @@ from pathlib import Path
 import httpx
 from plainboard_protocol.tunnel import BYTES, CLOSE_PROTOCOL, CLOSE_REFUSED, CLOSE_REPLACED, DATA, DEAD_SECONDS, HOP_HEADERS, PING_SECONDS, PROTOCOL, TEXT, pack, unpack
 from websockets.asyncio.client import ClientConnection, connect
+
+from . import selfupdate
 from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
 log = logging.getLogger("plainboard.runner.connect")
@@ -50,6 +52,8 @@ def socket_url(app_url: str) -> str:
 
 
 def commit() -> str:
+    if own := selfupdate.code_commit():  # code that came by update
+        return own
     try:
         return COMMIT_FILE.read_text().strip()
     except OSError:
@@ -80,7 +84,7 @@ class Session:
         return self._own_port if port is None else int(port)
 
     async def run(self) -> None:
-        await self._json({"t": "hello", "version": commit(), "protocol": PROTOCOL, "instance": INSTANCE})
+        await self._json({"t": "hello", "version": commit(), "protocol": PROTOCOL, "instance": INSTANCE, "update": selfupdate.status()})
         pinger = asyncio.create_task(self._ping())
         reader = asyncio.create_task(self._read())
         try:
@@ -93,8 +97,12 @@ class Session:
             await self._client.aclose()
 
     async def _read(self) -> None:
+        confirmed = False
         async for frame in self._ws:
             self.heard = time.monotonic()
+            if not confirmed:  # PlainBoard took the hello: an update on trial works
+                confirmed = True
+                await asyncio.to_thread(selfupdate.confirm)
             self._dispatch(frame)
 
     async def _ping(self) -> None:

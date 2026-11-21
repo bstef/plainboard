@@ -676,6 +676,7 @@ export interface RunnerInfo {
   connected: boolean;
   version: string;
   version_ok: boolean;
+  updating: boolean;
   last_seen_at: string | null;
   created_at: string;
   projects: string[];

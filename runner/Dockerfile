@@ -58,11 +58,22 @@ ENV BASH_ENV=/etc/plainboard-env.sh
 COPY protocol /src/protocol
 COPY runner/pyproject.toml /src/runner/pyproject.toml
 COPY runner/plainboard_runner /src/runner/plainboard_runner
+# PlainBoard's own code is not in the venv but in /opt/plainboard/current (plainboard.pth), so that an
+# external runner can update it by itself (plainboard_runner/selfupdate.py, launcher.py).
 RUN pip install --no-cache-dir /src/protocol "/src/runner[dev]" \
+    && pip uninstall -y plainboard-runner plainboard-protocol \
+    && mkdir -p /opt/plainboard/image \
+    && cp -r /src/runner/plainboard_runner /src/protocol/plainboard_protocol /opt/plainboard/image/ \
+    && ln -s image /opt/plainboard/current \
+    && echo /opt/plainboard/current > $VIRTUAL_ENV/lib/python3.12/site-packages/plainboard.pth \
+    && chown -R agent:agent /opt/plainboard \
     && ln -s $VIRTUAL_ENV/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude /usr/local/bin/claude
 COPY runner/tests /src/runner/tests
 # The commit this image is built from: an external runner tells PlainBoard, which shows a mismatch.
 RUN --mount=type=bind,target=/ctx python -I /ctx/app/plainboard/services/version.py /ctx/.git > /etc/plainboard-commit
+
+# A self-update compares these with the new version's: when they differ, it needs a new image.
+COPY runner/Dockerfile runner/launcher.py /usr/local/lib/plainboard/
 
 USER agent
 WORKDIR /workspaces
@@ -70,4 +81,4 @@ EXPOSE 8090
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"
 # No WebSocket compression: its only socket carries pictures of the browser window, compressed already.
-CMD ["uvicorn", "plainboard_runner.main:app", "--host", "0.0.0.0", "--port", "8090", "--ws-per-message-deflate", "false", "--timeout-keep-alive", "75"]
+CMD ["python", "-I", "/usr/local/lib/plainboard/launcher.py", "uvicorn", "plainboard_runner.main:app", "--host", "0.0.0.0", "--port", "8090", "--ws-per-message-deflate", "false", "--timeout-keep-alive", "75"]

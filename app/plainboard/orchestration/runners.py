@@ -40,6 +40,7 @@ class Runners:
         self.hello: dict[int, dict] = {}  # what each connected runner said when it connected
         self.away_since: dict[int, float] = {}  # runners that were connected and are not (monotonic)
         self.instances: dict[int, str] = {}  # the instance each runner last said it is: a new one is a restart
+        self.updating: set[int] = set()  # runners that run idle to update themselves (runner_updates.py)
         self.on_connect: Callable[[int], None] | None = None  # the dispatcher starts what waited
         self.make_client: Callable[[int], Any] = self._tunnel_client
 
@@ -84,6 +85,13 @@ class Runners:
         """Turns of the project can start: its runner is there. Else they wait in the queue."""
         return self.connected(self.runner_id(project_id))
 
+    def updating_for(self, project_id: int) -> bool:
+        return self.runner_id(project_id) in self.updating
+
+    def accepts(self, project_id: int) -> bool:
+        """New turns and jobs of the project can start: its runner is there and not about to update itself."""
+        return self.ready(project_id) and not self.updating_for(project_id)
+
     def attach(self, runner_id: int, tunnel: Tunnel, hello: dict) -> tuple[Tunnel | None, bool]:
         """A runner connected. Returns the connection it replaces (an older one with the same token, which
         is closed: the newest wins), and whether the runner was started anew since it was last seen
@@ -117,6 +125,7 @@ class Runners:
         self.hello.pop(runner_id, None)
         self.away_since.pop(runner_id, None)
         self.instances.pop(runner_id, None)
+        self.updating.discard(runner_id)
         self._previews.pop(runner_id, None)
 
     # --- what is not a RunnerClient call: previews and sockets ------------------------------------

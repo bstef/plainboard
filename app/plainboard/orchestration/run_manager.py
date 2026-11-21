@@ -80,6 +80,7 @@ from ..tools import registry
 from . import inbox, prompts
 from .context import ContextManager, workspace_path
 from .runner_client import RunnerClient, RunnerError, RunnerStreamBroken, RunnerUnavailable
+from .runner_updates import RunnerUpdates
 from .runners import Runners
 from .tunnel import Tunnel
 
@@ -164,6 +165,7 @@ class RunManager:
         self._sm = sessionmaker
         self.runner = runner  # the built-in runner: what is the installation's, not a project's
         self.runners = Runners(runner)  # each project's runner (orchestration/runners.py)
+        self.updates = RunnerUpdates(self)  # external runners update themselves when free
         self.runners.on_connect = lambda _runner_id: self._wake.set()
         self.context = ContextManager(self.runners)
         self._uploads: dict[int, set[str]] = {}  # external runner -> attachment files it has
@@ -207,6 +209,7 @@ class RunManager:
         """An external runner connected (api/runners.py): what waited for it starts. A runner that was
         started anew (another instance) has lost what ran on it: the turns' streams find their turn
         gone and end as after a restart, the job watcher reports its jobs as lost."""
+        self.updates.connected(runner_id)
         old, restarted = self.runners.attach(runner_id, tunnel, hello)
         if old is not None:
             log.info("Runner %s connected again: its older connection is closed", runner_id)
@@ -271,6 +274,7 @@ class RunManager:
                         "Turns and jobs of this project wait until it is back. Tell the user: the runner's machine or its container (plainboard-runner) has to run and reach PlainBoard.",
                     )
                     await self.request_wake(s, manager.id)
+        self.updates.poke()
 
     async def _sync_uploads(self, project_id: int, prompt: str = "") -> None:
         """An external runner lacks the project's attachments when its uploads are on no volume or it is
@@ -1091,8 +1095,9 @@ class RunManager:
                 if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied) and not (r.agent_id in paused and r.assignment_id and not r.stop_requested_at)
                 # Everything is paused: only what wraps up still starts, and the answer a turn that wraps up waits for.
                 and not ((self.paused or r.project_id in resting) and not r.stop_requested_at and r.parent_run_id is None)
-                # An external runner that is away: its turns wait for it in the queue.
-                and self.runners.ready(r.project_id)
+                # An external runner that is away: its turns wait for it in the queue. One that runs idle to
+                # update itself still starts what a running turn waits for (an answer) and what wraps up.
+                and (self.runners.ready(r.project_id) if r.parent_run_id is not None or r.stop_requested_at else self.runners.accepts(r.project_id))
             ]
             if candidates:
                 held = await self._held_by_limits(s, [r for r in queued if r.id in {c[0] for c in candidates}])
@@ -1651,6 +1656,8 @@ class RunManager:
         )
         if not self.runners.ready(project.id):  # at once, not after the connect timeout
             raise ServiceError("Could not start the job: the runner this project runs on is not connected")
+        if not self.runners.accepts(project.id):
+            raise ServiceError("Could not start the job: the runner this project runs on is updating itself (a few minutes): start it in a later turn")
         try:
             state = await self.runners.of(project.id).start_job(spec)
         except RunnerError as exc:

@@ -152,6 +152,7 @@ async def listing(session: AsyncSession, hub) -> list[RunnerOut]:
                 connected=connected,
                 version=short(version or ""),
                 version_ok=version_ok(version or ""),
+                updating=r.id in hub.updating,
                 last_seen_at=utcnow() if connected else r.last_seen_at,
                 created_at=r.created_at,
                 projects=projects.get(r.id, []),

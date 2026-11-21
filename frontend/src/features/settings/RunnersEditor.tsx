@@ -128,7 +128,14 @@ export function RunnersEditor() {
                     </div>
                   )
                 )}
-                {!r.version_ok && <div className="text-you-fg">{t("runners.versionMismatch")}</div>}
+                {r.updating ? (
+                  <div className="flex items-center gap-1.5 text-fg-2" role="status">
+                    <Spinner />
+                    {t("runners.updating")}
+                  </div>
+                ) : (
+                  !r.version_ok && <div className="text-you-fg">{t("runners.versionMismatch")}</div>
+                )}
                 <div className="text-fg-3 [overflow-wrap:anywhere]">{r.projects.length ? t("runners.projects", { names: r.projects.join(", ") }) : t("runners.noProjects")}</div>
               </div>
               <IconButton label={t("runners.rename")} onClick={() => rename(r)}>

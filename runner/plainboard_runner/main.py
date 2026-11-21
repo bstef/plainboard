@@ -26,6 +26,7 @@ from .browser import browsers
 from . import jobs
 from . import notices
 from . import ports
+from . import selfupdate
 from . import trains
 from . import translate
 from . import usage
@@ -305,6 +306,33 @@ async def put_upload(name: str, request: Request) -> dict[str, bool]:
     part.write_bytes(await request.body())
     part.replace(path)
     return {"ok": True}
+
+
+@app.post("/update")
+async def stage_update(request: Request) -> dict[str, bool]:
+    """An external runner's self-update (selfupdate.py): the app's code, checked and unpacked; started with /update/restart.
+    409: this runner can't take it (a new image is needed); 400: it did not arrive whole."""
+    data = await request.body()
+    try:
+        await asyncio.to_thread(selfupdate.stage, data, request.headers.get("x-plainboard-sha256", ""), request.headers.get("x-plainboard-commit", ""))
+    except selfupdate.Refused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except selfupdate.Broken as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"staged": True}
+
+
+class UpdateRestart(BaseModel):
+    commit: str
+
+
+@app.post("/update/restart")
+async def restart_for_update(body: UpdateRestart) -> dict[str, bool]:
+    try:
+        selfupdate.restart(body.commit)
+    except selfupdate.Broken as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"restarting": True}
 
 
 @app.get("/runs")
