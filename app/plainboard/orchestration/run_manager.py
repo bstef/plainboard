@@ -182,6 +182,7 @@ class RunManager:
         self._waits_for: dict[int, dict[int, int]] = {}
         self._cancel_requested: set[int] = set()
         self._streams: dict[int, float] = {}  # run id -> when its current request to the runner began
+        self._preparing: set[int] = set()  # running turns not handed to the runner yet (prompt, attachments copied)
         self._missing: dict[int, float] = {}  # running turn -> since when the runner does not list it
         self._lost: set[int] = set()  # turns being ended because the runner lost them
         self._limits_asked = 0.0
@@ -949,6 +950,7 @@ class RunManager:
                 log.info("Skipping turn check: %s", exc)
                 alive |= {run_id for run_id, _, project_id in rows if self.runners.runner_id(project_id) == runner_id}
         now = time.monotonic()
+        alive |= self._preparing  # the runner has not got them yet: copying a project's attachments can take minutes
         for run_id in list(self._missing):
             if run_id not in running or run_id in alive:
                 del self._missing[run_id]
@@ -1116,6 +1118,7 @@ class RunManager:
 
     async def _execute(self, run_id: int, agent_id: int) -> None:
         ctx: RunContext | None = None
+        self._preparing.add(run_id)
         try:
             prepared = await self._prepare(run_id)
             if prepared is None:
@@ -1125,6 +1128,7 @@ class RunManager:
             for attempt in range(RUNNER_TRIES):
                 try:
                     self._streams[run_id] = time.monotonic()
+                    self._preparing.discard(run_id)
                     outcome = await self._stream(spec, ctx)
                     break
                 except RunnerUnavailable:
@@ -1160,6 +1164,7 @@ class RunManager:
             self._unlimited.discard(run_id)
             self._cancel_requested.discard(run_id)
             self._streams.pop(run_id, None)
+            self._preparing.discard(run_id)
             self._lost.discard(run_id)
             self._job_waits.pop(run_id, None)
             self._unread.pop(run_id, None)
