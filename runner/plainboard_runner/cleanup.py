@@ -384,39 +384,50 @@ def _measure(paths: list[Path]) -> dict[str, tuple[int, float]]:
     return _sizes
 
 
-def mention_pattern(rel: str, home: str) -> str:
-    """How a script names a folder of the home: ~/rel, $HOME/rel, ${HOME}/rel or the full path, not as part of a longer name."""
-    prefix = "|".join(re.escape(p) for p in ("~", "$HOME", "${HOME}", home.rstrip("/")))
-    return rf"(?:{prefix})/{re.escape(rel)}(?![\w.-])"
+_ERE_SPECIAL = set(".[]()*+?{}|^$\\")
+_NAME = "[[:alnum:]_.-]"  # what a folder's name is made of
+
+
+def mention_pattern(home: str) -> str:
+    """How a script names a folder of the home, for ``git grep -E``: ~/x, $HOME/x, ${HOME}/x or the full path, with all of the path after it."""
+    prefix = "|".join("".join("\\" + ch if ch in _ERE_SPECIAL else ch for ch in p) for p in ("~", "$HOME", "${HOME}", home.rstrip("/")))
+    return f"({prefix})/{_NAME}+(/{_NAME}+)*"
+
+
+def _named(mention: str, rels: dict[str, str], home: str) -> list[str]:
+    """The targets (relative to the home) a found path names: itself and each folder it is in, never a longer name."""
+    prefix = next((p for p in ("~/", "$HOME/", "${HOME}/", home.rstrip("/") + "/") if mention.startswith(p)), None)
+    parts = mention[len(prefix) :].split("/") if prefix else []
+    return [rel for i in range(1, len(parts) + 1) if (rel := "/".join(parts[:i])) in rels]
 
 
 def mentions(folders: list[Path], targets: list[Path], home: Path) -> dict[str, list[str]]:
-    """Path of each target → the agent folders whose clones' files (tracked or untracked, never ignored) name it."""
+    """Path of each target → the agent folders whose clones' files (tracked or untracked, never ignored) name it.
+
+    git prints only the paths it finds (-o), not the lines: clones hold bundles and lock files with lines of megabytes,
+    and matching those here holds the interpreter's lock, and with it the runner's event loop, for seconds."""
     if not targets or not folders:
         return {}
     key = tuple(sorted(map(str, folders + targets)))
     if key in _mentions:
         return _mentions[key]
     rels = {t.relative_to(home).as_posix(): str(t) for t in targets}
-    pattern = re.compile("|".join(f"(?P<t{i}>{mention_pattern(rel, str(home))})" for i, rel in enumerate(rels)))
-    names = list(rels.values())
-    fixed = [a for rel in rels for a in ("-e", f"/{rel}")]  # a cheap first sieve; the pattern decides
     found: dict[str, list[str]] = {}
     for folder in folders:
         for repo in repos(folder):
             try:
                 out = subprocess.run(
-                    ["git", "-C", str(repo), "grep", "-I", "-h", "--untracked", "-F", *fixed],
+                    ["git", "-C", str(repo), "grep", "-I", "-h", "-o", "--untracked", "-E", "-e", mention_pattern(str(home))],
                     capture_output=True,
                     timeout=GIT_TIMEOUT,
                     env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"},
                 ).stdout.decode(errors="replace")
             except (subprocess.SubprocessError, OSError):
                 continue
-            for m in pattern.finditer(out):
-                path = names[int(next(k for k, v in m.groupdict().items() if v)[1:])]
-                if str(folder) not in found.setdefault(path, []):
-                    found[path].append(str(folder))
+            for mention in sorted(set(out.splitlines())):
+                for rel in _named(mention, rels, str(home)):
+                    if str(folder) not in found.setdefault(rels[rel], []):
+                        found[rels[rel]].append(str(folder))
     _mentions[key] = found
     return found
 

@@ -125,6 +125,23 @@ def test_an_assignment_stays_open_while_its_job_runs_and_reports_once(client, pr
     assert 'Assignment #1 "Fix it" (Dev) done after' in update and "of work in 2 turns" in update and "All green" in update
 
 
+def test_a_job_whose_waiting_tool_call_outlived_its_turn_still_continues_the_assignment(client, project):
+    pid = project["id"]
+    make_member(client, pid)
+    chat(client, manager_of(client, pid)["id"], delegate("dev", "Fix it", "TOOL start_job " + json.dumps({"command": "make test"})))
+    wait_for(lambda: idle(client, pid) and runner(client).job_specs)
+    assert assignments(client, pid)[0]["status"] == "running"
+    turn = runs_of(client, pid)[0]["id"]  # the assignment's turn, over
+    # A tool call of that turn still waits for the job: the agent's side gave up on it (a proxy's timeout, 524).
+    late = client.portal.start_task_soon(client.app_ref.state.runs.wait_job, 1, 600, turn)
+    wait_for(lambda: bool(client.app_ref.state.runs._job_waiters))
+    spec = runner(client).job_specs[-1]
+    runner(client).jobs[spec.id] = JobState(running=False, exit_code=0, log_path="/jobs/x.log", tail="SAY All green")
+    job_tick(client)
+    wait_for(lambda: idle(client, pid) and assignments(client, pid)[0]["status"] == "done")
+    assert "exit code 0" in late.result(5) and assignments(client, pid)[0]["result"] == "All green"
+
+
 def test_a_server_does_not_keep_an_assignment_open(client, project):
     pid = project["id"]
     make_member(client, pid)
