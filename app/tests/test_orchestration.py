@@ -955,6 +955,34 @@ def test_a_turn_the_runner_lost_ends_and_its_assignment_goes_on(client, project,
     assert any("Your last turn broke off" in s.prompt and int(s.run_id) != turn["id"] for s in runner(client).specs)
 
 
+def test_a_turn_still_being_handed_to_the_runner_is_not_lost(client, project, monkeypatch):
+    """Running in the database, but its attachments are still being copied to an external runner (minutes
+    after a restart): the runner does not list it yet, and that is no loss."""
+    import asyncio
+
+    from plainboard.orchestration import run_manager
+
+    copying = {"done": False, "started": False}
+
+    async def slow_copy(self, project_id: int) -> None:
+        copying["started"] = True
+        while not copying["done"]:
+            await asyncio.sleep(0.01)
+
+    monkeypatch.setattr(run_manager.RunManager, "_sync_uploads", slow_copy)
+    monkeypatch.setattr(run_manager, "LOST_AFTER_SECONDS", 0)
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], "SAY here")
+    wait_for(lambda: copying["started"])
+    client.portal.call(client.app_ref.state.job_watcher.tick)
+    client.portal.call(client.app_ref.state.job_watcher.tick)
+    assert [r["status"] for r in runs_of(client, pid, agent_id=manager["id"])] == ["running"]
+    copying["done"] = True
+    wait_for(lambda: idle(client, pid))
+    assert [r["status"] for r in runs_of(client, pid, agent_id=manager["id"])] == ["succeeded"]
+
+
 def test_working_teammate_is_told_to_wrap_up_not_aborted(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)
