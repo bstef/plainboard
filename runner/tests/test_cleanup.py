@@ -6,7 +6,7 @@ import sys
 import time
 
 import pytest
-from plainboard_protocol import CleanupFolder, CleanupSpec
+from plainboard_protocol import CleanupFolder, CleanupSpec, UnpushedSpec
 
 from plainboard_runner import cleanup, config, jobs
 
@@ -265,3 +265,24 @@ def test_big_shared_tool_caches_lose_their_oldest_files_down_to_half(ws, tmp_pat
 
     result = cleanup.trim(TrimSpec(need=15_000, large=10_000, keep=10_000, folders=folders))
     assert sorted(int(p.parent.name) for p in sccache.rglob("obj")) == [7, 8, 9]  # only what is needed
+
+
+def test_before_a_move_every_clone_says_what_of_its_work_is_on_no_remote(ws, tmp_path):
+    clean = clone(tmp_path, agent(ws, "dev"))
+    folder = agent(ws, "qa")
+    busy = clone(tmp_path, folder, "api")
+    (busy / "src.rs").write_text("changed\n")
+    (busy / "new.txt").write_text("new\n")
+    git(busy, "stash", "push", "-qu", "--", "new.txt")
+    git(busy, "checkout", "-qb", "feat/x")
+    (busy / "x.rs").write_text("x\n")
+    git(busy, "add", "x.rs")
+    git(busy, "commit", "-qm", "x")
+    git(busy, "branch", "spare", "main")  # no upstream, nowhere on the remote
+    git(busy, "branch", "pushed", "main")
+    git(busy, "push", "-q", "origin", "pushed")  # no upstream either, but on the remote
+    (busy / "src.rs").write_text("changed again\n")
+
+    found = cleanup.unpushed_work(UnpushedSpec(folders=[str(clean.parent), str(folder), str(tmp_path / "outside"), str(ws)]))
+    assert [(w.folder, w.repo) for w in found] == [(str(folder), "api")]
+    assert found[0].problems == ["1 uncommitted change", "1 stash", "commits on no remote branch: feat/x (1)", "branches without upstream: spare"]

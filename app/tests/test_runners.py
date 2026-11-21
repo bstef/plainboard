@@ -322,9 +322,56 @@ def test_a_project_moves_to_another_runner_only_while_nothing_of_it_runs(client,
     assert client.get("/api/runners").json() == []
 
 
+def test_a_move_starts_every_session_fresh_and_tells_each_agent_once(client, project):
+    from plainboard.db import sessionmaker
+    from plainboard.models import Conversation, InboxItem
+    from plainboard.services.runners import MOVED_NOTE
+    from sqlalchemy import select, update
+
+    pid, rid = project["id"], _add_runner(client)["runner"]["id"]
+    ids = [a["id"] for a in agents_by_slug(client, pid).values()]
+
+    async def sessions(value=...) -> list:
+        async with sessionmaker()() as session:
+            if value is not ...:
+                await session.execute(update(Conversation).where(Conversation.agent_id.in_(ids)).values(provider_session_id=value))
+                await session.commit()
+            return list(await session.scalars(select(Conversation.provider_session_id).where(Conversation.agent_id.in_(ids))))
+
+    async def notes() -> list[int]:
+        async with sessionmaker()() as session:
+            return list(await session.scalars(select(InboxItem.agent_id).where(InboxItem.text == MOVED_NOTE, InboxItem.consumed_at.is_(None))))
+
+    assert client.portal.call(sessions, "old-session")
+    assert client.put(f"/api/projects/{pid}/runner", json={"runner_id": rid}).status_code == 200
+    assert set(client.portal.call(sessions)) == {None}
+    assert sorted(client.portal.call(notes)) == sorted(ids)
+
+
+def test_before_a_move_the_current_runner_says_what_work_is_on_no_remote(client, project):
+    from plainboard_protocol import UnpushedWork
+
+    runner = client.app_ref.state.runner
+    pid = project["id"]
+    dev = agents_by_slug(client, pid)["manager"]
+    runner.unpushed = []
+    found = client.get(f"/api/projects/{pid}/runner/unpushed").json()
+    assert found == {"runner": "Built-in runner", "checked": True, "detail": "", "items": []}
+    folder = next(f for f in runner.unpushed_specs[-1].folders if f.endswith("/manager"))
+    runner.unpushed = [UnpushedWork(folder=folder, repo="api", problems=["1 stash"])]
+    found = client.get(f"/api/projects/{pid}/runner/unpushed").json()
+    assert found["items"] == [{"agents": [dev["name"]], "repo": "api", "problems": ["1 stash"]}]
+
+    rid = _add_runner(client)["runner"]["id"]
+    assert client.put(f"/api/projects/{pid}/runner", json={"runner_id": rid}).status_code == 200
+    away = client.get(f"/api/projects/{pid}/runner/unpushed").json()
+    assert away["checked"] is False and away["items"] == [] and "not connected" in away["detail"]
+
+
 def test_the_manager_hears_once_when_its_runner_stays_away(client, project, monkeypatch):
     from plainboard.db import sessionmaker
     from plainboard.models import InboxItem
+    from plainboard.services.runners import MOVED_NOTE
     from sqlalchemy import select
 
     created = _add_runner(client)
@@ -340,7 +387,7 @@ def test_the_manager_hears_once_when_its_runner_stays_away(client, project, monk
 
     async def inbox() -> list[str]:
         async with sessionmaker()() as session:
-            return list(await session.scalars(select(InboxItem.text).where(InboxItem.agent_id == manager["id"])))
+            return list(await session.scalars(select(InboxItem.text).where(InboxItem.agent_id == manager["id"], InboxItem.text != MOVED_NOTE)))
 
     runs.runners.away_since[rid] = time.monotonic() - 60
     client.portal.call(runs.check_runners)

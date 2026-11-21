@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CommitRef, CompletionResult, CompletionSpec, Credentials, DeleteSpec, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, MachineUsage, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RerunRef, RunSpec, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UpstreamRef, UpstreamState
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CommitRef, CompletionResult, CompletionSpec, Credentials, DeleteSpec, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, MachineUsage, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RerunRef, RunSpec, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamRef, UpstreamState
 from pydantic import BaseModel, Field
 
 from . import cleanup
@@ -102,6 +102,12 @@ async def clean_up(body: CleanupSpec) -> CleanupResult:
 async def cleanup_candidates(body: CandidatesSpec) -> list[CleanupCandidate]:
     """What the manager may delete, with sizes and how safe that is (see cleanup.py)."""
     return await asyncio.to_thread(cleanup.candidates, body)
+
+
+@app.post("/workspaces/unpushed", response_model=list[UnpushedWork])
+async def workspaces_unpushed(body: UnpushedSpec) -> list[UnpushedWork]:
+    """Work in these folders' clones that is on no remote: asked before a project moves to another runner."""
+    return await asyncio.to_thread(cleanup.unpushed_work, body)
 
 
 @app.post("/cleanup/trim", response_model=CleanupResult)

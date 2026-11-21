@@ -1077,7 +1077,12 @@
     "busy": "Not possible right now: agents of this project are working. Pause the project or wait until they are done.",
     "confirmTitle": "Move this project to \"{{name}}\"?",
     "confirmBody": "The agents start fresh on the new server and clone the repositories again. Nothing is lost here: the files stay where they are.",
-    "confirmYes": "Move project"
+    "confirmYes": "Move project",
+    "unpushedChecking": "Looking for work that is not pushed yet…",
+    "unpushedNone": "Every workspace on \"{{runner}}\" is pushed: nothing stays behind.",
+    "unpushedTitle": "Not pushed yet: this stays behind on \"{{runner}}\"",
+    "unpushedUnchecked": "\"{{runner}}\" could not be checked for work that is not pushed yet: {{detail}}",
+    "sessionsReset": "Each agent starts a new session there; tools they installed must be installed again."
   },
   "pause": {
     "title": "Pause everything",

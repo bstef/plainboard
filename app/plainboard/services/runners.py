@@ -12,12 +12,13 @@ import hashlib
 import secrets
 from datetime import datetime
 
-from sqlalchemy import func, select
+from plainboard_protocol import UnpushedSpec
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
-from ..models import Job, JobStatus, Project, Run, RunStatus, Runner, Train, TrainStatus, utcnow
-from ..schemas import ProjectRunnerOut, RunnerChoice, RunnerCreated, RunnerOut
+from ..models import Agent, Conversation, InboxItem, Job, JobStatus, Project, Run, RunStatus, Runner, Train, TrainStatus, utcnow
+from ..schemas import ProjectRunnerOut, RunnerChoice, RunnerCreated, RunnerOut, UnpushedItem, UnpushedOut
 from . import cleanup as cleanup_service
 from . import version as version_service
 from .errors import NotFound, ServiceError
@@ -25,6 +26,8 @@ from .errors import NotFound, ServiceError
 IMAGE = "thoenehannes/plainboard-runner:latest"
 TOKEN_PREFIX = "pbr_"
 BUILTIN = "Built-in runner"
+UNPUSHED_SECONDS = 90  # the old runner's look at the workspaces' clones
+MOVED_NOTE = "Your project moved to another runner: workspaces were cloned fresh, the home is new, tools you installed must be installed again."
 AWAY_TELL_SECONDS = 600  # a runner away this long: the managers of its projects hear it, once
 
 
@@ -182,6 +185,25 @@ async def choices(session: AsyncSession, hub, project: Project) -> ProjectRunner
     )
 
 
+async def unpushed(session: AsyncSession, hub, project: Project) -> UnpushedOut:
+    """What stays behind on a move: work in the agents' workspaces on the current runner that is on no remote."""
+    from ..orchestration.context import workspace_path
+
+    name = BUILTIN if project.runner_id is None else (await get(session, project.runner_id)).name
+    agents = list(await session.scalars(select(Agent).where(Agent.project_id == project.id).order_by(Agent.name)))
+    folders: dict[str, list[str]] = {}
+    for agent in agents:
+        folders.setdefault(workspace_path(project, agent), []).append(agent.name)
+    await session.commit()  # nothing is held while the runner looks
+    if not hub.connected(project.runner_id):
+        return UnpushedOut(runner=name, checked=False, detail="The runner is not connected.")
+    try:
+        found = await asyncio.wait_for(hub.client(project.runner_id).unpushed_work(UnpushedSpec(folders=list(folders))), UNPUSHED_SECONDS)
+    except Exception as exc:
+        return UnpushedOut(runner=name, checked=False, detail=str(exc)[:300] or type(exc).__name__)
+    return UnpushedOut(runner=name, checked=True, items=[UnpushedItem(agents=folders.get(w.folder, []), repo=w.repo, problems=w.problems) for w in found])
+
+
 async def assign(session: AsyncSession, hub, project: Project, runner_id: int | None) -> Project:
     """Move a project to another runner. Refused while something of it runs: that runs on the old one."""
     if runner_id == project.runner_id:
@@ -191,6 +213,10 @@ async def assign(session: AsyncSession, hub, project: Project, runner_id: int | 
     if reason := await busy(session, project.id):
         raise ServiceError(reason, 409)
     project.runner_id = runner_id
+    # The sessions are in the old runner's home: the next turns start fresh (summary and recent messages).
+    agents = list(await session.scalars(select(Agent.id).where(Agent.project_id == project.id)))
+    await session.execute(update(Conversation).where(Conversation.agent_id.in_(agents)).values(provider_session_id=None))
+    session.add_all(InboxItem(agent_id=a, text=MOVED_NOTE) for a in agents)  # read with the next turn; none is spent on it
     await session.commit()
     hub.assign(project.id, runner_id)
     return project

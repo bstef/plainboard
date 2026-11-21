@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import ProjectFiles, TidyResult, TidySpec, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CompletionResult, CompletionSpec, Credentials, DeleteSpec, JobPort, JobSpec, JobState, LimitsEvent, MachineUsage, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UpstreamState, parse_event
+from plainboard_protocol import ProjectFiles, TidyResult, TidySpec, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CompletionResult, CompletionSpec, Credentials, DeleteSpec, JobPort, JobSpec, JobState, LimitsEvent, MachineUsage, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamState, parse_event
 
 log = logging.getLogger(__name__)
 
@@ -270,6 +270,15 @@ class RunnerClient:
             resp = await self._client.post("/cleanup/candidates", json=spec.model_dump(mode="json"), timeout=1800)
             resp.raise_for_status()
             return [CleanupCandidate.model_validate(c) for c in resp.json()]
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RunnerError(unreachable(exc)) from exc
+
+    async def unpushed_work(self, spec: UnpushedSpec) -> list[UnpushedWork]:
+        """The clones in these folders with work that is on no remote."""
+        try:
+            resp = await self._client.post("/workspaces/unpushed", json=spec.model_dump(mode="json"), timeout=120)
+            resp.raise_for_status()
+            return [UnpushedWork.model_validate(w) for w in resp.json()]
         except (httpx.HTTPError, ValueError) as exc:
             raise RunnerError(unreachable(exc)) from exc
 
