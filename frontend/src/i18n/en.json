@@ -830,6 +830,8 @@
     "addHint": "Give them the user name and the password. They can change the password themselves.",
     "create": "Create",
     "you": "you",
+    "pictureHint": "Shown with what they write in the chat. Without one, their initial stands there.",
+    "usernameHint": "They sign in with it. Browsers already signed in stay signed in.",
     "admin": "Admin",
     "disabled": "Switched off",
     "enabled": "May sign in",

@@ -128,6 +128,7 @@ async def update(
     user: User,
     *,
     name: str | None = None,
+    username: str | None = None,
     password: str | None = None,
     is_admin: bool | None = None,
     may_create_projects: bool | None = None,
@@ -138,6 +139,12 @@ async def update(
     """``limits``: what this person's projects may use (``permissions.FIELDS``); None in it: no limit."""
     if (is_admin is False or enabled is False) and user.is_admin and user.enabled:
         await _keeps_an_admin(session, user)
+    if username is not None:
+        username = clean_username(username)
+        if username != user.username:
+            if await session.scalar(select(User.id).where(User.username == username, User.id != user.id)):
+                raise ServiceError(f"The user name {username} is taken.")
+            user.username = username
     if name is not None:
         user.name = name.strip() or user.username
     if password is not None:

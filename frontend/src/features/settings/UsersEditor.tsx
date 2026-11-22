@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useAccounts, useMe, useUsers } from "../../api/queries";
 import type { RunnerInfo, User } from "../../api/types";
+import { Avatar, squarePicture } from "../../components/Avatar";
+import { PictureField } from "../../components/PictureField";
 import { Badge, Button, ErrorText, Field, FieldRow, IconButton, Input, Toggle } from "../../components/ui";
 
 /** The people who can sign in. Saved right away. Admins only. */
@@ -49,27 +51,40 @@ export function UsersEditor() {
 
 function UserRow({ user, self, onChange }: { user: User; self: boolean; onChange: (action: () => Promise<unknown>) => Promise<boolean> }) {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const [password, setPassword] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const patch = (body: Record<string, unknown>) => onChange(() => api.patch(`/users/${user.id}`, body));
   const limited = !self && !user.is_admin; // an admin may use everything
+  const [error, setError] = useState<unknown>(null);
+  /** The picture is saved the moment it is chosen (or removed). */
+  const picture = async (file: File | null) => {
+    setError(null);
+    try {
+      if (file) {
+        const body = new FormData();
+        body.append("file", await squarePicture(file).catch(() => Promise.reject(new Error(t("account.pictureUnreadable")))), "picture");
+        await onChange(() => api.put(`/users/${user.id}/avatar`, body));
+      } else {
+        await onChange(() => api.del(`/users/${user.id}/avatar`));
+      }
+      await qc.invalidateQueries({ queryKey: qk.directory });
+    } catch (err) {
+      setError(err);
+    }
+  };
 
   return (
     <li className="space-y-2 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {limited ? (
-          <button type="button" className="flex min-w-0 flex-1 items-center gap-1 text-left" aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? <ChevronDown className="size-4 shrink-0 text-fg-3" /> : <ChevronRight className="size-4 shrink-0 text-fg-3" />}
-            <span className="min-w-0">
-              <span className="font-medium">{user.name}</span> <span className="text-fg-3">{user.username}</span>
-            </span>
-          </button>
-        ) : (
-          <div className="min-w-0 flex-1">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? <ChevronDown className="size-4 shrink-0 text-fg-3" /> : <ChevronRight className="size-4 shrink-0 text-fg-3" />}
+          <Avatar name={user.name} person={user} className="size-6" />
+          <span className="min-w-0">
             <span className="font-medium">{user.name}</span> <span className="text-fg-3">{user.username}</span>
             {self && <span className="text-fg-3"> · {t("users.you")}</span>}
-          </div>
-        )}
+          </span>
+        </button>
         {user.is_admin && <Badge>{t("users.admin")}</Badge>}
         {!user.enabled && <Badge tone="amber">{t("users.disabled")}</Badge>}
         <IconButton label={t("users.newPassword")} onClick={() => setPassword(password === null ? "" : null)}>
@@ -88,7 +103,9 @@ function UserRow({ user, self, onChange }: { user: User; self: boolean; onChange
           <Toggle checked={user.enabled} onChange={(v) => patch({ enabled: v })} label={t("users.enabled")} />
         </div>
       )}
+      {open && <UserProfile user={user} patch={patch} picture={picture} />}
       {limited && open && <UserLimits user={user} patch={patch} />}
+      <ErrorText error={error} />
       {password !== null && (
         <form
           className="flex gap-2"
@@ -104,6 +121,38 @@ function UserRow({ user, self, onChange }: { user: User; self: boolean; onChange
         </form>
       )}
     </li>
+  );
+}
+
+/** Picture, name and user name of a person, as they could set them themselves. Name and user name are saved when left. */
+function UserProfile({ user, patch, picture }: { user: User; patch: (body: Record<string, unknown>) => Promise<boolean>; picture: (file: File | null) => void }) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(user.name);
+  const [username, setUsername] = useState(user.username);
+  const save = async (field: "name" | "username", value: string, current: string, reset: (v: string) => void) => {
+    if (value.trim() === current || !value.trim()) return reset(current);
+    if (!(await patch({ [field]: value }))) reset(current);
+  };
+  return (
+    <div className="space-y-3 border-l-2 border-line pl-3" data-part="user-profile">
+      <PictureField person={user} name={user.name} hint={t("users.pictureHint")} onPick={picture} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t("auth.name")}>
+          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => save("name", name, user.name, setName)} onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+        </Field>
+        <Field label={t("auth.username")} hint={t("users.usernameHint")}>
+          <Input
+            autoCapitalize="none"
+            spellCheck={false}
+            autoComplete="off"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            onBlur={() => save("username", username, user.username, setUsername)}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          />
+        </Field>
+      </div>
+    </div>
   );
 }
 

@@ -68,6 +68,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=100)
+    username: str | None = Field(default=None, max_length=100)
     password: str | None = Field(default=None, min_length=8, max_length=200)
     is_admin: bool | None = None
     may_create_projects: bool | None = None

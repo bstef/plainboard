@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, File, Response, UploadFile
 
 from ..schemas import MemberIn, MemberOut, PersonOut, UserCreate, UserOut, UserUpdate
 from ..services import permissions
@@ -47,6 +47,19 @@ async def update_user(user_id: int, body: UserUpdate, session: Session, runs: Ru
     out = UserOut.model_validate(await user_service.update(session, user, **fields, limits=limits))
     runs.recheck()  # another limit of members at work: waiting turns may start now
     return out
+
+
+@router.put("/users/{user_id}/avatar", response_model=UserOut)
+async def set_user_avatar(user_id: int, session: Session, file: UploadFile = File(...)) -> UserOut:
+    """Another person's profile picture, as for one's own (``PUT /api/auth/me/avatar``). Admins only."""
+    user = await user_service.get(session, user_id)
+    data = await file.read(user_service.AVATAR_MAX_BYTES + 1)
+    return UserOut.model_validate(await user_service.set_avatar(session, user, data, file.content_type or ""))
+
+
+@router.delete("/users/{user_id}/avatar", response_model=UserOut)
+async def remove_user_avatar(user_id: int, session: Session) -> UserOut:
+    return UserOut.model_validate(await user_service.set_avatar(session, await user_service.get(session, user_id), None))
 
 
 @router.delete("/users/{user_id}", status_code=204)
