@@ -207,6 +207,15 @@ class FakeRunner:
         yield UsageEvent(context_tokens=context)
         yield ResultEvent(session_id=session_id, text=text, num_turns=1, input_tokens=10, output_tokens=5, cost_usd=0.001, context_tokens=context)
 
+    skills_in_git: dict[str, bytes] = {}  # "url path@ref" -> the zip the runner would send (fetch_skill)
+
+    async def fetch_skill(self, spec) -> bytes:
+        self.database_free("fetch_skill")
+        key = f"{spec.url} {spec.path}@{spec.ref}"
+        if key not in self.skills_in_git:
+            raise RunnerError(f"git clone failed: {key}")
+        return self.skills_in_git[key]
+
     async def complete(self, spec: CompletionSpec) -> CompletionResult:
         self.completions.append(spec)
         return CompletionResult(text=f"SUMMARY #{len(self.completions)}", input_tokens=100, output_tokens=10, cost_usd=0.0001)

@@ -1,11 +1,15 @@
+import base64
 import io
+import json
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 from conftest import agents_by_slug, idle, wait_for
 
 from plainboard.services import skills
 from plainboard.services.errors import ServiceError
+from plainboard.tools import registry
 
 SKILL = b"---\nname: pdf-tools\ndescription: >\n  Fills PDF forms.\n  Use it for PDFs.\n---\nSteps ...\n"
 
@@ -79,3 +83,48 @@ def test_skills_go_to_all_or_the_chosen_agents_of_a_project(client, project):
     assert client.post(f"/api/projects/{pid}/skills/{second['id']}/reimport").status_code == 400  # uploaded, not from git
     assert client.delete(f"/api/projects/{pid}/skills/{second['id']}").status_code == 204
     assert [s["name"] for s in client.get(f"/api/projects/{pid}/skills").json()] == ["pdf-tools"]
+
+
+def test_the_manager_installs_assigns_and_removes_skills(client, project):
+    pid = project["id"]
+    team = agents_by_slug(client, pid)
+    manager = team["manager"]
+    dev = client.post(f"/api/projects/{pid}/agents", json={"name": "Dev", "role": "Developer"}).json()
+    runner = client.app_ref.state.runner
+    runner.skills_in_git = {"https://github.com/acme/skills pdf@v1": _zip({"SKILL.md": SKILL, "fill.py": b"print(1)"})}
+
+    def tools(*calls: tuple[str, dict]) -> list[str]:
+        text = "\n".join(f"TOOL {name} {json.dumps(args)}" for name, args in calls)
+        assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": text}).status_code == 202
+        wait_for(lambda: idle(client, pid))
+        messages = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"]
+        return [m["meta"]["result"] for m in messages if m["kind"] == "tool" and "result" in m["meta"]][-len(calls):]
+
+    notes = base64.b64encode(b"---\nname: notes\ndescription: For notes\n---\n").decode()
+    git, upload, bad, missing = tools(
+        ("install_skill", {"url": "https://github.com/acme/skills", "subfolder": "/pdf/", "ref": "v1", "agents": ["*"]}),
+        ("install_skill", {"file": "/uploads/SKILL.md", "content_b64": notes, "agents": ["dev"]}),
+        ("install_skill", {"file": "x.zip", "content_b64": base64.b64encode(_zip({"../x": b"", "SKILL.md": SKILL})).decode(), "agents": ["*"]}),
+        ("install_skill", {"url": "https://github.com/acme/none", "agents": ["*"]}),
+    )
+    assert git.startswith("Installed skill pdf-tools") and "all agents (2 files)" in git
+    assert upload.startswith("Installed skill notes") and "for dev (1 files)" in upload
+    assert "Not a valid path" in bad and "git clone failed" in missing
+    rows = {s["name"]: s for s in client.get(f"/api/projects/{pid}/skills").json()}
+    assert set(rows) == {"pdf-tools", "notes"}
+    assert (rows["pdf-tools"]["source"], rows["pdf-tools"]["source_path"], rows["pdf-tools"]["source_ref"]) == ("git", "pdf", "v1")
+    assert (rows["notes"]["all_agents"], rows["notes"]["agent_ids"]) == (False, [dev["id"]])
+
+    off, moved, listed, removed, gone = tools(
+        ("update_skill", {"skill": "pdf-tools", "enabled": False}),
+        ("update_skill", {"skill": str(rows["notes"]["id"]), "agents": ["manager", "dev"]}),
+        ("list_skills", {}),
+        ("remove_skill", {"skill": "pdf-tools"}),
+        ("remove_skill", {"skill": "pdf-tools"}),
+    )
+    assert off == "Skill pdf-tools: off, all agents." and moved == "Skill notes: on, manager, dev."
+    assert "pdf-tools (off, all agents; git https://github.com/acme/skills pdf @v1)" in listed and "notes (on, manager, dev; upload)" in listed
+    assert removed == "Removed skill pdf-tools." and "No skill 'pdf-tools'" in gone
+    assert [s["name"] for s in client.get(f"/api/projects/{pid}/skills").json()] == ["notes"]
+
+    assert "install_skill" not in {t.name for t in registry.tools_for(SimpleNamespace(is_manager=False))}  # the manager's alone

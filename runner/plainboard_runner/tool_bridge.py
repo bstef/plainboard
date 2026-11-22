@@ -7,6 +7,7 @@ agent's filesystem. Providers only see :meth:`ToolBridge.call` - they stay tool-
 
 from __future__ import annotations
 
+import base64
 import logging
 import mimetypes
 from collections.abc import Awaitable, Callable
@@ -56,20 +57,24 @@ class ToolBridge:
                 if handler is None:
                     return ToolCallResult(text=f"Local tool not available: {name}", is_error=True)
                 return await handler(self, args)
-            base = f"/api/internal/runs/{self.spec.run_id}/tools"
-            resp = await self._client.post(f"{base}/{name}", json=args, headers={TOOL_PENDING_HEADER: "1"})
-            while True:
-                if resp.status_code >= 400:
-                    return ToolCallResult(text=f"Tool failed ({resp.status_code}): {resp.text[:500]}", is_error=True)
-                result = ToolCallResult.model_validate(resp.json())
-                if not result.pending:
-                    return result
-                # Still at work (a quick check, a question to another agent): each request stays short, so
-                # a proxy between here and the app (Cloudflare ends one after 100 s) never cuts it off.
-                resp = await self._client.post(f"{base}/pending/{result.pending}")
+            return await self.remote(name, args)
         except Exception as exc:  # report to the model instead of crashing the run
             log.exception("Tool %s failed", name)
             return ToolCallResult(text=f"Tool error: {exc}", is_error=True)
+
+    async def remote(self, name: str, args: dict[str, Any]) -> ToolCallResult:
+        """The tool's call, executed by the app."""
+        base = f"/api/internal/runs/{self.spec.run_id}/tools"
+        resp = await self._client.post(f"{base}/{name}", json=args, headers={TOOL_PENDING_HEADER: "1"})
+        while True:
+            if resp.status_code >= 400:
+                return ToolCallResult(text=f"Tool failed ({resp.status_code}): {resp.text[:500]}", is_error=True)
+            result = ToolCallResult.model_validate(resp.json())
+            if not result.pending:
+                return result
+            # Still at work (a quick check, a question to another agent): each request stays short, so
+            # a proxy between here and the app (Cloudflare ends one after 100 s) never cuts it off.
+            resp = await self._client.post(f"{base}/pending/{result.pending}")
 
     async def upload(self, task_number: int, file: Path) -> httpx.Response:
         mime = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
@@ -113,3 +118,21 @@ async def _send_files(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallResul
     if resp.status_code >= 400:
         return ToolCallResult(text=f"Sending failed: {resp.text[:300]}", is_error=True)
     return ToolCallResult.model_validate(resp.json())
+
+
+SKILL_FILE_BYTES = 5 * 1024 * 1024  # the app's limit for a skill's zip (services/skills.py)
+
+
+@local_tool("install_skill")
+async def _install_skill(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallResult:
+    """A skill from a file: its content goes to the app, which checks and keeps it; a git source goes as it is."""
+    args = {k: v for k, v in args.items() if k != "content_b64"}
+    if args.get("file"):
+        raw = Path(str(args["file"]))
+        file = raw if raw.is_absolute() else bridge.workspace / raw
+        if not file.is_file():
+            return ToolCallResult(text=f"File not found: {file}", is_error=True)
+        if file.stat().st_size > SKILL_FILE_BYTES:
+            return ToolCallResult(text=f"A skill may be at most {SKILL_FILE_BYTES // (1024 * 1024)} MB", is_error=True)
+        args["content_b64"] = base64.b64encode(file.read_bytes()).decode()
+    return await bridge.remote("install_skill", args)
