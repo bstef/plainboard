@@ -21,6 +21,7 @@ import { RunnersEditor } from "./RunnersEditor";
 import { SecretsEditor } from "./SecretsEditor";
 import { UsageEditor } from "./UsageEditor";
 import { UsersEditor } from "./UsersEditor";
+import luchsApproved from "../../assets/luchs-approved.webp";
 
 export function CheckBadge({ result }: { result: CheckResult | null }) {
   if (!result) return null;
@@ -283,6 +284,9 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                 </p>
               </div>
               <SaveRow dirty={dirty(...GENERAL)} onSave={() => save(GENERAL)} />
+              <div className="flex justify-end">
+                <img src={luchsApproved} alt={t("settings.luchsApproved")} width={68} draggable={false} className="pointer-events-none w-[68px] rotate-[9deg] select-none" />
+              </div>
             </div>
           ),
         },
