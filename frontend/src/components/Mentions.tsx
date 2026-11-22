@@ -51,7 +51,7 @@ export function usePeopleMap(): Map<string, Person> {
   return useMemo(() => new Map((people ?? []).map((p) => [p.username, p])), [people]);
 }
 
-/** A mention in a text: the person's picture and name; the signed-in user's own one stands out. */
+/** A mention in a text: "@" and the person's name as running text; the signed-in user's own one is a filled pill. */
 export function MentionChip({ person }: { person: Person }) {
   const me = useMe();
   const mine = me?.id === person.id;
@@ -59,14 +59,23 @@ export function MentionChip({ person }: { person: Person }) {
     <span
       data-part="mention"
       title={`@${person.username}`}
-      className={clsx(
-        "inline-flex items-center gap-1 rounded-sm px-1 align-baseline font-semibold whitespace-nowrap ring-1 ring-inset",
-        mine ? "bg-you-bg text-you-fg ring-you" : "bg-sunk text-fg ring-line-2",
-      )}
+      className={clsx("rounded-sm px-[0.3em] py-px font-medium [box-decoration-break:clone]", mine ? "bg-you text-on-you" : "bg-you-bg text-you-fg")}
     >
-      <Avatar name={person.name} person={person} className="size-3.5 self-center text-[0.5rem]" />
-      {person.name}
+      @{person.name}
     </span>
+  );
+}
+
+/** An excerpt with its `inline code` shown as code instead of raw backticks. */
+function Excerpt({ text }: { text: string }) {
+  return text.split(/`([^`\n]+)`/).map((part, i) =>
+    i % 2 ? (
+      <code key={i} className="rounded-sm bg-sunk px-1 font-mono text-[0.9em]">
+        {part}
+      </code>
+    ) : (
+      part
+    ),
   );
 }
 
@@ -174,7 +183,7 @@ function useMentionNotifications(items: Mention[] | undefined, onOpen: (m: Menti
     fresh.forEach((m) => seen.current!.add(m.id));
     if (!fresh.length || typeof Notification === "undefined" || Notification.permission !== "granted") return;
     for (const m of fresh) {
-      const note = new Notification(t("mentions.notifyTitle", { name: m.author || t("mentions.someone") }), { body: m.excerpt, tag: `mention-${m.id}` });
+      const note = new Notification(t("mentions.notifyTitle", { name: m.author || t("mentions.someone") }), { body: m.excerpt.replace(/`/g, ""), tag: `mention-${m.id}` });
       note.onclick = () => {
         window.focus();
         onOpen(m);
@@ -291,7 +300,9 @@ export function MentionsBell({
                     {m.task_number !== null ? `#${m.task_number} ${m.task_title}` : t("mentions.inChat")}
                     {m.project_id !== projectId && ` · ${m.project_name}`}
                   </span>
-                  <span className="line-clamp-2 text-fg-2">{m.excerpt}</span>
+                  <span className="line-clamp-2 text-fg-2">
+                    <Excerpt text={m.excerpt} />
+                  </span>
                   <span className="text-fg-3">{timeAgo(m.created_at)}</span>
                 </span>
               </button>
