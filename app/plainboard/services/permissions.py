@@ -11,6 +11,7 @@ servers) a project gets only if its owner may use it (``User.may_use_shared``): 
 that hands credentials or secrets to a project's runs, jobs and git work takes them from here.
 
 The project's own limit to some subscriptions (``Project.account_ids``, set by an admin) comes on top.
+Subscriptions people added themselves (``Account.owner_id``) are their own and whom they share them with.
 """
 
 from __future__ import annotations
@@ -41,23 +42,44 @@ async def owner(session: AsyncSession, project: Project) -> User | None:
     return user if limited(user) else None
 
 
+SHARES = ("private", "people", "everyone")
+
+
+def may_use(user: User | None, account: Account) -> bool:
+    """May this person's projects run on the account? ``user`` None: a project of nobody.
+    The installation's: as an admin allowed the person (``User.account_ids``). A person's own: its
+    owner, and whom the owner shares it with."""
+    if account.owner_id is None:
+        return not limited(user) or user.account_ids is None or account.id in user.account_ids
+    if user is not None and account.owner_id == user.id:
+        return True
+    return account.share == "everyone" or (account.share == "people" and user is not None and user.id in (account.shared_with or []))
+
+
+def may_manage(user: User | None, account: Account) -> bool:
+    """Change, delete, test and share it: its owner and admins (the installation's: admins only)."""
+    return user is not None and (user.is_admin or (account.owner_id is not None and account.owner_id == user.id))
+
+
+async def usable(session: AsyncSession, user: User | None) -> set[int]:
+    return {a.id for a in await session.scalars(select(Account)) if may_use(user, a)}
+
+
 async def account_ids(session: AsyncSession, project: Project | None) -> set[int] | None:
-    """The only accounts the project's agents may run on; None: any."""
+    """The only accounts the project's agents may run on: what its owner may use, and of those the
+    ones an admin limited the project to. None: no project, any."""
     if project is None:
         return None
-    allowed = set(project.account_ids) if project.account_ids else None
-    user = await owner(session, project)
-    if user is not None and user.account_ids is not None:
-        allowed = set(user.account_ids) if allowed is None else allowed & set(user.account_ids)
-    return allowed
+    allowed = await usable(session, await session.get(User, project.owner_id) if project.owner_id else None)
+    return allowed & set(project.account_ids) if project.account_ids else allowed
 
 
 async def check_account(session: AsyncSession, project: Project | None, account_id: int | None, user: User | None = None) -> None:
     """``user``: the owner of a project that is not created yet."""
     if account_id is None:
         return
-    allowed = await account_ids(session, project) if project is not None else (set(user.account_ids) if limited(user) and user.account_ids is not None else None)
-    if allowed is not None and account_id not in allowed:
+    allowed = await account_ids(session, project) if project is not None else await usable(session, user)
+    if account_id not in allowed:
         raise ServiceError("This project may not use that subscription.")
 
 

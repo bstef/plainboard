@@ -109,9 +109,13 @@ async def inspect_query(sql: str, limit: int = Query(default=200, ge=1), cell_ch
 
 
 @router.get("/limits", response_model=LimitsOut)
-async def limits(session: Session, runs: Runs) -> LimitsOut:
+async def limits(session: Session, runs: Runs, who: Who) -> LimitsOut:
     runs.refresh_limits()
-    return await limits_service.current(session)
+    out = await limits_service.current(session)
+    if who.user is not None and not who.user.is_admin:  # what the user and their projects may use
+        seen = {a.id for a in await account_service.visible(session, who.user)}
+        out.accounts = [a for a in out.accounts if a.account_id in seen]
+    return out
 
 
 @router.get("/usage", response_model=UsageOut)

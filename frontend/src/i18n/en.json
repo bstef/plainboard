@@ -666,7 +666,17 @@
     "rotationHint": "A conversation stays on its subscription while its prompt cache is warm, until that reaches 95 % or hits a limit. New conversations, and those idle for an hour or starting a fresh context, go to the subscription with the most usage left, counted by the size of its plan. The last 5 % of every subscription are used once all are that full, API keys only after that. A project or an agent can be given one of its own: Project settings → Team, or the agent in Team.",
     "planSize": "Plan size",
     "planSizeHint": "How much usage the plan allows, as a multiple of the smallest plan (Claude Pro = 1, Max 5x = 5, Max 20x = 20). Empty: as detected, otherwise like the other subscriptions.",
-    "planDetected": "Detected: {{plan}}"
+    "planDetected": "Detected: {{plan}}",
+    "noneOwn": "Nobody has added a subscription of their own.",
+    "ownedBy": "Added by {{name}}",
+    "share": {
+      "label": "Who may use it",
+      "private": "Only me",
+      "people": "Selected people",
+      "everyone": "Everyone here",
+      "nobody": "Nobody else has an account here yet.",
+      "hint": "Their projects may run on it. They see its name and how much is used, never its token or key."
+    }
   },
   "projectAccounts": {
     "label": "Subscriptions this project may use",
@@ -963,6 +973,13 @@
     "unsaved": "Not saved yet.",
     "saved": "Saved.",
     "atOnce": "Changes here are stored at once.",
+    "own": {
+      "label": "My subscriptions",
+      "description": "Your own subscriptions and API keys, for your projects and whom you share them with.",
+      "hint": "Your projects run on these, besides what an admin allows you. Only you and admins can change or delete them; a token or key is never shown again. Your own take a token or an API key: signing in on the runner (Claude login, ChatGPT sign-in) is only for the installation's subscriptions, because every agent on a runner could read such a sign-in.",
+      "peoples": "People's own subscriptions",
+      "peoplesHint": "Added by people for their projects. You can change, share and delete them; their tokens and keys are not shown to you either."
+    },
     "subscriptions": {
       "label": "Subscriptions",
       "description": "What the agents run on. Add every subscription or API key you want to use; with several, an agent takes the one with the most room left, and a project can name its own."

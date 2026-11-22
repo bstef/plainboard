@@ -21,7 +21,7 @@ export function EndpointAccounts() {
   const [error, setError] = useState<unknown>(null);
   const [choice, setChoice] = useState("");
   const endpoints = meta.data?.endpoints ?? [];
-  const mine = (accounts.data ?? []).filter((a) => endpoints.some((p) => p.name === a.provider));
+  const mine = (accounts.data ?? []).filter((a) => a.owner_id == null && endpoints.some((p) => p.name === a.provider));
   const chosen = endpoints.find((p) => p.name === choice) ?? endpoints[0];
 
   const run = async (action: () => Promise<unknown>) => {

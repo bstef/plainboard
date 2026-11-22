@@ -99,8 +99,10 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/pause", Need.USER, Need.ADMIN),  # everyone sees that everything is paused; an admin does it
     Rule("/api/settings", Need.USER, Need.ADMIN),  # reading shows no secret, and the UI needs the defaults
     Rule("/api/settings/check/github", Need.CREATOR),  # a token typed for a new project; the installation's: admins
-    Rule("/api/accounts", Need.USER, Need.ADMIN),  # the list: which subscriptions an agent can be given
-    Rule("/api/accounts/{account_id}/signin", Need.ADMIN),
+    # Everyone adds their own subscriptions; who may change one is its owner or an admin (accounts.managed),
+    # the list holds what the user may use (accounts.visible), secrets are never read back.
+    Rule("/api/accounts", Need.USER),
+    Rule("/api/accounts/{account_id}/signin", Need.ADMIN),  # a sign-in on the runner: the installation's only
     Rule("/api/secrets", Need.ADMIN),
     Rule("/api/access-keys", Need.ADMIN),
     Rule("/api/inspect", Need.ADMIN),

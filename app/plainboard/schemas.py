@@ -307,6 +307,9 @@ class AccountUpdate(BaseModel):
     models: list[Annotated[str, Field(min_length=1, max_length=200)]] | None = Field(default=None, max_length=200)
     context_tokens: int | None = Field(default=None, ge=0, le=10_000_000)
     plan_size: float | None = Field(default=None, ge=0, le=1000)  # 0 = as the provider says
+    # Of a person's own subscription: who else may use it (services/permissions.may_use).
+    share: Literal["private", "people", "everyone"] | None = None
+    shared_with: list[int] | None = Field(default=None, max_length=1000)
 
 
 class AccountOut(ORM):
@@ -321,6 +324,11 @@ class AccountOut(ORM):
     models: list[str] = []
     context_tokens: int = 0
     plan_size: float | None = None
+    owner_id: int | None = None  # None: the installation's; else a person's own
+    owner_name: str = ""
+    share: str = "private"
+    shared_with: list[int] | None = None  # to its managers only
+    can_manage: bool = False  # the viewer may change, test, share and delete it
 
 
 class RepositoryOut(ORM):

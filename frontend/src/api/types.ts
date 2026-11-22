@@ -469,6 +469,13 @@ export interface Account {
   context_tokens: number;
   /** The size of its plan as the user gave it; null: as the provider says. */
   plan_size: number | null;
+  /** null: the installation's; else a person's own, shared with nobody, some people or everyone. */
+  owner_id: number | null;
+  owner_name: string;
+  share: "private" | "people" | "everyone";
+  shared_with: number[];
+  /** The viewer may change, test, share and delete it (its owner, an admin). */
+  can_manage: boolean;
 }
 
 export interface StatsDay {

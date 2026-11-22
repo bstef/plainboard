@@ -117,6 +117,11 @@ class Account(Timestamps, Base):
     # How large the subscription's plan is, as a multiple of the provider's smallest plan, as the user
     # gave it. None: as the provider says (services/limits.py), else as large as the others.
     plan_size: Mapped[float | None] = mapped_column(Float)
+    # A person's own subscription (None: the installation's, which an admin gives to people, users.account_ids),
+    # and who else may use it: nobody ("private"), the people in ``shared_with`` ("people"), or everyone.
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    share: Mapped[str] = mapped_column(String(20), default="private", server_default="private")
+    shared_with: Mapped[list[int] | None] = mapped_column(JSON)
 
 
 class Setting(Base):
