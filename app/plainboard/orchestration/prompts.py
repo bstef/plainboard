@@ -325,7 +325,7 @@ PEOPLE_SHOWN = 30
 def people_line(people: list[tuple[str, str]]) -> str:
     """The people of the project, by the @username that notifies them (services/mentions.py)."""
     names = [f"@{username}" + (f" ({name})" if name and name.lower() != username else "") for username, name in people[:PEOPLE_SHOWN]]
-    return "People (write @username to notify one, only when they must see or do something): " + ", ".join(names)
+    return "People (@username notifies one. Use it rarely: only for something important they must see or do, or where it matters which person is meant; never in routine replies, nor for the person you are answering): " + ", ".join(names)
 
 
 def team_roster(agents: list[Agent], me: Agent, repos_by_agent: dict[int, list[str]] | None = None) -> str:
