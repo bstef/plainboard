@@ -95,7 +95,7 @@
   color: var(--btn-fg);
   font-weight: 600;
 }
-[data-design="slop2gether"] button.plate:hover:not(:disabled) {
+[data-design="slop2gether"] button.plate:hover:not(:disabled):not([aria-current]) {
   background: var(--btn-bg-hover);
 }
 [data-design="slop2gether"] [data-part="button"],

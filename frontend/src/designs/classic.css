@@ -127,7 +127,7 @@
   color: #fff;
   font-weight: 500;
 }
-:is([data-design="classic"], [data-design="slop2gether"]) button.plate:hover:not(:disabled) {
+:is([data-design="classic"], [data-design="slop2gether"]) button.plate:hover:not(:disabled):not([aria-current]) {
   background: var(--accent-hover);
 }
 :is([data-design="classic"], [data-design="slop2gether"]) button.plate:disabled {
