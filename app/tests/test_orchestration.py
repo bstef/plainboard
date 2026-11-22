@@ -1307,6 +1307,41 @@ def test_waiting_messages_of_several_people_stay_apart_and_go_out_together(clien
     assert idle(client, pid)
 
 
+def test_chat_messages_that_arrive_at_once_are_all_kept(client, project):
+    """#39: two messages joining the same waiting turn at the same moment overwrote each other's parts."""
+    import asyncio
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Agent
+
+    pid = project["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    dev = make_dev(client, pid)
+    runs = client.app_ref.state.runs
+
+    async def say(text: str, author: str) -> int:
+        async with sessionmaker()() as s:
+            agent = await s.get(Agent, dev["id"])
+            return (await runs.chat(s, agent, text, None, author=author, several=True)).id
+
+    async def withdraw(run_id: int, part: int) -> None:
+        async with sessionmaker()() as s:
+            await runs.withdraw_chat(s, run_id, part)
+
+    async def at_once(*calls):
+        return await asyncio.gather(*calls)
+
+    client.portal.call(at_once, say("SAY a", "Tiger"), say("SAY b", "Loox"))  # no waiting turn yet
+    client.portal.call(at_once, *(say(f"SAY {n}", "Loox") for n in "cde"))
+    (run,) = runs_of(client, pid, agent_id=dev["id"])
+    assert sorted(p["text"] for p in run["parts"]) == ["SAY a", "SAY b", "SAY c", "SAY d", "SAY e"]
+    assert len({p["id"] for p in run["parts"]}) == 5
+    first = run["parts"][0]["id"]
+    client.portal.call(at_once, withdraw(run["id"], first), say("SAY f", "Tiger"))
+    (run,) = runs_of(client, pid, agent_id=dev["id"])
+    assert len(run["parts"]) == 5 and "SAY f" in run["input_text"]
+
+
 def test_asking_a_busy_teammate_notifies_it_and_does_not_block_for_long(client, project, monkeypatch):
     monkeypatch.setattr("plainboard.orchestration.run_manager.ASK_BUSY_TIMEOUT_SECONDS", 0.05)
     pid = project["id"]

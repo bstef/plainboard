@@ -220,6 +220,9 @@ class RunManager:
         self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
         self._state_tried: dict[int, float] = {}  # closed tickets whose last rewrite was started then (see refresh_closed_tickets)
         self._unread: dict[int, set[int]] = {}  # running turn -> waiting chat messages (runs) it was told about and has not read yet
+        # agent -> what changes its waiting chat run (a message joining, one withdrawn): read and write back
+        # the parts one after the other, so no message overwrites another. The app runs as one process.
+        self._chat_locks: dict[int, asyncio.Lock] = {}
         self._wake = asyncio.Event()
         self._limit_timer: asyncio.TimerHandle | None = None  # wakes the dispatcher when a used-up subscription is free again
         self._dispatcher: asyncio.Task[None] | None = None
@@ -512,9 +515,11 @@ class RunManager:
             raise ServiceError("Unknown attachment")
         part = {"id": 1, "author": author, "text": text, "named": bool(author and several and text.strip()), "attachment_ids": list(attachment_ids or []), "at": _iso(utcnow())}
         text = _part_input(part)
-        run = await self._join_waiting_chat(s, agent, part) or await self.enqueue(
-            s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids, author_name=author, parts=[part]
-        )
+        async with self._chat_locks.setdefault(agent.id, asyncio.Lock()):
+            await s.commit()  # what is read next is the latest state, not that of a transaction begun before the wait
+            run = await self._join_waiting_chat(s, agent, part) or await self.enqueue(
+                s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids, author_name=author, parts=[part]
+            )
         # A working agent reads the message after its current step instead of after its whole turn.
         # Nothing is interrupted, and the message stays queued as its next turn.
         busy_run = await s.scalar(select(Run.id).where(Run.agent_id == agent.id, Run.status == RunStatus.RUNNING).limit(1))
@@ -578,7 +583,11 @@ class RunManager:
         """Add a message to the agent's chat run that has not started yet, so it answers everything at once.
         Each message stays a part of its own (writer, text, files, time): the chat shows them one by one."""
         waiting = await s.scalar(
-            select(Run).where(Run.agent_id == agent.id, Run.trigger == RunTrigger.CHAT, Run.status == RunStatus.QUEUED).order_by(Run.id.desc()).limit(1)
+            select(Run)
+            .where(Run.agent_id == agent.id, Run.trigger == RunTrigger.CHAT, Run.status == RunStatus.QUEUED)
+            .order_by(Run.id.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
         )
         if waiting is None or not agent.enabled:
             return None
@@ -604,9 +613,16 @@ class RunManager:
         run = await s.get(Run, run_id)
         if run is None:
             raise NotFound("Message not found")
+        async with self._chat_locks.setdefault(run.agent_id, asyncio.Lock()):
+            await s.commit()
+            await s.refresh(run)  # a message may have joined meanwhile
+            await self._withdraw_chat(s, run, part_id)
+
+    async def _withdraw_chat(self, s: AsyncSession, run: Run, part_id: int | None) -> None:
+        run_id = run.id
+        if part_id is not None and run.parts and not any(p["id"] == part_id for p in run.parts):
+            raise NotFound("Message not found")
         if part_id is not None and run.parts and len(run.parts) > 1:
-            if not any(p["id"] == part_id for p in run.parts):
-                raise NotFound("Message not found")
             await self._withdraw_part(s, run, part_id)
             return
         project_id, agent_id, attachment_ids = run.project_id, run.agent_id, list(run.attachment_ids)
