@@ -7,6 +7,7 @@ import "./i18n";
 import "@fontsource-variable/inter";
 import "./index.css";
 import "./designs/classic.css";
+import "./designs/slop2gether.css";
 import "./lib/theme";
 
 const queryClient = new QueryClient({

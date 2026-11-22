@@ -10,6 +10,7 @@ import { useEffect, useSyncExternalStore } from "react";
  * i18n (`look.design.<id>`). */
 export const DESIGNS = [
   { id: "classic", dark: { theme: "classic-dark", color: "#18181b", accent: "#5b54ea" }, light: { theme: "classic-light", color: "#ffffff", accent: "#4f46e5" } },
+  { id: "slop2gether", dark: { theme: "slop2gether-dark", color: "#000000", accent: "#ff6d3d" }, light: { theme: "slop2gether-light", color: "#fbfbfd", accent: "#e8590c" } },
   { id: "fahrplan", dark: { theme: "carbon", color: "#161614", accent: "#ecebe3" }, light: { theme: "stone", color: "#f1f0ea", accent: "#1b1a17" } },
 ] as const;
 export type DesignId = (typeof DESIGNS)[number]["id"];
