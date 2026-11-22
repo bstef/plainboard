@@ -1261,6 +1261,52 @@ def test_a_waiting_chat_message_can_be_deleted(client, project):
     assert client.delete("/api/runs/9999/message").status_code == 404
 
 
+def test_waiting_messages_of_several_people_stay_apart_and_go_out_together(client, project):
+    """Seen in production (#38): a second person's message joined the first one's and showed under the first name."""
+    from plainboard.db import sessionmaker
+    from plainboard.models import Agent
+
+    pid = project["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    dev = make_dev(client, pid)
+    upload = client.post(f"/api/agents/{dev['id']}/attachments", files={"files": ("a.txt", b"hi", "text/plain")}).json()[0]
+
+    async def say(text: str, author: str, files: list[int] | None = None) -> int:
+        async with sessionmaker()() as s:
+            agent = await s.get(Agent, dev["id"])
+            return (await client.app_ref.state.runs.chat(s, agent, text, files, author=author, several=True)).id
+
+    run_id = client.portal.call(say, "SAY one", "Tiger")
+    assert client.portal.call(say, "SAY two", "Loox", [upload["id"]]) == run_id
+    assert client.portal.call(say, "SAY three", "Tiger") == run_id
+    (run,) = runs_of(client, pid, agent_id=dev["id"])
+    assert run["input_text"] == "[Tiger] SAY one\n\n[Loox] SAY two\n\n[Tiger] SAY three"
+    assert [(p["id"], p["author"], p["text"], p["attachment_ids"]) for p in run["parts"]] == [
+        (1, "Tiger", "SAY one", []), (2, "Loox", "SAY two", [upload["id"]]), (3, "Tiger", "SAY three", [])
+    ]
+
+    # Each one can be taken back on its own, with its files; the first one gone, the next writer leads.
+    assert client.delete(f"/api/runs/{run_id}/message?part=9").status_code == 404
+    assert client.delete(f"/api/runs/{run_id}/message?part=2").status_code == 204
+    assert client.delete(f"/api/runs/{run_id}/message?part=1").status_code == 204
+    (run,) = runs_of(client, pid, agent_id=dev["id"])
+    assert (run["input_text"], run["attachment_ids"], run["author_name"]) == ("[Tiger] SAY three", [], "Tiger")
+    assert client.post(f"/api/agents/{dev['id']}/messages", json={"text": "x", "attachment_ids": [upload["id"]]}).status_code >= 400  # the file is gone
+    assert client.portal.call(say, "SAY four", "Loox") == run_id
+
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 3}})
+    client.app_ref.state.runs._wake.set()
+    wait_for(lambda: idle(client, pid))
+    (sent,) = [m for m in conversation(client, dev["id"])["messages"] if m["role"] == "user"]
+    assert sent["content"] == "[Tiger] SAY three\n\n[Loox] SAY four"
+    assert [(p["author"], p["text"]) for p in sent["meta"]["parts"]] == [("Tiger", "SAY three"), ("Loox", "SAY four")]
+    # The last one withdrawn takes the whole turn with it.
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    waiting = client.portal.call(say, "SAY gone", "Loox")
+    assert client.delete(f"/api/runs/{waiting}/message?part=1").status_code == 204
+    assert idle(client, pid)
+
+
 def test_asking_a_busy_teammate_notifies_it_and_does_not_block_for_long(client, project, monkeypatch):
     monkeypatch.setattr("plainboard.orchestration.run_manager.ASK_BUSY_TIMEOUT_SECONDS", 0.05)
     pid = project["id"]

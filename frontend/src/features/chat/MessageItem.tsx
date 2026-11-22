@@ -125,7 +125,17 @@ function UserMessage({ message, details }: { message: Message; details: boolean 
   );
 
   if (trigger === "chat") {
-    const parts = writtenParts(message.content, message.meta.author ?? null, people);
+    type Shown = { author: string | null; text: string; at: string; files: { id: number; filename: string; content_type: string }[] };
+    const files: { id: number; filename: string; content_type: string }[] = message.meta.attachments ?? [];
+    // Messages that waited for the same turn: each with its writer, time and files. Older ones say it in the text.
+    const parts: Shown[] = message.meta.parts
+      ? message.meta.parts.map((p: { author: string | null; text: string; attachment_ids: number[]; at: string }) => ({
+          author: p.author,
+          text: p.text,
+          at: p.at,
+          files: files.filter((f) => p.attachment_ids.includes(f.id)),
+        }))
+      : writtenParts(message.content, message.meta.author ?? null, people).map((p, i) => ({ ...p, at: message.created_at, files: i === 0 ? files : [] }));
     return (
       <>
         {briefingNote}
@@ -137,11 +147,11 @@ function UserMessage({ message, details }: { message: Message; details: boolean 
             <div key={i} data-part="msg" data-role="user" data-own={own ? "" : undefined} data-known={part.author ? "" : undefined} className={clsx(CHAT_ROW, "bg-sunk")}>
               <Head
                 name={part.author ?? t("chat.you")}
-                at={message.created_at}
+                at={part.at}
                 avatar={part.author ? <Avatar name={part.author} person={people.get(part.author.toLowerCase())} /> : undefined}
               />
               <div data-part="bubble">
-                {i === 0 && message.meta.attachments?.length > 0 && <MessageFiles files={message.meta.attachments} />}
+                {part.files.length > 0 && <MessageFiles files={part.files} />}
                 {part.text && <UserText text={part.text} />}
               </div>
             </div>

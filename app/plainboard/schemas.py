@@ -823,6 +823,16 @@ class ConversationOut(ORM):
     has_more: bool = False
 
 
+class ChatPartOut(BaseModel):
+    """One message of a chat run: several wait for the same turn when people write before it starts."""
+
+    id: int
+    author: str | None = None
+    text: str = ""
+    attachment_ids: list[int] = Field(default_factory=list)
+    at: UTCDateTime
+
+
 class RunOut(ORM):
     id: int
     project_id: int
@@ -838,6 +848,7 @@ class RunOut(ORM):
     source_agent_id: int | None
     parent_run_id: int | None
     author_name: str | None = None  # a chat message: the person who wrote it
+    parts: list[ChatPartOut] | None = None  # a chat run: its messages, each shown on its own
     result_text: str | None
     error: str | None
     input_tokens: int

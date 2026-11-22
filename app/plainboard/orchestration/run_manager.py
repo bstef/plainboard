@@ -26,6 +26,7 @@ import secrets
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from plainboard_protocol import CompletionSpec, JobSpec, JobState, ResultEvent, RunEvent, RunSpec, ToolBridgeSpec, ToolCallResult, WorkspaceSpec
 from sqlalchemy import delete as sql_delete
@@ -161,6 +162,27 @@ async def _limit_since_answer(s: AsyncSession, conversation_id: int) -> bool:
         return False
     answered = await s.scalar(select(func.max(Message.id)).where(Message.conversation_id == conversation_id, Message.role == "assistant"))
     return answered is None or answered < error.id
+
+
+
+def _iso(at: datetime) -> str:
+    return at.isoformat() + "Z"
+
+
+def chat_parts(run: Run) -> list[dict]:
+    """The messages waiting for a chat run; an older run without parts is one message."""
+    if run.parts:
+        return list(run.parts)
+    return [{"id": 1, "author": run.author_name, "text": run.input_text, "named": False, "attachment_ids": list(run.attachment_ids), "at": _iso(run.created_at)}]
+
+
+def _part_input(part: dict) -> str:
+    """What the agent reads of one message: where several people work, with the name in front."""
+    return f"[{part['author']}] {part['text']}" if part.get("named") else part["text"]
+
+
+def _chat_input(parts: list[dict]) -> str:
+    return "\n\n".join(text for text in map(_part_input, parts) if text.strip())
 
 
 class RunManager:
@@ -448,6 +470,7 @@ class RunManager:
         stopping: bool = False,
         paused_ok: bool = False,
         author_name: str | None = None,
+        parts: list[dict] | None = None,
     ) -> Run:
         """``paused_ok``: a turn for a paused agent is kept: it waits in the queue until the agent is enabled again."""
         if not agent.enabled and not stopping and not paused_ok:
@@ -466,6 +489,7 @@ class RunManager:
             attachment_ids=attachment_ids or [],
             stop_requested_at=utcnow() if stopping else None,
             author_name=author_name,
+            parts=parts,
         )
         s.add(run)
         await s.commit()
@@ -484,12 +508,12 @@ class RunManager:
         """``author``: the person who writes; the chat shows the name and picture with the message.
         ``several``: several people work in the project (``users.author``). Then the name also stands
         in front of the text, which is what the agent reads: it has to tell them apart."""
-        if author and several and text.strip():
-            text = f"[{author}] {text}"
         if attachment_ids and len(await board_service.chat_attachments(s, agent.project_id, attachment_ids)) != len(set(attachment_ids)):
             raise ServiceError("Unknown attachment")
-        run = await self._join_waiting_chat(s, agent, text, attachment_ids) or await self.enqueue(
-            s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids, author_name=author
+        part = {"id": 1, "author": author, "text": text, "named": bool(author and several and text.strip()), "attachment_ids": list(attachment_ids or []), "at": _iso(utcnow())}
+        text = _part_input(part)
+        run = await self._join_waiting_chat(s, agent, part) or await self.enqueue(
+            s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids, author_name=author, parts=[part]
         )
         # A working agent reads the message after its current step instead of after its whole turn.
         # Nothing is interrupted, and the message stays queued as its next turn.
@@ -550,19 +574,21 @@ class RunManager:
                 done.append(kind)
         return done
 
-    async def _join_waiting_chat(self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None) -> Run | None:
-        """Add a message to the agent's chat run that has not started yet, so it answers everything at once."""
+    async def _join_waiting_chat(self, s: AsyncSession, agent: Agent, part: dict) -> Run | None:
+        """Add a message to the agent's chat run that has not started yet, so it answers everything at once.
+        Each message stays a part of its own (writer, text, files, time): the chat shows them one by one."""
         waiting = await s.scalar(
             select(Run).where(Run.agent_id == agent.id, Run.trigger == RunTrigger.CHAT, Run.status == RunStatus.QUEUED).order_by(Run.id.desc()).limit(1)
         )
         if waiting is None or not agent.enabled:
             return None
-        joined = chr(10).join(part for part in (waiting.input_text + chr(10), text) if part.strip())
+        parts = chat_parts(waiting)
+        parts = [*parts, {**part, "id": max(p["id"] for p in parts) + 1}]
         # The status check matters: the dispatcher may start this run at any moment.
         result = await s.execute(
             update(Run)
             .where(Run.id == waiting.id, Run.status == RunStatus.QUEUED)
-            .values(input_text=joined, attachment_ids=[*waiting.attachment_ids, *(attachment_ids or [])])
+            .values(input_text=_chat_input(parts), attachment_ids=[*waiting.attachment_ids, *part["attachment_ids"]], parts=parts)
         )
         await s.commit()
         if not result.rowcount:
@@ -572,11 +598,17 @@ class RunManager:
         self._wake.set()
         return waiting
 
-    async def withdraw_chat(self, s: AsyncSession, run_id: int) -> None:
-        """Delete a chat message that the agent has not received yet (its run has not started)."""
+    async def withdraw_chat(self, s: AsyncSession, run_id: int, part_id: int | None = None) -> None:
+        """Delete a chat message that the agent has not received yet (its run has not started).
+        ``part_id``: only that one of the messages waiting for the run; the last one deletes the run."""
         run = await s.get(Run, run_id)
         if run is None:
             raise NotFound("Message not found")
+        if part_id is not None and run.parts and len(run.parts) > 1:
+            if not any(p["id"] == part_id for p in run.parts):
+                raise NotFound("Message not found")
+            await self._withdraw_part(s, run, part_id)
+            return
         project_id, agent_id, attachment_ids = run.project_id, run.agent_id, list(run.attachment_ids)
         # The status check matters: the dispatcher may start this run at any moment.
         result = await s.execute(sql_delete(Run).where(Run.id == run_id, Run.trigger == RunTrigger.CHAT, Run.status == RunStatus.QUEUED))
@@ -591,6 +623,27 @@ class RunManager:
         project = await s.get(Project, project_id)
         if project and await inbox.pending_count(s, agent_id):
             await self._maybe_wake(s, project, agent_id)
+
+    async def _withdraw_part(self, s: AsyncSession, run: Run, part_id: int) -> None:
+        gone = next(p for p in run.parts or [] if p["id"] == part_id)
+        rest = [p for p in run.parts or [] if p["id"] != part_id]
+        result = await s.execute(
+            update(Run)
+            .where(Run.id == run.id, Run.trigger == RunTrigger.CHAT, Run.status == RunStatus.QUEUED)
+            .values(
+                parts=rest,
+                input_text=_chat_input(rest),
+                attachment_ids=[i for p in rest for i in p["attachment_ids"]],
+                author_name=rest[0]["author"],
+            )
+        )
+        await s.commit()
+        if not result.rowcount:
+            raise ServiceError("The agent has already received this message", 409)
+        for attachment in await board_service.chat_attachments(s, run.project_id, gone["attachment_ids"]):
+            await board_service.delete_attachment(s, attachment)
+        await s.refresh(run)
+        bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
 
     async def hand_ticket(self, s: AsyncSession, task: Task, author: str | None = None) -> Run:
         """Give a ticket to the project manager, who plans and delegates it. ``author``: who did, where
@@ -1283,6 +1336,8 @@ class RunManager:
                 meta["source_agent_id"] = run.source_agent_id
             if run.author_name:
                 meta["author"] = run.author_name
+            if run.parts:
+                meta["parts"] = [{k: p[k] for k in ("author", "text", "attachment_ids", "at")} for p in run.parts]
             if updates:
                 meta["inbox"] = updates
             if files:

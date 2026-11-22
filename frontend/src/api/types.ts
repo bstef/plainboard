@@ -295,6 +295,15 @@ export interface Conversation {
   has_more: boolean;
 }
 
+/** One message of a chat run: several wait for the same turn when people write before it starts. */
+export interface ChatPart {
+  id: number;
+  author: string | null;
+  text: string;
+  attachment_ids: number[];
+  at: string;
+}
+
 export interface Run {
   id: number;
   project_id: number;
@@ -307,6 +316,8 @@ export interface Run {
   input_text: string;
   /** A chat message: the person who wrote it. */
   author_name: string | null;
+  /** A chat run: the messages waiting for it, each shown on its own. Null on older runs. */
+  parts: ChatPart[] | null;
   attachment_ids: number[];
   effort: string | null;
   task_id: number | null;

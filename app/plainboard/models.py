@@ -613,6 +613,9 @@ class Run(Base):
     source_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     parent_run_id: Mapped[int | None] = mapped_column(Integer)
     author_name: Mapped[str | None] = mapped_column(String(100))  # a chat message: the person who wrote it
+    # A chat run: the messages waiting for it, each with its writer, text, files and time
+    # ({id, author, text, named, attachment_ids, at}). None: an older run, one message.
+    parts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     result_text: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
