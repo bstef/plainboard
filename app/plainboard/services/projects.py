@@ -102,7 +102,7 @@ async def create(session: AsyncSession, data: ProjectCreate, owner: User | None 
     if data.account_id is not None:
         await account_service.get(session, data.account_id)
         await permissions.check_account(session, None, data.account_id, owner)
-    runner_id = await permissions.first_runner(session, owner)
+    runner_id = await permissions.start_runner(session, owner, data.runner_id, "runner_id" in data.model_fields_set)
     project = Project(
         owner_id=owner.id if owner else None,
         runner_id=runner_id,

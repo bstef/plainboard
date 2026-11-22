@@ -94,6 +94,23 @@ def test_a_persons_projects_run_only_on_the_runners_allowed_to_them(client, proj
     assert "Nowhere" not in project_names(client)
 
 
+def test_a_new_project_starts_on_the_runner_chosen_if_allowed_and_a_refusal_creates_nothing(client, project):
+    laptop = client.post("/api/runners", json={"name": "Laptop"}).json()["runner"]
+    other = client.post("/api/runners", json={"name": "Other"}).json()["runner"]
+    assert [r["id"] for r in client.get("/api/runners/choices").json()] == [None, laptop["id"], other["id"]]  # an admin: all
+    friend(client, runner_ids=[0, laptop["id"]])
+    as_friend(client)
+    choices = client.get("/api/runners/choices").json()
+    assert [(r["id"], r["connected"]) for r in choices] == [(None, True), (laptop["id"], False)]
+    made = client.post("/api/projects", json={"name": "On laptop", "runner_id": laptop["id"]}).json()
+    assert client.get(f"/api/projects/{made['id']}/runner").json()["runner_id"] == laptop["id"]
+    made = client.post("/api/projects", json={"name": "Here", "runner_id": None}).json()
+    assert client.get(f"/api/projects/{made['id']}/runner").json()["runner_id"] is None
+    assert client.post("/api/projects", json={"name": "Forbidden", "runner_id": other["id"]}).status_code == 403
+    assert client.post("/api/projects", json={"name": "Unknown", "runner_id": 9999}).status_code == 404
+    assert {"Forbidden", "Unknown"}.isdisjoint(project_names(client))
+
+
 def test_a_persons_limit_of_agents_at_work_holds_across_their_projects(client, project):
     from conftest import FakeRunner
 

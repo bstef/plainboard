@@ -1,10 +1,10 @@
 import { allowedAccounts, useUsableAccounts } from "../projects/ProjectAccounts";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useAccounts, useMe, useMeta, useRepositories, useSettings } from "../../api/queries";
-import type { Agent, Project } from "../../api/types";
+import type { Agent, Project, ProjectRunner } from "../../api/types";
 import { Field, FieldRow, Input, Select, Toggle } from "../../components/ui";
 import { MembersEditor } from "../projects/MembersEditor";
 import { ImportProject } from "../projects/MoveProject";
@@ -30,6 +30,11 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const usableIds = useUsableAccounts(project?.id);
   const [manager, setManager] = useState<Agent | null>(null);
   const [basics, setBasics] = useState({ name: "" });
+  // Where it starts: asked only when the user may choose between runners (built-in first, if allowed).
+  const runners = useQuery({ queryKey: ["runner-choices"], queryFn: () => api.get<ProjectRunner["runners"]>("/runners/choices"), enabled: !project }).data ?? [];
+  const [runnerPick, setRunnerPick] = useState<number | null | undefined>(undefined);
+  const runnerId = runnerPick !== undefined ? runnerPick : (runners[0]?.id ?? null);
+  const runner = runners.find((r) => r.id === runnerId);
   const [code, setCode] = useState({ workspace_path: "", github_token: "" });
   const [team, setTeam] = useState<{ provider: string; model: string; effort: string; account_id: number | null; parallel_agents: number | null; auto_wake_manager: boolean; continue_with_backlog: boolean }>({
     provider: "",
@@ -57,7 +62,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
 
   const saveBasics = async () => {
     // A project made here starts with the two tickets that set it up.
-    const saved = project ? await api.patch<Project>(`/projects/${project.id}`, basics) : await api.post<Project>("/projects", { ...basics, first_steps: true });
+    const saved = project ? await api.patch<Project>(`/projects/${project.id}`, basics) : await api.post<Project>("/projects", { ...basics, first_steps: true, ...(runners.length > 1 ? { runner_id: runnerId } : {}) });
     setProject(saved);
     await qc.invalidateQueries({ queryKey: qk.projects });
     if (!manager) {
@@ -100,6 +105,17 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
           <Field label={t("projects.name")}>
             <Input autoFocus value={basics.name} onChange={(e) => setBasics({ ...basics, name: e.target.value })} />
           </Field>
+          {!project && runners.length > 1 && (
+            <Field label={t("newProject.basics.runner")} hint={runner && !runner.connected ? t("newProject.basics.runnerAway") : t("newProject.basics.runnerHint")}>
+              <Select value={runnerId ?? ""} onChange={(e) => setRunnerPick(e.target.value ? Number(e.target.value) : null)}>
+                {runners.map((r) => (
+                  <option key={r.id ?? "builtin"} value={r.id ?? ""}>
+                    {r.id === null ? t("projectRunner.builtin") : r.connected ? r.name : t("projectRunner.away", { name: r.name })}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           {/* The other way to a project: bring one along from another PlainBoard. Only before this one exists. */}
           {!project && (
             <details className="border-t border-line pt-4">
