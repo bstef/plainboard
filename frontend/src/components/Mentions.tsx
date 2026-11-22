@@ -267,7 +267,7 @@ export function MentionsBell({
         className={clsx(
           "inline-flex h-8 items-center gap-2 rounded-sm whitespace-nowrap touch:h-11",
           unread ? "font-semibold text-you-fg ring-1 ring-you ring-inset" : "text-fg-2 hover:bg-sunk hover:text-fg",
-          variant === "side" ? "w-full px-2" : variant === "rail" ? "w-[34px] justify-center gap-0.5" : "px-2",
+          variant === "side" ? "w-full px-2" : variant === "rail" ? "mx-auto w-8 justify-center gap-0.5" : "px-2",
         )}
       >
         <AtSign className="size-4 shrink-0" />
