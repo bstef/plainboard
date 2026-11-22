@@ -47,7 +47,7 @@ PROJECT_RANK = {Need.VIEWER: 1, Need.MEMBER: 2, Need.OWNER: 3}
 READS = ("GET", "HEAD", "OPTIONS")
 # What a read key never gets, although it is a GET: the keys themselves, the provider accounts and
 # their sign-in, and what is fetched with the installation's GitHub token.
-READ_KEY_HIDDEN = ("/api/access-keys", "/api/accounts", "/api/github")
+READ_KEY_HIDDEN = ("/api/access-keys", "/api/accounts", "/api/github", "/api/projects/{project_id}/github")
 
 
 @dataclass(frozen=True)
@@ -97,6 +97,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/limits", Need.USER),
     Rule("/api/pause", Need.USER, Need.ADMIN),  # everyone sees that everything is paused; an admin does it
     Rule("/api/settings", Need.USER, Need.ADMIN),  # reading shows no secret, and the UI needs the defaults
+    Rule("/api/settings/check/github", Need.CREATOR),  # a token typed for a new project; the installation's: admins
     Rule("/api/accounts", Need.USER, Need.ADMIN),  # the list: which subscriptions an agent can be given
     Rule("/api/accounts/{account_id}/signin", Need.ADMIN),
     Rule("/api/secrets", Need.ADMIN),
@@ -122,6 +123,7 @@ RULES: tuple[Rule, ...] = (
     _project("/accounts", read=Need.ADMIN, write=Need.ADMIN),
     _project("/runner"),  # which runner its agents use: its owner chooses  # which of the installation's subscriptions it may use: not its owner's call
     _project("/public-api-keys", read=Need.OWNER),
+    _project("/github", read=Need.OWNER),  # what its own token sees on GitHub (an admin: else the installation's)
     _of("/api/agents/{agent_id}", "agent_id", Agent),
     _of("/api/agent-notes/{note_id}", "note_id", AgentNote),
     _of("/api/tasks/{task_id}", "task_id", Task),

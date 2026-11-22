@@ -169,7 +169,9 @@ class GithubCheckIn(BaseModel):
 
 
 @router.post("/settings/check/github", response_model=CheckOut)
-async def check_github(body: GithubCheckIn, session: Session, runner: Runner) -> CheckOut:
+async def check_github(body: GithubCheckIn, session: Session, runner: Runner, who: Who) -> CheckOut:
+    if not body.token and not who.is_admin:
+        return CheckOut(ok=False, detail="Enter a token to test.")
     values = await settings_service.get_all(session)
     result = await runner.check_github(settings_service.credentials(values, body.token))
     return CheckOut(ok=result.ok, detail=result.detail)

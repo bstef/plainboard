@@ -356,7 +356,7 @@ class FakeRunner:
             await asyncio.sleep(0.01)
         return CheckResult(ok=not getattr(self, "remove_fails", False), detail="2 folders removed" if not getattr(self, "remove_fails", False) else "Permission denied")
 
-    async def check_github(self, credentials, repo_url):
+    async def check_github(self, credentials, repos=None):
         return CheckResult(ok=bool(credentials.github_token), detail="fake")
 
     async def github_repos(self, credentials):

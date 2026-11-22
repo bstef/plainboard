@@ -3,38 +3,59 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter
+from plainboard_protocol import Credentials
 from pydantic import BaseModel, Field
 
 from ..schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
-from .deps import Runs, Session
+from .deps import Runs, Session, Who
 
 router = APIRouter(prefix="/api", tags=["repositories"])
 
 
-@router.get("/github/repos")
-async def github_repos(session: Session, runs: Runs, project_id: int | None = None) -> dict[str, Any]:
-    """Repositories visible to the GitHub token (project override first), for the repo picker."""
+async def _github(session: Session, who: Who, project_id: int | None) -> Credentials | None:
+    """For GitHub: a project's own token first, else the installation's. Not for an owner who is no admin: the
+    installation's token sees the admin's repositories."""
     override = project_service.github_token(await project_service.get(session, project_id)) if project_id else None
-    credentials = settings_service.credentials(await settings_service.get_all(session), override)
-    return await runs.runners.of(project_id).github_repos(credentials)  # a project's token goes to its own runner only
+    if override is None and not who.is_admin:
+        return None
+    return settings_service.credentials(await settings_service.get_all(session), override)
+
+
+NO_OWN_TOKEN = {"ok": False, "detail": "This project has no GitHub token of its own yet: enter one, or add the repository by its address.", "repos": []}
+
+
+@router.get("/github/repos")
+async def github_repos(session: Session, runs: Runs, who: Who) -> dict[str, Any]:
+    """Repositories visible to the installation's GitHub token, for the repo picker."""
+    return await project_github_repos(None, session, runs, who)
+
+
+@router.get("/projects/{project_id}/github/repos")
+async def project_github_repos(project_id: int | None, session: Session, runs: Runs, who: Who) -> dict[str, Any]:
+    """Repositories visible to the project's GitHub token, for the repo picker."""
+    credentials = await _github(session, who, project_id)
+    return await runs.runners.of(project_id).github_repos(credentials) if credentials else NO_OWN_TOKEN  # a project's token goes to its own runner only
 
 
 class GithubRepoIn(BaseModel):
     name: str = Field(pattern=r"^[\w.-]{1,100}$")
     owner: str = Field(default="", pattern=r"^[\w.-]{0,100}$")  # an organisation. Empty: the token's own account
     private: bool = True
-    project_id: int | None = None  # its token, if it has one of its own
 
 
 @router.post("/github/repos")
-async def create_github_repo(body: GithubRepoIn, session: Session, runs: Runs) -> dict[str, Any]:
+async def create_github_repo(body: GithubRepoIn, session: Session, runs: Runs, who: Who) -> dict[str, Any]:
     """A new repository on GitHub, made with the GitHub token. The answer has the shape of the list above."""
-    override = project_service.github_token(await project_service.get(session, body.project_id)) if body.project_id else None
-    credentials = settings_service.credentials(await settings_service.get_all(session), override)
-    return await runs.runners.of(body.project_id).github_create_repo(credentials, body.name, body.owner, body.private)
+    return await create_project_github_repo(None, body, session, runs, who)
+
+
+@router.post("/projects/{project_id}/github/repos")
+async def create_project_github_repo(project_id: int | None, body: GithubRepoIn, session: Session, runs: Runs, who: Who) -> dict[str, Any]:
+    credentials = await _github(session, who, project_id)
+    return await runs.runners.of(project_id).github_create_repo(credentials, body.name, body.owner, body.private) if credentials else NO_OWN_TOKEN
 
 
 @router.get("/projects/{project_id}/repositories", response_model=list[RepositoryOut])

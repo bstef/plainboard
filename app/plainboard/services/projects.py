@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
 from ..events import bus
-from ..models import Attachment, InboxItem, Project, ProjectRole, utcnow
+from ..models import Attachment, InboxItem, Project, ProjectMember, ProjectRole, utcnow
 from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate, TaskCreate
 from ..security import decrypt, encrypt
 from . import accounts as account_service
@@ -95,7 +95,8 @@ async def unique_slug(session: AsyncSession, name: str) -> str:
     return slug
 
 
-async def create(session: AsyncSession, data: ProjectCreate) -> Project:
+async def create(session: AsyncSession, data: ProjectCreate, owner_id: int | None = None) -> Project:
+    """All or nothing: a step that fails takes the project with it. ``owner_id``: whoever creates it owns it from the start."""
     if data.account_id is not None:
         await account_service.get(session, data.account_id)
     project = Project(
@@ -108,20 +109,29 @@ async def create(session: AsyncSession, data: ProjectCreate) -> Project:
         account_id=data.account_id,
     )
     session.add(project)
+    await session.flush()
+    if owner_id is not None:
+        session.add(ProjectMember(project_id=project.id, user_id=owner_id, role=ProjectRole.OWNER))
     await session.commit()
-    for repo in data.repositories:
-        await repo_service.create(session, project.id, repo)
-    manager = await agent_service.create(
-        session,
-        project.id,
-        AgentCreate(name="Manager", role="Project Manager", description=MANAGER_DESCRIPTION, toolset="board"),
-        is_manager=True,
-    )
-    await schedule_service.create_tidy(session, manager)
-    if data.first_steps:
-        await board_service.create_tasks(session, project.id, list(FIRST_STEPS))
-        session.add(InboxItem(agent_id=manager.id, text=FIRST_STEPS_NOTE))  # read with its first turn; no turn is spent on it
-        await session.commit()
+    project_id = project.id
+    try:
+        for repo in data.repositories:
+            await repo_service.create(session, project.id, repo)
+        manager = await agent_service.create(
+            session,
+            project.id,
+            AgentCreate(name="Manager", role="Project Manager", description=MANAGER_DESCRIPTION, toolset="board"),
+            is_manager=True,
+        )
+        await schedule_service.create_tidy(session, manager)
+        if data.first_steps:
+            await board_service.create_tasks(session, project.id, list(FIRST_STEPS))
+            session.add(InboxItem(agent_id=manager.id, text=FIRST_STEPS_NOTE))  # read with its first turn; no turn is spent on it
+            await session.commit()
+    except Exception:
+        await session.rollback()
+        await delete(session, await get(session, project_id))
+        raise
     return project
 
 

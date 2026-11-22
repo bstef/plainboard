@@ -37,10 +37,12 @@ export function GitHubRepoPicker({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // A project's own token (its owner may be no admin); without a project the installation's.
+  const githubRepos = projectId ? `/projects/${projectId}/github/repos` : "/github/repos";
   const [busy, setBusy] = useState(false);
   const result = useQuery({
     queryKey: ["github-repos", projectId ?? 0],
-    queryFn: () => api.get<GitHubReposResult>(`/github/repos${projectId ? `?project_id=${projectId}` : ""}`),
+    queryFn: () => api.get<GitHubReposResult>(githubRepos),
     // Asked again whenever the list opens: a repository made a moment ago has to be in it.
     staleTime: 0,
   });
@@ -88,7 +90,7 @@ export function GitHubRepoPicker({
     setCreating(true);
     setFailed("");
     try {
-      const made = await api.post<GitHubReposResult>("/github/repos", { name, owner: owner ?? "", private: fresh.private, project_id: projectId ?? null });
+      const made = await api.post<GitHubReposResult>(githubRepos, { name, owner: owner ?? "", private: fresh.private });
       const repo = made.repos[0];
       if (!made.ok || !repo) return setFailed(made.detail || t("projects.newGithubFailed"));
       const folder = existing.some((r) => r.name.toLowerCase() === repo.name.toLowerCase()) ? repo.full_name.replace("/", "-") : repo.name;

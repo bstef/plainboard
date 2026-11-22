@@ -41,9 +41,7 @@ async def list_projects(session: Session, who: Who) -> list[ProjectOut]:
 
 @router.post("/projects", response_model=ProjectOut, status_code=201)
 async def create_project(body: ProjectCreate, session: Session, who: Who) -> ProjectOut:
-    project = await project_service.create(session, body)
-    if who.user is not None:  # whoever creates a project owns it
-        await user_service.set_member(session, project.id, who.user.id, ProjectRole.OWNER)
+    project = await project_service.create(session, body, who.user.id if who.user else None)
     return project_service.to_out(project, ProjectRole.OWNER)
 
 
