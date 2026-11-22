@@ -428,6 +428,17 @@ ADMIN_PASSWORD = "admin-password"
 POSTGRES = bool(os.environ.get("PLAINBOARD_DATABASE"))  # the whole suite runs against PostgreSQL
 
 
+def pytest_collection_modifyitems(config, items) -> None:  # noqa: ANN001
+    """PLAINBOARD_TEST_SHARD=i/n (CI): only every n-th test, starting with the i-th, so that n jobs
+    together run each test once. Every n-th rather than a block: the slow tests stand together."""
+    shard = os.environ.get("PLAINBOARD_TEST_SHARD", "")
+    if not shard:
+        return
+    index, count = (int(part) for part in shard.split("/"))
+    config.hook.pytest_deselected(items=[item for i, item in enumerate(items) if i % count != index - 1])
+    items[:] = [item for i, item in enumerate(items) if i % count == index - 1]
+
+
 def pytest_configure(config) -> None:  # noqa: ANN001
     """Run in parallel (pytest -n, pytest-xdist): every worker is a process of its own and gets a
     PostgreSQL database of its own, next to the one named, as the tests empty theirs. With SQLite

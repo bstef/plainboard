@@ -13,27 +13,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Backend tests
+  # The app's suite on SQLite and on PostgreSQL, each in two halves on machines of their own (conftest.py,
+  # PLAINBOARD_TEST_SHARD), each half with one test process per CPU (pytest -n auto, pytest-xdist).
+  backend-part:
+    name: Backend tests (${{ matrix.database }}, ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # the suite takes about 1.5; a hang ends here, with stacks (faulthandler_timeout)
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build backend image
-        run: docker build -f app/Dockerfile --target backend -t plainboard-app:ci .
-      # -n auto: one test process per CPU (pytest-xdist); each test has a database of its own anyway.
-      - name: Run tests
-        run: docker run --rm -w /src/app plainboard-app:ci python -m pytest -q -n auto
-
-  backend-postgres:
-    name: Backend tests (PostgreSQL)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15  # the suite takes about 1.5; a hang ends here, with stacks (faulthandler_timeout)
+    timeout-minutes: 15  # a half takes about 1; a hang ends here, with stacks (faulthandler_timeout)
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [SQLite, PostgreSQL]
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
       # Started first: it comes up while the image builds. A database thrown away after the run: in memory and
       # without waiting for the disk (fsync), which the tests never notice.
       - name: Start PostgreSQL
+        if: matrix.database == 'PostgreSQL'
         run: |
           docker network create ci
           docker run -d --name db --network ci --tmpfs /var/lib/postgresql/data -e POSTGRES_USER=plainboard -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=plainboard \
@@ -41,11 +37,23 @@ jobs:
       - name: Build backend image
         run: docker build -f app/Dockerfile --target backend -t plainboard-app:ci .
       - name: Wait for PostgreSQL
+        if: matrix.database == 'PostgreSQL'
         run: until docker exec db pg_isready -U plainboard -d plainboard; do sleep 1; done
-      # The same suite: with PLAINBOARD_DATABASE set, every test starts with an empty PostgreSQL database.
-      # -n auto: one test process per CPU, each with a database of its own (tests/conftest.py).
+      # With PLAINBOARD_DATABASE set, every test starts with an empty PostgreSQL database (each test process has one of its own).
       - name: Run tests
-        run: docker run --rm --network ci -e PLAINBOARD_DATABASE=postgresql://plainboard:ci@db:5432/plainboard -w /src/app plainboard-app:ci python -m pytest -q -n auto
+        run: >-
+          docker run --rm -w /src/app -e PLAINBOARD_TEST_SHARD=${{ matrix.shard }}/2
+          ${{ matrix.database == 'PostgreSQL' && '--network ci -e PLAINBOARD_DATABASE=postgresql://plainboard:ci@db:5432/plainboard' || '' }}
+          plainboard-app:ci python -m pytest -q -n auto
+
+  # The check the base branch requires by this name: green when every part above is.
+  backend:
+    name: Backend tests
+    needs: backend-part
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.backend-part.result }}" = success
 
   runner:
     name: Runner tests
