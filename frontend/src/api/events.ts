@@ -139,6 +139,9 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
     case "uploads":
       setCopying(pid, data);
       break;
+    case "mention":
+      qc.invalidateQueries({ queryKey: qk.mentions });
+      break;
   }
 }
 

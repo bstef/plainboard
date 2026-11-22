@@ -23,6 +23,7 @@ export function MembersEditor({ projectId }: { projectId: number }) {
     setError(null);
     try {
       qc.setQueryData(qk.members(projectId), await action());
+      qc.invalidateQueries({ queryKey: qk.people(projectId) });
       await qc.invalidateQueries({ queryKey: qk.projects });
     } catch (err) {
       setError(err);

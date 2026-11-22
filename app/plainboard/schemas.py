@@ -58,6 +58,32 @@ class PersonOut(ORM):
     avatar_version: int = 0
 
 
+class MentionOut(ORM):
+    """Someone named the user with @username (services/mentions.py)."""
+
+    id: int
+    project_id: int
+    project_name: str = ""
+    kind: str  # chat | comment | decision
+    task_id: int | None = None
+    task_number: int | None = None
+    task_title: str = ""
+    agent_id: int | None = None  # the chat it is in
+    author: str = ""
+    excerpt: str = ""
+    read_at: UTCDateTime | None = None
+    created_at: UTCDateTime
+
+
+class MentionsOut(BaseModel):
+    unread: int
+    items: list[MentionOut]
+
+
+class MentionsRead(BaseModel):
+    ids: list[int] | None = Field(default=None, max_length=500)  # None: all
+
+
 class UserCreate(BaseModel):
     username: str = Field(min_length=2, max_length=60)
     name: str = Field(default="", max_length=100)

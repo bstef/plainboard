@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Response, UploadFile
 
-from ..schemas import MemberIn, MemberOut, PersonOut, UserCreate, UserOut, UserUpdate
+from ..schemas import MemberIn, MemberOut, MentionsOut, MentionsRead, PersonOut, UserCreate, UserOut, UserUpdate
+from ..services import mentions as mention_service
 from ..services import permissions
 from ..services import projects as project_service
 from ..services import users as user_service
 from ..services.errors import NotFound
-from .deps import Runs, Session
+from .deps import Runs, Session, Who
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -84,3 +85,20 @@ async def set_member(project_id: int, user_id: int, body: MemberIn, session: Ses
 async def remove_member(project_id: int, user_id: int, session: Session) -> list[MemberOut]:
     await user_service.remove_member(session, project_id, user_id)
     return await list_members(project_id, session)
+
+
+@router.get("/projects/{project_id}/people", response_model=list[PersonOut])
+async def project_people(project_id: int, session: Session) -> list[PersonOut]:
+    """Who can be mentioned with @username in the project: everyone with access to it."""
+    await project_service.get(session, project_id)
+    return [PersonOut.model_validate(u) for u in await mention_service.people(session, project_id)]
+
+
+@router.get("/mentions", response_model=MentionsOut)
+async def my_mentions(session: Session, who: Who) -> MentionsOut:
+    return await mention_service.for_user(session, who.user)
+
+
+@router.post("/mentions/read", status_code=204)
+async def read_mentions(body: MentionsRead, session: Session, who: Who) -> None:
+    await mention_service.mark_read(session, who.user, body.ids)

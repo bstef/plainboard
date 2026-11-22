@@ -140,7 +140,7 @@ async def list_comments(task_id: int, session: Session, before: int | None = Non
 async def add_comment(task_id: int, body: CommentCreate, session: Session, runs: Runs, who: Who) -> CommentOut:
     task = await board_service.get_task(session, task_id)
     author = await user_service.author(session, who.user, task.project_id)
-    comment = await board_service.add_comment(session, task, body.body, author_name=author)
+    comment = await board_service.add_comment(session, task, body.body, author_name=author, by=who.user)
     out = CommentOut.model_validate(comment)
     await runs.comment_added(session, task, comment)
     return out

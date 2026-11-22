@@ -9,6 +9,7 @@ import { qk, useConversation, useMe, useRuns, useSettings } from "../../api/quer
 import type { Attachment, Conversation } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
 import { Markdown } from "../../components/Markdown";
+import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
 import { useStored } from "../../lib/hooks";
@@ -435,6 +436,8 @@ function Composer({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
+  const mention = useMentionPicker(project.id, text, setText, area);
+  useReadMentionsOf({ agentId });
   useEffect(() => {
     if (!seed) return;
     setText(seed.text);
@@ -485,6 +488,7 @@ function Composer({
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mention.onKeyDown(e)) return;
     // Touch keyboards: Enter inserts a newline, the send button sends.
     const touch = window.matchMedia("(pointer: coarse)").matches;
     if (e.key === "Enter" && !e.shiftKey && !touch && !e.nativeEvent.isComposing) {
@@ -512,7 +516,8 @@ function Composer({
           ))}
         </div>
       )}
-      <div data-part="composer" className="flex items-end gap-1 rounded-sm p-1 ring-1 ring-line-2 ring-inset focus-within:ring-2 focus-within:ring-fg">
+      <div data-part="composer" className="relative flex items-end gap-1 rounded-sm p-1 ring-1 ring-line-2 ring-inset focus-within:ring-2 focus-within:ring-fg">
+        {mention.menu}
         <input
           ref={picker}
           type="file"
@@ -531,7 +536,11 @@ function Composer({
           rows={1}
           value={text}
           disabled={disabled}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            mention.track();
+          }}
+          onSelect={mention.track}
           onKeyDown={onKey}
           onPaste={onPaste}
           placeholder={disabled ? t("chat.agentDisabled") : t("chat.placeholder", { name: agentName })}

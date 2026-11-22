@@ -36,10 +36,12 @@ from ..models import (
     TaskTransition,
     Train,
     TrainStatus,
+    User,
     utcnow,
 )
 from ..schemas import AssignmentOut, AttachmentOut, CommentOut, DecisionOut, PublicBoard, PublicTask, TaskCreate, TaskDetail, TaskOut, TaskUpdate
 from . import flow_log, ticket_state
+from . import mentions as mention_service
 from .errors import NotFound, ServiceError
 from .timing import duration
 from .util import truncate
@@ -538,13 +540,27 @@ async def publish_task_id(session: AsyncSession, task_id: int | None) -> None:
 
 
 async def add_comment(
-    session: AsyncSession, task: Task, body: str, *, author_kind: str = "user", agent_id: int | None = None, author_name: str | None = None
+    session: AsyncSession,
+    task: Task,
+    body: str,
+    *,
+    author_kind: str = "user",
+    agent_id: int | None = None,
+    author_name: str | None = None,
+    by: User | None = None,
+    mention_text: str | None = None,
 ) -> Comment:
+    """``by``: the person who wrote it; ``mention_text``: where to look for @mentions (default: the body)."""
     comment = Comment(task_id=task.id, body=body, author_kind=author_kind, author_agent_id=agent_id, author_name=author_name)
     session.add(comment)
     await session.commit()
     bus.publish(task.project_id, "comment.created", CommentOut.model_validate(comment))
     await publish_task(session, task)
+    if author_kind != "system":
+        author = by.name if by else (await mention_service.agent_name(session, agent_id) if agent_id else author_name or "")
+        await mention_service.record(
+            session, task.project_id, body if mention_text is None else mention_text, kind="comment", author=author, author_user_id=by.id if by else None, task_id=task.id
+        )
     return comment
 
 
