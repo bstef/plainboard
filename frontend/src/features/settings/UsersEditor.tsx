@@ -116,6 +116,7 @@ function UserLimits({ user, patch }: { user: User; patch: (body: Record<string, 
   return (
     <div className="space-y-3 border-l-2 border-line pl-3" data-part="user-limits">
       <p className="text-fg-3">{t("users.limitsHint")}</p>
+      <Toggle checked={user.may_use_shared} onChange={(v) => patch({ may_use_shared: v })} label={t("users.mayUseShared")} />
       <FieldRow>
         {user.may_create_projects && (
           <Field label={t("users.maxProjects")} hint={t("users.maxProjectsHint")}>

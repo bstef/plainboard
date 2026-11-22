@@ -141,3 +141,56 @@ def test_a_non_admin_owner_shares_their_project_and_its_creator_stays_its_owner(
     assert client.put(f"/api/projects/{pid}/members/{user['id']}", json={"role": "viewer"}).status_code == 400
     assert client.delete(f"/api/projects/{pid}/members/{user['id']}").status_code == 400
     assert client.put(f"/api/projects/{pid}/members/{guest['id']}", json={"role": "member"}).status_code == 200
+
+
+def test_a_persons_projects_get_the_installations_secrets_and_github_token_only_when_allowed(client, project):
+    assert client.put("/api/settings", json={"values": {"github_token": "ghp_installation"}}).status_code == 200
+    assert client.post("/api/secrets", json={"name": "CRATES_API_KEY", "value": "global-crates"}).status_code == 201
+    mcp = {"name": "shared-docs", "transport": "http", "url": "https://mcp.example", "headers": {"Authorization": "Bearer global"}, "global_scope": True}
+    assert client.post(f"/api/projects/{project['id']}/mcp-servers", json=mcp).status_code == 201
+    user = friend(client)
+    assert user["may_use_shared"] is False
+    as_friend(client)
+    pid = client.post("/api/projects", json={"name": "Mine"}).json()["id"]
+    assert client.post(f"/api/projects/{pid}/secrets", json={"name": "OWN_KEY", "value": "own-value"}).status_code == 201
+    assert [s["name"] for s in client.get(f"/api/projects/{pid}/secrets").json()] == ["OWN_KEY"]
+    assert client.get(f"/api/projects/{pid}/mcp-servers").json() == []
+    assert client.post(f"/api/projects/{pid}/mcp-servers", json={**mcp, "name": "mine"}).status_code == 403
+    check = client.post(f"/api/projects/{pid}/check-github").json()
+    assert not check["ok"] and "add a GitHub token in the project settings" in check["detail"]
+    assert not client.get(f"/api/projects/{pid}/github/repos").json()["ok"]
+    dev = client.post(f"/api/projects/{pid}/agents", json={"name": "Dev", "role": "Developer", "description": "x"}).json()
+    runner = client.app_ref.state.runner
+
+    def turn() -> object:
+        assert client.post(f"/api/agents/{dev['id']}/messages", json={"text": "SAY hi"}).status_code == 202
+        wait_for(lambda: idle(client, pid))
+        return runner.specs[-1]
+
+    spec = turn()
+    assert spec.credentials.secrets == {"OWN_KEY": "own-value"} and spec.credentials.github_token is None
+    assert spec.mcp_servers == []
+
+    sign_in(client, "admin", ADMIN_PASSWORD)
+    assert client.patch(f"/api/users/{user['id']}", json={"may_use_shared": True}).json()["may_use_shared"] is True
+    as_friend(client)
+    spec = turn()
+    assert spec.credentials.secrets == {"OWN_KEY": "own-value", "CRATES_API_KEY": "global-crates"}
+    assert spec.credentials.github_token == "ghp_installation" and [m.name for m in spec.mcp_servers] == ["shared-docs"]
+
+    # Its own token wins, also without the switch.
+    sign_in(client, "admin", ADMIN_PASSWORD)
+    client.patch(f"/api/users/{user['id']}", json={"may_use_shared": False})
+    as_friend(client)
+    assert client.patch(f"/api/projects/{pid}", json={"github_token": "ghp_own"}).status_code == 200
+    spec = turn()
+    assert spec.credentials.github_token == "ghp_own" and "CRATES_API_KEY" not in spec.credentials.secrets
+    assert client.post(f"/api/projects/{pid}/check-github").json()["ok"]
+
+    # An admin's project: as before.
+    sign_in(client, "admin", ADMIN_PASSWORD)
+    admin_dev = client.post(f"/api/projects/{project['id']}/agents", json={"name": "Dev", "role": "Developer", "description": "x"}).json()
+    assert client.post(f"/api/agents/{admin_dev['id']}/messages", json={"text": "SAY hi"}).status_code == 202
+    wait_for(lambda: idle(client, project["id"]))
+    spec = runner.specs[-1]
+    assert spec.credentials.secrets["CRATES_API_KEY"] == "global-crates" and spec.credentials.github_token == "ghp_installation"

@@ -835,6 +835,7 @@
     "enabled": "May sign in",
     "mayCreate": "May create projects",
     "limitsHint": "What the projects this person creates may use, whoever works in them. Their projects only ever see these.",
+    "mayUseShared": "May use the shared secrets and GitHub token",
     "maxProjects": "Projects at most",
     "maxProjectsHint": "How many projects of their own they may have. Empty: any number.",
     "maxParallel": "Agents at work at once",

@@ -57,10 +57,9 @@ from ..services import board as board_service
 from ..services import flow_check as flow_check_service
 from ..services import flow_log
 from ..services import landings as landing_service
-from ..services import projects as project_service
 from ..services import repositories as repo_service
+from ..services import permissions
 from ..services import secrets as secret_service
-from ..services import settings as settings_service
 from ..services import timing as timing_service
 from ..services.errors import ServiceError
 from ..services.util import truncate
@@ -177,16 +176,16 @@ class LandingWatcher:
         project = await s.get(Project, repo.project_id) if repo else None
         if repo is None or project is None or not self._runs.runners.ready(project.id):
             return None  # an external runner that is away: its trains wait for it, nothing fails
-        env = secret_service.env(await secret_service.effective(s, project.id))
+        credentials = await permissions.credentials(s, project)
         return Repo(
             repo=repo,
             project=project,
-            credentials=settings_service.credentials(await settings_service.get_all(s), project_service.github_token(project), env),
+            credentials=credentials,
             mode=landing_service.mode(repo),
             slug=landing_service.github_slug(repo),
             key=landing_service.train_key(repo),
             remote=landing_service.remote(repo),
-            redact=secret_service.redactor(env),
+            redact=secret_service.redactor(credentials.secrets),
         )
 
     async def _repository(self, s: AsyncSession, repository_id: int, now: datetime) -> None:
@@ -217,7 +216,7 @@ class LandingWatcher:
                     await flow_log.record(s, project.id, "train.unreadable", train_id=train.id, what=truncate(str(exc), 300))
                     await self._tell_manager(
                         s, r,
-                        f"The train of {repo.name} cannot be read from the git host ({truncate(str(exc), 200)}), so nothing of {repo.name} lands until it can. "
+                        f"The train of {repo.name} cannot be read from the git host ({truncate(str(exc), 200)}), so nothing of {repo.name} lands until it can.{permissions.github_hint(r.credentials)} "
                         "Most likely the access token may not read checks or pull requests. Tell the user; or set a check command for this repository "
                         "(update_repository), which needs no checks of the host.",
                     )
@@ -771,7 +770,7 @@ class LandingWatcher:
             await self._tell_manager(
                 s, r,
                 f"The checks of {train.base} in {r.repo.name} cannot be read from GitHub ({truncate(str(exc), 200)}). PlainBoard goes on landing without their "
-                f"result, so nobody is told when {train.base} breaks. "
+                f"result, so nobody is told when {train.base} breaks.{permissions.github_hint(r.credentials)} "
                 "Most likely the GitHub token used for this repository lacks a read permission: with a fine-grained token, read access to Actions and to Commit statuses. Tell the user; or set a check command for this repository (update_repository), which needs no checks of GitHub.",
             )
         return True

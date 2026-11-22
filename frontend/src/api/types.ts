@@ -545,6 +545,8 @@ export interface User {
   /** 0: the built-in runner. */
   runner_ids: number[] | null;
   max_parallel: number | null;
+  /** The global secrets, the installation's GitHub token and SSH key, the global MCP servers. */
+  may_use_shared: boolean;
   enabled: boolean;
   /** 0: no profile picture. */
   avatar_version: number;

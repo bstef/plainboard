@@ -131,6 +131,7 @@ async def update(
     password: str | None = None,
     is_admin: bool | None = None,
     may_create_projects: bool | None = None,
+    may_use_shared: bool | None = None,
     enabled: bool | None = None,
     limits: dict | None = None,
 ) -> User:
@@ -147,6 +148,8 @@ async def update(
         user.is_admin = is_admin
     if may_create_projects is not None:
         user.may_create_projects = may_create_projects
+    if may_use_shared is not None:
+        user.may_use_shared = may_use_shared
     if enabled is not None and enabled != user.enabled:
         user.enabled = enabled
         user.session_version += 1

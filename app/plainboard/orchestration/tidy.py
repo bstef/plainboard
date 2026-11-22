@@ -21,9 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..models import Landing, LandingStatus, Project, Repository, Train, utcnow
 from ..services import flow_log
 from ..services import landings as landing_service
-from ..services import projects as project_service
-from ..services import secrets as secret_service
-from ..services import settings as settings_service
+from ..services import permissions
 from .run_manager import RunManager
 from .runner_client import RunnerError
 
@@ -76,8 +74,7 @@ class BranchTidy:
         project = await s.get(Project, repo.project_id)
         if project is None or project.paused_at is not None or not self._runs.runners.ready(project.id):
             return  # an external runner that is away: tried again when it is back
-        env = secret_service.env(await secret_service.effective(s, project.id))
-        credentials = settings_service.credentials(await settings_service.get_all(s), project_service.github_token(project), env)
+        credentials = await permissions.credentials(s, project)
         keep = set(await s.scalars(select(Landing.branch).where(Landing.repository_id == repo.id, Landing.status.in_(KEPT))))
         keep |= set(await s.scalars(select(Train.branch).where(Train.repository_id == repo.id, Train.status.in_(landing_service.RUNNING_TRAINS))))
         # The same repository under another base branch, in this or another project.

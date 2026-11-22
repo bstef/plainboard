@@ -1,4 +1,5 @@
-"""External MCP server configuration (global or per project; all or selected agents)."""
+"""External MCP server configuration (global or per project; all or selected agents). The global ones only for
+projects that may use what the installation holds for itself (``permissions.shared``): their env and headers carry its keys."""
 
 from __future__ import annotations
 
@@ -9,9 +10,10 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, McpServer, agent_mcp_servers
+from ..models import Agent, McpServer, Project, agent_mcp_servers
 from ..schemas import McpServerCreate, McpServerOut, McpServerUpdate
 from ..security import decrypt, encrypt
+from . import permissions
 from .errors import NotFound, ServiceError
 
 MASK = "***"
@@ -50,8 +52,15 @@ async def _check_unique(session: AsyncSession, project_id: int | None, name: str
         raise ServiceError(f"An MCP server named '{name}' already exists")
 
 
+async def _shared(session: AsyncSession, project_id: int) -> bool:
+    project = await session.get(Project, project_id)
+    return project is not None and await permissions.shared(session, project)
+
+
 async def create(session: AsyncSession, project_id: int, data: McpServerCreate) -> McpServer:
     scope = None if data.global_scope else project_id
+    if scope is None and not await _shared(session, project_id):
+        raise ServiceError("This project may not add MCP servers for every project.", 403)
     await _check_unique(session, scope, data.name)
     server = McpServer(
         project_id=scope,
@@ -97,7 +106,7 @@ async def delete(session: AsyncSession, server: McpServer, project_id: int) -> N
 
 async def get(session: AsyncSession, server_id: int, project_id: int) -> McpServer:
     server = await session.get(McpServer, server_id)
-    if server is None or server.project_id not in (None, project_id):
+    if server is None or server.project_id not in (None, project_id) or (server.project_id is None and not await _shared(session, project_id)):
         raise NotFound(f"MCP server {server_id} not found")
     return server
 
@@ -110,7 +119,8 @@ async def resolve(session: AsyncSession, project_id: int, ref: str | int) -> Mcp
 
 
 async def list_for_project(session: AsyncSession, project_id: int) -> list[McpServer]:
-    q = select(McpServer).where(or_(McpServer.project_id == project_id, McpServer.project_id.is_(None))).order_by(McpServer.id)
+    scope = or_(McpServer.project_id == project_id, McpServer.project_id.is_(None)) if await _shared(session, project_id) else McpServer.project_id == project_id
+    q = select(McpServer).where(scope).order_by(McpServer.id)
     return list((await session.scalars(q)).all())
 
 
