@@ -285,7 +285,9 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
               </div>
               <SaveRow dirty={dirty(...GENERAL)} onSave={() => save(GENERAL)} />
               <div className="flex justify-end">
-                <img src={luchsApproved} alt={t("settings.luchsApproved")} width={68} draggable={false} className="pointer-events-none w-[68px] rotate-[9deg] select-none" />
+                <div className="rounded-lg border border-line bg-sunk p-4">
+                  <img src={luchsApproved} alt={t("settings.luchsApproved")} width={150} draggable={false} className="pointer-events-none w-[150px] -rotate-3 select-none" />
+                </div>
               </div>
             </div>
           ),
