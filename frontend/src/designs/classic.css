@@ -2,6 +2,9 @@
    on tinted columns, soft shadows, chat bubbles, Inter. It runs on the same components as every
    design: this file only says how the parts look.
 
+   slop2gether.css reuses layer 3 of this file (the selectors below name both designs) and only
+   sets its own tokens and what differs.
+
    A design is one file like this one (see ../lib/theme.ts for the list):
    1. tokens of the design: type, corners, shadows (on [data-design]);
    2. its themes: one block of colours per theme (on [data-theme]);
@@ -88,81 +91,81 @@
 
 /* 3. The parts -------------------------------------------------------------------------------- */
 
-[data-design="classic"] body {
+:is([data-design="classic"], [data-design="slop2gether"]) body {
   background: var(--page);
   font-size: 14px;
   line-height: 1.5;
   font-variant-numeric: normal;
 }
 @media (max-width: 639px), (pointer: coarse) {
-  [data-design="classic"] body {
+  :is([data-design="classic"], [data-design="slop2gether"]) body {
     font-size: 1rem;
   }
 }
-[data-design="classic"] ::selection {
+:is([data-design="classic"], [data-design="slop2gether"]) ::selection {
   background: var(--accent);
   color: #fff;
 }
-[data-design="classic"] :focus-visible {
+:is([data-design="classic"], [data-design="slop2gether"]) :focus-visible {
   outline-color: var(--accent);
 }
-[data-design="classic"] time,
-[data-design="classic"] [data-part="facts"] {
+:is([data-design="classic"], [data-design="slop2gether"]) time,
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="facts"] {
   font-size: 0.86em;
 }
 
 /* Rank by weight and a slightly smaller size instead of capitals. */
-[data-design="classic"] .caps {
+:is([data-design="classic"], [data-design="slop2gether"]) .caps {
   text-transform: none;
   letter-spacing: 0;
   font-size: 0.93em;
   font-weight: 600;
 }
 /* The strong element of a group is filled with the accent. */
-[data-design="classic"] .plate {
+:is([data-design="classic"], [data-design="slop2gether"]) .plate {
   background: var(--accent);
   color: #fff;
   font-weight: 500;
 }
-[data-design="classic"] button.plate:hover:not(:disabled) {
+:is([data-design="classic"], [data-design="slop2gether"]) button.plate:hover:not(:disabled) {
   background: var(--accent-hover);
 }
-[data-design="classic"] button.plate:disabled {
+:is([data-design="classic"], [data-design="slop2gether"]) button.plate:disabled {
   background: var(--line);
   color: var(--fg-3);
 }
 /* The ring that marks the chosen one of several options is the accent. */
-[data-design="classic"] .ring-fg {
+:is([data-design="classic"], [data-design="slop2gether"]) .ring-fg {
   --tw-ring-color: var(--accent);
 }
 /* A ticket named in a text is a chip in the accent. */
-[data-design="classic"] [data-part="ticket-ref"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="ticket-ref"] {
   background: var(--accent-soft);
   color: var(--accent-fg);
   box-shadow: none;
   font-weight: 600;
 }
-[data-design="classic"] [data-part="ticket-ref"]:hover {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="ticket-ref"]:hover {
   background: color-mix(in oklab, var(--accent) 24%, var(--bg));
 }
 /* Heads are set off by a hairline, not a heavy rule. */
-[data-design="classic"] .rule-b {
+:is([data-design="classic"], [data-design="slop2gether"]) .rule-b {
   border-bottom: 1px solid var(--line);
 }
-[data-design="classic"] .rule-t {
+:is([data-design="classic"], [data-design="slop2gether"]) .rule-t {
   border-top: 1px solid var(--line);
 }
 
 /* State marks are dots in colour: working pulses in the accent. */
-[data-design="classic"] .mk-run {
+:is([data-design="classic"], [data-design="slop2gether"]) .mk-run {
   background: var(--accent-hover);
   box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent-hover) 60%, transparent);
   animation: classic-pulse 1.8s ease-out infinite;
 }
-[data-design="classic"] .mk-plan {
+:is([data-design="classic"], [data-design="slop2gether"]) .mk-plan {
   border-color: var(--accent-hover);
 }
-[data-design="classic"] .mk-you {
+:is([data-design="classic"], [data-design="slop2gether"]) .mk-you {
   border-radius: 50%;
   transform: none;
 }
@@ -173,97 +176,97 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-design="classic"] .mk-run {
+  :is([data-design="classic"], [data-design="slop2gether"]) .mk-run {
     animation: none;
   }
 }
 
 /* Surfaces: white panels on a tinted page. */
-[data-design="classic"] [data-part="side"],
-[data-design="classic"] [data-part="panel"],
-[data-design="classic"] [data-part="tabs"],
-[data-design="classic"] [data-part="topbar"],
-[data-design="classic"] [data-part="page-head"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="side"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="panel"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tabs"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="topbar"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="page-head"] {
   background: var(--bg);
 }
-[data-design="classic"] [data-part="side"] nav [aria-current],
-[data-design="classic"] [data-part="tabs"] [aria-current] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="side"] nav [aria-current],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tabs"] [aria-current] {
   background: var(--accent-soft);
   color: var(--accent-fg);
   font-weight: 500;
 }
-[data-design="classic"] [data-part="tabs"] [aria-current] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tabs"] [aria-current] {
   background: none;
 }
-[data-design="classic"] [data-part="tabs"] [aria-current]::before {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tabs"] [aria-current]::before {
   background: var(--accent);
 }
-[data-design="classic"] [data-part="you"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="you"] {
   border-radius: var(--radius-sm);
 }
-[data-design="classic"] [data-part="you-plate"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="you-plate"] {
   background: color-mix(in oklab, var(--you) 26%, var(--card));
   color: var(--fg);
   border-radius: var(--radius-xs);
   font-size: 0.86em;
 }
-[data-design="classic"] [data-part="agent"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="agent"] {
   border-radius: 50%;
   font-size: 10px;
   font-weight: 600;
 }
 
 /* Buttons, fields, switches. */
-[data-design="classic"] [data-part="button"][data-variant="secondary"],
-[data-design="classic"] [data-part="button"][data-variant="danger"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="button"][data-variant="secondary"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="button"][data-variant="danger"] {
   background: var(--card);
   box-shadow:
     inset 0 0 0 1px var(--line-2),
     var(--shadow-card);
   color: var(--fg);
 }
-[data-design="classic"] [data-part="button"][data-variant="secondary"]:hover:not(:disabled) {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="button"][data-variant="secondary"]:hover:not(:disabled) {
   background: var(--sunk);
 }
-[data-design="classic"] [data-part="button"][data-variant="danger"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="button"][data-variant="danger"] {
   color: var(--danger);
 }
-[data-design="classic"] [data-part="button"][data-variant="danger"]:hover:not(:disabled) {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="button"][data-variant="danger"]:hover:not(:disabled) {
   background: var(--danger-soft);
 }
-[data-design="classic"] [data-part="field"],
-[data-design="classic"] [data-part="composer"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="field"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="composer"] {
   background: var(--bg);
   --tw-ring-color: var(--line-2);
 }
-[data-design="classic"] [data-part="field"]:focus,
-[data-design="classic"] [data-part="field"]:focus-visible,
-[data-design="classic"] [data-part="field"][aria-expanded="true"],
-[data-design="classic"] [data-part="composer"]:focus-within {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="field"]:focus,
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="field"]:focus-visible,
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="field"][aria-expanded="true"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="composer"]:focus-within {
   --tw-ring-color: var(--accent);
 }
-[data-design="classic"] [data-part="composer"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="composer"] {
   border-radius: var(--radius-xl);
   padding: 6px;
 }
-[data-design="classic"] [data-part="toggle"],
-[data-design="classic"] [data-part="toggle"] > span {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="toggle"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="toggle"] > span {
   border-radius: 9999px;
 }
-[data-design="classic"] [data-part="toggle"][aria-checked="true"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="toggle"][aria-checked="true"] {
   background: var(--accent);
   --tw-ring-color: var(--accent);
 }
-[data-design="classic"] [data-part="toggle"][aria-checked="true"] > span {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="toggle"][aria-checked="true"] > span {
   background: #fff;
 }
-[data-design="classic"] [data-part="error"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="error"] {
   color: var(--danger);
 }
 
 /* Badges and tags are tinted pills. */
-[data-design="classic"] [data-part="badge"],
-[data-design="classic"] [data-part="tag"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="badge"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"] {
   box-shadow: none;
   background: var(--sunk);
   color: var(--fg-2);
@@ -271,71 +274,71 @@
   font-size: 0.82em;
   font-weight: 500;
 }
-[data-design="classic"] [data-part="badge"][data-tone="indigo"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="badge"][data-tone="indigo"] {
   background: var(--accent-soft);
   color: var(--accent-fg);
 }
-[data-design="classic"] [data-part="badge"][data-tone="green"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="badge"][data-tone="green"] {
   background: color-mix(in oklab, var(--ok) 14%, var(--bg));
   color: var(--ok);
 }
-[data-design="classic"] [data-part="badge"][data-tone="amber"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="badge"][data-tone="amber"] {
   background: color-mix(in oklab, var(--you) 18%, var(--bg));
   color: var(--you-fg);
 }
-[data-design="classic"] [data-part="badge"][data-tone="red"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="badge"][data-tone="red"] {
   background: var(--danger-soft);
   color: var(--danger);
 }
 /* A label with a colour is tinted in it; the square is not needed then. */
-[data-design="classic"] [data-part="tag"][data-hue] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"][data-hue] {
   background: oklch(var(--tag-l) var(--tag-c) var(--h));
   color: oklch(var(--tag-fg-l) var(--tag-fg-c) var(--h));
 }
-[data-design="classic"] [data-part="tag"][data-hue] .sq-hue {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"][data-hue] .sq-hue {
   display: none;
 }
-[data-design="classic"] [data-part="tag"][data-priority] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"][data-priority] {
   background: none;
   padding-inline: 0 4px;
   font-weight: 600;
   text-transform: none;
   letter-spacing: 0;
 }
-[data-design="classic"] [data-part="tag"][data-priority="low"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"][data-priority="low"] {
   color: var(--fg-3);
 }
-[data-design="classic"] [data-part="tag"][data-priority="high"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"][data-priority="high"] {
   color: var(--you-fg);
 }
-[data-design="classic"] [data-part="tag"][data-priority="urgent"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="tag"][data-priority="urgent"] {
   color: var(--danger);
 }
 
 /* The board: columns are tinted panels, tickets are cards. */
-[data-design="classic"] [data-part="board"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="board"] {
   border-top: 0;
   padding: 4px 8px 8px;
 }
-[data-design="classic"] [data-part="column"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="column"] {
   border: 0;
   border-radius: var(--radius-xl);
   background: var(--column);
   margin-bottom: 8px;
 }
-[data-design="classic"] [data-part="column-head"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="column-head"] {
   border-bottom: 0;
   background: var(--column);
   border-radius: var(--radius-xl);
   margin-inline: 0;
   padding-inline: 14px 6px;
 }
-[data-design="classic"] [data-part="column-head"] > .w-7 {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="column-head"] > .w-7 {
   width: auto;
   min-width: 1ch;
   padding-left: 4px;
 }
-[data-design="classic"] [data-part="column-head"] h2::before {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="column-head"] h2::before {
   content: "";
   display: inline-block;
   width: 8px;
@@ -344,29 +347,29 @@
   border-radius: 50%;
   background: #a1a1aa;
 }
-[data-design="classic"] [data-status="todo"] > [data-part="column-head"] h2::before {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-status="todo"] > [data-part="column-head"] h2::before {
   background: #0ea5e9;
 }
-[data-design="classic"] [data-status="in_progress"] > [data-part="column-head"] h2::before {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-status="in_progress"] > [data-part="column-head"] h2::before {
   background: #6366f1;
 }
-[data-design="classic"] [data-status="review"] > [data-part="column-head"] h2::before {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-status="review"] > [data-part="column-head"] h2::before {
   background: #f59e0b;
 }
-[data-design="classic"] [data-status="done"] > [data-part="column-head"] h2::before {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-status="done"] > [data-part="column-head"] h2::before {
   background: #10b981;
 }
-[data-design="classic"] [data-part="column-body"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="column-body"] {
   /* A card's outline is drawn outside of it (up to 2px for one that waits for you), and the body
      clips what scrolls: room at the top, or the first card's outline is cut off. */
   padding: 3px 8px 0;
   border-radius: var(--radius-xl);
 }
-[data-design="classic"] [data-part="column-body"][data-over] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="column-body"][data-over] {
   background: color-mix(in oklab, var(--accent) 8%, var(--column));
 }
-[data-design="classic"] [data-part="ticket"],
-[data-design="classic"] [data-part="new-ticket"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="ticket"],
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="new-ticket"] {
   margin-bottom: 8px;
   padding: 10px 12px 10px 10px;
   border: 0;
@@ -376,56 +379,56 @@
     0 0 0 1px var(--line),
     var(--shadow-card);
 }
-[data-design="classic"] [data-part="ticket"]:hover {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="ticket"]:hover {
   background: var(--card);
   box-shadow:
     0 0 0 1px var(--line-2),
     var(--shadow-card);
 }
-[data-design="classic"] [data-part="ticket"][data-for-you] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="ticket"][data-for-you] {
   background: var(--you-bg);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--you) 75%, var(--card));
 }
-[data-design="classic"] [data-part="ticket"][data-overlay] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="ticket"][data-overlay] {
   rotate: 1deg;
   box-shadow:
     0 0 0 1px var(--accent-hover),
     var(--shadow-lg);
 }
-[data-design="classic"] [data-part="new-ticket"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="new-ticket"] {
   box-shadow: 0 0 0 2px var(--accent-hover);
 }
 @media (min-width: 768px) {
-  [data-design="classic"] [data-part="board"] {
+  :is([data-design="classic"], [data-design="slop2gether"]) [data-part="board"] {
     gap: 8px;
     padding: 4px 12px 12px;
     grid-auto-columns: minmax(160px, 1fr);
   }
-  [data-design="classic"] [data-part="column"] {
+  :is([data-design="classic"], [data-design="slop2gether"]) [data-part="column"] {
     margin-bottom: 0;
   }
 }
 
 /* Dialogs and menus lift off the page. */
-[data-design="classic"] [data-part="modal"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="modal"] {
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
 }
-[data-design="classic"] [data-part="modal-head"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="modal-head"] {
   border-bottom: 1px solid var(--line);
   margin-inline: 0;
   padding: 12px 20px;
   font-size: 1.08em;
 }
-[data-design="classic"] [data-part="menu"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="menu"] {
   border-radius: var(--radius-md);
   --tw-ring-color: var(--line);
 }
 @media (max-width: 639px) {
-  [data-design="classic"] [data-part="modal"] {
+  :is([data-design="classic"], [data-design="slop2gether"]) [data-part="modal"] {
     border-radius: 0;
   }
-  [data-design="classic"] [data-part="modal-head"] {
+  :is([data-design="classic"], [data-design="slop2gether"]) [data-part="modal-head"] {
     padding-inline: 16px;
   }
 }
@@ -433,55 +436,55 @@
 /* The chat: an agent's answer is plain text over the full width under its name, what a person
    wrote is a bubble at the right under their name and picture, events are small notes. No rules
    between them. One's own bubble is in the accent, another person's is quiet. */
-[data-design="classic"] [data-part="msg"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"] {
   display: flex;
   flex-direction: column;
   border-bottom: 0;
   padding-block: 7px;
 }
-[data-design="classic"] [data-part="msg"] [data-part="msg-head"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"] [data-part="msg-head"] {
   margin: 0 0 2px;
   gap: 6px;
 }
-[data-design="classic"] [data-part="msg"] [data-part="msg-head"] time {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"] [data-part="msg-head"] time {
   margin-left: 0;
   padding-left: 0;
   font-size: 0.85em;
 }
 /* What the agent goes on to say a moment later belongs to the same answer: no second name. */
-[data-design="classic"] [data-part="msg"][data-role="agent"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="agent"] {
   padding-top: 12px;
 }
-[data-design="classic"] [data-part="msg"][data-role="agent"][data-follows] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="agent"][data-follows] {
   padding-top: 0;
 }
-[data-design="classic"] [data-part="msg"][data-role="agent"][data-follows] [data-part="msg-head"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="agent"][data-follows] [data-part="msg-head"] {
   display: none;
 }
-[data-design="classic"] [data-part="msg"][data-role="error"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="error"] {
   flex-direction: row;
 }
 /* A person: time, name and picture in one line at the right, the bubble under it with its corner
    towards the picture. */
-[data-design="classic"] [data-part="msg"][data-role="user"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"] {
   align-items: flex-end;
   padding: 10px 16px 6px;
   background: transparent;
 }
-[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"] [data-part="msg-head"] {
   flex-direction: row-reverse;
   align-items: center;
   max-width: 100%;
   margin: 0 2px 4px 0;
 }
-[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="msg-head"] b {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"] [data-part="msg-head"] b {
   font-size: 0.9em;
 }
 /* An older message names nobody: only its time stands there. */
-[data-design="classic"] [data-part="msg"][data-role="user"]:not([data-known]) [data-part="msg-head"] b {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"]:not([data-known]) [data-part="msg-head"] b {
   display: none;
 }
-[data-design="classic"] [data-part="msg"][data-role="user"] [data-part="bubble"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"] [data-part="bubble"] {
   width: fit-content;
   max-width: min(85%, 46rem);
   padding: 8px 14px;
@@ -489,18 +492,18 @@
   background: var(--sunk);
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
-[data-design="classic"] [data-part="msg"][data-role="user"][data-own] [data-part="bubble"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"][data-own] [data-part="bubble"] {
   background: var(--accent);
   box-shadow: none;
   color: #fff;
 }
 /* Marked text is in the accent everywhere, which is this bubble's own colour: here it is light. */
-[data-design="classic"] [data-part="msg"][data-role="user"][data-own] [data-part="bubble"] ::selection {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="user"][data-own] [data-part="bubble"] ::selection {
   background: #fff;
   color: #312e81;
 }
 /* Not sent yet: a bubble of its own at the right, outlined. Its head says for whom it waits. */
-[data-design="classic"] [data-part="msg"][data-role="queued"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="queued"] {
   width: fit-content;
   max-width: min(85%, 46rem);
   margin: 8px 16px 8px auto;
@@ -510,23 +513,23 @@
   color: var(--fg);
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
-[data-design="classic"] [data-part="msg"][data-role="error"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="msg"][data-role="error"] {
   margin: 8px 16px;
   border-radius: var(--radius-md);
   background: var(--danger-soft);
   color: var(--danger);
 }
-[data-design="classic"] [data-part="note"] {
+:is([data-design="classic"], [data-design="slop2gether"]) [data-part="note"] {
   border-bottom: 0;
   font-size: 0.9em;
 }
-[data-design="classic"] .prose-chat :where(h1, h2, h3, h4) {
+:is([data-design="classic"], [data-design="slop2gether"]) .prose-chat :where(h1, h2, h3, h4) {
   font-weight: 600;
 }
-[data-design="classic"] .prose-chat :where(pre) {
+:is([data-design="classic"], [data-design="slop2gether"]) .prose-chat :where(pre) {
   border-radius: var(--radius-md);
 }
-[data-design="classic"] .prose-chat :where(a) {
+:is([data-design="classic"], [data-design="slop2gether"]) .prose-chat :where(a) {
   color: var(--accent-fg);
   text-decoration-color: color-mix(in oklab, var(--accent-fg) 40%, transparent);
 }

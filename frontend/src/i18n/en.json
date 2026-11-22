@@ -75,7 +75,9 @@
       "fahrplan": "Fahrplan",
       "fahrplanHint": "Ruled rows and one type size, like a timetable.",
       "classic": "Classic",
-      "classicHint": "Cards, rounded corners and an indigo accent."
+      "classicHint": "Cards, rounded corners and an indigo accent.",
+      "slop2gether": "slop2gether",
+      "slop2getherHint": "Like slop2gether.com: near-black stage, big radii, pill buttons, orange."
     },
     "appearance": {
       "label": "Light or dark",
