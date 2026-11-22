@@ -64,6 +64,11 @@
   },
   "look": {
     "title": "Design and theme",
+    "chat": {
+      "label": "Chat",
+      "showCode": "Show code in chat details",
+      "showCodeHint": "With the eye on, edits, new files and commands appear as lines that open to the code. Only for you, in this browser."
+    },
     "design": {
       "label": "Design",
       "fahrplan": "Fahrplan",
@@ -442,6 +447,10 @@
     "conversations": "Conversations",
     "showDetails": "Show activity & details",
     "hideDetails": "Hide activity & details",
+    "code": {
+      "truncated": "Cut off: {{count}} characters in all",
+      "empty": "(empty)"
+    },
     "context": "Context {{context}}",
     "briefingUpdated": "Briefing updated: {{sections}}",
     "section": {

@@ -32,6 +32,7 @@
   --color-on-you: var(--on-you);
   --color-you-bg: var(--you-bg);
   --color-ok: var(--ok);
+  --color-del: var(--del);
 }
 
 /* This file is Fahrplan, the default design. Other designs are one stylesheet each in ./designs:
@@ -78,6 +79,8 @@
 :root,
 [data-theme] {
   --you-bg: color-mix(in oklab, var(--you) 11%, var(--bg));
+  /* Removed lines in a diff. A design may set its own (Classic: its red). */
+  --del: var(--you-fg);
 }
 
 @layer base {

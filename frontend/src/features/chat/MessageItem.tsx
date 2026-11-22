@@ -9,6 +9,7 @@ import { Avatar } from "../../components/Avatar";
 import { Lightbox } from "../../components/Lightbox";
 import { Markdown, TicketText } from "../../components/Markdown";
 import { chatTime, formatDateTime, formatTokens } from "../../lib/format";
+import { CodeLine, useShowCode } from "./ToolCode";
 import { useShell } from "../layout/shell-context";
 
 /** Every entry of the chat is a ruled row with the same inset. */
@@ -21,7 +22,7 @@ const LINK = "shrink-0 underline decoration-line-2 underline-offset-[3px] hover:
 export function MessageItem({ message, agent, details, follows = false }: { message: Message; agent: Agent; details: boolean; follows?: boolean }) {
   switch (message.kind) {
     case "tool":
-      return details ? <ToolLine message={message} /> : null;
+      return details ? <ToolStep message={message} /> : null;
     case "summary":
       return details ? <SummaryDivider message={message} /> : null;
     case "error":
@@ -270,6 +271,12 @@ function UserText({ text }: { text: string }) {
 
 function toolLabel(name: string): string {
   return name.replace(/^mcp__plainboard__/, "").replace(/^mcp__([^_]+)__/, "$1 · ");
+}
+
+/** A tool step: the code line where the step carries code and the user wants it, else the plain line. */
+function ToolStep({ message }: { message: Message }) {
+  const [showCode] = useShowCode();
+  return showCode && message.meta.code ? <CodeLine message={message} /> : <ToolLine message={message} />;
 }
 
 function ToolLine({ message }: { message: Message }) {

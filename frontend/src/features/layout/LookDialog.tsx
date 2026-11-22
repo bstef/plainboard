@@ -2,7 +2,8 @@ import clsx from "clsx";
 import { Check } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Segmented } from "../../components/ui";
+import { Modal, Segmented, Toggle } from "../../components/ui";
+import { useShowCode } from "../chat/ToolCode";
 import { APPEARANCES, DESIGNS, setAppearance, setDesign, useLook } from "../../lib/theme";
 
 /** Choose the design (the look) and whether it is light, dark or follows the system. Both apply
@@ -10,6 +11,7 @@ import { APPEARANCES, DESIGNS, setAppearance, setDesign, useLook } from "../../l
 export function LookDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const look = useLook();
+  const [showCode, setShowCode] = useShowCode();
   return (
     <Modal open={open} onClose={onClose} title={t("look.title")} width="max-w-lg">
       <div className="space-y-5">
@@ -46,6 +48,11 @@ export function LookDialog({ open, onClose }: { open: boolean; onClose: () => vo
             onChange={setAppearance}
             options={APPEARANCES.map((value) => ({ value, label: t(`look.appearance.${value}`) }))}
           />
+        </section>
+        <section>
+          <h2 className="caps mb-2">{t("look.chat.label")}</h2>
+          <Toggle checked={showCode} onChange={setShowCode} label={t("look.chat.showCode")} />
+          <p className="mt-1 text-fg-2">{t("look.chat.showCodeHint")}</p>
         </section>
       </div>
     </Modal>
