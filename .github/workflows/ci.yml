@@ -31,11 +31,13 @@ jobs:
     timeout-minutes: 15  # the suite takes about 1.5; a hang ends here, with stacks (faulthandler_timeout)
     steps:
       - uses: actions/checkout@v7
-      # Started first: it comes up while the image builds.
+      # Started first: it comes up while the image builds. A database thrown away after the run: in memory and
+      # without waiting for the disk (fsync), which the tests never notice.
       - name: Start PostgreSQL
         run: |
           docker network create ci
-          docker run -d --name db --network ci -e POSTGRES_USER=plainboard -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=plainboard postgres:17
+          docker run -d --name db --network ci --tmpfs /var/lib/postgresql/data -e POSTGRES_USER=plainboard -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=plainboard \
+            postgres:17 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
       - name: Build backend image
         run: docker build -f app/Dockerfile --target backend -t plainboard-app:ci .
       - name: Wait for PostgreSQL
