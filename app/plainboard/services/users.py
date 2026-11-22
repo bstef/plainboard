@@ -175,6 +175,9 @@ async def change_own_password(session: AsyncSession, user: User, current: str, n
 async def delete(session: AsyncSession, user: User) -> None:
     if user.is_admin and user.enabled:
         await _keeps_an_admin(session, user)
+    from . import accounts as account_service  # it imports this module
+
+    await account_service.delete_owned(session, user)
     await session.delete(user)
     await session.commit()
 

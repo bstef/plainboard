@@ -22,16 +22,20 @@ from plainboard_protocol import LimitWindow, ModelInfo, ProviderInfo
 from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Account, Agent, Conversation, Project, Run, utcnow
+from ..models import Account, Agent, Conversation, InboxItem, Project, Run, User, utcnow
 from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from ..security import decrypt, encrypt
 from . import limits as limits_service
 from . import permissions
+from . import users as user_service
 from .errors import NotFound, ServiceError
 
 AUTH_MODES = {"claude_code": ("oauth_token", "api_key", "runner_login"), "codex": ("chatgpt", "api_key")}
 # Every other provider is an endpoint (ProviderInfo.endpoint): which ones exist is the runner's list, not the app's.
 ENDPOINT_MODES = ("api_key",)
+# What a person who is no admin may add: a token or key that travels with the run. A sign-in on the runner
+# (runner_login, Codex's ChatGPT sign-in) lives in the runner's home, which every agent on it can read: not one's own.
+OWN_MODES = ("oauth_token", "api_key")
 LABELS = {"claude_code": "Claude", "codex": "Codex"}
 ENV_SECRETS = {("claude_code", "oauth_token"): "CLAUDE_CODE_OAUTH_TOKEN", ("claude_code", "api_key"): "ANTHROPIC_API_KEY", ("codex", "api_key"): "OPENAI_API_KEY"}
 SWITCH_AT = 0.95  # an account this full hands new turns to one with more room; its rest is used last
@@ -45,9 +49,11 @@ HOUR = 3600
 WEEK_HOURS = 7 * 24
 
 
-def _check_mode(provider: str, mode: str) -> None:
+def _check_mode(provider: str, mode: str, own: bool = False) -> None:
     if mode not in AUTH_MODES.get(provider, ENDPOINT_MODES):
         raise ServiceError(f"Unknown sign-in for {provider}: {mode}")
+    if own and mode not in OWN_MODES:
+        raise ServiceError("Your own subscriptions take a token or an API key; a sign-in on the runner is for the installation's (an admin's).")
 
 
 def _models(names: list[str]) -> list[str]:
@@ -60,16 +66,59 @@ def has_plan(account: Account) -> bool:
     return account.auth_mode != "api_key"
 
 
+def _env(account: Account) -> str | None:
+    """The installation's secret from the environment; a person's own subscription never falls back to it."""
+    env = ENV_SECRETS.get((account.provider, account.auth_mode)) if account.owner_id is None else None
+    return os.environ.get(env) or None if env else None
+
+
 def secret(account: Account) -> str | None:
-    env = ENV_SECRETS.get((account.provider, account.auth_mode))
-    return decrypt(account.secret_enc) or (os.environ.get(env) or None if env else None)
+    return decrypt(account.secret_enc) or _env(account)
 
 
-def to_out(account: Account) -> AccountOut:
-    env = ENV_SECRETS.get((account.provider, account.auth_mode))
-    return AccountOut.model_validate(account).model_copy(
-        update={"secret_set": bool(account.secret_enc), "secret_from_env": bool(not account.secret_enc and env and os.environ.get(env))}
+def to_out(account: Account, viewer: User | None = None, names: dict[int, str] | None = None) -> AccountOut:
+    """No secret, ever. Who may not manage it sees its name, provider and state only. ``viewer`` None: an admin's view."""
+    manage = viewer is None or permissions.may_manage(viewer, account)
+    out = AccountOut.model_validate(account).model_copy(
+        update={
+            "secret_set": bool(account.secret_enc),
+            "secret_from_env": bool(not account.secret_enc and _env(account)),
+            "owner_name": (names or {}).get(account.owner_id, "") if account.owner_id else "",
+            "shared_with": account.shared_with or [],
+            "can_manage": manage,
+        }
     )
+    if not manage:
+        out = out.model_copy(update={"secret_set": False, "secret_from_env": False, "endpoint_url": "", "shared_with": [], "share": "private" if account.owner_id else out.share})
+    return out
+
+
+async def owner_names(session: AsyncSession) -> dict[int, str]:
+    return dict((await session.execute(select(User.id, User.name).where(User.id.in_(select(Account.owner_id))))).all())  # type: ignore[arg-type]
+
+
+async def visible(session: AsyncSession, user: User) -> list[Account]:
+    """The accounts a person sees: an admin all; anyone else what their projects may use (their own, what
+    is shared with them, what an admin allowed them) and what a project they work in runs on."""
+    accounts = await list_accounts(session)
+    if user.is_admin:
+        return accounts
+    seen = {a.id for a in accounts if permissions.may_use(user, a)}
+    for project_id in await user_service.roles(session, user):
+        project = await session.get(Project, project_id)
+        seen |= await permissions.account_ids(session, project) or set()
+    return [a for a in accounts if a.id in seen]
+
+
+async def managed(session: AsyncSession, account_id: int, user: User | None) -> Account:
+    """The account, if ``user`` may change it (None: a read key, which changes nothing anyway). One the
+    person cannot even see does not exist for them."""
+    account = await get(session, account_id)
+    if user is None or permissions.may_manage(user, account):
+        return account
+    if account.id not in {a.id for a in await visible(session, user)}:
+        raise NotFound("Account not found")
+    raise ServiceError("Only its owner or an admin can change this subscription.", 403)
 
 
 async def list_accounts(session: AsyncSession, provider: str | None = None) -> list[Account]:
@@ -86,9 +135,11 @@ async def get(session: AsyncSession, account_id: int) -> Account:
     return account
 
 
-async def create(session: AsyncSession, data: AccountCreate, name: str = "") -> Account:
-    """``name``: what the provider is called, for the label of an account that got none."""
-    _check_mode(data.provider, data.auth_mode)
+async def create(session: AsyncSession, data: AccountCreate, name: str = "", user: User | None = None) -> Account:
+    """``name``: what the provider is called, for the label of an account that got none. ``user``: who
+    adds it; an admin's is the installation's, anyone else's their own (``Account.owner_id``)."""
+    own = user is not None and not user.is_admin
+    _check_mode(data.provider, data.auth_mode, own)
     count = len(await list_accounts(session, data.provider))
     label = data.label.strip() or ((name or LABELS.get(data.provider) or data.provider) + (f" {count + 1}" if count else ""))
     account = Account(
@@ -102,6 +153,8 @@ async def create(session: AsyncSession, data: AccountCreate, name: str = "") -> 
         models=_models(data.models),
         context_tokens=data.context_tokens,
         plan_size=data.plan_size,
+        owner_id=user.id if own else None,
+        share="private",
     )
     session.add(account)
     await session.commit()
@@ -109,8 +162,10 @@ async def create(session: AsyncSession, data: AccountCreate, name: str = "") -> 
 
 
 async def update(session: AsyncSession, account: Account, data: AccountUpdate) -> Account:
+    """Whoever changes it may manage it (``managed``). Shared with fewer people: projects that may no longer
+    use it choose automatically again (``release``)."""
     if data.auth_mode is not None and data.auth_mode != account.auth_mode:
-        _check_mode(account.provider, data.auth_mode)
+        _check_mode(account.provider, data.auth_mode, account.owner_id is not None)
         account.auth_mode = data.auth_mode
         if data.secret is None:
             account.secret_enc = None  # a token is no API key
@@ -128,14 +183,59 @@ async def update(session: AsyncSession, account: Account, data: AccountUpdate) -
         account.context_tokens = data.context_tokens
     if data.plan_size is not None:
         account.plan_size = data.plan_size or None
+    if account.owner_id is not None and (data.share is not None or data.shared_with is not None):
+        if data.shared_with is not None:
+            ids = [i for i in dict.fromkeys(data.shared_with) if i != account.owner_id]
+            known = set(await session.scalars(select(User.id).where(User.id.in_(ids))))
+            if unknown := [i for i in ids if i not in known]:
+                raise NotFound(f"User not found: {unknown[0]}")
+            account.shared_with = ids
+        if data.share is not None:
+            account.share = data.share
+        await session.flush()
+        await release(session, account)
     await session.commit()
     return account
 
 
+async def release(session: AsyncSession, account: Account, gone: bool = False) -> list[Project]:
+    """Projects and agents that chose the account but may no longer use it (it is deleted, or shared with
+    fewer people) choose automatically again; each such project's manager is told once. Not committed."""
+    pinned = set(await session.scalars(select(Project.id).where(Project.account_id == account.id)))
+    pinned |= set(await session.scalars(select(Agent.project_id).where(Agent.account_id == account.id)))
+    out = []
+    for project_id in sorted(pinned):
+        project = await session.get(Project, project_id)
+        if project is None or (not gone and account.id in (await permissions.account_ids(session, project) or set())):
+            continue
+        names = (["the project"] if project.account_id == account.id else []) + list(
+            await session.scalars(select(Agent.name).where(Agent.project_id == project.id, Agent.account_id == account.id).order_by(Agent.id))
+        )
+        if project.account_id == account.id:
+            project.account_id = None
+        await session.execute(sql_update(Agent).where(Agent.project_id == project.id, Agent.account_id == account.id).values(account_id=None))
+        manager = await session.scalar(select(Agent).where(Agent.project_id == project.id, Agent.is_manager.is_(True)))
+        if manager is not None:
+            what = "was deleted" if gone else "is no longer shared with this project's owner"
+            who = f" ({', '.join(names)})"
+            session.add(InboxItem(agent_id=manager.id, text=f"The subscription '{account.label}' {what}. What ran on it{who} now chooses a subscription automatically."))
+        out.append(project)
+    return out
+
+
 async def delete(session: AsyncSession, account: Account) -> None:
+    await release(session, account, gone=True)
     await session.execute(sql_update(Agent).where(Agent.account_id == account.id).values(account_id=None))
     await session.delete(account)
     await session.commit()
+
+
+async def delete_owned(session: AsyncSession, user: User) -> None:
+    """A person is deleted: so are their own subscriptions, and what ran on them chooses again."""
+    for account in list(await session.scalars(select(Account).where(Account.owner_id == user.id))):
+        await release(session, account, gone=True)
+        await session.execute(sql_update(Agent).where(Agent.account_id == account.id).values(account_id=None))
+        await session.delete(account)
 
 
 async def check_pin(session: AsyncSession, account_id: int | None, provider: str, project_id: int | None = None) -> None:
@@ -143,6 +243,8 @@ async def check_pin(session: AsyncSession, account_id: int | None, provider: str
         return
     if (await get(session, account_id)).provider != provider:
         raise ServiceError("The account belongs to another provider")
+    if project_id is None:
+        return
     await permissions.check_account(session, await session.get(Project, project_id) if project_id else None, account_id)
 
 
@@ -167,7 +269,7 @@ async def shut_out(session: AsyncSession, provider: str, agent: Agent) -> str:
     allowed = await permissions.account_ids(session, await session.get(Project, agent.project_id))
     if allowed is None:
         return ""
-    accounts = [a for a in await list_accounts(session, provider) if a.enabled]
+    accounts = [a for a in await list_accounts(session, provider) if a.enabled and a.owner_id is None]  # people's own ones are theirs
     if not accounts or any(a.id in allowed for a in accounts):
         return ""
     return (

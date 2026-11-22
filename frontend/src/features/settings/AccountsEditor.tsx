@@ -4,7 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useAccounts, useLimits, useMeta } from "../../api/queries";
+import { checks, qk, useAccounts, useDirectory, useLimits, useMe, useMeta } from "../../api/queries";
 import type { Account, CheckResult } from "../../api/types";
 import { Button, ErrorText, IconButton, Input, Toggle } from "../../components/ui";
 import { smallModel } from "../../lib/models";
@@ -15,6 +15,10 @@ const MODES: Record<string, string[]> = {
   claude_code: ["api_key", "oauth_token", "runner_login"],
   codex: ["chatgpt", "api_key"],
 };
+// A person's own subscription takes a token or a key: a sign-in on the runner is the installation's (services/accounts.OWN_MODES).
+const OWN_MODES = ["oauth_token", "api_key"];
+const modesOf = (provider: string, own: boolean) => MODES[provider].filter((mode) => !own || OWN_MODES.includes(mode));
+const SHARES = ["private", "people", "everyone"] as const;
 // i18n group of the sign-in kinds per provider
 const MODE_TEXTS: Record<string, string> = { claude_code: "settings.auth", codex: "settings.codexAuth" };
 const SECRET_LABELS: Record<string, string> = {
@@ -23,13 +27,16 @@ const SECRET_LABELS: Record<string, string> = {
   "codex:api_key": "settings.openaiApiKey",
 };
 
-/** The accounts of one provider. Saved right away; secrets are write-only. */
-export function AccountsEditor({ provider }: { provider: string }) {
+/** The accounts of one provider: the installation's, or with ``own`` people's own ones (a non-admin:
+ *  their own, which they add here; an admin: everyone's, without adding). Saved right away; secrets are write-only. */
+export function AccountsEditor({ provider, own = false }: { provider: string; own?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const me = useMe();
   const accounts = useAccounts();
   const [error, setError] = useState<unknown>(null);
-  const mine = (accounts.data ?? []).filter((a) => a.provider === provider);
+  const adds = !own || !me?.is_admin;
+  const mine = (accounts.data ?? []).filter((a) => a.provider === provider && (own ? a.owner_id != null && a.can_manage : a.owner_id == null));
 
   const run = async (action: () => Promise<unknown>) => {
     setError(null);
@@ -49,9 +56,12 @@ export function AccountsEditor({ provider }: { provider: string }) {
         <AccountCard key={account.id} account={account} onChange={run} />
       ))}
       {mine.length > 1 && <p className="text-fg-3">{t("accounts.rotationHint")}</p>}
-      <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => run(() => api.post("/accounts", { provider, auth_mode: MODES[provider][0] }))}>
-        {t("accounts.add")}
-      </Button>
+      {adds && (
+        <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => run(() => api.post("/accounts", { provider, auth_mode: modesOf(provider, own)[0] }))}>
+          {t("accounts.add")}
+        </Button>
+      )}
+      {!adds && !mine.length && <p className="text-fg-3">{t("accounts.noneOwn")}</p>}
       <ErrorText error={error} />
     </div>
   );
@@ -60,6 +70,8 @@ export function AccountsEditor({ provider }: { provider: string }) {
 function AccountCard({ account, onChange }: { account: Account; onChange: (action: () => Promise<unknown>) => Promise<boolean> }) {
   const { t } = useTranslation();
   const meta = useMeta();
+  const me = useMe();
+  const modes = modesOf(account.provider, account.owner_id != null);
   const limits = useLimits();
   const detected = limits.data?.accounts.find((entry) => entry.account_id === account.id);
   const [label, setLabel] = useState(account.label);
@@ -100,8 +112,10 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
           <Trash2 className="size-3.5" />
         </IconButton>
       </div>
-      <div className={clsx("grid gap-2", MODES[account.provider].length === 3 ? "sm:grid-cols-3" : "grid-cols-2")}>
-        {MODES[account.provider].map((mode) => (
+      {account.owner_id != null && account.owner_id !== me?.id && <p className="text-fg-3">{t("accounts.ownedBy", { name: account.owner_name })}</p>}
+      {account.owner_id != null && <Sharing account={account} patch={patch} />}
+      <div className={clsx("grid gap-2", modes.length === 3 ? "sm:grid-cols-3" : modes.length === 2 ? "grid-cols-2" : "grid-cols-1")}>
+        {modes.map((mode) => (
           <button
             key={mode}
             onClick={() => mode !== account.auth_mode && patch({ auth_mode: mode })}
@@ -174,6 +188,49 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
         </Button>
         <CheckBadge result={check} />
       </div>
+    </div>
+  );
+}
+
+/** Who else may use a person's own subscription: nobody, some people, or everyone here. */
+function Sharing({ account, patch }: { account: Account; patch: (body: Record<string, unknown>) => Promise<boolean> }) {
+  const { t } = useTranslation();
+  const people = (useDirectory().data ?? []).filter((p) => p.id !== account.owner_id);
+  const toggle = (id: number) =>
+    patch({ shared_with: account.shared_with.includes(id) ? account.shared_with.filter((x) => x !== id) : [...account.shared_with, id] });
+
+  return (
+    <div className="space-y-1.5" data-part="account-sharing">
+      <span className="block font-medium text-fg-2">{t("accounts.share.label")}</span>
+      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={t("accounts.share.label")}>
+        {SHARES.map((share) => (
+          <button
+            key={share}
+            role="radio"
+            aria-checked={account.share === share}
+            onClick={() => share !== account.share && patch({ share })}
+            className={clsx("rounded-sm px-2.5 py-1 ring-1 transition-colors", account.share === share ? "bg-sunk ring-fg" : "ring-line hover:bg-sunk")}
+          >
+            {t(`accounts.share.${share}`)}
+          </button>
+        ))}
+      </div>
+      {account.share === "people" &&
+        (people.length ? (
+          <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+            {people.map((p) => (
+              <li key={p.id}>
+                <label className="flex cursor-pointer items-center gap-1.5 py-0.5">
+                  <input type="checkbox" checked={account.shared_with.includes(p.id)} onChange={() => toggle(p.id)} />
+                  <span className="truncate">{p.name || p.username}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-fg-3">{t("accounts.share.nobody")}</p>
+        ))}
+      <p className="text-fg-3">{t("accounts.share.hint")}</p>
     </div>
   );
 }

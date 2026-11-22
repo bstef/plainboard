@@ -89,8 +89,8 @@ async def update_project(project_id: int, body: ProjectUpdate, session: Session,
 @router.get("/projects/{project_id}/accounts", response_model=list[int])
 async def usable_accounts(project_id: int, session: Session) -> list[int]:
     """The subscriptions this project's agents may run on: its own limit and what its owner may use."""
-    allowed = await permissions.account_ids(session, await project_service.get(session, project_id))
-    return [a.id for a in await account_service.list_accounts(session) if allowed is None or a.id in allowed]
+    allowed = await permissions.account_ids(session, await project_service.get(session, project_id)) or set()
+    return [a.id for a in await account_service.list_accounts(session) if a.id in allowed]
 
 
 @router.put("/projects/{project_id}/accounts", response_model=ProjectOut)

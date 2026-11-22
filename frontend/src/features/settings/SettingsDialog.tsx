@@ -4,7 +4,7 @@ import { CheckCircle2, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
-import { qk, useMe, useMeta, useSettings } from "../../api/queries";
+import { qk, useAccounts, useMe, useMeta, useSettings } from "../../api/queries";
 import type { CheckResult } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
@@ -44,6 +44,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   const qc = useQueryClient();
   const settings = useSettings();
   const meta = useMeta();
+  const accounts = useAccounts();
   const me = useMe();
   const [current, setCurrent] = useStored<string>("plainboard.settingsSection", "account");
   useEffect(() => {
@@ -66,6 +67,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   }, [open, onClose]);
 
   if (!open || !me) return null;
+  const others = (accounts.data ?? []).some((a) => a.owner_id != null);
   const stored = settings.data?.values ?? {};
   const set = (patch: Values) => setValues((v) => ({ ...v, ...patch }));
   const dirty = (...keys: string[]) => keys.some((k) => values[k] !== stored[k]);
@@ -92,6 +94,36 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   const CLEANUP = ["storage_notify_percent", "storage_emergency_percent", "cleanup", "cleanup_memory_free_percent"];
 
   const account: SettingsSection = { id: "account", label: t("account.title"), description: t("account.hint"), content: <AccountEditor /> };
+  const ownAccounts = (
+    <>
+      <div className="space-y-2">
+        <h3 className="font-semibold">{t("settings.claude")}</h3>
+        <AccountsEditor provider="claude_code" own />
+      </div>
+      {providers.some((p) => p.name === "codex") && (
+        <div className="space-y-2">
+          <h3 className="font-semibold">{t("settings.codex")}</h3>
+          <AccountsEditor provider="codex" own />
+        </div>
+      )}
+    </>
+  );
+  const own: SettingsSection[] = me.is_admin
+    ? []
+    : [
+        {
+          id: "subscriptions",
+          label: t("settingsPage.own.label"),
+          description: t("settingsPage.own.description"),
+          content: (
+            <div className="space-y-6">
+              <p className="text-fg-3">{t("settingsPage.own.hint")}</p>
+              {ownAccounts}
+              <SavedAtOnce />
+            </div>
+          ),
+        },
+      ];
   const admin: SettingsSection[] = !me.is_admin || !settings.data
     ? []
     : [
@@ -119,6 +151,15 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   <h3 className="font-semibold">{t("endpoints.title")}</h3>
                   <p className="text-fg-3">{t("endpoints.hint")}</p>
                   <EndpointAccounts />
+                </div>
+              )}
+              {others && (
+                <div className="space-y-4 border-t border-line pt-4">
+                  <div className="space-y-1">
+                    <h3 className="font-semibold">{t("settingsPage.own.peoples")}</h3>
+                    <p className="text-fg-3">{t("settingsPage.own.peoplesHint")}</p>
+                  </div>
+                  {ownAccounts}
                 </div>
               )}
               <SavedAtOnce />
@@ -307,7 +348,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
             <X className="size-4" />
           </IconButton>
         </PageHead>
-        <SettingsLayout label={t("settings.title")} sections={[account, ...admin]} current={current} onChange={setCurrent} />
+        <SettingsLayout label={t("settings.title")} sections={[account, ...own, ...admin]} current={current} onChange={setCurrent} />
       </div>
     </div>
   );

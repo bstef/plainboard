@@ -179,7 +179,7 @@ function UserLimits({ user, patch }: { user: User; patch: (body: Record<string, 
       <Choice
         label={t("users.subscriptions")}
         all={t("users.allSubscriptions")}
-        items={accounts.map((a) => ({ id: a.id, label: a.label }))}
+        items={accounts.filter((a) => a.owner_id == null).map((a) => ({ id: a.id, label: a.label }))}
         value={user.account_ids}
         onChange={(ids) => patch({ account_ids: ids })}
       />
