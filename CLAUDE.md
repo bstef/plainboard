@@ -31,7 +31,7 @@ execution, providers), `protocol/` (shared wire models), `frontend/` (React + TS
 ## Commands
 ```bash
 docker compose up -d --build                     # run everything (http://localhost:8080)
-docker run --rm -w /src/app --entrypoint python plainboard-app -m pytest -q
+docker run --rm -w /src/app --entrypoint python plainboard-app -m pytest -q -n auto   # -n: pytest-xdist, in parallel
 docker run --rm -w /src/runner plainboard-runner python -m pytest -q
 # the app's tests against PostgreSQL: the same, with -e PLAINBOARD_DATABASE=postgresql://user:password@host/name
 cd frontend && npm run build                     # typecheck + production build
