@@ -1,4 +1,4 @@
-import { allowedAccounts } from "../projects/ProjectAccounts";
+import { allowedAccounts, useUsableAccounts } from "../projects/ProjectAccounts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,6 +27,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
   const accounts = useAccounts();
   const defaults = settings.data?.values ?? {};
   const [project, setProject] = useState<Project | null>(null);
+  const usableIds = useUsableAccounts(project?.id);
   const [manager, setManager] = useState<Agent | null>(null);
   const [basics, setBasics] = useState({ name: "" });
   const [code, setCode] = useState({ workspace_path: "", github_token: "" });
@@ -52,7 +53,7 @@ export function ProjectWizard({ onClose, onCreated }: { onClose: () => void; onC
       effort: providers.find((p) => p.name === name)?.efforts.includes(f.effort) ? f.effort : "",
       account_id: null,
     }));
-  const usableAccounts = allowedAccounts(project, accounts.data ?? []).filter((a) => usable(a) && a.provider === provider?.name);
+  const usableAccounts = allowedAccounts(project, accounts.data ?? [], usableIds).filter((a) => usable(a) && a.provider === provider?.name);
 
   const saveBasics = async () => {
     // A project made here starts with the two tickets that set it up.

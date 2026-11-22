@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Agent, AgentNote, Assignment, Attachment, Decision, ProjectRole, PublicApiKey, Repository, Run, Secret, Task, Todo, User
 from ..security import read_session_cookie
 from . import access_keys as access_key_service
+from . import permissions
 from . import sessions as session_service
 from . import users as user_service
 from .errors import NotFound, ServiceError
@@ -120,8 +121,8 @@ RULES: tuple[Rule, ...] = (
     _project("/previews", write=Need.MEMBER),  # which servers run; a member stops one
     _project("/export", read=Need.OWNER),  # the whole project as a file, credentials included
     _project("/secrets", read=Need.OWNER),
-    _project("/accounts", read=Need.ADMIN, write=Need.ADMIN),
-    _project("/runner"),  # which runner its agents use: its owner chooses  # which of the installation's subscriptions it may use: not its owner's call
+    _project("/accounts", write=Need.ADMIN),  # which of the installation's subscriptions it may use: not its owner's call
+    _project("/runner"),  # which runner its agents use: its owner chooses
     _project("/public-api-keys", read=Need.OWNER),
     _project("/github", read=Need.OWNER),  # what its own token sees on GitHub (an admin: else the installation's)
     _of("/api/agents/{agent_id}", "agent_id", Agent),
@@ -186,9 +187,8 @@ async def check(session: AsyncSession, who: Principal | None, method: str, path:
     assert user is not None
     if user.is_admin or need == Need.USER:
         return
-    if need == Need.CREATOR:
-        if not user.may_create_projects:
-            raise ServiceError("You may not create projects here. Ask an admin.", 403)
+    if need == Need.CREATOR:  # also whether one more is allowed, before anything of it is created
+        await permissions.check_create(session, user)
         return
     if need == Need.ADMIN or rule is None:
         raise ServiceError("Only an admin can do this.", 403)

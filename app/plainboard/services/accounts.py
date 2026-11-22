@@ -26,6 +26,7 @@ from ..models import Account, Agent, Conversation, Project, Run, utcnow
 from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from ..security import decrypt, encrypt
 from . import limits as limits_service
+from . import permissions
 from .errors import NotFound, ServiceError
 
 AUTH_MODES = {"claude_code": ("oauth_token", "api_key", "runner_login"), "codex": ("chatgpt", "api_key")}
@@ -142,9 +143,7 @@ async def check_pin(session: AsyncSession, account_id: int | None, provider: str
         return
     if (await get(session, account_id)).provider != provider:
         raise ServiceError("The account belongs to another provider")
-    project = await session.get(Project, project_id) if project_id else None
-    if project is not None and project.account_ids and account_id not in project.account_ids:
-        raise ServiceError("This project may not use that account")
+    await permissions.check_account(session, await session.get(Project, project_id) if project_id else None, account_id)
 
 
 async def limit_project(session: AsyncSession, project: Project, account_ids: list[int]) -> Project:
@@ -165,15 +164,15 @@ async def limit_project(session: AsyncSession, project: Project, account_ids: li
 async def shut_out(session: AsyncSession, provider: str, agent: Agent) -> str:
     """Why no account was picked, if the project's limit is the reason: the installation has
     accounts of this provider, the project may use none of them. Else ""."""
-    project = await session.get(Project, agent.project_id)
-    if project is None or not project.account_ids:
+    allowed = await permissions.account_ids(session, await session.get(Project, agent.project_id))
+    if allowed is None:
         return ""
     accounts = [a for a in await list_accounts(session, provider) if a.enabled]
-    if not accounts or any(a.id in project.account_ids for a in accounts):
+    if not accounts or any(a.id in allowed for a in accounts):
         return ""
     return (
         f"This project may only use some of the installation's subscriptions, and none of them is for {agent.provider}. "
-        "An admin can change that (Project settings, Team), or the agent can be given a provider the project has a subscription for."
+        "An admin can change that (Project settings, Team, or what the project's owner may use in Settings, Users), or the agent can be given a provider the project has a subscription for."
     )
 
 
@@ -223,8 +222,8 @@ async def _candidates(session: AsyncSession, provider: str, agent: Agent | None,
     """The accounts the agent's turn may run on: the one it or its project chose, else all it may use."""
     accounts = [a for a in await list_accounts(session, provider) if a.enabled]
     project = await session.get(Project, agent.project_id) if agent else None
-    if project is not None and project.account_ids:  # a project limited to some accounts never gets another one
-        accounts = [a for a in accounts if a.id in project.account_ids]
+    if (allowed := await permissions.account_ids(session, project)) is not None:  # a project limited to some accounts never gets another one
+        accounts = [a for a in accounts if a.id in allowed]
     if not accounts:
         return []
     # Endpoints of one provider differ in what they offer (two model servers, say): one that names the model.

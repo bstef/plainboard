@@ -16,6 +16,7 @@ from ..db import sessionmaker
 from ..events import bus
 from ..orchestration.tunnel import Tunnel, TunnelClosed
 from ..schemas import ProjectRunnerIn, ProjectRunnerOut, RunnerCreated, RunnerIn, RunnerOut, UnpushedOut
+from ..services import permissions
 from ..services import projects as project_service
 from ..services import runners as runner_service
 from .deps import Runs, Session
@@ -77,7 +78,9 @@ async def project_unpushed(project_id: int, session: Session, runs: Runs) -> Unp
 
 @router.put("/projects/{project_id}/runner", response_model=ProjectRunnerOut)
 async def set_project_runner(project_id: int, body: ProjectRunnerIn, session: Session, runs: Runs) -> ProjectRunnerOut:
-    project = await runner_service.assign(session, runs.runners, await project_service.get(session, project_id), body.runner_id)
+    project = await project_service.get(session, project_id)
+    await permissions.check_runner(session, project, body.runner_id)
+    project = await runner_service.assign(session, runs.runners, project, body.runner_id)
     bus.publish(project.id, "project.updated", project_service.to_out(project))
     runs.wake()
     return await runner_service.choices(session, runs.runners, project)

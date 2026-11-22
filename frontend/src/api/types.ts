@@ -539,6 +539,12 @@ export interface User {
   name: string;
   is_admin: boolean;
   may_create_projects: boolean;
+  /** What the projects this person owns may use; null: no limit. */
+  max_projects: number | null;
+  account_ids: number[] | null;
+  /** 0: the built-in runner. */
+  runner_ids: number[] | null;
+  max_parallel: number | null;
   enabled: boolean;
   /** 0: no profile picture. */
   avatar_version: number;

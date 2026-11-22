@@ -17,6 +17,7 @@ from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
 from ..services import jobs as job_service
+from ..services import permissions
 from ..services import preview as preview_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
@@ -40,16 +41,20 @@ async def list_projects(session: Session, who: Who) -> list[ProjectOut]:
 
 
 @router.post("/projects", response_model=ProjectOut, status_code=201)
-async def create_project(body: ProjectCreate, session: Session, who: Who) -> ProjectOut:
-    project = await project_service.create(session, body, who.user.id if who.user else None)
+async def create_project(body: ProjectCreate, session: Session, runs: Runs, who: Who) -> ProjectOut:
+    project = await project_service.create(session, body, who.user)
+    runs.runners.assign(project.id, project.runner_id)
     return project_service.to_out(project, ProjectRole.OWNER)
 
 
 @router.post("/projects/import", response_model=ImportOut, status_code=201)
-async def import_project(session: Session, who: Who, file: UploadFile = File(...), passphrase: str = Form("")) -> ImportOut:
+async def import_project(session: Session, runs: Runs, who: Who, file: UploadFile = File(...), passphrase: str = Form("")) -> ImportOut:
     """A project from the file another PlainBoard made (``export``). Whoever brings it in owns it."""
+    runner_id = await permissions.first_runner(session, who.user)
     result = await transfer_service.import_project(session, file.file, passphrase=passphrase)
     if who.user is not None:
+        result.project.owner_id, result.project.runner_id = who.user.id, runner_id
+        runs.runners.assign(result.project.id, runner_id)
         await user_service.set_member(session, result.project.id, who.user.id, ProjectRole.OWNER)
     return ImportOut(project=project_service.to_out(result.project, ProjectRole.OWNER), counts=result.counts, missing=result.missing)
 
@@ -80,6 +85,13 @@ async def update_project(project_id: int, body: ProjectUpdate, session: Session,
     out = project_service.to_out(await project_service.update(session, project, body), role)
     runs.recheck()  # more parallel agents: waiting turns may start now
     return out
+
+
+@router.get("/projects/{project_id}/accounts", response_model=list[int])
+async def usable_accounts(project_id: int, session: Session) -> list[int]:
+    """The subscriptions this project's agents may run on: its own limit and what its owner may use."""
+    allowed = await permissions.account_ids(session, await project_service.get(session, project_id))
+    return [a.id for a in await account_service.list_accounts(session) if allowed is None or a.id in allowed]
 
 
 @router.put("/projects/{project_id}/accounts", response_model=ProjectOut)

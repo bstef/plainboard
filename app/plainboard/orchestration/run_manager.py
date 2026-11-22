@@ -66,6 +66,7 @@ from ..services import flow_log
 from ..services import jobs as job_service
 from ..services import mcp as mcp_service
 from ..services import pause as pause_service
+from ..services import permissions
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import runners as runner_service
@@ -1073,6 +1074,8 @@ class RunManager:
             # Every project has its own limit, and counts its own members only. 0 pauses them.
             default = int(await settings_service.get(s, "max_parallel_runs")) if queued else 0
             limits = {pid: default if own is None else own for pid, own in (await s.execute(select(Project.id, Project.parallel_agents))).all()} if queued else {}
+            # A person's limit of members at work holds across all the projects they own.
+            owner_of, owner_limits = await permissions.caps(s) if queued else ({}, {})
             project_of = dict((await s.execute(select(Run.id, Run.project_id).where(Run.id.in_(list(self._running))))).all()) if queued and self._running else {}
             managers = set(await s.scalars(select(Agent.id).where(Agent.is_manager))) if queued else set()
             # Projects a person paused for good. Read from the database with every look: whoever queued
@@ -1112,22 +1115,28 @@ class RunManager:
                 held = await self._held_by_limits(s, [r for r in queued if r.id in {c[0] for c in candidates}])
                 candidates = [c for c in candidates if c[0] not in held]
         in_use: dict[int, int] = {}  # project -> its members at work
+        owner_use: dict[int, int] = {}  # owner with a limit -> members at work in their projects
         for run_id in self._running.keys() - self._unlimited - self.waiting_for_job():
             if (project_id := project_of.get(run_id)) is not None:
                 in_use[project_id] = in_use.get(project_id, 0) + 1
+                if (owner := owner_of.get(project_id)) is not None:
+                    owner_use[owner] = owner_use.get(owner, 0) + 1
         for run_id, agent_id, project_id, nested, manager in candidates:
             if agent_id in self._busy_agents or run_id in self._running:
                 continue
             # The limit is about members. A manager's turn never waits for a slot, not even at limit 0:
             # the user gets an answer, and the members' reports get read.
             unlimited = nested or manager
-            if not unlimited and in_use.get(project_id, 0) >= limits.get(project_id, 0):
+            owner = owner_of.get(project_id)
+            if not unlimited and (in_use.get(project_id, 0) >= limits.get(project_id, 0) or (owner is not None and owner_use.get(owner, 0) >= owner_limits[owner])):
                 continue
             self._busy_agents.add(agent_id)
             if unlimited:
                 self._unlimited.add(run_id)
             else:
                 in_use[project_id] = in_use.get(project_id, 0) + 1
+                if owner is not None:
+                    owner_use[owner] = owner_use.get(owner, 0) + 1
             self._running[run_id] = asyncio.create_task(self._execute(run_id, agent_id), name=f"run-{run_id}")
 
     async def _held_by_limits(self, s: AsyncSession, runs: list[Run]) -> set[int]:

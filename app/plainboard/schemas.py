@@ -38,6 +38,11 @@ class UserOut(ORM):
     name: str
     is_admin: bool
     may_create_projects: bool
+    # What the projects this person owns may use (services/permissions.py); null: no limit.
+    max_projects: int | None = None
+    account_ids: list[int] | None = None
+    runner_ids: list[int] | None = None  # 0: the built-in runner
+    max_parallel: int | None = None
     enabled: bool
     avatar_version: int = 0  # 0: no picture; otherwise part of its address (/api/avatars/{id}?v=...)
     created_at: UTCDateTime
@@ -66,6 +71,11 @@ class UserUpdate(BaseModel):
     is_admin: bool | None = None
     may_create_projects: bool | None = None
     enabled: bool | None = None
+    # Sent: set to this, null being no limit. Not sent: as it is.
+    max_projects: int | None = Field(default=None, ge=0, le=1000)
+    account_ids: list[int] | None = Field(default=None, max_length=200)
+    runner_ids: list[int] | None = Field(default=None, max_length=200)
+    max_parallel: int | None = Field(default=None, ge=0, le=100)
 
 
 class MemberIn(BaseModel):

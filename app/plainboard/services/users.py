@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_config
 from ..models import Project, ProjectMember, ProjectRole, User
 from ..security import hash_password, password_matches, verify_password
+from . import permissions
 from .errors import NotFound, ServiceError
 
 USERNAME = re.compile(r"^[a-z0-9][a-z0-9._-]{1,58}$")
@@ -131,7 +132,9 @@ async def update(
     is_admin: bool | None = None,
     may_create_projects: bool | None = None,
     enabled: bool | None = None,
+    limits: dict | None = None,
 ) -> User:
+    """``limits``: what this person's projects may use (``permissions.FIELDS``); None in it: no limit."""
     if (is_admin is False or enabled is False) and user.is_admin and user.enabled:
         await _keeps_an_admin(session, user)
     if name is not None:
@@ -147,6 +150,8 @@ async def update(
     if enabled is not None and enabled != user.enabled:
         user.enabled = enabled
         user.session_version += 1
+    for key, value in (await permissions.clean(session, limits or {})).items():
+        setattr(user, key, value)
     await session.commit()
     return user
 
@@ -228,8 +233,15 @@ async def author(session: AsyncSession, user: User | None, project_id: int) -> s
     return user.name
 
 
+async def _keeps_its_owner(session: AsyncSession, project_id: int, user_id: int) -> None:
+    if await session.scalar(select(Project.owner_id).where(Project.id == project_id)) == user_id:
+        raise ServiceError("This is the person whose project it is: they stay its owner.")
+
+
 async def set_member(session: AsyncSession, project_id: int, user_id: int, role: ProjectRole) -> None:
     await get(session, user_id)
+    if role != ProjectRole.OWNER:
+        await _keeps_its_owner(session, project_id, user_id)
     member = await session.scalar(select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id))
     if member is None:
         session.add(ProjectMember(project_id=project_id, user_id=user_id, role=role))
@@ -239,6 +251,7 @@ async def set_member(session: AsyncSession, project_id: int, user_id: int, role:
 
 
 async def remove_member(session: AsyncSession, project_id: int, user_id: int) -> None:
+    await _keeps_its_owner(session, project_id, user_id)
     member = await session.scalar(select(ProjectMember).where(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id))
     if member is not None:
         await session.delete(member)

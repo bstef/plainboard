@@ -13,7 +13,7 @@ import { GithubTokenField } from "../settings/GithubTokenField";
 import { SecretsEditor } from "../settings/SecretsEditor";
 import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
-import { ProjectAccounts, allowedAccounts, sameAccounts } from "./ProjectAccounts";
+import { ProjectAccounts, allowedAccounts, sameAccounts, useUsableAccounts } from "./ProjectAccounts";
 import { ProjectPauseSwitch } from "./ProjectPause";
 import { ProjectRunnerEditor } from "./ProjectRunner";
 import { ExportProject } from "./MoveProject";
@@ -30,6 +30,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
   const [current, setCurrent] = useStored<string>("plainboard.projectSection", "general");
   const settings = useSettings();
   const accounts = useAccounts();
+  const usableIds = useUsableAccounts(project.id);
   const repos = useRepositories(project.id);
   const defaultParallel = Number(settings.data?.values.max_parallel_runs ?? 3);
   const [form, setForm] = useState({
@@ -64,7 +65,10 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
   // subscription chosen below it has to be one of them.
   const accountsDirty = !sameAccounts(form.account_ids, project.account_ids ?? []);
   const saveTeam = async () => {
-    if (accountsDirty) await api.put(`/projects/${project.id}/accounts`, { account_ids: form.account_ids });
+    if (accountsDirty) {
+      await api.put(`/projects/${project.id}/accounts`, { account_ids: form.account_ids });
+      await qc.invalidateQueries({ queryKey: ["project-accounts", project.id] });
+    }
     await save("parallel_agents", "account_id", "auto_wake_manager", "continue_with_backlog");
   };
   const refreshRepos = () => qc.invalidateQueries({ queryKey: qk.repos(project.id) });
@@ -181,7 +185,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           <Field label={t("newProject.team.subscription")} hint={t("newProject.team.subscriptionHint")}>
             <Select value={form.account_id ?? ""} onChange={(e) => set({ account_id: e.target.value ? Number(e.target.value) : null })}>
               <option value="">{t("newProject.team.subscriptionAuto")}</option>
-              {allowedAccounts(form, accounts.data ?? [])
+              {allowedAccounts(form, accounts.data ?? [], usableIds)
                 .filter((a) => a.enabled)
                 .map((a) => (
                   <option key={a.id} value={a.id}>

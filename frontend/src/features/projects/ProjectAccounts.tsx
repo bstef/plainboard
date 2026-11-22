@@ -1,10 +1,17 @@
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { api } from "../../api/client";
 import { useAccounts, useMe } from "../../api/queries";
 import type { Account, Project } from "../../api/types";
 
-/** The accounts a project may choose from: all of them, or the ones an admin limited it to. */
-export const allowedAccounts = (project: Pick<Project, "account_ids"> | null | undefined, accounts: Account[]) =>
-  project?.account_ids?.length ? accounts.filter((a) => project.account_ids.includes(a.id)) : accounts;
+/** The accounts a project may choose from: all of them, or the ones an admin limited it to, and of
+ *  those only what its owner may use (``usable``, from the server). */
+export const allowedAccounts = (project: Pick<Project, "account_ids"> | null | undefined, accounts: Account[], usable?: number[]) =>
+  (project?.account_ids?.length ? accounts.filter((a) => project.account_ids.includes(a.id)) : accounts).filter((a) => !usable || usable.includes(a.id));
+
+/** The ids of the subscriptions a project's agents may run on: its own limit and what its owner may use. */
+export const useUsableAccounts = (projectId: number | null | undefined) =>
+  useQuery({ queryKey: ["project-accounts", projectId], queryFn: () => api.get<number[]>(`/projects/${projectId}/accounts`), enabled: projectId != null }).data;
 
 /** The same choice, whatever order it was ticked in. */
 export const sameAccounts = (a: number[], b: number[]) => a.length === b.length && a.every((id) => b.includes(id));
