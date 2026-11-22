@@ -883,7 +883,25 @@
     "none": "Nobody yet. Only admins see this project.",
     "nobodyElse": "Everyone with an account is a member. An admin adds further people under PlainBoard settings → People.",
     "readOnly": "You are a viewer of this project: you can read everything and change nothing.",
-    "readOnlyShort": "You can view this project but not change it."
+    "readOnlyShort": "You can view this project but not change it.",
+    "projectOwner": "Project owner",
+    "projectOwnerHint": "Whose permissions apply to this project: subscriptions, runners, parallel limit and shared secrets.",
+    "makeOwner": "Make project owner…",
+    "makeOwnerTitle": "Hand the project to {{name}}",
+    "makeOwnerIntro": "From now on, what {{name}} may use applies to this project. {{name}} gets the role owner; the current project owner keeps the role owner.",
+    "makeOwnerConfirm": "Make project owner",
+    "change": {
+      "loading": "Checking what changes…",
+      "nothing": "Nothing else changes for this project.",
+      "runnerBlocked": "{{name}} may not use this project's runner ({{runner}}). Move the project to a runner they may use first (Settings → Runner), then hand it over.",
+      "builtinRunner": "built-in runner",
+      "lostAccounts": "No longer allowed subscriptions: {{list}}",
+      "unpinned": "Chosen subscription not allowed, will choose automatically: {{list}}. The project's manager is told.",
+      "theProject": "the project",
+      "losesShared": "The installation's secrets, GitHub token and shared MCP servers are no longer available; the project's own stay.",
+      "parallel": "Members working at once (across all projects of the owner): {{before}} → {{after}}",
+      "noLimit": "no limit"
+    }
   },
   "wizard": {
     "steps": "Steps",
