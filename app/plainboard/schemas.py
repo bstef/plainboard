@@ -116,6 +116,21 @@ class MemberOut(BaseModel):
     username: str
     name: str
     role: ProjectRole
+    project_owner: bool = False  # the person whose limits hold for the project (Project.owner_id), not the role
+
+
+class OwnerChangeOut(BaseModel):
+    """What changes for a project if this person owned it (services/ownership.py)."""
+
+    user_id: int
+    name: str
+    runner: str  # the project's runner; "": the built-in one
+    runner_allowed: bool  # False: the change is refused until the project moves to another runner
+    lost_accounts: list[str]  # subscriptions the project may use now and then no longer
+    unpinned: list[str]  # "the project" and agents whose chosen subscription is then chosen automatically
+    loses_shared: bool  # the installation's secrets, GitHub token and MCP servers
+    max_parallel_before: int | None
+    max_parallel_after: int | None
 
 
 # --- repositories ---------------------------------------------------------------------------

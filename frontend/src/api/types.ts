@@ -606,6 +606,23 @@ export interface Member {
   username: string;
   name: string;
   role: ProjectRole;
+  /** The person whose limits hold for the project (not the role "owner"). */
+  project_owner: boolean;
+}
+
+/** What changes for a project if this person owned it (GET /projects/{id}/owner/{user_id}). */
+export interface OwnerChange {
+  user_id: number;
+  name: string;
+  /** The project's runner; "": the built-in one. */
+  runner: string;
+  runner_allowed: boolean;
+  lost_accounts: string[];
+  /** "the project" and agents whose chosen subscription is then chosen automatically. */
+  unpinned: string[];
+  loses_shared: boolean;
+  max_parallel_before: number | null;
+  max_parallel_after: number | null;
 }
 
 /** Disk and memory of the installation (GET /usage, admins). Sizes in bytes. */
