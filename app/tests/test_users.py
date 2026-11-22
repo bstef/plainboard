@@ -204,6 +204,40 @@ def test_admins_manage_users_and_one_admin_always_remains(client, project):
     assert client.post("/api/auth/login", json={"username": "max", "password": "a-new-password"}).status_code == 401
 
 
+def test_a_project_is_created_all_or_nothing_and_its_wizard_works_for_a_creator_who_is_no_admin(client, project):
+    from test_orchestration import runner
+
+    client.put("/api/settings", json={"values": {"github_token": "admin-token"}})
+    user = new_user(client, "max", may_create_projects=True)
+    sign_in(client, "max", "max-password")
+
+    # A step that fails leaves no project behind, not even one only the admins would see.
+    twins = [{"url": "https://github.com/a/app.git"}, {"url": "https://github.com/b/app.git"}]
+    assert client.post("/api/projects", json={"name": "Twins", "repositories": twins}).status_code == 400
+    as_admin(client)
+    assert [p["name"] for p in client.get("/api/projects").json()] == [project["name"]]
+
+    # What the wizard asks after the first step works for the creator, who owns the project.
+    sign_in(client, "max", "max-password")
+    own = client.post("/api/projects", json={"name": "Max' project", "first_steps": True}).json()
+    pid = own["id"]
+    assert own["role"] == "owner" and [m["user_id"] for m in client.get(f"/api/projects/{pid}/members").json()] == [user["id"]]
+    assert client.get(f"/api/projects/{pid}/agents").status_code == 200
+    # GitHub: the project's own token only, never the admin's.
+    shown = client.get(f"/api/projects/{pid}/github/repos").json()
+    assert shown["ok"] is False and "own" in shown["detail"]
+    assert client.post(f"/api/projects/{pid}/github/repos", json={"name": "shop"}).json()["ok"] is False
+    assert client.post("/api/settings/check/github", json={"token": "max-token"}).json()["ok"] is True
+    assert client.post("/api/settings/check/github", json={}).json()["ok"] is False
+    assert client.patch(f"/api/projects/{pid}", json={"github_token": "max-token"}).status_code == 200
+    assert client.get(f"/api/projects/{pid}/github/repos").json()["ok"] is True and runner(client).github_token_used == "max-token"
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://github.com/acme/api.git"}).status_code == 201
+    assert client.get(f"/api/projects/{pid}/secrets").status_code == 200 and client.get("/api/users/directory").status_code == 200
+    # Someone else's project, and the installation's token, stay out of reach.
+    assert client.get(f"/api/projects/{project['id']}/github/repos").status_code == 404
+    assert client.get("/api/github/repos").status_code == 403
+
+
 def test_a_profile_picture_is_set_by_its_user_and_a_chat_message_knows_who_wrote_it(client, project):
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
     me = client.get("/api/auth/status").json()["user"]
