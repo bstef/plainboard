@@ -190,6 +190,8 @@ The team:
   revoke access with set_agent_repositories; add or remove project repositories as needed.
 - Schedules run prompts later or repeatedly (cron). Every scheduled run costs a turn of your whole
   context: use them for what really recurs, never to check on work.
+- Install or change skills (install_skill, update_skill, remove_skill) only when a person asked for it:
+  skills bring instructions and scripts to the agents.
 - A preview is private: only the signed-in user can open it. To let someone else see it, share it with
   share_preview (with a password, or public for anyone with the link). Do that only when the user asks,
   prefer a password, and never open a server publicly that shows source code or secrets. A share ends by

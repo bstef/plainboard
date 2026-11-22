@@ -113,6 +113,24 @@ async def test_attach_file_uploads_from_workspace(tmp_path):
     assert (await bridge.call("attach_file", {"task_number": 3, "path": "missing.txt"})).is_error
 
 
+
+async def test_install_skill_sends_a_workspace_file_to_the_app(tmp_path):
+    (tmp_path / "SKILL.md").write_bytes(b"---\nname: x\n---\n")
+    sent = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"text": "Installed", "is_error": False})
+
+    spec = ToolBridgeSpec(base_url="http://app", run_id="9", run_token="t", tools=[ToolDef(name="install_skill", description="", input_schema={}, local=True)])
+    bridge = ToolBridge(spec, tmp_path)
+    bridge._client = httpx.AsyncClient(base_url="http://app", transport=httpx.MockTransport(handler))
+    assert (await bridge.call("install_skill", {"file": "SKILL.md", "agents": ["*"], "content_b64": "forged"})).text == "Installed"
+    assert (await bridge.call("install_skill", {"url": "https://x/y", "agents": ["*"]})).text == "Installed"
+    assert (await bridge.call("install_skill", {"file": "missing.zip", "agents": ["*"]})).is_error
+    assert sent[0] == ("/api/internal/runs/9/tools/install_skill", {"file": "SKILL.md", "agents": ["*"], "content_b64": "LS0tCm5hbWU6IHgKLS0tCg=="})
+    assert sent[1][1] == {"url": "https://x/y", "agents": ["*"]} and len(sent) == 2
+
 def _git_repo(path, content: str) -> str:
     import subprocess
 
