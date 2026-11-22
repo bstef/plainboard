@@ -500,6 +500,27 @@ def empty_database() -> None:
         engine.dispose()
 
 
+def open_transactions() -> list:
+    """PostgreSQL, after the app stopped: the connections to the test's database that are still in a
+    transaction. A task the app did not wait for kept one past the engine's end, with its locks: the next
+    test's TRUNCATE would wait for them forever. Ended, as is every other connection still open (one that
+    is just closing is idle)."""
+    if not POSTGRES:
+        return []
+    from sqlalchemy import create_engine, text
+
+    from plainboard import config
+
+    engine = create_engine(config.get_config().sync_database_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as conn:
+            others = "FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'"
+            rows = conn.execute(text(f"SELECT state, left(query, 300), pg_terminate_backend(pid) {others}")).all()
+    finally:
+        engine.dispose()
+    return [(state, query) for state, query, _ in rows if state != "idle"]
+
+
 def new_installation(monkeypatch) -> None:
     """The database of a new installation, for the app the test is about to start. The migrations run
     for the first test only: run for each, they were most of a test's time (1.6 of about 2 seconds).
@@ -514,6 +535,7 @@ def new_installation(monkeypatch) -> None:
         engine = create_engine(cfg.sync_database_url)
         try:
             with engine.begin() as conn:
+                conn.execute(text("SET LOCAL lock_timeout = '30s'"))  # a lock left by someone fails the test, not the run
                 tables = [name for name in inspect(conn).get_table_names() if name != "alembic_version"]
                 conn.execute(text("TRUNCATE " + ", ".join(f'"{name}"' for name in tables) + " RESTART IDENTITY CASCADE"))
             migrate._first_rows(engine)
@@ -569,8 +591,10 @@ def client(tmp_path, monkeypatch):
         # Direct messages to members are off by default; most tests write to members, so they start with it on.
         assert test_client.put("/api/settings", json={"values": {"member_chat": True}}).status_code == 200
         yield test_client
+    left = open_transactions()
     config.get_config.cache_clear()
     assert not FakeRunner.held, f"The runner was called between a write to the database and its commit: {sorted(set(FakeRunner.held))}"
+    assert not left, f"The app left a transaction open when it stopped (a task it did not wait for): {left}"
 
 
 def wait_for(predicate, timeout: float = 10.0, interval: float = 0.05):

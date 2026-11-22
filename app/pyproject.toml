@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "pytest-xdist>=3.6"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "pytest-xdist>=3.6", "pytest-timeout>=2.3"]
 
 [build-system]
 requires = ["hatchling"]
@@ -37,5 +37,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
-# A test that hangs prints every thread's stack after two minutes instead of keeping its CI job silent.
-faulthandler_timeout = 120
+# A test that hangs fails after two minutes with every thread's stack (pytest-timeout) instead of keeping its
+# CI job silent. "thread": it also ends a test stuck in C code (a database call waiting for a lock); its
+# worker process is replaced (pytest-xdist) and the others go on.
+timeout = 120
+timeout_method = "thread"

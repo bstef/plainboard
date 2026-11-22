@@ -37,6 +37,7 @@ class UpdateWatcher:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)  # its database connection is back before the engine goes
 
     async def _loop(self) -> None:
         await asyncio.sleep(min(START_DELAY_SECONDS, self._interval))

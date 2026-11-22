@@ -18,7 +18,7 @@ jobs:
   backend-part:
     name: Backend tests (${{ matrix.database }}, ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # a half takes about 1; a hang ends here, with stacks (faulthandler_timeout)
+    timeout-minutes: 8  # a half takes about 2 with the build; a test that hangs fails after 2 (pytest-timeout)
     strategy:
       fail-fast: false
       matrix:
