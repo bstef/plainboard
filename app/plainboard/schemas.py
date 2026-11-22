@@ -149,6 +149,7 @@ class RepositoryCreate(BaseModel):
     quick_check_command: str = Field(default="", max_length=2000)  # run on a branch when it is handed over
     land_first: bool = False  # merge finished branches at once, check the base branch afterwards
     tidy_branches: bool = True  # remove branches whose content is all on the base branch (orchestration/tidy.py)
+    check_target_seconds: int = Field(default=0, ge=0, le=7 * 86400)  # how long a check run should take; 0: no target
     agent_ids: list[int] | None = None  # explicit access for agents restricted to selected repos
     auth: RepoAuth = "default"
     token: str | None = None  # write-only
@@ -165,6 +166,9 @@ class RepositoryUpdate(BaseModel):
     quick_check_command: str | None = Field(default=None, max_length=2000)
     land_first: bool | None = None
     tidy_branches: bool | None = None
+    check_target_seconds: int | None = Field(default=None, ge=0, le=7 * 86400)  # 0: no target
+    checks_baseline_seconds: int | None = Field(default=None, ge=0, le=7 * 86400)  # the verdict of a speed-up: what a check run takes now
+    checks_verdict: str | None = Field(default=None, max_length=300)
     agent_ids: list[int] | None = None
     auth: RepoAuth | None = None
     token: str | None = None  # write-only; empty keeps the stored one
@@ -385,6 +389,9 @@ class RepositoryOut(ORM):
     quick_check_command: str = ""
     land_first: bool = False
     tidy_branches: bool = True
+    check_target_seconds: int = 0
+    checks_baseline_seconds: int | None = None
+    checks_verdict: str = ""
     agent_ids: list[int] = Field(default_factory=list)
     auth: RepoAuth = "default"
     token_user: str = ""

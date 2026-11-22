@@ -306,6 +306,12 @@ class Repository(Timestamps, Base):
     # When the manager was last told to have this repository's slow check runs made faster, and their median then (landing._checks_slow).
     slow_told_at: Mapped[datetime | None] = mapped_column(DateTime)
     slow_told_seconds: Mapped[int | None] = mapped_column(Integer)
+    # How long its check run should take, set by an owner (0: no target), and the verdict of the last
+    # speed-up: the median it reached (sped up, or what it takes), when, and in words. Growth is measured against it.
+    check_target_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    checks_baseline_seconds: Mapped[int | None] = mapped_column(Integer)
+    checks_baseline_at: Mapped[datetime | None] = mapped_column(DateTime)
+    checks_verdict: Mapped[str] = mapped_column(String(300), default="", server_default="")
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")

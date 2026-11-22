@@ -16,6 +16,8 @@ export interface RepoDraft {
   quick_check_command: string;
   land_first: boolean;
   tidy_branches: boolean;
+  check_target_minutes: string; // empty: no target
+  checks_verdict?: string; // read-only: the verdict of the last speed-up of its checks
   auth: RepoAuth;
   token: string; // write-only: empty keeps the stored one
   token_user: string;
@@ -39,6 +41,7 @@ export const emptyRepo = (): RepoDraft => ({
   quick_check_command: "",
   land_first: false,
   tidy_branches: true,
+  check_target_minutes: "",
   auth: "default",
   token: "",
   token_user: "",
@@ -58,6 +61,8 @@ export const toDraft = (r: Repository): RepoDraft => ({
   quick_check_command: r.quick_check_command ?? "",
   land_first: r.land_first ?? false,
   tidy_branches: r.tidy_branches ?? true,
+  check_target_minutes: r.check_target_seconds ? String(Math.round(r.check_target_seconds / 60)) : "",
+  checks_verdict: r.checks_verdict ?? "",
   red_base: r.red_base ?? null,
   auth: r.auth,
   token: "",
@@ -78,6 +83,7 @@ export const toBody = (d: RepoDraft) => ({
   quick_check_command: d.quick_check_command.trim(),
   land_first: d.land_first,
   tidy_branches: d.tidy_branches,
+  check_target_seconds: Math.max(0, Math.round(Number(d.check_target_minutes) || 0)) * 60,
   auth: d.auth,
   ...(d.auth === "token" ? { token_user: d.token_user.trim(), ...(d.token ? { token: d.token } : {}) } : {}),
   ...(d.auth === "ssh" && d.ssh_private_key.trim() ? { ssh_private_key: d.ssh_private_key } : {}),
@@ -297,6 +303,9 @@ export function RepositoriesEditor({
             </Field>
             <Field label={t("projects.repoCheck")} hint={t("projects.repoCheckHint")}>
               <Input placeholder="./scripts/ci.sh" value={editing.check_command} onChange={(e) => setEditing({ ...editing, check_command: e.target.value })} className="font-mono" />
+            </Field>
+            <Field label={t("projects.repoCheckTarget")} hint={t("projects.repoCheckTargetHint") + (editing.checks_verdict ? " " + t("projects.repoCheckVerdict", { verdict: editing.checks_verdict }) : "")}>
+              <Input type="number" min={0} className="w-28" value={editing.check_target_minutes} onChange={(e) => setEditing({ ...editing, check_target_minutes: e.target.value })} />
             </Field>
             <div className="space-y-1">
               <Toggle checked={editing.tidy_branches} onChange={(v) => setEditing({ ...editing, tidy_branches: v })} label={t("projects.repoTidy")} />

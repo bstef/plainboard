@@ -43,6 +43,7 @@ from ..models import (
     utcnow,
 )
 from . import own_notes
+from . import settings as settings_service
 from .timing import duration
 from .util import truncate
 
@@ -152,18 +153,21 @@ async def _failing_checks(session, project_id, repos, agents, since, now) -> lis
     return [finding for repo in repos if (finding := await failing_checks(session, repo, since))]
 
 
-SLOW_CHECK_SECONDS = 5 * 60  # a median check run above this is slow
-SLOW_GROWTH = 1.3  # or this much slower than the runs before (and at least SLOW_GROWN_SECONDS)
-SLOW_GROWN_SECONDS = 2 * 60
 SLOW_WINDOW = 10  # check runs per window: the newest ones against those before them
 SLOW_MIN_RUNS = 5
 SLOW_DAYS = 14  # only runs this recent count
-SLOW_COOLDOWN_DAYS = 7  # after the manager was told, or its ticket was done: not again, unless clearly slower
 SLOW_TICKET = "Speed up checks for "  # + repository name: the ticket the manager creates
 
 
+async def _growth(session: AsyncSession) -> float:
+    return 1 + float(await settings_service.get(session, "checks_growth_percent")) / 100
+
+
 async def slow_checks(session: AsyncSession, repo: Repository, now: datetime) -> tuple[Finding | None, int]:
-    """A repository's check runs are slow, or grew clearly slower than before; and their median."""
+    """Whether a repository's check runs are to be made faster, and their median. No fixed limit: some
+    checks cannot be shorter. Measured against the repository itself: once at the first look, then
+    when they grew clearly beyond its baseline (the verdict of the last speed-up, else the runs before),
+    or when they are over the owner's target and the baseline was not."""
     rows = list(
         await session.scalars(
             select(Train.check_seconds)
@@ -175,34 +179,48 @@ async def slow_checks(session: AsyncSession, repo: Repository, now: datetime) ->
     recent, before = rows[:SLOW_WINDOW], rows[SLOW_WINDOW:]
     if len(recent) < SLOW_MIN_RUNS:
         return None, 0
-    now_median = int(median(recent))
-    grown = len(before) >= SLOW_MIN_RUNS and now_median >= SLOW_GROWN_SECONDS and now_median >= SLOW_GROWTH * median(before)
-    if now_median < SLOW_CHECK_SECONDS and not grown:
-        return None, now_median
-    title = f"Check runs of {repo.name} take {duration(now_median)} at the median" + (f", up from {duration(median(before))}" if grown else "")
+    took = int(median(recent))
+    baseline = repo.checks_baseline_seconds
+    reference = baseline or (int(median(before)) if len(before) >= SLOW_MIN_RUNS else None)
+    grown = bool(reference) and took >= await _growth(session) * reference
+    target = repo.check_target_seconds
+    over = bool(target) and took > target and (baseline is None or baseline <= target)
+    first = baseline is None and repo.slow_told_at is None
+    if not (grown or over or first):
+        return None, took
+    title = f"Check runs of {repo.name} take {duration(took)} at the median"
+    if grown:
+        title += f", up from {duration(reference)}" + (" (its baseline)" if baseline else "")
+    elif over:
+        title += f", over the target of {duration(target)}"
+    else:
+        title += ", never looked at for speed"
     return (
         Finding(
             "slow_checks",
-            65,
+            65 if grown or over else 30,
             title,
-            f"The last {len(recent)} check runs, the longest {duration(max(recent))}. Every branch that lands waits for one, and so does every repair.",
+            f"The last {len(recent)} check runs, the longest {duration(max(recent))}. Every branch that lands waits for one, and so does every repair."
+            + (f" Last verdict: {repo.checks_verdict}." if repo.checks_verdict else ""),
             f"Have them made faster without checking less (one ticket \"{SLOW_TICKET}{repo.name}\"): cache dependencies and builds, run independent jobs in parallel, no work done twice.",
         ),
-        now_median,
+        took,
     )
 
 
 async def slow_checks_due(session: AsyncSession, repo: Repository, seconds: int, now: datetime) -> bool:
-    """Whether the manager is to be told about slow checks now: no ticket for it is open, and none was
-    told or done within the cooldown, unless they got clearly slower since it was told."""
+    """Whether the manager is to be told about it now: no ticket for it is open, and none was told or
+    done within the cooldown, unless the checks grew clearly beyond what they were then."""
     title = func.lower(Task.title).like(f"{SLOW_TICKET}{repo.name}%".lower())
     tickets = (await session.execute(select(Task.status, Task.archived_at, Task.updated_at).where(Task.project_id == repo.project_id, title))).all()
     if any(status != TaskStatus.DONE and archived is None for status, archived, _u in tickets):
         return False
     last = max([updated for status, _a, updated in tickets if status == TaskStatus.DONE] + ([repo.slow_told_at] if repo.slow_told_at else []), default=None)
-    if last is None or now - last >= timedelta(days=SLOW_COOLDOWN_DAYS):
+    if last is None or now - last >= timedelta(days=float(await settings_service.get(session, "checks_cooldown_days"))):
         return True
-    return bool(repo.slow_told_seconds) and seconds >= SLOW_GROWTH * (repo.slow_told_seconds or 0)
+    newer = repo.checks_baseline_at is not None and (repo.slow_told_at is None or repo.checks_baseline_at > repo.slow_told_at)
+    reference = repo.checks_baseline_seconds if newer else repo.slow_told_seconds
+    return bool(reference) and seconds >= await _growth(session) * (reference or 0)
 
 
 async def _slow_quick_check(session, project_id, repos, agents, since, now) -> list[Finding]:

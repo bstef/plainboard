@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, Repository, agent_repositories
+from ..models import Agent, Repository, agent_repositories, utcnow
 from ..schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
 from ..security import decrypt, encrypt
 from .errors import NotFound, ServiceError
@@ -111,7 +111,7 @@ async def create(session: AsyncSession, project_id: int, data: RepositoryCreate)
     name = _validate_name((data.name or name_from_url(url)).strip())
     await _check_unique(session, project_id, name)
     repo = Repository(
-        project_id=project_id, name=name, url=url, default_branch=data.default_branch or None, description=data.description, check_command=data.check_command.strip(), quick_check_command=data.quick_check_command.strip(), land_first=data.land_first, tidy_branches=data.tidy_branches, auth=data.auth
+        project_id=project_id, name=name, url=url, default_branch=data.default_branch or None, description=data.description, check_command=data.check_command.strip(), quick_check_command=data.quick_check_command.strip(), land_first=data.land_first, tidy_branches=data.tidy_branches, check_target_seconds=data.check_target_seconds, auth=data.auth
     )
     _apply_access(repo, token=data.token, token_user=data.token_user, ssh_private_key=data.ssh_private_key, new_ssh_key=False)
     session.add(repo)
@@ -136,6 +136,8 @@ async def update(session: AsyncSession, repo: Repository, data: RepositoryUpdate
             value = value or None
         if value is not None or key == "default_branch":
             setattr(repo, key, value)
+    if fields.get("checks_baseline_seconds") is not None:
+        repo.checks_baseline_at = utcnow()  # growth is measured against this from now on (flow_check.slow_checks)
     _apply_access(repo, **access, new_ssh_key=new_ssh_key)
     if agent_ids is not None:
         await set_repo_agents(session, repo, agent_ids, commit=False)
