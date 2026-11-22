@@ -192,6 +192,15 @@ async def choices(session: AsyncSession, hub, project: Project) -> ProjectRunner
     )
 
 
+async def for_new_project(session: AsyncSession, hub, user) -> list[RunnerChoice]:
+    """Where a new project of this person may start: the built-in runner first, if allowed."""
+    from . import permissions
+
+    builtin = [RunnerChoice(id=None, name=BUILTIN, connected=True)] if permissions.may_run_on(user, None) else []
+    runners = [r for r in await session.scalars(select(Runner).order_by(Runner.name, Runner.id)) if permissions.may_run_on(user, r.id)]
+    return [*builtin, *(RunnerChoice(id=r.id, name=r.name, connected=hub.connected(r.id)) for r in runners)]
+
+
 async def unpushed(session: AsyncSession, hub, project: Project) -> UnpushedOut:
     """What stays behind on a move: work in the agents' workspaces on the current runner that is on no remote."""
     from ..orchestration.context import workspace_path

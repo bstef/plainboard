@@ -71,6 +71,17 @@ async def first_runner(session: AsyncSession, user: User | None) -> int | None:
     return found
 
 
+async def start_runner(session: AsyncSession, user: User | None, runner_id: int | None, chosen: bool) -> int | None:
+    """The runner a new project starts on: the one chosen (None: the built-in one), checked, else ``first_runner``."""
+    if not chosen:
+        return await first_runner(session, user)
+    if runner_id is not None and await session.get(Runner, runner_id) is None:
+        raise NotFound("Runner not found")
+    if not may_run_on(user, runner_id):
+        raise ServiceError("Your projects may not run on that runner.", 403)
+    return runner_id
+
+
 async def check_create(session: AsyncSession, user: User) -> None:
     """Before anything of a new project exists: may this person have one more?"""
     if not limited(user):

@@ -925,7 +925,10 @@
       "label": "Project",
       "title": "What is the project called?",
       "intro": "A project has its own board, its own team of agents, notes and schedules. What it is about you tell the manager in the chat afterwards: the first ticket on the board is for that.",
-      "missing": "Give the project a name."
+      "missing": "Give the project a name.",
+      "runner": "Runs on",
+      "runnerHint": "Its repositories are cloned there and its setup script runs there. Moving it later starts over on the other runner.",
+      "runnerAway": "This runner is not connected right now: the agents start once it is."
     },
     "code": {
       "label": "Code",

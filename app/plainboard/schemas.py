@@ -354,6 +354,7 @@ class ProjectCreate(BaseModel):
     github_token: str | None = None
     parallel_agents: int | None = Field(default=None, ge=0, le=20)
     account_id: int | None = None
+    runner_id: int | None = None  # where it starts (None: the built-in runner); not sent: the owner's first allowed one
     repositories: list[RepositoryCreate] = Field(default_factory=list)
     first_steps: bool = False  # start with the two tickets that set a new project up (services/projects.FIRST_STEPS)
 

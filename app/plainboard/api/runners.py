@@ -15,11 +15,11 @@ from starlette.websockets import WebSocketDisconnect
 from ..db import sessionmaker
 from ..events import bus
 from ..orchestration.tunnel import Tunnel, TunnelClosed
-from ..schemas import ProjectRunnerIn, ProjectRunnerOut, RunnerCreated, RunnerIn, RunnerOut, UnpushedOut
+from ..schemas import ProjectRunnerIn, ProjectRunnerOut, RunnerChoice, RunnerCreated, RunnerIn, RunnerOut, UnpushedOut
 from ..services import permissions
 from ..services import projects as project_service
 from ..services import runners as runner_service
-from .deps import Runs, Session
+from .deps import Runs, Session, Who
 from .guard import is_https
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,12 @@ def _url(request: Request) -> str:
 @router.get("/runners", response_model=list[RunnerOut])
 async def list_runners(session: Session, runs: Runs) -> list[RunnerOut]:
     return await runner_service.listing(session, runs.runners)
+
+
+@router.get("/runners/choices", response_model=list[RunnerChoice])
+async def new_project_runners(session: Session, runs: Runs, who: Who) -> list[RunnerChoice]:
+    """Where a new project of the user may start (the project wizard asks when there is more than one)."""
+    return await runner_service.for_new_project(session, runs.runners, who.user)
 
 
 @router.post("/runners", response_model=RunnerCreated)
