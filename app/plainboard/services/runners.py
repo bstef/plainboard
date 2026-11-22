@@ -29,6 +29,7 @@ BUILTIN = "Built-in runner"
 UNPUSHED_SECONDS = 90  # the old runner's look at the workspaces' clones
 MOVED_NOTE = "Your project moved to another runner: workspaces were cloned fresh, the home is new, tools you installed must be installed again."
 AWAY_TELL_SECONDS = 600  # a runner away this long: the managers of its projects hear it, once
+SEEN_SECONDS = 60  # while connected, last_seen_at is written at most this often: an app restart loses no more
 
 
 def _hash(token: str) -> str:
