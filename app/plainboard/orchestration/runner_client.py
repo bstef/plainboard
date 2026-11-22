@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import ProjectFiles, TidyResult, TidySpec, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CompletionResult, CompletionSpec, Credentials, DeleteSpec, JobPort, JobSpec, JobState, LimitsEvent, MachineUsage, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, SkillFetch, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamState, parse_event
+from plainboard_protocol import ProjectFiles, TidyResult, TidySpec, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CompletionResult, CompletionSpec, Credentials, DeleteSpec, JobPort, JobSpec, JobState, JobTiming, LimitsEvent, MachineUsage, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, SkillFetch, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamState, parse_event
 
 from ..services.errors import ServiceError
 
@@ -378,6 +378,11 @@ class RunnerClient:
         """The checks GitHub ran for a commit that was pushed to a branch."""
         body = {"credentials": credentials.model_dump(mode="json"), "repo": repo, "sha": sha}
         return [PullRequestCheck.model_validate(c) for c in (await self._github("/github/commit-checks", body, 120)).json()]
+
+    async def job_timings(self, credentials: Credentials, repo: str, sha: str) -> list[JobTiming]:
+        """How long the jobs of Actions took for a commit, the slowest first, with their slowest steps."""
+        body = {"credentials": credentials.model_dump(mode="json"), "repo": repo, "sha": sha}
+        return [JobTiming.model_validate(j) for j in (await self._github("/github/job-timings", body, 150)).json()]
 
     async def rerun_failed(self, credentials: Credentials, repo: str, run_ids: list[int]) -> int:
         """Run the failed jobs of these workflow runs of Actions once more; how many were started again."""

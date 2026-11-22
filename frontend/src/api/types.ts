@@ -16,6 +16,7 @@ export interface Project {
   auto_wake_manager: boolean;
   /** When nothing in To do can start, the team goes on with the Backlog. */
   continue_with_backlog: boolean;
+  fast_checks: boolean;
   /** Paused for good by a person, since then; null: not paused. */
   paused_at: string | null;
   paused_by: string;

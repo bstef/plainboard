@@ -333,6 +333,7 @@ class LandingWatcher:
         await s.commit()
         self._looked.pop(r.repo.id, None)  # the base branch moved: its checks are looked at right away (_guard)
         await flow_log.record(s, r.project.id, "train.landed", train_id=train.id, branches=[m.branch for m in members], check_seconds=train.check_seconds)
+        await self._checks_slow(s, r, train, now)
         one_run = f"one check run of {timing_service.duration(train.check_seconds)} for {len(members)} branch{'es' if len(members) != 1 else ''}"
         for member in members:
             if ticket := await self._ticket(s, member):
@@ -359,6 +360,7 @@ class LandingWatcher:
             repaired_group=train.group_no is not None, check_seconds=train.check_seconds, summary=summary, evidence=truncate(evidence, 4000),
         )  # fmt: skip
         await self._keeps_failing(s, r, train.finished_at or utcnow())
+        await self._checks_slow(s, r, train, train.finished_at or utcnow())
         if len(members) == 1:
             instructions = prompts.repair_instructions(members[0].branch, evidence, members[0].failures + 1, landing_service.MAX_FAILED_ROUNDS)
             await self._back(s, r, members[0], f"did not pass on its own ({summary})", f"Repair branch {members[0].branch}", instructions)
@@ -753,6 +755,8 @@ class LandingWatcher:
         if result == "failed":
             await self._base_red(s, r, train, failed, evidence, links)
             await self._keeps_failing(s, r, now)
+        if not guard:
+            await self._checks_slow(s, r, train, now)
         await repo_service.publish(s, r.repo)  # the repository list shows a red base branch
         return True
 
@@ -927,6 +931,28 @@ class LandingWatcher:
         manager = await agent_service.get_manager(s, r.project.id)
         await inbox.push(s, manager.id, prompts.checks_keep_failing(finding.title, finding.detail, finding.action))
         await flow_log.record(s, r.project.id, "checks.failing_told", repository=r.repo.name, finding=finding.title)
+
+    async def _checks_slow(self, s: AsyncSession, r: Repo, train: Train, now: datetime) -> None:
+        """The check runs of this repository are slow, or got clearly slower: the manager reads it with its
+        next turn and has one ticket made of it (``Project.fast_checks``; once per cooldown, see
+        ``flow_check.slow_checks_due``). On GitHub with the jobs and steps of Actions that took longest,
+        so whoever works on it knows where the time goes."""
+        if not r.project.fast_checks:
+            return
+        finding, seconds = await flow_check_service.slow_checks(s, r.repo, now)
+        if finding is None or not await flow_check_service.slow_checks_due(s, r.repo, seconds, now):
+            return
+        r.repo.slow_told_at, r.repo.slow_told_seconds = now, seconds
+        await s.commit()  # nothing of the database is held while the runner asks GitHub
+        timings = []
+        if r.slug and train.head_sha:
+            try:
+                timings = await self._runs.runners.of(r.repo.project_id).job_timings(r.credentials, r.slug, train.head_sha)
+            except RunnerError as exc:
+                log.info("job timings of %s: %s", r.repo.name, exc)
+        manager = await agent_service.get_manager(s, r.project.id)
+        await inbox.push(s, manager.id, prompts.checks_slow(r.repo.name, finding.title, finding.detail, timings, flow_check_service.SLOW_COOLDOWN_DAYS))
+        await flow_log.record(s, r.project.id, "checks.slow_told", repository=r.repo.name, finding=finding.title, median_seconds=seconds, jobs=[[j.name, j.seconds] for j in timings])
 
 
 def can_repair(agent: Agent) -> bool:

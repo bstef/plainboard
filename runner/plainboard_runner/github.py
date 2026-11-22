@@ -6,10 +6,11 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
-from plainboard_protocol import CheckResult, Credentials, PullRequestCheck, PullRequestState, UpstreamState
+from plainboard_protocol import CheckResult, Credentials, JobTiming, PullRequestCheck, PullRequestState, UpstreamState
 
 from .workspace import WorkspaceError, git_env, run_cmd
 
@@ -175,6 +176,41 @@ async def rerun_failed(credentials: Credentials, repo: str, run_ids: list[int]) 
         except WorkspaceError:
             pass
     return started
+
+
+def _seconds(item: dict[str, Any]) -> int:
+    try:
+        start, end = (datetime.fromisoformat(item[key]) for key in ("started_at", "completed_at"))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        return 0
+    return max(int((end - start).total_seconds()), 0)
+
+
+def parse_job_timings(jobs: list[dict[str, Any]], limit: int = 6, steps: int = 3) -> list[JobTiming]:
+    """The slowest jobs, each with its slowest steps."""
+    timed = [
+        JobTiming(
+            name=" / ".join(part for part in (job.get("workflow"), job.get("name")) if part) or "job",
+            seconds=_seconds(job),
+            steps=sorted(((step.get("name") or "step", _seconds(step)) for step in job.get("steps") or []), key=lambda s: -s[1])[:steps],
+        )
+        for job in jobs
+    ]
+    return sorted(timed, key=lambda j: -j.seconds)[:limit]
+
+
+async def job_timings(credentials: Credentials, repo: str, sha: str) -> list[JobTiming]:
+    """How long the jobs of Actions took for a commit, and their steps ("Actions: read")."""
+    env = git_env(credentials)
+    out = await run_cmd(["gh", "api", f"repos/{repo}/actions/runs?head_sha={sha}&per_page=20", "--jq", ".workflow_runs[] | {id, name}"], cwd=None, env=env, timeout=60)
+    jobs: list[dict[str, Any]] = []
+    for run in [json.loads(line) for line in out.splitlines() if line.strip()][:10]:
+        listed = await run_cmd(
+            ["gh", "api", f"repos/{repo}/actions/runs/{int(run['id'])}/jobs?per_page=100", "--jq", ".jobs[] | {name, started_at, completed_at, steps: [.steps[]? | {name, started_at, completed_at}]}"],
+            cwd=None, env=env, timeout=60,
+        )  # fmt: skip
+        jobs += [{**json.loads(line), "workflow": run.get("name")} for line in listed.splitlines() if line.strip()]
+    return parse_job_timings(jobs)
 
 
 def parse_check_runs(items: list[dict[str, Any]]) -> list[PullRequestCheck]:

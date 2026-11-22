@@ -4,8 +4,8 @@ import json
 from datetime import timedelta
 
 from conftest import agents_by_slug, idle, wait_for
-from plainboard_protocol import PullRequestCheck
-from test_flow import chat, delegate, hand_over, land_tick_at, make_member, manager_of, team_with_branches, tool_results
+from plainboard_protocol import JobTiming, PullRequestCheck
+from test_flow import chat, delegate, finish_check, hand_over, land_tick, land_tick_at, make_member, manager_of, team_with_branches, tool_results
 
 
 def found(client, pid: int) -> dict[str, dict]:
@@ -125,3 +125,95 @@ def test_refused_calls_and_a_slow_quick_check_are_found(client, project):
 
     client.portal.call(three_slow_runs)
     assert found(client, pid)["slow_quick_check"]["title"] == "The quick check of api is not quick: 4 min at the median"
+
+
+def seed_trains(client, repo_id: int, seconds: list[int], days_ago: float = 0.5) -> None:
+    """Check runs that finished earlier, the first one the newest."""
+    from plainboard.db import sessionmaker
+    from plainboard.models import Repository, Train, utcnow
+
+    async def add() -> None:
+        async with sessionmaker()() as s:
+            repo = await s.get(Repository, repo_id)
+            for n, took in enumerate(seconds):
+                done = utcnow() - timedelta(days=days_ago, minutes=n)
+                s.add(Train(project_id=repo.project_id, repository_id=repo_id, mode="command", status="landed", size=1, check_seconds=took, created_at=done, finished_at=done))
+            await s.commit()
+
+    client.portal.call(add)
+
+
+def test_slow_check_runs_are_found_and_the_manager_has_them_made_faster_once(client, project):
+    pid = project["id"]
+    fake = team_with_branches(client, pid, ["feat-a"], url="https://github.com/acme/api.git")
+    repo_id = client.get(f"/api/projects/{pid}/repositories").json()[0]["id"]
+    seed_trains(client, repo_id, [600] * 6)
+    slow = found(client, pid)["slow_checks"]
+    assert slow["title"] == "Check runs of api take 10 min at the median" and 'one ticket "Speed up checks for api"' in slow["action"]
+
+    # A train lands: the manager reads it with its next turn, with where the time goes, and may act on it unasked.
+    fake.job_timings_of["train-1"] = [JobTiming(name="CI / tests", seconds=480, steps=[("pytest", 420), ("install", 50)]), JobTiming(name="CI / lint", seconds=60)]
+    land_tick(client)
+    finish_check(client, fake)
+    told = [s.prompt for s in fake.specs if "Speed up checks for api" in s.prompt]
+    assert len(told) == 1 and "Check runs of api take 10 min at the median." in told[0]
+    assert "Slowest jobs of the last run: CI / tests 8 min (pytest 7 min, install 50 s); CI / lint 60 s." in told[0]
+    assert "without the user asking" in told[0] and "no test or check removed, skipped or weakened" in told[0]
+
+    # The next train: not again within the cooldown.
+    hand_over(client, pid, fake, "Dev2", "feat-b")
+    land_tick(client)
+    finish_check(client, fake)
+    assert len([s for s in fake.specs if "Speed up checks for api" in s.prompt]) == 1
+
+    # Switched off: no finding, nothing told.
+    assert client.patch(f"/api/projects/{pid}", json={"fast_checks": False}).json()["fast_checks"] is False
+    assert "slow_checks" not in found(client, pid)
+
+
+def test_slow_checks_thresholds_one_ticket_and_cooldown(client, project):
+    from plainboard.db import sessionmaker
+    from plainboard.models import Repository, Task, utcnow
+    from plainboard.services import flow_check
+
+    pid = project["id"]
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://gitlab.com/acme/api.git", "check_command": "./ci.sh"}).status_code == 201
+    repo_id = client.get(f"/api/projects/{pid}/repositories").json()[0]["id"]
+
+    async def check(**told) -> tuple:
+        async with sessionmaker()() as s:
+            repo = await s.get(Repository, repo_id)
+            for key, value in told.items():
+                setattr(repo, key, value)
+            await s.commit()
+            finding, seconds = await flow_check.slow_checks(s, repo, utcnow())
+            return finding, seconds, await flow_check.slow_checks_due(s, repo, seconds, utcnow())
+
+    seed_trains(client, repo_id, [200] * 4)
+    assert client.portal.call(check)[0] is None  # too few runs to say
+    seed_trains(client, repo_id, [100] * 10, days_ago=1)
+    seed_trains(client, repo_id, [200] * 6, days_ago=0.1)
+    finding, seconds, due = client.portal.call(check)
+    assert finding.title == "Check runs of api take 3 min at the median, up from 2 min" and seconds == 200 and due  # quick still, but clearly slower than before
+    seed_trains(client, repo_id, [100] * 20, days_ago=20)  # too old to count
+    assert client.portal.call(check)[0].key == "slow_checks"
+
+    async def ticket(status: str, days_ago: float) -> None:
+        async with sessionmaker()() as s:
+            s.add(Task(project_id=pid, number=900 + int(days_ago * 10), title="Speed up checks for api", status=status, updated_at=utcnow() - timedelta(days=days_ago)))
+            await s.commit()
+
+    client.portal.call(ticket, "todo", 0)
+    assert client.portal.call(check)[2] is False  # one is open: no second one
+
+    async def done() -> None:
+        from sqlalchemy import update
+
+        async with sessionmaker()() as s:
+            await s.execute(update(Task).where(Task.project_id == pid).values(status="done", updated_at=utcnow() - timedelta(days=8)))
+            await s.commit()
+
+    client.portal.call(done)
+    assert client.portal.call(check)[2] is True  # done, and the cooldown is over
+    assert client.portal.call(lambda: check(slow_told_at=utcnow() - timedelta(days=1), slow_told_seconds=180))[2] is False  # told a day ago: not yet
+    assert client.portal.call(lambda: check(slow_told_seconds=150))[2] is True  # unless clearly slower since then

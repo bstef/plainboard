@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from ..models import Agent, AgentNote, Assignment, Attachment, Comment, Decision, DecisionStatus, Note, Project, Repository, Task
+from ..services.timing import duration
 from ..services.util import truncate
 
 # What the Backlog is depends on the project (``continue_with_backlog``). A section of its own, so
@@ -21,6 +22,13 @@ BACKLOG_LATER = """\
 ## Backlog
 Backlog is not ordered yet: leave it until the user moves it or asks for it. When nothing is to do,
 the team rests: that is fine, don't invent work."""
+
+# For members with repositories while the project keeps its checks fast (``Project.fast_checks``).
+FAST_CHECKS = """\
+When you change CI or a check command: keep the checks fast. Cache dependencies and builds, run
+independent jobs in parallel, do no work twice across jobs, keep the quick check in sync with them.
+Never remove, skip or weaken a test or check to gain speed: the same things must still be checked.
+Give the timings before and after in your report."""
 
 
 MANAGER_GUIDE = """\
@@ -422,6 +430,7 @@ SECTION_TITLES = {
     "identity": "Your role and the project",
     "guide": "How you work",
     "backlog": "Backlog",
+    "checks": "Check runs",
     "environment": "Environment",
     "repositories": "Your repositories",
     "project_repositories": "Project repositories",
@@ -463,6 +472,8 @@ def system_prompt_sections(
     sections["language"] = language_rule(project.language)
     if agent.is_manager:
         sections["backlog"] = BACKLOG_NEXT if project.continue_with_backlog else BACKLOG_LATER
+    elif my_repos and project.fast_checks:
+        sections["checks"] = FAST_CHECKS
     if project.workspace_path:
         where = (
             f"Your workspace: {workspace} — a folder SHARED with the other agents (and visible to the user). "
@@ -649,6 +660,17 @@ def checks_keep_failing(title: str, detail: str, action: str) -> str:
     return (
         f"{title} in the last 24 h. {detail} {action} "
         "PlainBoard has every failure repaired by itself; this is about what keeps causing them, and worth one assignment unless one is on its way."
+    )
+
+
+def checks_slow(repo: str, title: str, detail: str, timings: list, cooldown_days: int) -> str:
+    """For the manager, with its next turn (landing._checks_slow): slow check runs, with where their time goes."""
+    jobs = "; ".join(f"{j.name} {duration(j.seconds)}" + (f" ({', '.join(f'{n} {duration(t)}' for n, t in j.steps)})" if j.steps else "") for j in timings)
+    return (
+        f"{title}. {detail}" + (f" Slowest jobs of the last run: {jobs}." if jobs else "") + " "
+        f'You may do this without the user asking: create one ticket "Speed up checks for {repo}" with these numbers and delegate it. '
+        "Faster only: the same things must still be checked, no test or check removed, skipped or weakened; the report gives the timings before and after. "
+        f"PlainBoard tells you again {cooldown_days} days after that ticket is done at the earliest, unless the checks got clearly slower."
     )
 
 

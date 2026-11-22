@@ -165,6 +165,8 @@ class Project(Timestamps, Base):
     auto_wake_manager: Mapped[bool] = mapped_column(Boolean, default=True)
     # When nothing in To do can start, the team goes on with the Backlog. Off: Backlog waits until the user moves it.
     continue_with_backlog: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # PlainBoard measures the check runs and has slow ones made faster (landing._checks_slow); off: none of it.
+    fast_checks: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # Members of this project working at the same time. Unset: the number from the settings (`max_parallel_runs`).
     parallel_agents: Mapped[int | None] = mapped_column(Integer)
     # The subscription this project's agents run on, unless an agent has its own. Unset: the one with the most room.
@@ -301,6 +303,9 @@ class Repository(Timestamps, Base):
     # When the manager was last told that most of this repository's check runs fail (landing._keeps_failing).
     failing_told_at: Mapped[datetime | None] = mapped_column(DateTime)
     red_told_at: Mapped[datetime | None] = mapped_column(DateTime)  # the manager was last reminded that its base branch stays red
+    # When the manager was last told to have this repository's slow check runs made faster, and their median then (landing._checks_slow).
+    slow_told_at: Mapped[datetime | None] = mapped_column(DateTime)
+    slow_told_seconds: Mapped[int | None] = mapped_column(Integer)
     # How git reaches it: "default" (the general GitHub token, or none), "token" (its own HTTPS
     # access token, any host) or "ssh" (its own key pair, e.g. a deploy key).
     auth: Mapped[str] = mapped_column(String(20), default="default", server_default="default")

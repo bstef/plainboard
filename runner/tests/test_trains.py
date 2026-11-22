@@ -201,3 +201,16 @@ async def test_a_train_on_a_base_that_moved_is_squashed_last_and_what_builds_on_
     assert git(remote, "show", "feat-d:d.txt") == "d"
     again = await trains.assemble(spec(remote, ["feat-d"]))
     assert set(again.merged) == {"feat-d"} and not again.conflicts
+
+
+def test_job_timings_name_the_slowest_jobs_and_their_slowest_steps():
+    def at(start: str, end: str) -> dict:
+        return {"started_at": f"2026-11-22T10:{start}Z", "completed_at": f"2026-11-22T10:{end}Z"}
+
+    jobs = [
+        {"workflow": "CI", "name": "lint", **at("00:00", "01:00"), "steps": [{"name": "ruff", **at("00:00", "00:40")}]},
+        {"workflow": "CI", "name": "tests", **at("00:00", "08:00"), "steps": [{"name": "install", **at("00:00", "02:00")}, {"name": "pytest", **at("02:00", "08:00")}, {"name": "skipped", "started_at": None}]},
+    ]
+    slowest = github.parse_job_timings(jobs)
+    assert [(j.name, j.seconds) for j in slowest] == [("CI / tests", 480), ("CI / lint", 60)]
+    assert slowest[0].steps == [("pytest", 360), ("install", 120), ("skipped", 0)]
