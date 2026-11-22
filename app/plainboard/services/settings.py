@@ -53,6 +53,8 @@ SETTINGS: dict[str, SettingDef] = {
     "setup_done": SettingDef(False),
     # Disk space under the manager's control (services/storage.py): from this share used (or when the
     # trend crosses it soon) the manager of the project causing it hears it and cleans up with his tools.
+    "checks_growth_percent": SettingDef(30),  # check runs this much slower than their baseline: the manager has them made faster
+    "checks_cooldown_days": SettingDef(7),  # not again within this after it was told or its ticket was done, unless clearly slower
     "storage_notify_percent": SettingDef(80),
     # Only from this share used PlainBoard deletes by itself what is made again when needed, and says what.
     "storage_emergency_percent": SettingDef(97),

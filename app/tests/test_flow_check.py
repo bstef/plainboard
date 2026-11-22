@@ -148,17 +148,17 @@ def test_slow_check_runs_are_found_and_the_manager_has_them_made_faster_once(cli
     fake = team_with_branches(client, pid, ["feat-a"], url="https://github.com/acme/api.git")
     repo_id = client.get(f"/api/projects/{pid}/repositories").json()[0]["id"]
     seed_trains(client, repo_id, [600] * 6)
-    slow = found(client, pid)["slow_checks"]
-    assert slow["title"] == "Check runs of api take 10 min at the median" and 'one ticket "Speed up checks for api"' in slow["action"]
+    slow = found(client, pid)["slow_checks"]  # no fixed limit: the first look at a repository whose checks nobody made faster yet
+    assert slow["title"] == "Check runs of api take 10 min at the median, never looked at for speed" and 'one ticket "Speed up checks for api"' in slow["action"]
 
     # A train lands: the manager reads it with its next turn, with where the time goes, and may act on it unasked.
     fake.job_timings_of["train-1"] = [JobTiming(name="CI / tests", seconds=480, steps=[("pytest", 420), ("install", 50)]), JobTiming(name="CI / lint", seconds=60)]
     land_tick(client)
     finish_check(client, fake)
     told = [s.prompt for s in fake.specs if "Speed up checks for api" in s.prompt]
-    assert len(told) == 1 and "Check runs of api take 10 min at the median." in told[0]
+    assert len(told) == 1 and "Check runs of api take 10 min at the median, never looked at for speed." in told[0]
     assert "Slowest jobs of the last run: CI / tests 8 min (pytest 7 min, install 50 s); CI / lint 60 s." in told[0]
-    assert "without the user asking" in told[0] and "no test or check removed, skipped or weakened" in told[0]
+    assert "without the user asking" in told[0] and "no test or check removed, skipped or weakened" in told[0] and "checks_baseline_minutes" in told[0]
 
     # The next train: not again within the cooldown.
     hand_over(client, pid, fake, "Dev2", "feat-b")
@@ -166,54 +166,79 @@ def test_slow_check_runs_are_found_and_the_manager_has_them_made_faster_once(cli
     finish_check(client, fake)
     assert len([s for s in fake.specs if "Speed up checks for api" in s.prompt]) == 1
 
+    # The member's verdict, stored by the manager, is the baseline from now on; an owner may set a target.
+    chat(client, manager_of(client, pid)["id"], "TOOL update_repository " + json.dumps({"repository": "api", "checks_baseline_minutes": 9.5, "checks_verdict": "near the limit: 10 min is what it takes"}))
+    wait_for(lambda: idle(client, pid))
+    assert client.patch(f"/api/repositories/{repo_id}", json={"check_target_seconds": 480}).status_code == 200
+    repo = client.get(f"/api/projects/{pid}/repositories").json()[0]
+    assert (repo["checks_baseline_seconds"], repo["checks_verdict"], repo["check_target_seconds"]) == (570, "near the limit: 10 min is what it takes", 480)
+    assert "slow_checks" not in found(client, pid)  # 10 min is within 30 % of it, and over a target it was never under
+
     # Switched off: no finding, nothing told.
     assert client.patch(f"/api/projects/{pid}", json={"fast_checks": False}).json()["fast_checks"] is False
     assert "slow_checks" not in found(client, pid)
 
 
-def test_slow_checks_thresholds_one_ticket_and_cooldown(client, project):
+def test_slow_checks_grow_against_the_baseline_and_come_once_per_cooldown(client, project):
     from plainboard.db import sessionmaker
     from plainboard.models import Repository, Task, utcnow
     from plainboard.services import flow_check
+    from plainboard.services import settings as settings_service
+    from sqlalchemy import update
 
     pid = project["id"]
     assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://gitlab.com/acme/api.git", "check_command": "./ci.sh"}).status_code == 201
     repo_id = client.get(f"/api/projects/{pid}/repositories").json()[0]["id"]
 
-    async def check(**told) -> tuple:
-        async with sessionmaker()() as s:
-            repo = await s.get(Repository, repo_id)
-            for key, value in told.items():
-                setattr(repo, key, value)
-            await s.commit()
-            finding, seconds = await flow_check.slow_checks(s, repo, utcnow())
-            return finding, seconds, await flow_check.slow_checks_due(s, repo, seconds, utcnow())
+    def check(**told) -> tuple:
+        async def run() -> tuple:
+            async with sessionmaker()() as s:
+                repo = await s.get(Repository, repo_id)
+                for key, value in told.items():
+                    setattr(repo, key, value)
+                await s.commit()
+                finding, seconds = await flow_check.slow_checks(s, repo, utcnow())
+                return finding.title if finding else None, seconds, await flow_check.slow_checks_due(s, repo, seconds, utcnow())
+
+        return client.portal.call(run)
 
     seed_trains(client, repo_id, [200] * 4)
-    assert client.portal.call(check)[0] is None  # too few runs to say
+    assert check()[0] is None  # too few runs to say
     seed_trains(client, repo_id, [100] * 10, days_ago=1)
     seed_trains(client, repo_id, [200] * 6, days_ago=0.1)
-    finding, seconds, due = client.portal.call(check)
-    assert finding.title == "Check runs of api take 3 min at the median, up from 2 min" and seconds == 200 and due  # quick still, but clearly slower than before
-    seed_trains(client, repo_id, [100] * 20, days_ago=20)  # too old to count
-    assert client.portal.call(check)[0].key == "slow_checks"
+    seed_trains(client, repo_id, [50] * 20, days_ago=20)  # too old to count
+    assert check() == ("Check runs of api take 3 min at the median, up from 2 min", 200, True)  # +100 % against the runs before
+
+    # The member's verdict is the baseline: after it, only clear growth beyond it counts.
+    now = utcnow()
+    assert check(slow_told_at=now - timedelta(minutes=5), slow_told_seconds=200, checks_baseline_seconds=190, checks_baseline_at=now, checks_verdict="near the limit: 3 min is what it takes")[0] is None
+    assert check(check_target_seconds=120)[0] is None  # a target under what it takes changes nothing after that verdict
+    assert check(check_target_seconds=0, checks_baseline_seconds=150)[0] == "Check runs of api take 3 min at the median, up from 2 min (its baseline)"
+    assert check()[2] is True  # told before the verdict: grown beyond the verdict counts at once
+
+    async def growth(percent: int) -> None:
+        async with sessionmaker()() as s:
+            await settings_service.update(s, {"checks_growth_percent": percent})
+            await s.commit()
+
+    client.portal.call(growth, 50)
+    assert check()[0] is None  # tunable: +33 % is not enough now
+    client.portal.call(growth, 30)
+    assert check(checks_baseline_seconds=None, checks_baseline_at=None, checks_verdict="", slow_told_seconds=180)[2] is False  # told a day ago, not grown since
 
     async def ticket(status: str, days_ago: float) -> None:
         async with sessionmaker()() as s:
-            s.add(Task(project_id=pid, number=900 + int(days_ago * 10), title="Speed up checks for api", status=status, updated_at=utcnow() - timedelta(days=days_ago)))
+            s.add(Task(project_id=pid, number=900, title="Speed up checks for api", status=status, updated_at=utcnow() - timedelta(days=days_ago)))
+            await s.commit()
+
+    async def done(days_ago: float) -> None:
+        async with sessionmaker()() as s:
+            await s.execute(update(Task).where(Task.project_id == pid).values(status="done", updated_at=utcnow() - timedelta(days=days_ago)))
             await s.commit()
 
     client.portal.call(ticket, "todo", 0)
-    assert client.portal.call(check)[2] is False  # one is open: no second one
-
-    async def done() -> None:
-        from sqlalchemy import update
-
-        async with sessionmaker()() as s:
-            await s.execute(update(Task).where(Task.project_id == pid).values(status="done", updated_at=utcnow() - timedelta(days=8)))
-            await s.commit()
-
-    client.portal.call(done)
-    assert client.portal.call(check)[2] is True  # done, and the cooldown is over
-    assert client.portal.call(lambda: check(slow_told_at=utcnow() - timedelta(days=1), slow_told_seconds=180))[2] is False  # told a day ago: not yet
-    assert client.portal.call(lambda: check(slow_told_seconds=150))[2] is True  # unless clearly slower since then
+    assert check(slow_told_at=utcnow() - timedelta(days=30))[0] and check()[2] is False  # one is open: no second one
+    client.portal.call(done, 1)
+    assert check()[2] is False  # done a day ago: the cooldown
+    client.portal.call(done, 8)
+    assert check()[2] is True  # and over

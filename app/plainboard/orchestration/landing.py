@@ -933,9 +933,9 @@ class LandingWatcher:
         await flow_log.record(s, r.project.id, "checks.failing_told", repository=r.repo.name, finding=finding.title)
 
     async def _checks_slow(self, s: AsyncSession, r: Repo, train: Train, now: datetime) -> None:
-        """The check runs of this repository are slow, or got clearly slower: the manager reads it with its
-        next turn and has one ticket made of it (``Project.fast_checks``; once per cooldown, see
-        ``flow_check.slow_checks_due``). On GitHub with the jobs and steps of Actions that took longest,
+        """The check runs of this repository were never looked at for speed, grew clearly beyond its baseline or
+        are over the owner's target: the manager reads it with its next turn and has one ticket made of it
+        (``Project.fast_checks``; once per cooldown, see ``flow_check.slow_checks_due``). On GitHub with the jobs and steps of Actions that took longest,
         so whoever works on it knows where the time goes."""
         if not r.project.fast_checks:
             return
@@ -951,7 +951,7 @@ class LandingWatcher:
             except RunnerError as exc:
                 log.info("job timings of %s: %s", r.repo.name, exc)
         manager = await agent_service.get_manager(s, r.project.id)
-        await inbox.push(s, manager.id, prompts.checks_slow(r.repo.name, finding.title, finding.detail, timings, flow_check_service.SLOW_COOLDOWN_DAYS))
+        await inbox.push(s, manager.id, prompts.checks_slow(r.repo.name, finding.title, finding.detail, timings))
         await flow_log.record(s, r.project.id, "checks.slow_told", repository=r.repo.name, finding=finding.title, median_seconds=seconds, jobs=[[j.name, j.seconds] for j in timings])
 
 

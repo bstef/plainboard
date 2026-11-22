@@ -663,14 +663,15 @@ def checks_keep_failing(title: str, detail: str, action: str) -> str:
     )
 
 
-def checks_slow(repo: str, title: str, detail: str, timings: list, cooldown_days: int) -> str:
-    """For the manager, with its next turn (landing._checks_slow): slow check runs, with where their time goes."""
+def checks_slow(repo: str, title: str, detail: str, timings: list) -> str:
+    """For the manager, with its next turn (landing._checks_slow): check runs to make faster, with where their time goes."""
     jobs = "; ".join(f"{j.name} {duration(j.seconds)}" + (f" ({', '.join(f'{n} {duration(t)}' for n, t in j.steps)})" if j.steps else "") for j in timings)
     return (
         f"{title}. {detail}" + (f" Slowest jobs of the last run: {jobs}." if jobs else "") + " "
         f'You may do this without the user asking: create one ticket "Speed up checks for {repo}" with these numbers and delegate it. '
-        "Faster only: the same things must still be checked, no test or check removed, skipped or weakened; the report gives the timings before and after. "
-        f"PlainBoard tells you again {cooldown_days} days after that ticket is done at the earliest, unless the checks got clearly slower."
+        "Faster only: the same things must still be checked, no test or check removed, skipped or weakened. It ends with the member's verdict, "
+        "\"sped up to X\" or \"near the limit: X is what it takes\", with the timings before and after; store it with update_repository "
+        "(checks_baseline_minutes, checks_verdict). PlainBoard speaks up again only when the checks grow clearly beyond that."
     )
 
 

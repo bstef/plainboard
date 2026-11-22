@@ -34,6 +34,8 @@ class UpdateRepoArgs(BaseModel):
     check_command: str | None = Field(default=None, description="Decides whether finished branches may land; '' = on GitHub, a pull request's checks")
     quick_check_command: str | None = Field(default=None, description="Fast checks (format, lint; a minute or two), run on each branch when it is handed over; '' = none")
     land_first: bool | None = Field(default=None, description="true: finished branches are merged at once, the checks run on the base branch afterwards and a failure is repaired there. false: nothing lands before its checks passed")
+    checks_baseline_minutes: float | None = Field(default=None, ge=0, description="After a speed-up of the checks: what a check run takes now (the member's verdict)")
+    checks_verdict: str | None = Field(default=None, max_length=300, description="e.g. 'sped up to 6 min' or 'near the limit: 14 min is what it takes'")
 
 
 class RepoRef(BaseModel):
@@ -67,7 +69,8 @@ async def list_repositories(ctx: ToolContext, _args) -> str:
         about = f" — {truncate(repo.description, 100)}" if repo.description else ""
         quick = f" | quick check: {truncate(repo.quick_check_command, 80)}" if repo.quick_check_command.strip() else ""
         landing = " | lands first, checked after" if repo.land_first else " | lands when its checks passed"
-        lines.append(f"{repo.name}{branch}: {repo.url}{about} | agents: {', '.join(who) or 'none'}{quick}{landing}")
+        verdict = f" | checks: {truncate(repo.checks_verdict, 80)}" if repo.checks_verdict else ""
+        lines.append(f"{repo.name}{branch}: {repo.url}{about} | agents: {', '.join(who) or 'none'}{quick}{landing}{verdict}")
     return "\n".join(lines)
 
 
@@ -85,7 +88,9 @@ async def add_repository(ctx: ToolContext, args: AddRepoArgs) -> str:
 @tool("update_repository", "Change a repository's URL, folder name, branch, description, check commands or how its branches land.", UpdateRepoArgs, roles=(MANAGER,))
 async def update_repository(ctx: ToolContext, args: UpdateRepoArgs) -> str:
     repo = await repo_service.resolve(ctx.session, ctx.project.id, args.repository)
-    fields = args.model_dump(exclude_unset=True, exclude={"repository", "branch"})
+    fields = args.model_dump(exclude_unset=True, exclude={"repository", "branch", "checks_baseline_minutes"})
+    if args.checks_baseline_minutes is not None:
+        fields["checks_baseline_seconds"] = round(args.checks_baseline_minutes * 60)
     if "branch" in args.model_fields_set:
         fields["default_branch"] = args.branch
     repo = await repo_service.update(ctx.session, repo, RepositoryUpdate(**fields))
