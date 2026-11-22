@@ -259,6 +259,24 @@ def test_a_profile_picture_is_set_by_its_user_and_a_chat_message_knows_who_wrote
     assert (run["input_text"], run["author_name"]) == ("SAY hi", me["name"])
 
 
+def test_an_admin_sets_the_profile_of_anyone_and_nobody_else_does(client):
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    user = new_user(client, "max")
+    other = new_user(client, "eva")
+    shown = client.put(f"/api/users/{user['id']}/avatar", files={"file": ("x.png", png, "image/png")}).json()
+    assert shown["avatar_version"] > 0 and client.get(f"/api/avatars/{user['id']}").content == png
+    assert client.put(f"/api/users/{user['id']}/avatar", files={"file": ("x.svg", b"<svg/>", "image/svg+xml")}).status_code == 400
+    changed = client.patch(f"/api/users/{user['id']}", json={"name": "Max M.", "username": "Maxi"}).json()
+    assert (changed["name"], changed["username"]) == ("Max M.", "maxi")
+    assert client.patch(f"/api/users/{user['id']}", json={"username": "eva"}).status_code == 400  # taken
+    assert client.delete(f"/api/users/{user['id']}/avatar").json()["avatar_version"] == 0
+
+    sign_in(client, "maxi", "max-password")
+    assert client.put(f"/api/users/{other['id']}/avatar", files={"file": ("x.png", png, "image/png")}).status_code == 403
+    assert client.delete(f"/api/users/{other['id']}/avatar").status_code == 403
+    assert client.patch(f"/api/users/{other['id']}", json={"name": "Hacked"}).status_code == 403
+
+
 def test_every_route_has_a_rule(client):
     """A route without a rule would be for admins only: fine for safety, but nobody decided it."""
     from plainboard.api import browser, preview, ws
