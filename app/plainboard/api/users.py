@@ -3,10 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Response
 
 from ..schemas import MemberIn, MemberOut, PersonOut, UserCreate, UserOut, UserUpdate
+from ..services import permissions
 from ..services import projects as project_service
 from ..services import users as user_service
 from ..services.errors import NotFound
-from .deps import Session
+from .deps import Runs, Session
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -39,9 +40,13 @@ async def create_user(body: UserCreate, session: Session) -> UserOut:
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
-async def update_user(user_id: int, body: UserUpdate, session: Session) -> UserOut:
+async def update_user(user_id: int, body: UserUpdate, session: Session, runs: Runs) -> UserOut:
     user = await user_service.get(session, user_id)
-    return UserOut.model_validate(await user_service.update(session, user, **body.model_dump(exclude_unset=True)))
+    fields = body.model_dump(exclude_unset=True)
+    limits = {key: fields.pop(key) for key in permissions.FIELDS if key in fields}
+    out = UserOut.model_validate(await user_service.update(session, user, **fields, limits=limits))
+    runs.recheck()  # another limit of members at work: waiting turns may start now
+    return out
 
 
 @router.delete("/users/{user_id}", status_code=204)

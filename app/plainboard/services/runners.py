@@ -180,10 +180,14 @@ async def busy(session: AsyncSession, project_id: int) -> str:
 
 
 async def choices(session: AsyncSession, hub, project: Project) -> ProjectRunnerOut:
-    runners = list(await session.scalars(select(Runner).order_by(Runner.name, Runner.id)))
+    from . import permissions
+
+    owner = await permissions.owner(session, project)  # only where its owner's projects may run, and where it is
+    runners = [r for r in await session.scalars(select(Runner).order_by(Runner.name, Runner.id)) if r.id == project.runner_id or permissions.may_run_on(owner, r.id)]
+    builtin = [RunnerChoice(id=None, name=BUILTIN, connected=True)] if project.runner_id is None or permissions.may_run_on(owner, None) else []
     return ProjectRunnerOut(
         runner_id=project.runner_id,
-        runners=[RunnerChoice(id=None, name=BUILTIN, connected=True), *(RunnerChoice(id=r.id, name=r.name, connected=hub.connected(r.id)) for r in runners)],
+        runners=[*builtin, *(RunnerChoice(id=r.id, name=r.name, connected=hub.connected(r.id)) for r in runners)],
         busy=await busy(session, project.id),
     )
 

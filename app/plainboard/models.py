@@ -169,6 +169,9 @@ class Project(Timestamps, Base):
     account_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     # The runner its agents, jobs and trains run on. Unset: the built-in one.
     runner_id: Mapped[int | None] = mapped_column(ForeignKey("runners.id", ondelete="SET NULL"))
+    # Whose project it is: the person who created it. What that person may use (``services/permissions.py``)
+    # holds for it: subscriptions, runners, members at work. Unset, or an admin's: everything.
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     # Paused by a person, for good: nothing of this project starts until a person resumes it
     # (RunManager.pause_project). Not ended by a restart, nor when "pause everything" ends.
     paused_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -219,6 +222,11 @@ class User(Timestamps, Base):
     password_hash: Mapped[str] = mapped_column(Text)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     may_create_projects: Mapped[bool] = mapped_column(Boolean, default=False)  # projects use the installation's subscriptions
+    # What the projects this person owns (``Project.owner_id``) may use; an admin's: everything (services/permissions.py).
+    max_projects: Mapped[int | None] = mapped_column(Integer)  # own projects at most; unset: any number
+    account_ids: Mapped[list[int] | None] = mapped_column(JSON)  # the only subscriptions; unset: all of them
+    runner_ids: Mapped[list[int] | None] = mapped_column(JSON)  # the only runners, 0 the built-in one; unset: all of them
+    max_parallel: Mapped[int | None] = mapped_column(Integer)  # members at work across them at once; unset: no limit of its own
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     session_version: Mapped[int] = mapped_column(Integer, default=0)  # raised to sign the user out everywhere
     # The profile picture: a small square the browser made. Read only where it is shown (deferred);

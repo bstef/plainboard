@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
 from ..events import bus
-from ..models import Attachment, InboxItem, Project, ProjectMember, ProjectRole, utcnow
+from ..models import Attachment, InboxItem, Project, ProjectMember, ProjectRole, User, utcnow
 from ..schemas import AgentCreate, ProjectCreate, ProjectOut, ProjectUpdate, TaskCreate
 from ..security import decrypt, encrypt
 from . import accounts as account_service
@@ -14,6 +14,7 @@ from . import agents as agent_service
 from . import board as board_service
 from . import repositories as repo_service
 from . import schedules as schedule_service
+from . import permissions
 from . import settings as settings_service
 from .errors import NotFound, ServiceError
 from .util import slugify
@@ -95,11 +96,16 @@ async def unique_slug(session: AsyncSession, name: str) -> str:
     return slug
 
 
-async def create(session: AsyncSession, data: ProjectCreate, owner_id: int | None = None) -> Project:
-    """All or nothing: a step that fails takes the project with it. ``owner_id``: whoever creates it owns it from the start."""
+async def create(session: AsyncSession, data: ProjectCreate, owner: User | None = None) -> Project:
+    """All or nothing: a step that fails takes the project with it. ``owner``: whoever creates it owns
+    it from the start, and what that person may use holds for it (services/permissions.py)."""
     if data.account_id is not None:
         await account_service.get(session, data.account_id)
+        await permissions.check_account(session, None, data.account_id, owner)
+    runner_id = await permissions.first_runner(session, owner)
     project = Project(
+        owner_id=owner.id if owner else None,
+        runner_id=runner_id,
         name=data.name,
         slug=await unique_slug(session, data.name),
         description=data.description,
@@ -110,8 +116,8 @@ async def create(session: AsyncSession, data: ProjectCreate, owner_id: int | Non
     )
     session.add(project)
     await session.flush()
-    if owner_id is not None:
-        session.add(ProjectMember(project_id=project.id, user_id=owner_id, role=ProjectRole.OWNER))
+    if owner is not None:
+        session.add(ProjectMember(project_id=project.id, user_id=owner.id, role=ProjectRole.OWNER))
     await session.commit()
     project_id = project.id
     try:
@@ -143,8 +149,7 @@ async def update(session: AsyncSession, project: Project, data: ProjectUpdate) -
         fields["workspace_path"] = normalize_workspace_path(fields["workspace_path"])
     if fields.get("account_id") is not None:
         await account_service.get(session, fields["account_id"])
-        if project.account_ids and fields["account_id"] not in project.account_ids:
-            raise ServiceError("This project may not use that account")
+        await permissions.check_account(session, project, fields["account_id"])
     if "language" in fields:
         fields["language"] = (fields["language"] or "").strip()
     for key, value in fields.items():
@@ -157,9 +162,9 @@ async def update(session: AsyncSession, project: Project, data: ProjectUpdate) -
 async def parallel_limit(session: AsyncSession, project: Project) -> int:
     """How many members of this project work at the same time: its own number, else the one from
     the settings. Every project counts by itself; 0 pauses its members."""
-    if project.parallel_agents is not None:
-        return project.parallel_agents
-    return int(await settings_service.get(session, "max_parallel_runs"))
+    own = project.parallel_agents if project.parallel_agents is not None else int(await settings_service.get(session, "max_parallel_runs"))
+    cap = await permissions.max_parallel(session, project)  # across all projects of its owner: none of them alone gets more
+    return own if cap is None else min(own, cap)
 
 
 async def set_parallel_by_manager(session: AsyncSession, project: Project, count: int) -> None:

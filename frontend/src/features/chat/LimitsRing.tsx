@@ -5,6 +5,7 @@ import { useLimits } from "../../api/queries";
 import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types";
 import { timeAgo } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
+import { useUsableAccounts } from "../projects/ProjectAccounts";
 
 const tone = (used: number) => (used >= 0.9 ? "red" : used >= 0.75 ? "amber" : "indigo");
 const stroke = { red: "text-you", amber: "text-fg", indigo: "text-fg-2" };
@@ -16,8 +17,8 @@ const STALE_AFTER = 45 * 60; // seconds
 /** The accounts whose limits matter here: all of them, or the ones the open project may use. */
 function useProjectLimits() {
   const { data } = useLimits();
-  const allowed = useShell().project.account_ids ?? [];
-  return data && { accounts: allowed.length ? data.accounts.filter((a) => allowed.includes(a.account_id)) : data.accounts };
+  const allowed = useUsableAccounts(useShell().project.id);
+  return data && { accounts: allowed ? data.accounts.filter((a) => allowed.includes(a.account_id)) : data.accounts };
 }
 
 /** Plan limits (5-hour, weekly) as one small ring per account, filled to the fullest window; click
