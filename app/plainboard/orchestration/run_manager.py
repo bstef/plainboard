@@ -1347,19 +1347,19 @@ class RunManager:
                 message.meta = {**message.meta, "briefing_update": turn.briefing_changes}
                 await s.commit()
                 bus.publish(project.id, "message.updated", MessageOut.model_validate(message))
-            secret_env = secret_service.env(await secret_service.effective(s, project.id))
             account = await account_service.pick(s, agent.provider, agent, conv, fresh=turn.resume_session_id is None)
             if account is None and (why := await account_service.shut_out(s, agent.provider, agent)):
                 raise RuntimeError(why)  # the turn fails with the reason, instead of at the provider for a missing key
             if account:
                 conv.account_key, run.account_key = account.key, account.key
                 await s.commit()
+            credentials = await permissions.credentials(s, project, values, account_service.fields(account))
             ctx = RunContext(
                 run_id=run.id,
                 project_id=project.id,
                 agent_id=agent.id,
                 token=secrets.token_urlsafe(32),
-                redact=secret_service.redactor(secret_env),
+                redact=secret_service.redactor(credentials.secrets),
                 account_key=account.key if account else None,
                 assignment_id=run.assignment_id,
                 task_id=run.task_id,
@@ -1381,7 +1381,7 @@ class RunManager:
                     shared=bool(project.workspace_path),
                     setup_script=project.setup_script,
                 ),
-                credentials=settings_service.credentials(values, project_service.github_token(project), secret_env, account_service.fields(account)),
+                credentials=credentials,
                 bridge=ToolBridgeSpec(
                     base_url=get_config().internal_url, run_id=str(run.id), run_token=ctx.token, tools=registry.tool_defs_for(agent)
                 ),
@@ -1697,9 +1697,7 @@ class RunManager:
             id=secrets.token_hex(8),
             command=command,
             workspace=workspace_path(project, agent),
-            credentials=settings_service.credentials(
-                values, project_service.github_token(project), secret_service.env(await secret_service.effective(s, project.id))
-            ),
+            credentials=await permissions.credentials(s, project, values),
         )
         if not self.runners.ready(project.id):  # at once, not after the connect timeout
             raise ServiceError("Could not start the job: the runner this project runs on is not connected")
@@ -1757,7 +1755,7 @@ class RunManager:
             text = f"{job_service.label(job)} was lost because its container restarted, and may be half done. Check its state and start it again if needed. Log: {job.log_path}"
         else:
             await job_service.finish(s, job, JobStatus.SUCCEEDED if state.exit_code == 0 else JobStatus.FAILED, state.exit_code)
-            redact = secret_service.redactor(secret_service.env(await secret_service.effective(s, job.project_id)))
+            redact = secret_service.redactor(secret_service.env(await permissions.secrets(s, project)) if project else {})
             took = timing_service.duration((job.finished_at - job.created_at).total_seconds())  # the agent has no clock: say it
             text = f"{job_service.label(job)} finished with exit code {state.exit_code} after {took}. Log: {job.log_path}\nLast output:\n{redact(state.tail)}"
         timing_service.forget_cache()

@@ -78,9 +78,11 @@ def to_out(secret: Secret) -> SecretOut:
     return SecretOut.model_validate(secret)
 
 
-async def effective(session: AsyncSession, project_id: int) -> list[Secret]:
-    """Global and project secrets for a project; the project wins on equal names."""
-    rows = (await session.scalars(select(Secret).where(or_(Secret.project_id.is_(None), Secret.project_id == project_id)))).all()
+async def effective(session: AsyncSession, project_id: int, *, shared: bool) -> list[Secret]:
+    """Global (``shared``: ``permissions.shared``) and project secrets for a project; the project wins on equal names.
+    Use ``permissions.secrets``."""
+    scope = or_(Secret.project_id.is_(None), Secret.project_id == project_id) if shared else Secret.project_id == project_id
+    rows = (await session.scalars(select(Secret).where(scope))).all()
     by_name: dict[str, Secret] = {}
     for secret in sorted(rows, key=lambda s: s.project_id is not None):
         by_name[secret.name] = secret

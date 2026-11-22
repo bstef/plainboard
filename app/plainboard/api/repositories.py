@@ -7,6 +7,7 @@ from plainboard_protocol import Credentials
 from pydantic import BaseModel, Field
 
 from ..schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
+from ..services import permissions
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
@@ -16,15 +17,15 @@ router = APIRouter(prefix="/api", tags=["repositories"])
 
 
 async def _github(session: Session, who: Who, project_id: int | None) -> Credentials | None:
-    """For GitHub: a project's own token first, else the installation's. Not for an owner who is no admin: the
-    installation's token sees the admin's repositories."""
-    override = project_service.github_token(await project_service.get(session, project_id)) if project_id else None
-    if override is None and not who.is_admin:
-        return None
-    return settings_service.credentials(await settings_service.get_all(session), override)
+    """For GitHub: a project's own token first, else the installation's if the project may use it
+    (``permissions.shared``). Without a project (``/api/github``): the installation's, for admins."""
+    if project_id is None:
+        return settings_service.credentials(await settings_service.get_all(session)) if who.is_admin else None
+    credentials = await permissions.credentials(session, await project_service.get(session, project_id))
+    return credentials if credentials.github_token else None
 
 
-NO_OWN_TOKEN = {"ok": False, "detail": "This project has no GitHub token of its own yet: enter one, or add the repository by its address.", "repos": []}
+NO_OWN_TOKEN = {"ok": False, "detail": "This project has no GitHub token of its own yet: add one in the project settings, or add the repository by its address.", "repos": []}
 
 
 @router.get("/github/repos")

@@ -227,6 +227,7 @@ class User(Timestamps, Base):
     account_ids: Mapped[list[int] | None] = mapped_column(JSON)  # the only subscriptions; unset: all of them
     runner_ids: Mapped[list[int] | None] = mapped_column(JSON)  # the only runners, 0 the built-in one; unset: all of them
     max_parallel: Mapped[int | None] = mapped_column(Integer)  # members at work across them at once; unset: no limit of its own
+    may_use_shared: Mapped[bool] = mapped_column(Boolean, default=False)  # the global secrets, the installation's GitHub token and SSH key
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     session_version: Mapped[int] = mapped_column(Integer, default=0)  # raised to sign the user out everywhere
     # The profile picture: a small square the browser made. Read only where it is shown (deferred);

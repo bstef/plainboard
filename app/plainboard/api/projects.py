@@ -21,7 +21,6 @@ from ..services import permissions
 from ..services import preview as preview_service
 from ..services import projects as project_service
 from ..services import repositories as repo_service
-from ..services import settings as settings_service
 from ..services import transfer as transfer_service
 from ..services.errors import ServiceError
 from ..services import users as user_service
@@ -133,9 +132,11 @@ async def delete_project(project_id: int, session: Session, runs: Runs, files: b
 @router.post("/projects/{project_id}/check-github", response_model=CheckOut)
 async def check_project_github(project_id: int, session: Session, runs: Runs) -> CheckOut:
     project = await project_service.get(session, project_id)
-    values = await settings_service.get_all(session)
+    credentials = await permissions.credentials(session, project)
+    if not credentials.github_token:
+        return CheckOut(ok=False, detail=permissions.NO_GITHUB_TOKEN)
     repos = repo_service.specs(await repo_service.list_for_project(session, project_id))
-    result = await runs.runners.of(project_id).check_github(settings_service.credentials(values, project_service.github_token(project)), repos)
+    result = await runs.runners.of(project_id).check_github(credentials, repos)
     return CheckOut(ok=result.ok, detail=result.detail)
 
 

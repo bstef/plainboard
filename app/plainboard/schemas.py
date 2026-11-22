@@ -43,6 +43,7 @@ class UserOut(ORM):
     account_ids: list[int] | None = None
     runner_ids: list[int] | None = None  # 0: the built-in runner
     max_parallel: int | None = None
+    may_use_shared: bool = False
     enabled: bool
     avatar_version: int = 0  # 0: no picture; otherwise part of its address (/api/avatars/{id}?v=...)
     created_at: UTCDateTime
@@ -70,6 +71,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=200)
     is_admin: bool | None = None
     may_create_projects: bool | None = None
+    may_use_shared: bool | None = None
     enabled: bool | None = None
     # Sent: set to this, null being no limit. Not sent: as it is.
     max_projects: int | None = Field(default=None, ge=0, le=1000)

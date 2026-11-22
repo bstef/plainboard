@@ -25,7 +25,7 @@ from ..services import agents as agent_service
 from ..services import notes as notes_service
 from ..services import own_notes as own_note_service
 from ..services import repositories as repo_service
-from ..services import secrets as secret_service
+from ..services import permissions
 from ..services import accounts as account_service
 from ..services import settings as settings_service
 from ..services import todos as todo_service
@@ -95,7 +95,7 @@ class ContextManager:
         workspace = workspace_path(project, agent)
         project_repos = await repo_service.list_for_project(session, project.id)
         repos_by_agent = {a.id: [r.name for r in repo_service.accessible(a, project_repos)] for a in team} if project_repos else None
-        secrets = [(s.name, s.description) for s in await secret_service.effective(session, project.id)]
+        secrets = [(s.name, s.description) for s in await permissions.secrets(session, project)]
         # The task list is volatile, so it never enters the (cached) system prompt: it goes into the turn,
         # and within a session only when it changed since the agent last saw it.
         todo_items, todo_total = await todo_service.page(session, project.id, agent_id=agent.id, limit=prompts.TODO_PREVIEW)

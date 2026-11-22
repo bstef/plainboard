@@ -14,9 +14,8 @@ from ..orchestration.runner_client import RunnerError
 from ..services import flow_check as flow_check_service
 from ..services import flow_log
 from ..services import landings as landing_service
-from ..services import projects as project_service
+from ..services import permissions
 from ..services import repositories as repo_service
-from ..services import settings as settings_service
 from ..services import timing as timing_service
 from ..services.errors import WaitEnded
 from .registry import MANAGER, ToolContext, ToolError, tool
@@ -128,11 +127,11 @@ async def merge_when_green(ctx: ToolContext, args: MergeWhenGreenArgs) -> str:
     branch = args.branch.strip().removeprefix("origin/")
     if not branch or branch == (repo.default_branch or ""):
         raise ToolError("Name the branch with your change, not the base branch.")
-    credentials = settings_service.credentials(await settings_service.get_all(ctx.session), project_service.github_token(ctx.project))
+    credentials = await permissions.credentials(ctx.session, ctx.project)
     try:
         head = await ctx.runs.runners.of(ctx.project.id).branch_head(credentials, landing_service.remote(repo), branch)
     except RunnerError as exc:
-        raise ToolError(f"Could not reach {repo.name}: {str(exc)[:300]}") from exc
+        raise ToolError(f"Could not reach {repo.name}: {str(exc)[:300]}{permissions.github_hint(credentials)}") from exc
     if head is None:
         raise ToolError(f"Branch {branch} is not on the remote of {repo.name}: push it first, then hand it over.")
     task_id = ctx.run.task_id
