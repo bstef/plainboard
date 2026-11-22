@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import Response, StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CommitRef, CompletionResult, CompletionSpec, Credentials, DeleteSpec, ErrorEvent, JobPort, JobSpec, JobState, LimitsEvent, MachineUsage, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RerunRef, RunSpec, SkillFetch, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamRef, UpstreamState
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CommitRef, CompletionResult, CompletionSpec, Credentials, DeleteSpec, ErrorEvent, JobPort, JobTiming, JobSpec, JobState, LimitsEvent, MachineUsage, ProjectFiles, ProviderAccount, ProviderInfo, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RerunRef, RunSpec, SkillFetch, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamRef, UpstreamState
 from pydantic import BaseModel, Field
 
 from . import cleanup
@@ -511,6 +511,15 @@ async def github_commit_checks(ref: CommitRef) -> list[PullRequestCheck]:
     try:
         return await github.commit_checks(ref.credentials, ref.repo, ref.sha)
     except (WorkspaceError, ValueError) as exc:
+        raise HTTPException(502, str(exc)[:600]) from exc
+
+
+@app.post("/github/job-timings")
+async def github_job_timings(ref: CommitRef) -> list[JobTiming]:
+    """How long the jobs of Actions for a commit took, the slowest first: where a slow check run spends its time."""
+    try:
+        return await github.job_timings(ref.credentials, ref.repo, ref.sha)
+    except (WorkspaceError, ValueError, KeyError) as exc:
         raise HTTPException(502, str(exc)[:600]) from exc
 
 

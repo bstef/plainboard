@@ -123,6 +123,7 @@ class FakeRunner:
         self.touches: dict[str, set[str]] = {}  # branch -> the files it changes
         self.commit_checks_of: dict[str, list] = {}  # commit -> the checks GitHub ran for it on the base branch
         self.reruns: list[list[int]] = []  # workflow runs whose failed jobs were run once more
+        self.job_timings_of: dict[str, list] = {}  # commit -> how long its jobs of Actions took
         self.on_base: set[str] = set()  # branches the base branch already contains
         self.train_specs: list = []
         self.breaks = 0  # how many streams broke (BREAK, BREAK_ONCE)
@@ -283,6 +284,9 @@ class FakeRunner:
         if getattr(self, "checks_error", ""):
             raise RunnerError(self.checks_error)
         return list(self.commit_checks_of.get(sha, []))
+
+    async def job_timings(self, credentials, repo: str, sha: str) -> list:
+        return list(self.job_timings_of.get(sha, []))
 
     async def rerun_failed(self, credentials, repo: str, run_ids: list[int]) -> int:
         self.reruns.append(list(run_ids))

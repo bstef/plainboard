@@ -388,6 +388,14 @@ class CommitRef(BaseModel):
     sha: str = Field(pattern=r"^[0-9a-f]{7,64}$")
 
 
+class JobTiming(BaseModel):
+    """How long one job of Actions took for a commit, with its slowest steps (name, seconds): where a check run's time goes."""
+
+    name: str
+    seconds: int
+    steps: list[tuple[str, int]] = Field(default_factory=list)
+
+
 TRAIN_KEY = r"^[\w.-]{1,80}$"
 
 

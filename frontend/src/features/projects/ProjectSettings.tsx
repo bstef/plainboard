@@ -161,6 +161,17 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
               <CheckBadge result={check} />
             </div>
           )}
+          <div className="space-y-1">
+            <Toggle
+              checked={project.fast_checks}
+              onChange={async (v) => {
+                await api.patch<Project>(`/projects/${project.id}`, { fast_checks: v });
+                await qc.invalidateQueries({ queryKey: qk.projects });
+              }}
+              label={t("projects.fastChecks")}
+            />
+            <p className="text-fg-3">{t("projects.fastChecksHint")}</p>
+          </div>
           <SavedAtOnce />
         </div>
       ),
