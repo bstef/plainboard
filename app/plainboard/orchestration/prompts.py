@@ -319,6 +319,15 @@ Used-up usage limits, rate limits and failed turns are passing states, not facts
 Merge the previous summary with the new transcript; the result replaces both."""
 
 
+PEOPLE_SHOWN = 30
+
+
+def people_line(people: list[tuple[str, str]]) -> str:
+    """The people of the project, by the @username that notifies them (services/mentions.py)."""
+    names = [f"@{username}" + (f" ({name})" if name and name.lower() != username else "") for username, name in people[:PEOPLE_SHOWN]]
+    return "People (write @username to notify one, only when they must see or do something): " + ", ".join(names)
+
+
 def team_roster(agents: list[Agent], me: Agent, repos_by_agent: dict[int, list[str]] | None = None) -> str:
     lines = []
     for agent in agents:
@@ -419,6 +428,7 @@ SECTION_TITLES = {
     "secrets": "Secrets",
     "instructions": "Instructions",
     "team": "Team",
+    "people": "People",
     "pinned_notes": "Pinned notes",
     "own_notes": "Your own notes",
     "memory": "Memory",
@@ -438,6 +448,7 @@ def system_prompt_sections(
     repos_by_agent: dict[int, list[str]] | None = None,
     secrets: list[tuple[str, str]] | None = None,
     own_notes: list[AgentNote] | None = None,
+    people: list[tuple[str, str]] | None = None,
 ) -> dict[str, str]:
     """The system prompt as named sections (ordered), so changes can be detected per section."""
     my_repos = my_repos or []
@@ -475,6 +486,8 @@ def system_prompt_sections(
     if agent.instructions:
         sections["instructions"] = f"## Instructions\n{agent.instructions}"
     sections["team"] = f"## Team\n{team_roster(team, agent, repos_by_agent)}"
+    if people:
+        sections["people"] = people_line(people)
     if pinned:
         sections["pinned_notes"] = pinned_notes_block(pinned).strip()
     if own_notes:

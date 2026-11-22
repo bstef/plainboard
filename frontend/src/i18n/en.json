@@ -806,6 +806,15 @@
     "confirmDelete": "Delete secret {{name}}?",
     "updated": "updated {{when}}"
   },
+  "mentions": {
+    "label": "Mentions",
+    "title_one": "Mentions: {{count}} unread",
+    "title_other": "Mentions: {{count}} unread",
+    "allRead": "Mark all read",
+    "inChat": "in the chat",
+    "someone": "Someone",
+    "notifyTitle": "{{name}} mentioned you"
+  },
   "shell": {
     "runningNow": "Running now",
     "openChat": "Open chat with {{name}}",

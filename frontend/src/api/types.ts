@@ -568,6 +568,28 @@ export interface Person {
   avatar_version: number;
 }
 
+/** Someone named the signed-in user with @username. */
+export interface Mention {
+  id: number;
+  project_id: number;
+  project_name: string;
+  kind: "chat" | "comment" | "decision";
+  task_id: number | null;
+  task_number: number | null;
+  task_title: string;
+  /** The chat it is in. */
+  agent_id: number | null;
+  author: string;
+  excerpt: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface Mentions {
+  unread: number;
+  items: Mention[];
+}
+
 export interface Member {
   user_id: number;
   username: string;

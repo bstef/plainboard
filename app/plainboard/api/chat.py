@@ -9,6 +9,7 @@ from ..models import Run, RunStatus
 from ..schemas import AttachmentOut, ChatMessageIn, ConversationOut, MessageOut, RunOut
 from ..services import agents as agent_service
 from ..services import board as board_service
+from ..services import mentions as mention_service
 from ..services import settings as settings_service
 from ..services import users as user_service
 from ..services.errors import NotFound, ServiceError
@@ -37,7 +38,9 @@ async def send_message(agent_id: int, body: ChatMessageIn, session: Session, run
     if not agent.is_manager and not await settings_service.get(session, "member_chat"):
         raise ServiceError("Direct messages to members are off. Talk to the manager, or enable it in Settings.", 403)
     several = bool(await user_service.author(session, who.user, agent.project_id))
-    return RunOut.model_validate(await runs.chat(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several))
+    run = await runs.chat(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several)
+    await mention_service.record(session, agent.project_id, body.text, kind="chat", author=who.name, author_user_id=who.user.id if who.user else None, agent_id=agent.id)
+    return RunOut.model_validate(run)
 
 
 @router.delete("/runs/{run_id}/message", status_code=204)

@@ -5,6 +5,7 @@ import type {
   Limits,
   Agent,
   Member,
+  Mentions,
   PauseStatus,
   Person,
   Preview,
@@ -36,6 +37,8 @@ export const qk = {
   users: ["users"] as const,
   directory: ["users", "directory"] as const,
   members: (pid: number) => ["members", pid] as const,
+  people: (pid: number) => ["people", pid] as const,
+  mentions: ["mentions"] as const,
   meta: ["meta"] as const,
   settings: ["settings"] as const,
   limits: ["limits"] as const,
@@ -73,6 +76,18 @@ export const useMe = () => useAuth().data?.user ?? null;
 export const useUsers = (enabled = true) => useQuery({ queryKey: qk.users, queryFn: () => api.get<User[]>("/users"), enabled });
 export const useDirectory = () => useQuery({ queryKey: qk.directory, queryFn: () => api.get<Person[]>("/users/directory") });
 export const useMembers = (pid: number) => useQuery({ queryKey: qk.members(pid), queryFn: () => api.get<Member[]>(`/projects/${pid}/members`) });
+/** Who can be mentioned with @username in a project: everyone with access to it. */
+export const usePeople = (pid: number | null) =>
+  useQuery({ queryKey: qk.people(pid ?? 0), queryFn: () => api.get<Person[]>(`/projects/${pid}/people`), staleTime: 60_000, enabled: pid !== null });
+/** The signed-in user's mentions, of all their projects; looked at again now and then for those of other projects. */
+export const useMentions = () => useQuery({ queryKey: qk.mentions, queryFn: () => api.get<Mentions>("/mentions"), refetchInterval: 60_000 });
+export function useReadMentions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[] | null) => api.post<void>("/mentions/read", { ids }),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.mentions }),
+  });
+}
 export const useMeta = () => useQuery({ queryKey: qk.meta, queryFn: () => api.get<Meta>("/meta"), staleTime: 60_000 });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: () => api.get<SettingsResponse>("/settings") });
 export const useAccounts = () => useQuery({ queryKey: qk.accounts, queryFn: () => api.get<Account[]>("/accounts") });

@@ -12,6 +12,7 @@ import { Board } from "../board/Board";
 import { BrowserView, type BrowserRequest } from "../browser/BrowserView";
 import { PreviewsSide, useActivePreviews } from "../browser/Previews";
 import { ForYou } from "../board/ForYou";
+import { MentionsBell, takePendingMention } from "../../components/Mentions";
 import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
 import { ChatView } from "../chat/ChatView";
@@ -266,6 +267,18 @@ function ProjectWorkspace({
     }),
     [project, agents.data, agentById, previews, openSettings, setChatAgentId, isDesktop, view, setPanelOpen, setView],
   );
+  // A mention of this project chosen in another one: open where it was written.
+  useEffect(() => {
+    const m = takePendingMention(project.id);
+    if (!m) return;
+    if (m.kind !== "chat" && m.task_id !== null) api.openTask(m.task_id);
+    else if (m.agent_id !== null) api.openChat(m.agent_id);
+    else if (m.task_id !== null) api.openTask(m.task_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const bell = (variant: "plate" | "side" | "rail") => (
+    <MentionsBell variant={variant} projectId={project.id} onSelectProject={onSelectProject} openTask={api.openTask} openChat={api.openChat} />
+  );
   /** A view that has something running behind it gets a mark: the browser while previews run. */
   const marked = (id: View) => id === "browser" && previews.length > 0;
   const viewLabel = (id: View) => (marked(id) ? `${t(`nav.${id}`)} · ${t("previews.count", { count: previews.length })}` : t(`nav.${id}`));
@@ -303,6 +316,7 @@ function ProjectWorkspace({
             <div className="shrink-0 px-2 pb-2.5 empty:hidden">
               <ForYou variant={wide ? "side" : "rail"} />
             </div>
+            <div className="shrink-0 px-2 pb-2.5 empty:hidden">{bell(wide ? "side" : "rail")}</div>
             <StatusHints onOpenSettings={onSettings} wide={wide} />
             <nav aria-label={t("nav.views")} className="flex shrink-0 flex-col gap-px px-2">
               {views.map((v) => (
@@ -357,6 +371,7 @@ function ProjectWorkspace({
                 <div className="flex-1" />
                 <StatusHints onOpenSettings={onSettings} wide={false} />
                 <UpdateNotice wide={false} />
+                {bell("plate")}
                 <ForYou />
               </div>
             </header>

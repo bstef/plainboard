@@ -666,6 +666,23 @@ class PreviewShare(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class Mention(Base):
+    """A person named with @username in a chat message, comment or decision of a project they have
+    access to (services/mentions.py). Theirs alone: unread until they open it."""
+
+    __tablename__ = "mentions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # chat | comment | decision
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"))  # the chat it is in
+    author: Mapped[str] = mapped_column(String(100), default="")
+    excerpt: Mapped[str] = mapped_column(Text, default="")
+    read_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class InboxItem(Base):
     """Updates for an agent, prepended to its next turn (cheaper than an extra run)."""
 

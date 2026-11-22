@@ -9,6 +9,7 @@ import type { Assignment, Attachment, Comment, Priority, TaskDetail, TaskStatus 
 import { AttachmentLink } from "../../components/AttachmentLink";
 import { Lightbox } from "../../components/Lightbox";
 import { Markdown, TicketText } from "../../components/Markdown";
+import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, AgentDot, Badge, Button, ErrorText, IconButton, Input, Modal, Select, Spinner, Textarea } from "../../components/ui";
 import { formatBytes, formatDateTime, timeAgo } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
@@ -557,9 +558,12 @@ function mergeComments(a: Comment[], b: Comment[]) {
 // The ticket only carries the newest comments; older ones are paged in on demand.
 function Comments({ taskId, comments, total, canWrite }: { taskId: number; comments: Comment[]; total: number; canWrite: boolean }) {
   const { t } = useTranslation();
-  const { agentById } = useShell();
+  const { agentById, project } = useShell();
   const qc = useQueryClient();
   const [body, setBody] = useState("");
+  const field = useRef<HTMLTextAreaElement>(null);
+  const picker = useMentionPicker(project.id, body, setBody, field);
+  useReadMentionsOf({ taskId });
   const [error, setError] = useState<string | null>(null);
   const [seen, setSeen] = useState<Comment[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -624,13 +628,20 @@ function Comments({ taskId, comments, total, canWrite }: { taskId: number; comme
           );
         })}
         {canWrite ? (
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {picker.menu}
           <Textarea
+            ref={field}
             rows={2}
             value={body}
             placeholder={t("ticket.commentPlaceholder")}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              setBody(e.target.value);
+              picker.track();
+            }}
+            onSelect={picker.track}
             onKeyDown={(e) => {
+              if (picker.onKeyDown(e)) return;
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
             }}
           />

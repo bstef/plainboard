@@ -22,6 +22,7 @@ from ..events import bus
 from ..models import Agent, Conversation, Message, Project
 from ..schemas import MessageOut
 from ..services import agents as agent_service
+from ..services import mentions as mention_service
 from ..services import notes as notes_service
 from ..services import own_notes as own_note_service
 from ..services import repositories as repo_service
@@ -96,6 +97,7 @@ class ContextManager:
         project_repos = await repo_service.list_for_project(session, project.id)
         repos_by_agent = {a.id: [r.name for r in repo_service.accessible(a, project_repos)] for a in team} if project_repos else None
         secrets = [(s.name, s.description) for s in await permissions.secrets(session, project)]
+        people = [(u.username, u.name) for u in await mention_service.people(session, project.id)]
         # The task list is volatile, so it never enters the (cached) system prompt: it goes into the turn,
         # and within a session only when it changed since the agent last saw it.
         todo_items, todo_total = await todo_service.page(session, project.id, agent_id=agent.id, limit=prompts.TODO_PREVIEW)
@@ -114,6 +116,7 @@ class ContextManager:
                 repos_by_agent=repos_by_agent,
                 secrets=secrets,
                 own_notes=own_notes,
+                people=people,
             )
 
         if conv.provider_session_id and not conv.system_prompt:

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useArchivedTasks, useTasks } from "../api/queries";
@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useShell } from "../features/layout/shell-context";
 import { browserAddress } from "../lib/preview";
 import { Lightbox } from "./Lightbox";
+import { linkMentions, MentionChip, usePeopleMap } from "./Mentions";
 
 // Not inside words, URL paths or entities ("a#1", "x/#1", "&#1"), but "#1/#2" links both.
 const TICKET_REF = /(?<![\w#&])(?<![^\s\d]\/)#(\d+)\b/g;
@@ -207,14 +208,18 @@ export function CodeBlock({ text, children, alwaysCopy }: { text: string; childr
 }
 
 export function Markdown({ children, className }: { children: string; className?: string }) {
+  const people = usePeopleMap();
+  const mentions = useMemo(() => linkMentions(people), [people]);
   return (
     <div className={clsx("prose-chat break-words", className)}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, linkTickets]}
+        remarkPlugins={[remarkGfm, linkTickets, mentions]}
         components={{
           a: ({ node: _node, ...props }) => {
             const ticket = props.href?.match(/^#ticket-(\d+)$/);
             if (ticket) return <TicketLink number={Number(ticket[1])}>{props.children}</TicketLink>;
+            const person = people.get(props.href?.match(/^#mention-(.+)$/)?.[1] ?? "");
+            if (person) return <MentionChip person={person} />;
             const link = <a {...props} target="_blank" rel="noreferrer" />;
             const address = browserAddress(props.href);
             return address ? <PreviewLink address={address}>{link}</PreviewLink> : link;

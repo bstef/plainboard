@@ -65,6 +65,7 @@ from ..services import ticket_state
 from ..services import flow_log
 from ..services import jobs as job_service
 from ..services import mcp as mcp_service
+from ..services import mentions as mention_service
 from ..services import pause as pause_service
 from ..services import permissions
 from ..services import projects as project_service
@@ -1411,7 +1412,11 @@ class RunManager:
                     await s.commit()
                 elif event.type == "assistant_text":
                     outcome.last_text = event.text
-                    await self._add_message(s, ctx, conv.id, role="assistant", kind="text", content=ctx.redact(event.text))
+                    msg = await self._add_message(s, ctx, conv.id, role="assistant", kind="text", content=ctx.redact(event.text))
+                    if mention_service.usernames(msg.content):
+                        await mention_service.record(
+                            s, ctx.project_id, msg.content, kind="chat", author=await mention_service.agent_name(s, ctx.agent_id), task_id=ctx.task_id, agent_id=ctx.agent_id
+                        )
                 elif event.type == "tool_use":
                     meta = {"name": event.name, "tool_use_id": event.id, "input": truncate(ctx.redact(json.dumps(event.input, ensure_ascii=False)), 1500)}
                     if code := tool_code.code_meta(event.name, event.input, ctx.redact):

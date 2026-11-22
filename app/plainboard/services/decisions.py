@@ -9,6 +9,7 @@ from ..events import bus
 from ..models import Attachment, Decision, DecisionStatus, Task, utcnow
 from ..schemas import DecisionOption, DecisionOut
 from . import board as board_service
+from . import mentions as mention_service
 from .errors import NotFound, ServiceError
 
 
@@ -60,6 +61,8 @@ async def create(
     session.add(decision)
     await session.commit()
     await _publish(session, decision, task)
+    text = "\n\n".join([question, details, *(f"{o.label}: {o.description}" for o in options)])
+    await mention_service.record(session, task.project_id, text, kind="decision", author=await mention_service.agent_name(session, agent_id), task_id=task.id)
     return decision
 
 
@@ -93,7 +96,7 @@ async def answer(
     await session.commit()
     task = await board_service.get_task(session, decision.task_id)
     # The comment keeps the outcome in the ticket history that agents read.
-    await board_service.add_comment(session, task, f"**Decision:** {decision.question}\n\n{answer_summary(decision)}", author_kind=by, agent_id=agent_id, author_name=author_name)
+    await board_service.add_comment(session, task, f"**Decision:** {decision.question}\n\n{answer_summary(decision)}", author_kind=by, agent_id=agent_id, author_name=author_name, mention_text=answer_summary(decision))
     await _publish(session, decision, task)
     return decision
 
