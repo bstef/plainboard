@@ -713,6 +713,7 @@
     "updateCheckHint": "Every few hours PlainBoard asks GitHub whether its repository has newer commits than the one that is running. Only that commit id is sent.",
     "versionRunning": "Running {{commit}}.",
     "versionCurrent": "That is the newest.",
+    "luchsApproved": "Luchs approved",
     "title": "PlainBoard settings",
     "test": "Test connection",
     "testing": "Testing…",
