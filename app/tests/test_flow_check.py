@@ -211,7 +211,7 @@ def test_slow_checks_grow_against_the_baseline_and_come_once_per_cooldown(client
 
     # The member's verdict is the baseline: after it, only clear growth beyond it counts.
     now = utcnow()
-    assert check(slow_told_at=now - timedelta(minutes=5), slow_told_seconds=200, checks_baseline_seconds=190, checks_baseline_at=now, checks_verdict="near the limit: 3 min is what it takes")[0] is None
+    assert check(slow_told_at=now - timedelta(hours=13), slow_told_seconds=200, checks_baseline_seconds=190, checks_baseline_at=now - timedelta(hours=12), checks_verdict="near the limit: 3 min is what it takes")[0] is None
     assert check(check_target_seconds=120)[0] is None  # a target under what it takes changes nothing after that verdict
     assert check(check_target_seconds=0, checks_baseline_seconds=150)[0] == "Check runs of api take 3 min at the median, up from 2 min (its baseline)"
     assert check()[2] is True  # told before the verdict: grown beyond the verdict counts at once
@@ -242,3 +242,37 @@ def test_slow_checks_grow_against_the_baseline_and_come_once_per_cooldown(client
     assert check()[2] is False  # done a day ago: the cooldown
     client.portal.call(done, 8)
     assert check()[2] is True  # and over
+
+
+def test_slow_checks_count_only_the_runs_after_the_verdict(client, project):
+    from plainboard.db import sessionmaker
+    from plainboard.models import Repository, utcnow
+    from plainboard.services import flow_check
+
+    pid = project["id"]
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://gitlab.com/acme/api.git", "check_command": "./ci.sh"}).status_code == 201
+    repo_id = client.get(f"/api/projects/{pid}/repositories").json()[0]["id"]
+
+    def check(**told) -> tuple:
+        async def run() -> tuple:
+            async with sessionmaker()() as s:
+                repo = await s.get(Repository, repo_id)
+                for key, value in told.items():
+                    setattr(repo, key, value)
+                await s.commit()
+                finding, seconds = await flow_check.slow_checks(s, repo, utcnow())
+                return finding.title if finding else None, seconds, await flow_check.slow_checks_due(s, repo, seconds, utcnow())
+
+        return client.portal.call(run)
+
+    # Slow runs, then a speed-up: told once before it, the verdict stored after it.
+    seed_trains(client, repo_id, [300, 480, 330, 310, 360, 350, 300, 320, 340, 330], days_ago=0.1)
+    assert check()[0] == "Check runs of api take 6 min at the median, never looked at for speed"
+    verdict = utcnow() - timedelta(minutes=30)
+    assert check(slow_told_at=verdict - timedelta(minutes=10), slow_told_seconds=330, checks_baseline_seconds=120, checks_baseline_at=verdict, checks_verdict="sped up to 2 min")[0] is None
+    seed_trains(client, repo_id, [170, 130, 160, 150], days_ago=0)
+    assert check()[:2] == (None, 0)  # four fast runs since: too few to say, the slow ones before do not count
+    seed_trains(client, repo_id, [140], days_ago=0)
+    assert check()[:2] == (None, 150)  # within 30 % of the verdict: no notice
+    seed_trains(client, repo_id, [400] * 5, days_ago=0)
+    assert check()[0] == "Check runs of api take 5 min at the median, up from 2 min (its baseline)" and check()[2] is True  # grown beyond the verdict after it

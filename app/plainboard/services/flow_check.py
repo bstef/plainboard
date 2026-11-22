@@ -167,11 +167,23 @@ async def slow_checks(session: AsyncSession, repo: Repository, now: datetime) ->
     """Whether a repository's check runs are to be made faster, and their median. No fixed limit: some
     checks cannot be shorter. Measured against the repository itself: once at the first look, then
     when they grew clearly beyond its baseline (the verdict of the last speed-up, else the runs before),
-    or when they are over the owner's target and the baseline was not."""
+    or when they are over the owner's target and the baseline was not. After a verdict only the runs
+    that started after it count: those before were what was made faster."""
+    if repo.checks_baseline_seconds and repo.checks_baseline_at is None:
+        repo.checks_baseline_at = now  # a verdict from before its time was kept: it counts from here on
+    since = now - timedelta(days=SLOW_DAYS)
+    after = repo.checks_baseline_at if repo.checks_baseline_seconds else None
     rows = list(
         await session.scalars(
             select(Train.check_seconds)
-            .where(Train.repository_id == repo.id, Train.size > 0, Train.check_seconds > 0, Train.finished_at >= now - timedelta(days=SLOW_DAYS), Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)))
+            .where(
+                Train.repository_id == repo.id,
+                Train.size > 0,
+                Train.check_seconds > 0,
+                Train.finished_at >= since,
+                Train.status.in_((TrainStatus.LANDED, TrainStatus.FAILED)),
+                *([Train.created_at >= after] if after else []),
+            )
             .order_by(Train.finished_at.desc(), Train.id.desc())
             .limit(2 * SLOW_WINDOW)
         )
