@@ -39,6 +39,7 @@ class StandstillWatcher:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)  # its database connection is back before the engine goes
 
     async def _loop(self) -> None:
         while True:

@@ -95,6 +95,7 @@ MAX_ASK_DEPTH = 3
 ASK_TIMEOUT_SECONDS = 900
 ASK_BUSY_TIMEOUT_SECONDS = 120  # the teammate is in a turn of unknown length, so don't block the asker for long
 CANCEL_GRACE_SECONDS = 15
+STOP_WAIT_SECONDS = 10  # at shutdown: how long a turn that ended may go on writing its end
 # The state of tickets that were moved to done after it was last written (refresh_closed_tickets).
 CLOSED_STATES_LOOKED_AT = 20
 CLOSED_STATES_AT_ONCE = 2  # rewrites running at a time: an installation with many old tickets catches up over minutes
@@ -221,6 +222,7 @@ class RunManager:
         self._limits_task: asyncio.Task[None] | None = None
         self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
         self._resting: set[asyncio.Task[None]] = set()  # paused projects whose turns and jobs are being stopped
+        self._run_tasks: set[asyncio.Task[None]] = set()  # every turn's task until it is done
         self._state_tried: dict[int, float] = {}  # closed tickets whose last rewrite was started then (see refresh_closed_tickets)
         self._unread: dict[int, set[int]] = {}  # running turn -> waiting chat messages (runs) it was told about and has not read yet
         # agent -> what changes its waiting chat run (a message joining, one withdrawn): read and write back
@@ -463,14 +465,38 @@ class RunManager:
     async def stop(self) -> None:
         if self._dispatcher:
             self._dispatcher.cancel()
+            await asyncio.gather(self._dispatcher, return_exceptions=True)
         try:
             await self.mark_seen(every=0)  # the connections end with the app: their disconnect is not written
         except Exception:
             log.exception("Runners not marked seen at shutdown")
-        tasks = [*self._running.values(), *self._copying.values()]
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Everything started in the background ends before the app disposes of its database engine: a task
+        # still holding a connection then keeps it open, in the middle of a transaction even, with its locks.
+        # A task that ends may start another (a turn that ends rewrites its ticket's state), so until none is left.
+        for _ in range(10):
+            tasks = [
+                task
+                for task in (
+                    self._limits_task,
+                    self.updates._task,
+                    *self._running.values(),
+                    *self._copying.values(),
+                    *self._state_tasks.values(),
+                    *self._resting,
+                    *self._orphan_checks,
+                )
+                if task is not None and not task.done()
+            ]
+            ending = [task for task in self._run_tasks if not task.done() and task not in tasks]  # writing their turn's end
+            if not tasks and not ending:
+                break
+            for task in tasks:
+                task.cancel()
+            if ending:  # not cut off, unless the runner they ask takes too long
+                await asyncio.wait(ending, timeout=STOP_WAIT_SECONDS)
+                for task in ending:
+                    task.cancel()
+            await asyncio.gather(*tasks, *ending, return_exceptions=True)
 
     def context_for_token(self, token: str, run_id: int) -> RunContext | None:
         ctx = self._tokens.get(token)
@@ -1248,7 +1274,9 @@ class RunManager:
                 in_use[project_id] = in_use.get(project_id, 0) + 1
                 if owner is not None:
                     owner_use[owner] = owner_use.get(owner, 0) + 1
-            self._running[run_id] = asyncio.create_task(self._execute(run_id, agent_id), name=f"run-{run_id}")
+            task = self._running[run_id] = asyncio.create_task(self._execute(run_id, agent_id), name=f"run-{run_id}")
+            self._run_tasks.add(task)  # also after it left _running: its end still writes (stop waits for it)
+            task.add_done_callback(self._run_tasks.discard)
 
     async def _held_by_limits(self, s: AsyncSession, runs: list[Run]) -> set[int]:
         """Turns that wait because every subscription their agent may run on is used up: started now,
