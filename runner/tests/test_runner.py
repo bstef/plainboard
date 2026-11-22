@@ -1124,7 +1124,7 @@ async def test_only_branches_that_are_fully_on_the_base_branch_are_removed(tmp_p
     commit("shared", "B2")
     b2 = run("git", "rev-parse", "HEAD")
     commit("other", "R2")
-    run("git", "merge", "-q", "--squash", "carrier")
+    run("git", "-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--squash", "carrier")
     run("git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "carrier", env=old)
     run("git", "branch", "-D", "carrier")
     run("git", "checkout", "-q", "-b", "own-work")
