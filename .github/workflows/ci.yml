@@ -16,30 +16,34 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # the suite takes about 3; a hang ends here, with stacks (faulthandler_timeout)
+    timeout-minutes: 15  # the suite takes about 1.5; a hang ends here, with stacks (faulthandler_timeout)
     steps:
       - uses: actions/checkout@v7
       - name: Build backend image
         run: docker build -f app/Dockerfile --target backend -t plainboard-app:ci .
+      # -n auto: one test process per CPU (pytest-xdist); each test has a database of its own anyway.
       - name: Run tests
-        run: docker run --rm -w /src/app plainboard-app:ci python -m pytest -q
+        run: docker run --rm -w /src/app plainboard-app:ci python -m pytest -q -n auto
 
   backend-postgres:
     name: Backend tests (PostgreSQL)
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # the suite takes about 3; a hang ends here, with stacks (faulthandler_timeout)
+    timeout-minutes: 15  # the suite takes about 1.5; a hang ends here, with stacks (faulthandler_timeout)
     steps:
       - uses: actions/checkout@v7
-      - name: Build backend image
-        run: docker build -f app/Dockerfile --target backend -t plainboard-app:ci .
+      # Started first: it comes up while the image builds.
       - name: Start PostgreSQL
         run: |
           docker network create ci
           docker run -d --name db --network ci -e POSTGRES_USER=plainboard -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=plainboard postgres:17
-          until docker exec db pg_isready -U plainboard -d plainboard; do sleep 1; done
+      - name: Build backend image
+        run: docker build -f app/Dockerfile --target backend -t plainboard-app:ci .
+      - name: Wait for PostgreSQL
+        run: until docker exec db pg_isready -U plainboard -d plainboard; do sleep 1; done
       # The same suite: with PLAINBOARD_DATABASE set, every test starts with an empty PostgreSQL database.
+      # -n auto: one test process per CPU, each with a database of its own (tests/conftest.py).
       - name: Run tests
-        run: docker run --rm --network ci -e PLAINBOARD_DATABASE=postgresql://plainboard:ci@db:5432/plainboard -w /src/app plainboard-app:ci python -m pytest -q
+        run: docker run --rm --network ci -e PLAINBOARD_DATABASE=postgresql://plainboard:ci@db:5432/plainboard -w /src/app plainboard-app:ci python -m pytest -q -n auto
 
   runner:
     name: Runner tests

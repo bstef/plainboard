@@ -428,6 +428,31 @@ ADMIN_PASSWORD = "admin-password"
 POSTGRES = bool(os.environ.get("PLAINBOARD_DATABASE"))  # the whole suite runs against PostgreSQL
 
 
+def pytest_configure(config) -> None:  # noqa: ANN001
+    """Run in parallel (pytest -n, pytest-xdist): every worker is a process of its own and gets a
+    PostgreSQL database of its own, next to the one named, as the tests empty theirs. With SQLite
+    each test has a file of its own anyway."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    if not POSTGRES or not worker:
+        return
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+
+    from plainboard import config as app_config
+
+    url = make_url(app_config.Config().sync_database_url)
+    name = f"{url.database}_{worker}"
+    engine = create_engine(url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+            conn.execute(text(f'CREATE DATABASE "{name}"'))
+    finally:
+        engine.dispose()
+    os.environ["PLAINBOARD_DATABASE"] = url.set(drivername="postgresql", database=name).render_as_string(hide_password=False)
+    app_config.get_config.cache_clear()
+
+
 # The database a new installation starts with, made once per test run (see new_installation):
 # SQLite: the file to copy. PostgreSQL: the tables are there and only have to be emptied.
 _made: dict = {"sqlite": None, "postgres": False}
