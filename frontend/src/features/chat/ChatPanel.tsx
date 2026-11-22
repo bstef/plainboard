@@ -74,36 +74,44 @@ export function ChatPanel({
     shown.filter((item, i) => i > 0 && said(item.message) && said(shown[i - 1].message) && item.at - shown[i - 1].at < GROUP_MS).map((item) => item.message!.id),
   );
   // Works only until the agent's turn starts; if it just did, the refreshed list shows the message as sent.
-  const deleteWaiting = (runId: number) =>
+  const deleteWaiting = (runId: number, part?: number) =>
     api
-      .del(`/runs/${runId}/message`)
+      .del(`/runs/${runId}/message${part ? `?part=${part}` : ""}`)
       .catch(() => undefined)
       .then(() => qc.invalidateQueries({ queryKey: qk.runs(project.id) }));
 
-  const waitingRow = (r: (typeof queued)[number]) => (
-    <div key={`run-${r.id}`} data-part="msg" data-role="queued" className={clsx(CHAT_ROW, "bg-sunk")}>
-      <Head name={r.author_name ?? t("chat.you")} avatar={r.author_name ? <Avatar name={r.author_name} person={people.get(r.author_name.toLowerCase())} /> : undefined}>
-        <span className="mk mk-plan self-center" />
-        <span className="min-w-0 flex-1 truncate text-fg-3">{t(r.read_at ? "chat.readWaiting" : "chat.waiting", { name: agent?.name ?? "" })}</span>
-        {!r.read_at && (
-          <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id)} className="-my-1 self-center">
-            <Trash2 className="size-4" />
-          </IconButton>
+  // Messages that wait for the same turn go out together, but each shows on its own, with its writer.
+  const waitingRow = (r: (typeof queued)[number]) =>
+    (r.parts ?? [{ id: 0, author: r.author_name, text: r.input_text, attachment_ids: r.attachment_ids, at: "" }]).map((p) => (
+      <div key={`run-${r.id}-${p.id}`} data-part="msg" data-role="queued" className={clsx(CHAT_ROW, "bg-sunk")}>
+        <Head
+          name={p.author ?? t("chat.you")}
+          at={p.at || undefined}
+          avatar={p.author ? <Avatar name={p.author} person={people.get(p.author.toLowerCase())} /> : undefined}
+        >
+          <span className="mk mk-plan self-center" />
+          <span className="min-w-0 flex-1 truncate text-fg-3">{t(r.read_at ? "chat.readWaiting" : "chat.waiting", { name: agent?.name ?? "" })}</span>
+          {!r.read_at && (
+            <IconButton label={t("chat.deleteWaiting")} onClick={() => deleteWaiting(r.id, p.id)} className="-my-1 self-center">
+              <Trash2 className="size-4" />
+            </IconButton>
+          )}
+        </Head>
+        <div className="break-words whitespace-pre-wrap text-fg-2">
+          {r.parts
+            ? p.text
+            : writtenParts(r.input_text, r.author_name, people)
+                .map((part) => (part.author && part.author !== r.author_name ? `${part.author}: ${part.text}` : part.text))
+                .join("\n")}
+        </div>
+        {p.attachment_ids.length > 0 && (
+          <span className="mt-1 flex items-center gap-1 text-fg-3">
+            <Paperclip className="size-4" />
+            {t("chat.fileCount", { count: p.attachment_ids.length })}
+          </span>
         )}
-      </Head>
-      <div className="break-words whitespace-pre-wrap text-fg-2">
-        {writtenParts(r.input_text, r.author_name, people)
-          .map((part) => (part.author && part.author !== r.author_name ? `${part.author}: ${part.text}` : part.text))
-          .join("\n")}
       </div>
-      {r.attachment_ids.length > 0 && (
-        <span className="mt-1 flex items-center gap-1 text-fg-3">
-          <Paperclip className="size-4" />
-          {t("chat.fileCount", { count: r.attachment_ids.length })}
-        </span>
-      )}
-    </div>
-  );
+    ));
 
   useLayoutEffect(() => {
     const el = scroller.current;

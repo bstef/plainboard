@@ -44,9 +44,9 @@ async def send_message(agent_id: int, body: ChatMessageIn, session: Session, run
 
 
 @router.delete("/runs/{run_id}/message", status_code=204)
-async def withdraw_message(run_id: int, session: Session, runs: Runs) -> None:
-    """Delete a chat message the agent has not received yet."""
-    await runs.withdraw_chat(session, run_id)
+async def withdraw_message(run_id: int, session: Session, runs: Runs, part: int | None = None) -> None:
+    """Delete a chat message the agent has not received yet. ``part``: one of several waiting for the same turn."""
+    await runs.withdraw_chat(session, run_id, part)
 
 
 @router.post("/agents/{agent_id}/attachments",response_model=list[AttachmentOut], status_code=201)
