@@ -191,6 +191,45 @@ def test_a_runner_connects_with_its_token_only_and_answers_through_the_socket(cl
     assert client.get("/api/runners").json()[0]["last_seen_at"]
 
 
+
+def test_a_connected_runner_stays_seen_so_an_app_restart_shows_no_old_time(client):
+    """last_seen_at is written while the runner is connected (at most once a minute) and when the app
+    stops: a restart writes no disconnect, and the time of the connect would be shown for hours."""
+    from datetime import timedelta
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Runner, utcnow
+
+    created = _add_runner(client)
+    rid = created["runner"]["id"]
+    runs = client.app_ref.state.runs
+    old = utcnow() - timedelta(hours=8)
+
+    async def set_seen() -> None:
+        async with sessionmaker()() as session:
+            (await session.get(Runner, rid)).last_seen_at = old
+            await session.commit()
+
+    async def seen():
+        async with sessionmaker()() as session:
+            return (await session.get(Runner, rid)).last_seen_at
+
+    try:
+        with _connect(client, created["token"]) as ws:
+            _hello(ws)
+            wait_for(lambda: runs.runners.connected(rid) and client.portal.call(seen) is not None)
+            client.portal.call(set_seen)
+            client.portal.call(runs.check_runners)
+            assert client.portal.call(seen) == old  # written at the connect a moment ago: not again yet
+            runs._seen[rid] -= 61
+            client.portal.call(runs.check_runners)
+            assert client.portal.call(seen) > old + timedelta(hours=7)
+            client.portal.call(set_seen)
+            client.portal.call(lambda: runs.mark_seen(every=0))  # what stop() does
+            assert client.portal.call(seen) > old + timedelta(hours=7)
+    finally:
+        wait_for(lambda: not runs.runners.connected(rid))
+
 def _job(client, pid: int, port: int, runner) -> int:
     from plainboard.db import sessionmaker
     from plainboard.models import Job

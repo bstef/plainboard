@@ -196,6 +196,7 @@ class RunManager:
         self.context = ContextManager(self.runners)
         self._uploads: dict[int, set[str]] = {}  # external runner -> attachment files it has
         self._copying: dict[tuple[int, int], asyncio.Task[None]] = {}  # (runner, project) -> attachments being copied in the background
+        self._seen: dict[int, float] = {}  # runner id -> when its last_seen_at was last written (monotonic)
         self._orphan_checks: set[asyncio.Task[None]] = set()  # looks at turns of an external runner nobody follows
         self._running: dict[int, asyncio.Task[None]] = {}
         self._unlimited: set[int] = set()  # running turns outside the parallel limit: nested ones and managers'
@@ -254,6 +255,7 @@ class RunManager:
         check = asyncio.create_task(self._drop_orphans(runner_id), name=f"orphans-{runner_id}")  # one per connection
         self._orphan_checks.add(check)
         check.add_done_callback(self._orphan_checks.discard)
+        self._seen[runner_id] = time.monotonic()
         async with self._sm() as s:
             runner = await runner_service.seen(s, runner_id, str(hello.get("version") or ""))
             if runner is not None and runner.away_told_at is not None:
@@ -284,8 +286,22 @@ class RunManager:
     async def _managers_on(self, s: AsyncSession, runner_id: int) -> list[Agent]:
         return list(await s.scalars(select(Agent).join(Project, Project.id == Agent.project_id).where(Project.runner_id == runner_id, Agent.is_manager)))
 
+    async def mark_seen(self, *, every: float = runner_service.SEEN_SECONDS) -> None:
+        """The connected runners' last_seen_at, at most every ``every`` seconds: the app may end without
+        their disconnect being written (a restart), and then this is the time shown."""
+        now = time.monotonic()
+        due = [rid for rid in list(self.runners.tunnels) if self.runners.connected(rid) and now - self._seen.get(rid, 0.0) >= every]
+        if not due:
+            return
+        async with self._sm() as s:
+            await s.execute(update(Runner).where(Runner.id.in_(due)).values(last_seen_at=utcnow()))
+            await s.commit()
+        self._seen.update(dict.fromkeys(due, now))
+
     async def check_runners(self) -> None:
-        """An external runner that stays away: the managers of its projects hear it once (job_watcher's look)."""
+        """An external runner that stays away: the managers of its projects hear it once (job_watcher's look).
+        The connected ones are marked seen."""
+        await self.mark_seen()
         now = time.monotonic()
         for runner_id, since in list(self.runners.away_since.items()):
             if now - since < runner_service.AWAY_TELL_SECONDS or self.runners.connected(runner_id):
@@ -447,6 +463,10 @@ class RunManager:
     async def stop(self) -> None:
         if self._dispatcher:
             self._dispatcher.cancel()
+        try:
+            await self.mark_seen(every=0)  # the connections end with the app: their disconnect is not written
+        except Exception:
+            log.exception("Runners not marked seen at shutdown")
         tasks = [*self._running.values(), *self._copying.values()]
         for task in tasks:
             task.cancel()
