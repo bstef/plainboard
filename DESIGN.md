@@ -95,7 +95,7 @@ The board is a timetable: fixed columns, ruled rows, one type size. It shows who
 
 ## Colors
 
-Warm neutrals at hue 95 with one signal colour. Values per theme are in the frontmatter (`carbon-*`, `stone-*`). In code the tokens are `--bg` and so on, exposed as Tailwind colours `bg`, `sunk`, `line`, `line-2`, `fg`, `fg-2`, `fg-3`, `you`, `you-fg`, `on-you`, `you-bg`, `ok`.
+Warm neutrals at hue 95 with one signal colour. Values per theme are in the frontmatter (`carbon-*`, `stone-*`). In code the tokens are `--bg` and so on, exposed as Tailwind colours `bg`, `sunk`, `line`, `line-2`, `fg`, `fg-2`, `fg-3`, `you`, `you-fg`, `on-you`, `you-bg`, `ok`, `del`.
 
 ### Primary
 - **Vermilion** (`you`): fill of the "for you" plate and the diamond mark. `you-fg` is vermilion as text or icon, `on-you` is text on a vermilion fill, `you-bg` is the tint behind a row that waits (`color-mix(in oklab, var(--you) 11%, var(--bg))`, derived for every theme). Outside the interface it is also the colour of the app's mark: favicon, app icon and the logo in the README are the three bars in `on-you` on a vermilion tile (`#ff6d3d`), the "for you" plate as a sign. Inside the interface the bars stay in the text colour, so the mark never competes with what waits.
@@ -112,6 +112,8 @@ Warm neutrals at hue 95 with one signal colour. Values per theme are in the fron
 **The Semantic Only Rule.** Components use the semantic colours above, never a Tailwind palette colour (`zinc-500`, `red-600`) and never a hex value.
 
 **The For You Rule.** Vermilion is reserved for what waits for the user or needs them: an open decision, a to-do, an error, a limit reached. Nothing else uses it.
+
+**Diffs.** Added lines are `ok`, removed lines `del` (vermilion text in Fahrplan, the design's red in Classic), both as a 15% tint behind the line. Code colours stay semantic: keywords `fg` bold, strings `ok`, comments `fg-3` italic.
 
 **The Confirm Rule.** Green only confirms that something is done or passed. It never decorates and never marks an action.
 

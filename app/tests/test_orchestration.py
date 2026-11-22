@@ -1681,3 +1681,30 @@ def test_an_agents_comment_reaches_every_assignee_but_not_its_author(client, pro
 
     cut = comment_update("User", 7, "x" * 5000)
     assert len(cut) < 1100 and cut.endswith("[cut: get_task 7 shows it whole]")
+
+
+def test_tool_steps_carry_their_code_for_the_chat(client, project):
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    edit = {"file_path": "app/x.py", "old_string": "a = 1", "new_string": "a = 2"}
+    chat(client, dev["id"], f"TOOL Edit {json.dumps(edit)}\nTOOL Write {json.dumps({'file_path': 'n.py', 'content': 'x' * 25_000})}\nTOOL Bash {json.dumps({'command': 'pytest -q'})}\nTOOL Read {json.dumps({'file_path': 'a'})}")
+    wait_for(lambda: idle(client, pid))
+    steps = [m["meta"] for m in conversation(client, dev["id"])["messages"] if m["kind"] == "tool"]
+    assert steps[0]["code"] == {"kind": "edit", "path": "app/x.py", "edits": [{"old": "a = 1", "new": "a = 2"}], "truncated": False, "length": 18}
+    assert json.loads(steps[0]["input"]) == edit  # the raw input stays as it was
+    assert steps[1]["code"]["kind"] == "write" and len(steps[1]["code"]["content"]) == 20_000
+    assert steps[1]["code"]["truncated"] is True and steps[1]["code"]["length"] == 25_004
+    assert steps[2]["code"] == {"kind": "bash", "command": "pytest -q", "truncated": False, "length": 9}
+    assert "code" not in steps[3]
+
+
+def test_tool_code_is_capped_per_step_and_redacted():
+    from plainboard.orchestration.tool_code import STEP_CAP, cap_text, code_meta
+
+    edits = [{"old_string": "o" * 20_000, "new_string": "n" * 20_000} for _ in range(3)]
+    code = code_meta("MultiEdit", {"file_path": "f.py", "edits": edits}, lambda text: text)
+    assert sum(len(e["old"]) + len(e["new"]) for e in code["edits"]) + len(code["path"]) <= STEP_CAP
+    assert code["truncated"] and code["length"] == 120_004
+    assert code_meta("Bash", {"command": "echo hunter2"}, lambda text: text.replace("hunter2", "***"))["command"] == "echo ***"
+    assert code_meta("Edit", {"files": ["a.py"]}, lambda text: text) is None  # Codex edits name files only
+    assert cap_text("abc", 2) == ("ab", True)

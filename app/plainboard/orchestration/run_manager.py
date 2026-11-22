@@ -78,7 +78,7 @@ from ..services import settings as settings_service
 from ..services.errors import NotFound, ServiceError, WaitEnded
 from ..services.util import truncate
 from ..tools import registry
-from . import inbox, prompts
+from . import inbox, prompts, tool_code
 from .context import ContextManager, workspace_path
 from .runner_client import RunnerClient, RunnerError, RunnerStreamBroken, RunnerUnavailable
 from .runner_updates import RunnerUpdates
@@ -1405,12 +1405,15 @@ class RunManager:
                     await self._add_message(s, ctx, conv.id, role="assistant", kind="text", content=ctx.redact(event.text))
                 elif event.type == "tool_use":
                     meta = {"name": event.name, "tool_use_id": event.id, "input": truncate(ctx.redact(json.dumps(event.input, ensure_ascii=False)), 1500)}
+                    if code := tool_code.code_meta(event.name, event.input, ctx.redact):
+                        meta["code"] = code
                     msg = await self._add_message(s, ctx, conv.id, role="assistant", kind="tool", content=event.name, meta=meta)
                     outcome.tool_messages[event.id] = msg.id
                 elif event.type == "tool_result":
                     msg_id = outcome.tool_messages.get(event.tool_use_id)
                     if msg_id and (msg := await s.get(Message, msg_id)):
-                        msg.meta = {**msg.meta, "result": ctx.redact(event.content), "is_error": event.is_error}
+                        result, cut = tool_code.cap_text(ctx.redact(event.content), tool_code.RESULT_CAP) if msg.content == "Bash" else (ctx.redact(event.content), False)
+                        msg.meta = {**msg.meta, "result": result, "is_error": event.is_error, **({"result_truncated": True} if cut else {})}
                         await s.commit()
                         bus.publish(ctx.project_id, "message.updated", MessageOut.model_validate(msg))
                     # A step ended: this is where the agent gets what was sent to it meanwhile (the runner's notices).
