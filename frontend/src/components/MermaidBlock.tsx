@@ -11,6 +11,13 @@ const loadMermaid = () => (loading ??= import("mermaid").then((m) => m.default))
 
 let counter = 0;
 let configured = "";
+// Mermaid's configuration is global: one diagram is configured and drawn at a time.
+let queue: Promise<unknown> = Promise.resolve();
+function draw<T>(job: (mermaid: Mermaid) => Promise<T>): Promise<T> {
+  const next = queue.then(() => loadMermaid().then(job));
+  queue = next.catch(() => undefined);
+  return next;
+}
 
 /** A CSS colour (oklch, color-mix, …) as #rrggbb, which Mermaid can compute with. */
 function hex(color: string, ctx: CanvasRenderingContext2D): string {
@@ -259,25 +266,32 @@ export function MermaidBlock({ code, open, fallback }: { code: string; open: boo
     if (open || !anchor.current) return;
     let cancelled = false;
     const vars = themeVariables(anchor.current, look.dark);
-    loadMermaid()
-      .then(async (mermaid) => {
-        const key = JSON.stringify(vars);
-        if (configured !== key) {
-          mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: "strict",
-            suppressErrorRendering: true,
-            htmlLabels: false,
-            theme: "base",
-            themeVariables: vars,
-            // Gantt takes the page's width (it is drawn off-screen): a fixed one that suits a message.
-            gantt: { useWidth: 800, fontSize: 12, sectionFontSize: 12, barHeight: 22, leftPadding: 90, axisFormat: "%b %d" },
-          });
-          configured = key;
-        }
-        const id = `mermaid-${++counter}`;
-        const { svg } = await mermaid.render(id, code);
-        if (!cancelled) setState({ svg: sized(restyle(svg, id, vars), vars.background) });
+    // A diagram that picks its own theme (%%{init}%% or front matter) is drawn on Mermaid's: its own
+    // colours win. Its own theme variables, style, classDef and linkStyle win anyway.
+    const settings = [...(code.match(/^\s*---\n[\s\S]*?\n---/) ?? []), ...(code.match(/%%\{[\s\S]*?\}%%/g) ?? [])].join("\n");
+    const ownTheme = /\btheme["']?\s*:/.test(settings);
+    const own = ownTheme || /\btheme(Variables|CSS)["']?\s*:/.test(settings);
+    draw(async (mermaid) => {
+      const config = {
+        startOnLoad: false,
+        securityLevel: "strict" as const,
+        suppressErrorRendering: true,
+        htmlLabels: false,
+        // Gantt takes the page's width (it is drawn off-screen): a fixed one that suits a message.
+        gantt: { useWidth: 800, fontSize: 12, sectionFontSize: 12, barHeight: 22, leftPadding: 90, axisFormat: "%b %d" },
+        ...(ownTheme ? {} : { theme: "base" as const, themeVariables: vars }),
+      };
+      const key = JSON.stringify(config);
+      if (configured !== key) {
+        mermaid.initialize(config);
+        configured = key;
+      }
+      const id = `mermaid-${++counter}`;
+      const { svg } = await mermaid.render(id, code);
+      return own ? svg : restyle(svg, id, vars);
+    })
+      .then((svg) => {
+        if (!cancelled) setState({ svg: sized(svg, vars.background) });
       })
       .catch((e: unknown) => {
         // A parse error: "Parse error on line 3:", the line, a marker, "Expecting …, got …".
