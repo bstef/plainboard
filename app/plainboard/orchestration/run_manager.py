@@ -1969,7 +1969,8 @@ async def _related_hint(s: AsyncSession, project: Project, assignment: Assignmen
         if task is None:
             return ""
         text = f"{task.title}. {assignment.title}. {truncate(assignment.instructions, 800)}"
-        return prompts.related_hint(search_service.label, await asyncio.wait_for(search_service.related(s, project, text, task.number), 5))
+        who = {"agent_id": assignment.agent_id, "assignment_id": assignment.id, "task_id": task.id}
+        return prompts.related_hint(search_service.label, await asyncio.wait_for(search_service.related(s, project, text, task.number, who), 5))
     except Exception:
         log.exception("The hint of related history failed")
         return ""

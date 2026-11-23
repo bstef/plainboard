@@ -37,7 +37,7 @@ async def search_history(ctx: ToolContext, args: SearchHistoryArgs) -> str:
         ctx.session, ctx.project, args.query, kinds=list(args.kinds) if args.kinds else None,
         since=datetime.combine(args.since, datetime.min.time()) if args.since else None,
         until=datetime.combine(args.until, datetime.min.time()) + timedelta(days=1) if args.until else None,
-        repo=args.repo, limit=args.limit,
+        repo=args.repo, limit=args.limit, who={"agent_id": ctx.agent.id, "assignment_id": ctx.run.assignment_id, "task_id": ctx.run.task_id},
     )  # fmt: skip
     now = await search.states(ctx.session, ctx.project, hits, ctx.runs.runners.of(ctx.project.id))
     return search.format_hits(hits, args.query, now)

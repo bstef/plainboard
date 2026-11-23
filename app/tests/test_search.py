@@ -51,6 +51,37 @@ def test_each_chunk_says_what_it_is_and_its_hash_changes_only_with_its_text():
     assert documents.prepare(Doc(kind="comment", source_id="3", ref="comment on #1", title="", body="ok", at=datetime(2026, 11, 20)), "P") == []
 
 
+def test_a_text_longer_than_the_model_reads_is_embedded_in_windows_never_cut():
+    import asyncio
+
+    import numpy as np
+    from tokenizers import Tokenizer, models, pre_tokenizers, processors
+
+    from plainboard.services.search import embedding
+
+    words = [f"w{i}" for i in range(60)]
+    tokenizer = Tokenizer(models.WordLevel({w: i + 3 for i, w in enumerate(words)} | {"[CLS]": 0, "[SEP]": 1, "<pad>": 2, "[UNK]": 3}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+    tokenizer.post_processor = processors.TemplateProcessing(single="[CLS] $A [SEP]", special_tokens=[("[CLS]", 0), ("[SEP]", 1)])
+    widths = []
+
+    class Session:
+        def get_inputs(self):
+            return [type("I", (), {"name": "input_ids"}), type("I", (), {"name": "attention_mask"})]
+
+        def run(self, _, feed):
+            widths.append(feed["input_ids"].shape[1])
+            return [np.repeat(feed["input_ids"][..., None].astype(np.float32), 4, axis=2)]
+
+    model = embedding.LocalOnnxEmbedder(replace(embedding.CARDS["multilingual-e5-small"], max_tokens=24, passage_prefix=""))
+    model._tokenizer, model._session, model._state = tokenizer, Session(), "ready"
+    short, long = " ".join(words[:5]), " ".join(words)
+    vectors = asyncio.run(model.passages([short, long]))
+    assert model.split == 1 and max(widths) <= 24 and len(vectors) == 2  # 62 tokens: in windows of at most 24
+    windows = model._windows(long, tokenizer.encode(long), "")
+    assert windows[0].startswith("w0 ") and windows[-1].endswith(" w59") and len(windows) >= 3  # every word is in one
+
+
 # --- where it is absent ----------------------------------------------------------------------------
 
 
@@ -143,7 +174,10 @@ def test_the_history_is_indexed_once_and_found_by_meaning_and_by_words(client, p
     index(client)
     status = client.get("/api/search/status").json()
     assert status["available"] and status["documents"] == status["embedded"] == 4
-    assert status["by_kind"] == {"ticket": 2, "comment": 1, "note": 1}
+    assert {k: (v["items"], v["total"], v["embedded"]) for k, v in status["by_kind"].items()} == {
+        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1)
+    }  # fmt: skip
+    assert status["errors"] == []
     embedded = len(embedder.embedded)
 
     # Nothing changed: nothing is embedded again. A ticket moved on the board only: neither.
@@ -226,8 +260,7 @@ def test_commits_are_read_from_the_last_one_indexed_and_deleted_items_leave(clie
     assert len(fake.git_log_specs) == 2  # not with every look
 
     assert client.delete(f"/api/projects/{pid}/notes/{note['id']}").status_code in (200, 204)
-    client.portal.call(client.app_ref.state.search.tick, utcnow() + timedelta(hours=1))
-    assert client.get("/api/search/status").json()["by_kind"] == {"commit": 2}
+    assert {k: v["items"] for k, v in client.get("/api/search/status").json()["by_kind"].items() if v["items"]} == {"commit": 2}  # at once
 
 
 @pg_only
@@ -265,8 +298,8 @@ def test_another_model_builds_its_index_in_the_background_and_search_switches_wh
     index(client)
     other = FakeEmbedder("other")
     other.state = "absent"  # it is downloaded first
-    embedding._current["multilingual-e5-base"] = other
-    status = client.post("/api/search/model", json={"model": "multilingual-e5-base"}).json()
+    embedding._current["multilingual-e5-small"] = other
+    status = client.post("/api/search/model", json={"model": "multilingual-e5-small"}).json()
     assert status["model"]["name"] == "fake" and status["next"]["name"] == "other" and status["next_embedded"] == 0
     assert {m["name"] for m in status["models"]} >= {"multilingual-e5-small", "multilingual-e5-base"} and any(m["recommended"] for m in status["models"])
     index(client)  # the new model is not ready: search goes on with the old one
@@ -278,3 +311,118 @@ def test_another_model_builds_its_index_in_the_background_and_search_switches_wh
     status = client.get("/api/search/status").json()
     assert status["model"]["name"] == "other" and status["next"] is None and status["embedded"] == 2  # switched, the old vectors gone
     assert client.post("/api/search/model", json={"model": "nope"}).status_code == 400
+
+
+def rows(client, model, **where) -> list:
+    from sqlalchemy import select
+
+    from plainboard.db import sessionmaker
+
+    async def read():
+        async with sessionmaker()() as session:
+            query = select(model)
+            for key, value in where.items():
+                query = query.where(getattr(model, key) == value)
+            return list(await session.scalars(query))
+
+    return client.portal.call(read)
+
+
+def add(client, *items):
+    from plainboard.db import sessionmaker
+
+    async def write():
+        async with sessionmaker()() as session:
+            session.add_all(items)
+            await session.commit()
+            return [i.id for i in items]
+
+    return client.portal.call(write)
+
+
+@pg_only
+def test_deleting_an_item_or_what_holds_it_takes_its_chunks_along_at_once_and_an_edit_replaces_them(client, project, embedder):
+    from datetime import timedelta
+
+    from plainboard.models import Assignment, Decision, SearchDocument, SearchVector, utcnow
+
+    pid = project["id"]
+    login = ticket(client, pid, "Anmeldung schlägt fehl", "Nach dem Token-Refresh fliegt man beim SSO-Login raus.")
+    dark = ticket(client, pid, "Dunkles Design", "Ein Dark-Mode-Schalter auf der Einstellungsseite.")
+    client.post(f"/api/tasks/{login['id']}/comments", json={"body": "Der Session-Cookie wird beim Refresh nicht erneuert."})
+    note = client.post(f"/api/projects/{pid}/notes", json={"title": "CI-Cache", "content": "Docker-Builds in CI nutzen den buildx-Cache."}).json()
+    member = make_member(client, pid, "Dev")
+    done = {"status": "done", "finished_at": utcnow()}
+    decision_id, *_ = add(
+        client,
+        Decision(project_id=pid, task_id=login["id"], question="Cookie oder Token?", details="Wie halten wir die Sitzung?", options=[{"label": "Cookie"}, {"label": "Token"}]),
+        Assignment(project_id=pid, task_id=login["id"], agent_id=member["id"], title="Login reparieren", instructions="-", result="Refresh erneuert jetzt den Cookie.", **done),
+        Assignment(project_id=pid, task_id=dark["id"], agent_id=member["id"], title="Dark Mode", instructions="-", result="Schalter in den Einstellungen gebaut.", **done),
+    )
+    client.post(f"/api/projects/{pid}/repositories", json={"name": "api", "url": "https://github.com/acme/api.git"})
+    fake = runner(client)
+    fake.commits = [GitCommit(sha=c * 40, message=f"Commit {c} about webhooks") for c in "abc"]
+    index(client)
+
+    def kinds() -> dict:
+        out: dict = {}
+        for d in rows(client, SearchDocument, project_id=pid):
+            out[d.kind] = out.get(d.kind, 0) + 1
+        return out
+
+    assert kinds() == {"ticket": 2, "comment": 1, "note": 1, "decision": 1, "report": 2, "commit": 3}
+
+    # Edited: its chunks are replaced, not added; the old text and its vector are gone.
+    long = "\n\n".join(f"Absatz {i}: " + "Token Refresh Cookie " * 40 for i in range(4))
+    client.patch(f"/api/tasks/{login['id']}", json={"description": long})
+    index(client)
+    chunks = rows(client, SearchDocument, kind="ticket", source_id=str(login["id"]))
+    assert len(chunks) > 1 and not any("fliegt man" in c.body for c in chunks)
+    client.patch(f"/api/tasks/{login['id']}", json={"description": "Kurz: abgemeldet nach Refresh."})
+    client.patch(f"/api/projects/{pid}/notes/{note['id']}", json={"content": "CI nutzt jetzt den Registry-Cache."})
+    client.post(f"/api/decisions/{decision_id}/answer", json={"option_index": 0})
+    index(client)
+    (chunk,) = rows(client, SearchDocument, kind="ticket", source_id=str(login["id"]))
+    assert chunk.body == "Kurz: abgemeldet nach Refresh." and len(rows(client, SearchVector, document_id=chunk.id)) == 1
+    assert [n.body for n in rows(client, SearchDocument, kind="note")] == ["CI nutzt jetzt den Registry-Cache."]
+    assert "Answer: Cookie" in rows(client, SearchDocument, kind="decision")[0].body
+    # Archived: still found, and said.
+    client.patch(f"/api/tasks/{dark['id']}", json={"status": "done"})
+    client.post(f"/api/projects/{pid}/tasks/archive")
+    index(client)
+    assert "archived" in rows(client, SearchDocument, kind="ticket", source_id=str(dark["id"]))[0].header
+    assert "Dunkles Design" in search(client, manager_of(client, pid)["id"], pid, query="Dark Mode Schalter")
+
+    # Deleted: gone at once, without the indexer: a note; a ticket with its comment, decision and report;
+    # an agent with its reports; a repository with its commits.
+    assert client.delete(f"/api/projects/{pid}/notes/{note['id']}").status_code == 204
+    assert client.delete(f"/api/tasks/{login['id']}").status_code == 204
+    assert kinds() == {"ticket": 1, "report": 1, "commit": 3}
+    assert client.delete(f"/api/agents/{member['id']}").status_code == 204
+    assert kinds() == {"ticket": 1, "commit": 3}
+    # Commits no longer on the branch (a force push) go with the next sweep.
+    fake.gone = {"a" * 40}
+    client.portal.call(client.app_ref.state.search.tick, utcnow() + timedelta(hours=1))
+    assert sorted(d.source_id[-1] for d in rows(client, SearchDocument, kind="commit")) == ["b", "c"]
+    (repo,) = client.get(f"/api/projects/{pid}/repositories").json()
+    assert client.delete(f"/api/repositories/{repo['id']}").status_code == 204
+    assert kinds() == {"ticket": 1}
+    # The project: everything of it.
+    assert client.delete(f"/api/projects/{pid}").status_code == 204
+    assert rows(client, SearchDocument) == [] and rows(client, SearchVector) == []
+
+
+@pg_only
+def test_each_search_and_each_hint_is_a_flow_event_with_its_scores(client, project, embedder):
+    from plainboard.models import FlowEvent
+
+    pid = project["id"]
+    ticket(client, pid, "Webhook retries of Stripe time out", "Stripe webhook retries time out after the payment")
+    index(client)
+    assert [e.data["embedded"] for e in rows(client, FlowEvent, kind="search.indexed")] == [1]
+    manager = manager_of(client, pid)["id"]
+    search(client, manager, pid, query="stripe webhook", kinds=["ticket"])
+    (event,) = rows(client, FlowEvent, kind="search.query")
+    assert event.agent_id == manager and event.data["query"] == "stripe webhook" and event.data["filters"]["kinds"] == ["ticket"]
+    (hit,) = event.data["hits"]
+    assert hit["ref"].startswith("#") and hit["vector_rank"] == 1 and hit["word_rank"] == 1 and hit["vector"] > 0.5 and event.data["model"] == "fake"

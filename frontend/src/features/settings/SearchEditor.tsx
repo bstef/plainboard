@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useApiMutation } from "../../api/queries";
@@ -39,7 +39,7 @@ export function SearchEditor({ enabled }: { enabled: boolean }) {
     refetchInterval: (query) => {
       const s = query.state.data;
       const busy = s && (s.next || s.embedded < s.documents || s.model.state === "downloading" || s.model.state === "loading");
-      return busy ? 5_000 : 60_000;
+      return busy ? 3_000 : 60_000;
     },
   }).data;
   const choose = useApiMutation(
@@ -49,9 +49,7 @@ export function SearchEditor({ enabled }: { enabled: boolean }) {
   if (!status) return null;
   if (!status.available) return <p className="text-fg-3">{t("search.unavailable")}</p>;
   const waiting = status.documents - status.embedded;
-  const kinds = Object.entries(status.by_kind)
-    .map(([kind, n]) => `${t(`search.kinds.${kind}`, { defaultValue: kind })}: ${n}`)
-    .join(" · ");
+  const kinds = Object.entries(status.by_kind);
   const target = status.next?.name ?? status.model.name;
   const pick = async (model: SearchModelOption) => {
     setAsked(null);
@@ -89,10 +87,35 @@ export function SearchEditor({ enabled }: { enabled: boolean }) {
           {t("search.documents", { count: status.documents })}
           {waiting > 0 && ` · ${t("search.waiting", { count: waiting })}`}
         </dd>
-        {kinds && (
+        {(status.rate != null || status.eta_seconds != null) && (waiting > 0 || status.next) && (
           <>
-            <dt className="text-fg-3">{t("search.sources")}</dt>
-            <dd>{kinds}</dd>
+            <dt className="text-fg-3">{t("search.progress")}</dt>
+            <dd>
+              {status.rate != null && t("search.rate", { rate: status.rate })}
+              {status.eta_seconds != null && ` · ${t("search.eta", { duration: duration(status.eta_seconds, t) })}`}
+            </dd>
+          </>
+        )}
+        {kinds.map(([kind, k]) => (
+          <Fragment key={kind}>
+            <dt className="text-fg-3">{t(`search.kinds.${kind}`, { defaultValue: kind })}</dt>
+            <dd>
+              {k.total != null ? t("search.itemsOf", { items: k.items, total: k.total }) : t("search.items", { count: k.items })}
+              {" · "}
+              {t("search.embeddedOf", { done: k.embedded, total: k.chunks })}
+            </dd>
+          </Fragment>
+        ))}
+        {status.errors.length > 0 && (
+          <>
+            <dt className="text-fg-3">{t("search.errors")}</dt>
+            <dd className="space-y-0.5 text-you-fg">
+              {status.errors.map((e) => (
+                <span key={e.at + e.message} className="block">
+                  {new Date(e.at).toLocaleTimeString()} · {e.message}
+                </span>
+              ))}
+            </dd>
           </>
         )}
       </dl>

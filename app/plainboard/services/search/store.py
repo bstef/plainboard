@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models import SearchDocument, SearchVector
 from .documents import Doc, prepare
 
+LINKS = ("task_id", "assignment_id", "decision_id", "comment_id", "note_id", "repository_id")  # SearchDocument's sources
+
 # Reciprocal rank fusion: a hit's score is the sum of 1 / (K + its rank) in each list. K = 60 is the usual
 # value: the top places count, but a hit that both lists rank fairly high beats one that only one ranks first.
 RRF_K = 60
@@ -47,7 +49,7 @@ async def put(s: AsyncSession, project_id: int, project_name: str, kind: str, it
             changed += 1
             values = dict(
                 ref=doc.ref, title=doc.title[:300], header=c.header, body=c.body, at=doc.at, changed_at=doc.changed or doc.at,
-                ticket_number=doc.ticket_number, repo=doc.repo, paths=doc.paths, content_hash=c.hash,
+                ticket_number=doc.ticket_number, repo=doc.repo, paths=doc.paths, content_hash=c.hash, **{k: doc.links.get(k) for k in LINKS},
             )  # fmt: skip
             if row is None:
                 s.add(SearchDocument(project_id=project_id, kind=kind, source_id=source_id, chunk=c.chunk, **values))
@@ -81,6 +83,16 @@ async def waiting(s: AsyncSession, model: str, project_ids: list[int]) -> int:
     return int(await s.scalar(select(func.count()).select_from(SearchDocument).where(SearchDocument.project_id.in_(project_ids), _without(model))) or 0)
 
 
+async def commit_shas(s: AsyncSession, project_id: int, repository_id: int) -> list[str]:
+    rows = await s.scalars(select(SearchDocument.source_id).where(SearchDocument.project_id == project_id, SearchDocument.repository_id == repository_id).distinct())
+    return [r.partition(":")[2] for r in rows]
+
+
+async def remove_commits(s: AsyncSession, project_id: int, repository_id: int, shas: list[str]) -> None:
+    ids = [f"{repository_id}:{sha}" for sha in shas]
+    await s.execute(delete(SearchDocument).where(SearchDocument.project_id == project_id, SearchDocument.kind == "commit", SearchDocument.source_id.in_(ids)))
+
+
 async def store_vectors(s: AsyncSession, model: str, rows: list[tuple[int, int, str, str]], vectors: list[list[float]]) -> None:
     # Only if the text is still the one embedded: a chunk changed meanwhile waits for its new vector.
     current = set(await s.scalars(select(SearchDocument.id).where(SearchDocument.id.in_([r[0] for r in rows]), SearchDocument.content_hash.in_([r[3] for r in rows]))))
@@ -99,9 +111,14 @@ async def drop_model(s: AsyncSession, model: str) -> None:
 
 
 async def counts(s: AsyncSession, models: list[str]) -> dict:
-    rows = (await s.execute(select(SearchDocument.kind, func.count()).group_by(SearchDocument.kind))).all()
+    """Per kind: the items and chunks indexed and the chunks with a vector of the current model; per model all its vectors."""
+    rows = (await s.execute(select(SearchDocument.kind, func.count(func.distinct(SearchDocument.source_id)), func.count()).group_by(SearchDocument.kind))).all()
+    embedded = dict(
+        (await s.execute(select(SearchDocument.kind, func.count()).join(SearchVector, SearchVector.document_id == SearchDocument.id).where(SearchVector.model == models[0]).group_by(SearchDocument.kind))).all()
+    )
     vectors = dict((await s.execute(select(SearchVector.model, func.count()).where(SearchVector.model.in_(models)).group_by(SearchVector.model))).all())
-    return {"by_kind": {kind: total for kind, total in rows}, "documents": sum(r[1] for r in rows), "vectors": {m: int(vectors.get(m, 0)) for m in models}}
+    by_kind = {kind: {"items": int(items), "chunks": int(chunks), "embedded": int(embedded.get(kind, 0))} for kind, items, chunks in rows}
+    return {"by_kind": by_kind, "documents": sum(k["chunks"] for k in by_kind.values()), "vectors": {m: int(vectors.get(m, 0)) for m in models}}
 
 
 def keyword_query(query: str) -> str:
@@ -127,6 +144,8 @@ class Hit:
     paths: list[str] | None
     score: float
     similarity: float | None
+    vector_rank: int | None = None  # its place by meaning, and by words (None: not among their candidates)
+    word_rank: int | None = None
 
 
 def _vector(vector: list[float]) -> str:
@@ -139,7 +158,8 @@ _HIT = "d.kind, d.source_id, d.ref, d.title, d.body, d.at, d.changed_at, d.ticke
 def _hit(row, score: float) -> Hit:
     sim = None if row.sim is None else float(row.sim)
     paths = row.paths if isinstance(row.paths, list) or row.paths is None else None
-    return Hit(row.kind, row.source_id, row.ref, row.title, row.body, row.at, row.changed_at, row.ticket_number, row.repo, paths, score, sim)
+    ranks = getattr(row, "mr", None), getattr(row, "wr", None)
+    return Hit(row.kind, row.source_id, row.ref, row.title, row.body, row.at, row.changed_at, row.ticket_number, row.repo, paths, score, sim, *(None if r is None else int(r) for r in ranks))
 
 
 async def search(
@@ -191,7 +211,7 @@ async def search(
         FROM search_documents d, to_tsquery('simple', :words) q WHERE {scope} AND :use_words AND d.tsv @@ q
         ORDER BY ts_rank_cd(d.tsv, q) DESC LIMIT :n"""
     sql = f"""WITH m AS ({by_meaning}), w AS ({by_words})
-        SELECT {_HIT}, m.sim,
+        SELECT {_HIT}, m.sim, m.r AS mr, w.r AS wr,
                (COALESCE(1.0 / (:k + m.r), 0) + COALESCE(1.0 / (:k + w.r), 0))
                * (1 + :boost * power(0.5, GREATEST(EXTRACT(EPOCH FROM (now() AT TIME ZONE 'UTC') - d.changed_at), 0) / :half)) AS score
         FROM search_documents d LEFT JOIN m ON m.id = d.id LEFT JOIN w ON w.id = d.id

@@ -186,6 +186,8 @@ The team:
   (list_notes) and update_note instead of creating a new one, rewrite outdated content, delete obsolete
   notes. Keep them short and factual. Pin only what every agent must always know (pinned notes cost
   tokens on every turn).
+- Write commit messages, reports, ticket texts, comments, decisions and notes so they can be found later: a clear
+  subject plus 1-3 full sentences on what changed, why and where (feature, files or area, error message, ticket #).
 - Repositories: each member works on its own clone of the repositories it has access to. Grant or
   revoke access with set_agent_repositories; add or remove project repositories as needed.
 - Schedules run prompts later or repeatedly (cron). Every scheduled run costs a turn of your whole
@@ -264,6 +266,8 @@ How you work:
   stays open while a job you started for it is running: end your turn, you continue when the job ends,
   and the final message of that later turn is the report. Outside an assignment your final message
   reaches nobody: what someone needs to know, send with message_agent.
+- Write commit messages, reports, ticket texts, comments, decisions and notes so they can be found later: a clear
+  subject plus 1-3 full sentences on what changed, why and where (feature, files or area, error message, ticket #).
 - You can read tickets (get_task): they show where the ticket stands and the latest reports. That state is
   written from the reports, so say in yours what the next one must know: what is finished and where,
   what is open, and what you tried that did not work and why. Your own report stays with its ticket,

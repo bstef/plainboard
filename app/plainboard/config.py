@@ -37,6 +37,8 @@ class Config(BaseSettings):
     tidy_interval_seconds: float = 600.0  # how often it is looked whether a repository is due for removing merged branches
     cleanup_interval_seconds: float = 3600.0  # how often disk and memory are looked at for an automatic cleanup (statvfs: cheap)
     search_interval_seconds: float = 30.0  # how often the semantic search index looks for changes (orchestration/search_indexer.py)
+    # Threads that embed for semantic search, at lowered priority (services/search/embedding.py). 0: up to 8, two cores left free.
+    search_threads: int = 0
     standstill_interval_seconds: float = 120.0  # how often the boards are looked at for ready work next to free slots
     # A train waits this long for further branches after the first one is ready: members often
     # finish within minutes of each other, and whoever misses a train waits a whole check run.

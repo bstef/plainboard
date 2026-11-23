@@ -254,6 +254,7 @@ async def _clone(credentials: Credentials, remote: RepoSpec, where: Path) -> Git
 
 
 LOG_FILES = 30  # changed paths named per commit; the rest is counted
+PRESENT_ONE_BY_ONE = 20  # commits asked one at a time; more: against the branch's whole history at once
 
 
 async def commit_log(spec: GitLogSpec) -> GitLogResult:
@@ -299,7 +300,10 @@ async def present(spec: GitPresentSpec) -> GitPresentResult:
         return await run_cmd(["git", *args], cwd=where, env={}, timeout=60)
 
     result = GitPresentResult()
-    for sha in spec.shas:
+    if len(spec.shas) > PRESENT_ONE_BY_ONE:  # many (the index's sweep, full shas): the branch's history once
+        history = set((await git("rev-list", tip)).split())
+        result.on_base = [sha for sha in spec.shas if sha in history]
+    for sha in spec.shas if len(spec.shas) <= PRESENT_ONE_BY_ONE else []:
         try:
             await git("merge-base", "--is-ancestor", sha, tip)
             result.on_base.append(sha)

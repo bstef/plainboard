@@ -73,7 +73,7 @@ class Tickets(Indexer):
         return Doc(
             kind=self.kind, source_id=str(task.id), ref=f"#{task.number}", title=task.title, body=body, at=task.created_at,
             facts=_facts(task.status, f"{task.priority} priority", f"labels: {labels}" if labels else None, "archived" if task.archived_at else None),
-            ticket_number=task.number,
+            ticket_number=task.number, links={"task_id": task.id},
         )  # fmt: skip
 
     def existing(self, project_id: int) -> Select:
@@ -98,6 +98,7 @@ class Reports(Indexer):
         return Doc(
             kind=self.kind, source_id=str(a.id), ref=f"assignment #{a.id}", title=a.title, body=a.result or "", at=a.finished_at or a.created_at,
             facts=_facts(f"ticket #{row.number}" if row.number else None, f"by {row.agent}", a.status), ticket_number=row.number,
+            links={"assignment_id": a.id, "task_id": a.task_id},
         )  # fmt: skip
 
     def existing(self, project_id: int) -> Select:
@@ -123,7 +124,7 @@ class Decisions(Indexer):
             parts.append(f"Answer: {d.answer_text}" if d.answer_option is None else d.answer_text)
         return Doc(
             kind=self.kind, source_id=str(d.id), ref=f"decision on #{row.number}", title=d.question, body="\n\n".join(p for p in parts if p),
-            at=d.created_at, facts=_facts(d.status), ticket_number=row.number,
+            at=d.created_at, facts=_facts(d.status), ticket_number=row.number, links={"decision_id": d.id, "task_id": d.task_id},
         )  # fmt: skip
 
     def existing(self, project_id: int) -> Select:
@@ -148,7 +149,7 @@ class Comments(Indexer):
         who = row.agent or c.author_name or c.author_kind
         return Doc(
             kind=self.kind, source_id=str(c.id), ref=f"comment on #{row.number}", title=row.ticket_title, body=c.body, at=c.created_at,
-            facts=_facts(f"by {who}"), ticket_number=row.number,
+            facts=_facts(f"by {who}"), ticket_number=row.number, links={"comment_id": c.id, "task_id": c.task_id},
         )  # fmt: skip
 
     def existing(self, project_id: int) -> Select:
@@ -163,7 +164,7 @@ class Notes(Indexer):
 
     def doc(self, row: Any) -> Doc | None:
         n: Note = row.Note
-        return Doc(kind=self.kind, source_id=str(n.id), ref=f"note {n.id}", title=n.title, body=n.content, at=n.created_at, facts=_facts("pinned" if n.pinned else None))
+        return Doc(kind=self.kind, source_id=str(n.id), ref=f"note {n.id}", title=n.title, body=n.content, at=n.created_at, facts=_facts("pinned" if n.pinned else None), links={"note_id": n.id})
 
     def existing(self, project_id: int) -> Select:
         return select(cast(Note.id, String)).where(Note.project_id == project_id)
@@ -183,7 +184,7 @@ def commit_docs(repo: Repository, branch: str, commits: list[GitCommit]) -> list
         body = rest.strip()
         if files:
             body += f"\n\nChanged {c.file_count} file{'s' if c.file_count != 1 else ''} (+{c.insertions} -{c.deletions}): {files}"
-        docs.append(Doc(kind=COMMIT, source_id=f"{repo.id}:{c.sha}", ref=c.sha[:10], title=subject.strip(), body=body.strip(), at=_utc(c.date), facts=_facts(f"{repo.name} ({branch})", c.author), repo=repo.name, paths=c.files or None))
+        docs.append(Doc(kind=COMMIT, source_id=f"{repo.id}:{c.sha}", ref=c.sha[:10], title=subject.strip(), body=body.strip(), at=_utc(c.date), facts=_facts(f"{repo.name} ({branch})", c.author), repo=repo.name, paths=c.files or None, links={"repository_id": repo.id}))
     return docs
 
 

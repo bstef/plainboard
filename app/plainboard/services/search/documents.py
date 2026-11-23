@@ -4,7 +4,7 @@ An item (a ticket, a report, a commit ...) becomes one or more chunks. Every chu
 says what it is (kind and reference, project, date, status, labels, title), so a hit is understood
 without its neighbours and a search for "the decision about X" finds decisions. The text is cleaned of
 markdown and other noise (links keep their words, code keeps its identifiers), and long texts are cut
-at paragraph boundaries with an overlap, small enough for the model's 512 tokens. The hash of a chunk
+at paragraph boundaries with an overlap, small enough for the model's 512 tokens (``CHUNK_CHARS``). The hash of a chunk
 says whether it changed: an unchanged one is never embedded again.
 """
 
@@ -15,11 +15,14 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# About 300 tokens of German or English text with the header: well inside the model's 512, and small
-# enough that a hit is about one thing. The overlap carries the end of a chunk into the next one.
-CHUNK_CHARS = 1200
-OVERLAP_CHARS = 200
-MAX_CHUNKS = 12  # a very long text: its first part, where tickets and reports say what matters
+# Measured with the models' tokenizer (XLM-R) on real tickets: 2.6 to 3.4 characters a token. 1000
+# characters with the header are about 200 to 400 tokens, inside the 512 the e5 models read; small enough
+# that a hit is about one thing. A rarer denser text (code, paths) is not cut off: the embedder splits
+# what is longer than its model reads into windows (embedding.LocalOnnxEmbedder). The overlap carries
+# the end of a chunk into the next one.
+CHUNK_CHARS = 1000
+OVERLAP_CHARS = 150
+MAX_CHUNKS = 50  # ~50 000 characters: only a pasted log or dump is longer; of it the first part (the limit keeps one item from flooding the index)
 MIN_CHARS = 12  # shorter is noise ("ok", "+1")
 
 KIND_NAMES = {"ticket": "Ticket", "report": "Report", "decision": "Decision", "comment": "Comment", "note": "Note", "commit": "Commit"}
@@ -40,6 +43,7 @@ class Doc:
     repo: str | None = None
     changed: datetime | None = None  # when it last changed at its source; None: when it was made
     paths: list[str] | None = None  # a commit's changed files
+    links: dict[str, int | None] = field(default_factory=dict)  # what it comes from (SearchDocument.task_id ...): deleted with it
 
 
 @dataclass

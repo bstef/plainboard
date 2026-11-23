@@ -17,9 +17,11 @@ from ..models import FlowEvent
 REFS = ("agent_id", "run_id", "assignment_id", "task_id", "landing_id", "train_id")
 
 
-async def record(session: AsyncSession, project_id: int, kind: str, **fields: Any) -> None:
+async def record(session: AsyncSession, project_id: int, kind: str, *, commit: bool = True, **fields: Any) -> None:
     """Write one event. Ids of what it is about go into their columns, everything else into ``data``.
-    Commits, like an inbox update: call it where the caller's own changes are already written."""
+    Commits, like an inbox update: call it where the caller's own changes are already written
+    (``commit=False``: it is written with the caller's next commit)."""
     refs = {key: fields.pop(key) for key in REFS if key in fields}
     session.add(FlowEvent(project_id=project_id, kind=kind, data=fields, **refs))
-    await session.commit()
+    if commit:
+        await session.commit()
