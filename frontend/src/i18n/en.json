@@ -863,6 +863,10 @@
     "nobodyWorking": "Nobody is working",
     "idleMore_one": "+{{count}} idle",
     "idleMore_other": "+{{count}} idle",
+    "moreRows_one": "+{{count}} more",
+    "moreRows_other": "+{{count}} more",
+    "runningCount_one": "{{count}} running",
+    "runningCount_other": "{{count}} running",
     "openChat": "Open chat with {{name}}",
     "forYou": "{{n}} for you",
     "planning": "planning"
