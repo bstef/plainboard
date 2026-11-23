@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false, true
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false, true
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -603,6 +603,7 @@ class Conversation(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (Index("ix_messages_conversation_id_created_at", "conversation_id", "created_at"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(10))  # user | assistant | system
@@ -615,6 +616,11 @@ class Message(Base):
 
 class Run(Base):
     __tablename__ = "runs"
+    __table_args__ = (
+        Index("ix_runs_agent_id_status", "agent_id", "status"),
+        Index("ix_runs_agent_id_finished_at", "agent_id", "finished_at"),
+        Index("ix_runs_project_id_created_at", "project_id", "created_at"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
@@ -623,8 +629,8 @@ class Run(Base):
     input_text: Mapped[str] = mapped_column(Text, default="")
     effort: Mapped[str | None] = mapped_column(String(20))  # per-run override of the agent's effort
     attachment_ids: Mapped[list[int]] = mapped_column(JSON, default=list)  # files sent with a chat message
-    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
-    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id", ondelete="SET NULL"))
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), index=True)
+    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id", ondelete="SET NULL"), index=True)
     schedule_id: Mapped[int | None] = mapped_column(ForeignKey("schedules.id", ondelete="SET NULL"))
     source_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     parent_run_id: Mapped[int | None] = mapped_column(Integer)
@@ -706,6 +712,7 @@ class InboxItem(Base):
     """Updates for an agent, prepended to its next turn (cheaper than an extra run)."""
 
     __tablename__ = "inbox_items"
+    __table_args__ = (Index("ix_inbox_items_agent_id_consumed_at", "agent_id", "consumed_at"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), index=True)
     text: Mapped[str] = mapped_column(Text)
