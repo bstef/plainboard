@@ -134,6 +134,8 @@
     "create": "Create project",
     "new": "New project",
     "settings": "Project settings",
+    "search": "Find project…",
+    "noMatch": "No project matches",
     "name": "Name",
     "description": "Description",
     "language": "Language",
