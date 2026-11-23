@@ -30,11 +30,13 @@ class RunnerUnavailable(RunnerError):
 
 class RunnerStreamBroken(RunnerError):
     """The connection of a turn's stream broke without the runner saying why. ``events``: how many it
-    had sent until then."""
+    had sent until then; ``lost``: an external runner no longer has the turn (it restarted, e.g. to
+    update itself, or stayed away too long), so nothing of it runs any more."""
 
-    def __init__(self, message: str, events: int):
+    def __init__(self, message: str, events: int, lost: bool = False):
         super().__init__(message)
         self.events = events
+        self.lost = lost
 
 
 class UpdateRefused(RunnerError):
@@ -70,7 +72,7 @@ class RunnerClient:
                         # Gone: the runner was started anew, or it could not keep what was missed.
                         if events == 0 and resp.status_code == 404:
                             raise RunnerUnavailable("Runner unreachable: the turn never started there")
-                        raise RunnerStreamBroken(f"The runner no longer has this turn ({resp.status_code}): it was started anew", events)
+                        raise RunnerStreamBroken(f"The runner no longer has this turn ({resp.status_code}): it was started anew", events, lost=True)
                     if resp.status_code >= 400:
                         text = (await resp.aread()).decode(errors="replace")
                         raise RunnerError(f"Runner rejected run ({resp.status_code}): {text[:500]}")
@@ -94,7 +96,7 @@ class RunnerClient:
             now = time.monotonic()
             resume_until = resume_until or now + RESUME_SECONDS
             if now >= resume_until:
-                raise RunnerStreamBroken(unreachable(error), events) from error
+                raise RunnerStreamBroken(unreachable(error), events, lost=True) from error
             await asyncio.sleep(RESUME_RETRY_SECONDS)
             method, path, body = "GET", f"/runs/{spec.run_id}/events?after={events}", None
 

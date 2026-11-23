@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
-from datetime import datetime
+from datetime import UTC, datetime
 
 from plainboard_protocol import UnpushedSpec
 from sqlalchemy import func, select, update
@@ -154,6 +154,7 @@ async def listing(session: AsyncSession, hub) -> list[RunnerOut]:
                 version=short(version or ""),
                 version_ok=version_ok(version or ""),
                 updating=r.id in hub.updating,
+                restart_by=datetime.fromtimestamp(hub.restart_by[r.id], UTC).replace(tzinfo=None) if r.id in hub.updating and r.id in hub.restart_by else None,
                 last_seen_at=utcnow() if connected else r.last_seen_at,
                 created_at=r.created_at,
                 projects=projects.get(r.id, []),

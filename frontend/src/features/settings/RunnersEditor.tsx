@@ -132,6 +132,8 @@ export function RunnersEditor() {
                   <div className="flex items-center gap-1.5 text-fg-2" role="status">
                     <Spinner />
                     {t("runners.updating")}
+                    {r.restart_by &&
+                      ` · ${t("runners.restartsIn", { minutes: Math.max(1, Math.ceil((new Date(r.restart_by).getTime() - Date.now()) / 60000)) })}`}
                   </div>
                 ) : (
                   !r.version_ok && <div className="text-you-fg">{t("runners.versionMismatch")}</div>

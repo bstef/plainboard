@@ -1232,6 +1232,7 @@ class RunnerOut(BaseModel):
     version: str = ""  # the commit it runs, short; empty: not known
     version_ok: bool = True  # the same as the app's (or one of them is not known)
     updating: bool = False  # it runs idle to update itself to the app's version, or restarts for it
+    restart_by: UTCDateTime | None = None  # while updating: it restarts at the latest then, whatever still runs
     last_seen_at: UTCDateTime | None = None
     created_at: UTCDateTime
     projects: list[str] = []

@@ -1195,6 +1195,7 @@
     "version": "version {{commit}}",
     "versionMismatch": "It runs another version than PlainBoard and updates itself when nothing runs on it. If it stays like this: in the runner's folder run docker compose pull && docker compose up -d.",
     "updating": "Updating… new turns and jobs wait until it is back",
+    "restartsIn": "restarts at the latest in {{minutes}} min",
     "disk": "disk {{used}} of {{total}}",
     "memory": "RAM {{used}} of {{total}}",
     "projects": "Projects: {{names}}",

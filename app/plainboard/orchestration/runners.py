@@ -41,6 +41,7 @@ class Runners:
         self.away_since: dict[int, float] = {}  # runners that were connected and are not (monotonic)
         self.instances: dict[int, str] = {}  # the instance each runner last said it is: a new one is a restart
         self.updating: set[int] = set()  # runners that run idle to update themselves (runner_updates.py)
+        self.restart_by: dict[int, float] = {}  # ... and when they restart at the latest (time.time())
         self.on_connect: Callable[[int], None] | None = None  # the dispatcher starts what waited
         self.make_client: Callable[[int], Any] = self._tunnel_client
 
@@ -126,6 +127,7 @@ class Runners:
         self.away_since.pop(runner_id, None)
         self.instances.pop(runner_id, None)
         self.updating.discard(runner_id)
+        self.restart_by.pop(runner_id, None)
         self._previews.pop(runner_id, None)
 
     # --- what is not a RunnerClient call: previews and sockets ------------------------------------

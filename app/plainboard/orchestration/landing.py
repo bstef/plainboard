@@ -226,6 +226,8 @@ class LandingWatcher:
                 return
         if self._runs.paused or project.paused_at is not None:
             return  # paused (everything, or this project): the train on its way is watched to its end, no new one leaves
+        if not self._runs.runners.accepts(project.id):
+            return  # its runner is about to restart for its self-update: a check run started now would be cut
         await (self._land_first(s, r, now) if repo.land_first else self._depart(s, r, now))
 
     # ------------------------------------------------------------------ a train on its way
