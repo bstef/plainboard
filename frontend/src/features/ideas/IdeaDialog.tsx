@@ -1,11 +1,14 @@
 import { History, RotateCcw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ClipboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { useIdeaVersions } from "../../api/queries";
-import type { Idea, IdeaTopic } from "../../api/types";
+import type { Attachment, Idea, IdeaTopic } from "../../api/types";
+import { AttachmentGrid } from "../../components/AttachmentGrid";
+import { Lightbox } from "../../components/Lightbox";
 import { Button, ErrorText, Field, Input, Modal, Select, Spinner, Textarea } from "../../components/ui";
 import { timeAgo } from "../../lib/format";
+import { isMediaFile, isVideoFile } from "../../lib/media";
 import { IdeaQuestion, ideaTitle } from "./IdeaCard";
 
 /** An idea opened: its title and text to edit in place, its topic, and its earlier versions to restore. */
@@ -17,6 +20,7 @@ export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; to
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [history, setHistory] = useState(false);
+  const [viewing, setViewing] = useState<number | null>(null);
   const versions = useIdeaVersions(idea.project_id, idea.id, history);
   const base = `/projects/${idea.project_id}/ideas/${idea.id}`;
   const topicId = topic === "" ? null : Number(topic);
@@ -48,6 +52,23 @@ export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; to
       setTitle(restored.title);
       setText(restored.text);
     }, false);
+  // The idea's files change at once (no save); the board learns of it through the idea's live event.
+  const upload = (files: FileList | File[]) => {
+    if (!files.length) return;
+    const form = new FormData();
+    for (const file of Array.from(files)) form.append("files", file, file.name || "pasted.png");
+    return run(() => api.post(`${base}/attachments`, form), false);
+  };
+  const removeFile = (a: Attachment) => run(() => api.del(`/attachments/${a.id}`), false);
+  const onPaste = (e: ClipboardEvent) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length) {
+      e.preventDefault();
+      void upload(files);
+    }
+  };
+  const attachments = idea.attachments ?? [];
+  const media = attachments.filter((a) => isMediaFile(a) && !a.purged_at);
   const remove = () => window.confirm(t("ideas.edit.deleteConfirm")) && run(() => api.del(base));
 
   return (
@@ -72,7 +93,7 @@ export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; to
         )
       }
     >
-      <div data-part="idea-edit" className="flex flex-col gap-4">
+      <div data-part="idea-edit" className="flex flex-col gap-4" onPaste={canWrite ? onPaste : undefined}>
         {canWrite ? (
           <>
             <Field label={t("ideas.edit.name")}>
@@ -100,6 +121,9 @@ export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; to
           <p className="text-fg-2">
             {idea.question} → <span className="text-fg">{idea.question_answer}</span>
           </p>
+        )}
+        {(canWrite || attachments.length > 0) && (
+          <AttachmentGrid attachments={attachments} onUpload={upload} onView={setViewing} onRemove={removeFile} canWrite={canWrite} />
         )}
         <p className="text-fg-3">{t("ideas.edit.by", { author: idea.author || t("ideas.edit.someone"), when: timeAgo(idea.created_at) })}</p>
         <ErrorText error={error} />
@@ -135,6 +159,16 @@ export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; to
             ))}
         </section>
       </div>
+      {viewing !== null && (
+        <Lightbox
+          images={media.map((a) => ({ src: `/api/attachments/${a.id}`, alt: a.filename, video: isVideoFile(a) }))}
+          start={Math.max(
+            media.findIndex((a) => a.id === viewing),
+            0,
+          )}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </Modal>
   );
 }

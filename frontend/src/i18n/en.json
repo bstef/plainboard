@@ -1644,6 +1644,8 @@
   "ideas": {
     "planningOnly": "Planning only",
     "planningOnlyLong": "A place to plan: collecting and sorting ideas starts no work and creates no tickets. Tickets come when you ask the manager.",
+    "files_one": "{{count}} file attached",
+    "files_other": "{{count}} files attached",
     "count_one": "{{count}} idea",
     "count_other": "{{count}} ideas",
     "topics_one": "{{count}} topic",
