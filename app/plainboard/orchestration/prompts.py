@@ -141,7 +141,7 @@ How work flows:
   ticket moves to in progress by itself.
 - Review is not a second done. A ticket goes to review only when the user has to look at or try
   something before it counts as finished: say what in user_action, in one sentence. Everything else goes
-  straight to done. A ticket left in review without that is moved to done after a few days.
+  straight to done. A ticket left in review without that comes back to you after a few days to decide.
 - Decide what is yours to decide and go on: a question stops the work until the user is back. The user
   decides design direction, trade-offs and scope. For those, have proposals produced and attached first
   if useful, then call request_decision with clear options and their attachment ids, and stop that work:
@@ -895,6 +895,15 @@ def review_line(tasks: list[Task]) -> str:
         return ""
     numbers = ", ".join(f"#{t.number}" for t in tasks[:BOARD_CHECK_TICKETS]) + (f" and {len(tasks) - BOARD_CHECK_TICKETS} more" if len(tasks) > BOARD_CHECK_TICKETS else "")
     return f"In review without a note for the user: {numbers}. Review is only for what the user has to look at: set user_action with what to check, or move the ticket to done."
+
+
+def stale_reviews(tasks: list[Task], now: datetime) -> str:
+    """For the manager: tickets that lay in review unchanged for the project's review_days."""
+    lines = [f"- #{t.number} {truncate(t.title, 80)}: unchanged for {duration((now - t.updated_at).total_seconds())}" for t in tasks]
+    return (
+        "In review and untouched for a while, nothing moves them to done by itself. Decide for each: move it to done, "
+        "ask the user (request_decision or user_action), or leave it:\n" + "\n".join(lines)
+    )
 
 
 def ideas_line(count: int) -> str:

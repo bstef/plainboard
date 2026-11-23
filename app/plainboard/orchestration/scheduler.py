@@ -60,7 +60,11 @@ class Scheduler:
                     fired += 1
                 await schedule_service.mark_fired(s, schedule, run_id, now)
             await self._runs.refresh_closed_tickets(s)
-            await board_service.accept_reviews(s)
+            # The manager decides what happens to tickets left in review, nothing moves them to done by itself.
+            for project, manager, tasks in await board_service.stale_reviews(s):
+                await inbox.push(s, manager.id, prompts.stale_reviews(tasks, now))
+                if project.auto_wake_manager:
+                    await self._runs.request_wake(s, manager.id)
             await board_service.auto_archive(s)
             await todo_service.purge(s)
             # Arrives with the member's next turn; nobody is woken for it.

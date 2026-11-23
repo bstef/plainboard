@@ -202,7 +202,7 @@ class Project(Timestamps, Base):
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never
-    review_days: Mapped[int] = mapped_column(Integer, default=3)  # tickets left in review move to done after this; 0 = never
+    review_days: Mapped[int] = mapped_column(Integer, default=3)  # tickets left in review go to the manager after this; 0 = never
     # Files of tickets done this long ago are deleted, their entries stay (services/retention.py); 0 = never.
     attachment_retention_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     attachment_retention_min_mb: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # only files from this size; 0: all
@@ -453,6 +453,8 @@ class Task(Timestamps, Base):
     user_action: Mapped[str] = mapped_column(String(500), default="")
     # Archived tickets are off the board but keep their history and links.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    # When it last went to the manager for lying in review unchanged (projects.review_days).
+    review_handed_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
 
 

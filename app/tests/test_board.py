@@ -318,33 +318,56 @@ def test_done_tickets_are_archived_and_restored(client, project):
     assert client.portal.call(age_and_auto_archive) == 0
 
 
-def test_tickets_left_in_review_move_to_done_unless_they_wait_for_the_user(client, project):
+def test_tickets_left_in_review_go_to_the_manager_once_per_stale_period(client, project):
     from datetime import timedelta
 
     from plainboard.db import sessionmaker
-    from plainboard.models import Task, utcnow
-    from plainboard.services import board as board_service
+    from plainboard.models import Agent, Task, utcnow
+    from plainboard.orchestration import inbox
     from sqlalchemy import update
 
     pid = project["id"]
     assert project["review_days"] == 3
-    old, marked, new = (client.post(f"/api/projects/{pid}/tasks", json={"title": t, "status": "review"}).json() for t in ("Old", "Marked", "New"))
+    client.patch(f"/api/projects/{pid}", json={"auto_wake_manager": False})
+    old, other, marked, new = (client.post(f"/api/projects/{pid}/tasks", json={"title": t, "status": "review"}).json() for t in ("Old", "Other", "Marked", "New"))
     client.patch(f"/api/tasks/{marked['id']}", json={"user_action": "Try the login"})
+    manager_id = next(a["id"] for a in client.get(f"/api/projects/{pid}/agents").json() if a["is_manager"])
 
-    async def age_and_accept():
+    async def age(ids, days, handed_days=None):
         async with sessionmaker()() as s:
-            await s.execute(update(Task).where(Task.id.in_((old["id"], marked["id"]))).values(updated_at=utcnow() - timedelta(days=4)))
+            values = {"updated_at": utcnow() - timedelta(days=days)}
+            if handed_days is not None:
+                values["review_handed_at"] = utcnow() - timedelta(days=handed_days)
+            await s.execute(update(Task).where(Task.id.in_(ids)).values(**values))
             await s.commit()
-            return await board_service.accept_reviews(s)
 
+    async def tick():
+        await client.app_ref.state.scheduler.tick()
+        async with sessionmaker()() as s:
+            return await inbox.consume(s, manager_id)
+
+    client.portal.call(age, [old["id"], other["id"], marked["id"]], 4)
     client.patch(f"/api/projects/{pid}", json={"review_days": 0})
-    assert client.portal.call(age_and_accept) == 0
+    assert client.portal.call(tick) == []
     client.patch(f"/api/projects/{pid}", json={"review_days": 3})
-    assert client.portal.call(age_and_accept) == 1
+    [update_] = client.portal.call(tick)
+    assert f"#{old['number']} Old: unchanged for 4 d" in update_ and f"#{other['number']} Other" in update_
+    assert f"#{marked['number']}" not in update_ and f"#{new['number']}" not in update_
     detail = lambda t: client.get(f"/api/tasks/{t['id']}").json()  # noqa: E731
-    assert [detail(t)["status"] for t in (old, marked, new)] == ["done", "review", "review"]
-    comment = detail(old)["comments"][-1]
-    assert comment["author_kind"] == "system" and "3 days in review" in comment["body"]
+    assert [detail(t)["status"] for t in (old, other, marked, new)] == ["review"] * 4
+    assert client.portal.call(tick) == []  # once per stale period, not every tick
+    client.portal.call(age, [old["id"]], 8, 4)  # left as it was for another period: it comes again
+    [again] = client.portal.call(tick)
+    assert f"#{old['number']}" in again and f"#{other['number']}" not in again
+
+    async def without_manager():
+        async with sessionmaker()() as s:
+            await s.execute(update(Agent).where(Agent.id == manager_id).values(is_manager=False))
+            await s.commit()
+
+    client.portal.call(without_manager)
+    client.portal.call(age, [old["id"]], 8, 4)
+    assert client.portal.call(tick) == []
 
 
 def test_preview_opens_a_server_in_the_runner_through_plainboard(client, project, monkeypatch):

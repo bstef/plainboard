@@ -220,20 +220,31 @@ async def unmarked_in_review(session: AsyncSession, project_id: int) -> list[Tas
     return [t for t in tasks if t.id not in asked]
 
 
-async def accept_reviews(session: AsyncSession) -> int:
-    """Moves tickets to done that lay in review unchanged for the project's review_days. Tickets that
-    wait for the user (user action, open question) or are being worked on stay."""
-    accepted = 0
-    for project in (await session.scalars(select(Project).where(Project.review_days > 0))).all():
-        cutoff = utcnow() - timedelta(days=project.review_days)
+async def stale_reviews(session: AsyncSession) -> list[tuple[Project, Agent, list[Task]]]:
+    """Tickets that lay in review unchanged for their project's review_days, per project with its manager,
+    who decides what happens to them. Each comes once per stale period: again only after another
+    review_days. Tickets that wait for the user (user action, open question) or are being worked on stay
+    out, as do projects without a manager and paused ones."""
+    stale = []
+    for project in (await session.scalars(select(Project).where(Project.review_days > 0, Project.paused_at.is_(None)))).all():
+        manager = await session.scalar(select(Agent).where(Agent.project_id == project.id, Agent.is_manager.is_(True)))
+        if manager is None:
+            continue
+        now = utcnow()
+        cutoff = now - timedelta(days=project.review_days)
         working = set(await session.scalars(select(Run.task_id).where(Run.project_id == project.id, Run.status.in_(ACTIVE_RUN_STATUSES))))
-        for task in await unmarked_in_review(session, project.id):
-            if task.updated_at >= cutoff or task.id in working:
-                continue
-            await _apply_update(session, task, {"status": TaskStatus.DONE})
-            await add_comment(session, task, f"Moved to done automatically: {project.review_days} days in review without a change.", author_kind="system")
-            accepted += 1
-    return accepted
+        tasks = [
+            t
+            for t in await unmarked_in_review(session, project.id)
+            if t.updated_at < cutoff and t.id not in working and (t.review_handed_at is None or t.review_handed_at < cutoff)
+        ]
+        if not tasks:
+            continue
+        # Handing it over is no change to the ticket: updated_at stays.
+        await session.execute(update(Task).where(Task.id.in_([t.id for t in tasks])).values(review_handed_at=now, updated_at=Task.updated_at))
+        await session.commit()
+        stale.append((project, manager, tasks))
+    return stale
 
 
 async def finish_user_action(session: AsyncSession, task: Task, note: str = "", author_name: str | None = None) -> str:
