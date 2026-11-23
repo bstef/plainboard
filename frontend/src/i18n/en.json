@@ -1653,6 +1653,7 @@
     "placeholderFirst": "What comes to mind? One sentence is enough, the AI sorts it in.",
     "add": "Add",
     "readingInput": "the AI reads it…",
+    "filesNoIdea": "The files were not attached: the input made no idea.",
     "sorting": "The AI sorts ideas into topics…",
     "reading": "Being sorted in…",
     "unsorted": "Not in a topic",

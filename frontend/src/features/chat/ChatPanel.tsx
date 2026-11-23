@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowUp, ChevronDown, CircleHelp, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, ChevronDown, CircleHelp, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -9,6 +9,7 @@ import { qk, useConversation, useMe, useRuns, useSettings } from "../../api/quer
 import type { Attachment, Conversation } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
 import { Markdown } from "../../components/Markdown";
+import { PendingFile } from "../../components/PendingFile";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, ChatPanelToggle, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
@@ -377,38 +378,6 @@ function Elapsed({ since }: { since: string }) {
     <time className="shrink-0 font-normal text-fg-3">
       {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
     </time>
-  );
-}
-
-function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
-  const { t } = useTranslation();
-  const [preview, setPreview] = useState<string>();
-  useEffect(() => {
-    if (!file.type.startsWith("image/")) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-  const name = file.name || "pasted.png";
-  return (
-    <div className="relative max-w-40" title={name}>
-      {preview ? (
-        <img src={preview} alt={name} className="size-16 rounded-sm object-cover ring-1 ring-line-2" />
-      ) : (
-        <div className="flex h-8 items-center gap-1.5 rounded-sm pr-8 pl-2 text-fg ring-1 ring-line-2 ring-inset">
-          <Paperclip className="size-4 shrink-0 text-fg-3" />
-          <span className="truncate">{name}</span>
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={t("chat.removeFile", { name })}
-        className={clsx("absolute flex size-6 items-center justify-center rounded-sm text-fg-2 hover:text-fg", preview ? "top-0.5 right-0.5 bg-bg" : "top-1 right-1")}
-      >
-        <X className="size-4" />
-      </button>
-    </div>
   );
 }
 
