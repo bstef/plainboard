@@ -562,6 +562,7 @@ function Composer({
           onClick={send}
           disabled={(!text.trim() && !files.length) || disabled || sending}
           aria-label={t("chat.send")}
+          data-part="send"
           className="plate flex size-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-fg-2 disabled:bg-line disabled:text-fg-3 touch:size-11"
         >
           <ArrowUp className="size-4" />
