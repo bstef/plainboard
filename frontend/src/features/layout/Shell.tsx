@@ -85,9 +85,9 @@ export type View =
 
 const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "board", icon: (c) => <FolderKanban className={c} /> },
+  { id: "chat", icon: (c) => <MessageSquare className={c} /> },
   { id: "ideas", icon: (c) => <Lightbulb className={c} /> },
   { id: "flow", icon: (c) => <GitMerge className={c} /> },
-  { id: "chat", icon: (c) => <MessageSquare className={c} /> },
   { id: "team", icon: (c) => <Users className={c} /> },
   { id: "notes", icon: (c) => <NotebookPen className={c} /> },
   { id: "schedules", icon: (c) => <CalendarClock className={c} /> },
@@ -97,9 +97,9 @@ const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "project", icon: (c) => <SlidersHorizontal className={c} /> },
 ];
 /** The main navigation: daily work, in the sidebar and as the phone's tabs. */
-const MAIN: View[] = ["board", "ideas", "flow", "chat", "team"];
+const MAIN: View[] = ["board", "chat", "ideas", "flow", "team"];
 /** On phones the tabs have room for four views and the search: the team moves to the "…" menu. */
-const PHONE_MAIN: View[] = ["board", "ideas", "flow", "chat"];
+const PHONE_MAIN: View[] = ["board", "chat", "ideas", "flow"];
 /** The rest: in the "…" menu at the project name and in the palette (Ctrl+K). */
 const RARE: View[] = ["notes", "schedules", "browser", "stats", "project"];
 
