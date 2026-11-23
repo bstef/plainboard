@@ -1568,5 +1568,12 @@
     "add": "Add language",
     "hint": "Every change is saved at once. Removing a language keeps its texts on the tickets: they come back when you add it again.",
     "confirmRemove": "{{count}} tickets have customer texts in {{language}}. Remove the language anyway? The texts stay stored and come back when you add {{language}} again."
+  },
+  "markdown": {
+    "diagram": "Diagram",
+    "enlargeDiagram": "Show diagram large",
+    "showCode": "Show code",
+    "showDiagram": "Show diagram",
+    "diagramError": "The diagram could not be drawn: {{error}}"
   }
 }
