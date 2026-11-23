@@ -7,7 +7,7 @@ from plainboard_protocol import Credentials
 from pydantic import BaseModel, Field
 
 from ..schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
-from ..services import permissions
+from ..services import ownership, permissions
 from ..services import projects as project_service
 from ..services import repositories as repo_service
 from ..services import settings as settings_service
@@ -72,8 +72,10 @@ async def create_repository(project_id: int, body: RepositoryCreate, session: Se
 
 
 @router.patch("/repositories/{repo_id}", response_model=RepositoryOut)
-async def update_repository(repo_id: int, body: RepositoryUpdate, session: Session) -> RepositoryOut:
-    repo = await repo_service.update(session, await repo_service.get(session, repo_id), body)
+async def update_repository(repo_id: int, body: RepositoryUpdate, session: Session, who: Who) -> RepositoryOut:
+    repo = await repo_service.get(session, repo_id)
+    holder = ownership.holds(await project_service.get(session, repo.project_id), who.user)
+    repo = await repo_service.update(session, repo, body, keep_access=holder)
     (out,) = await repo_service.to_out(session, [repo])
     return out
 

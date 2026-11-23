@@ -123,11 +123,26 @@ async def create(session: AsyncSession, project_id: int, data: RepositoryCreate)
     return repo
 
 
-async def update(session: AsyncSession, repo: Repository, data: RepositoryUpdate) -> Repository:
+def _keeps_access(repo: Repository, fields: dict, access: dict, new_ssh_key: bool) -> bool:
+    """Would the stored token or key go along to the new address of this change?"""
+    url, auth = fields.get("url") or repo.url, fields.get("auth") or repo.auth
+    if ssh_url(url.strip()) == ssh_url(repo.url):
+        return False
+    if auth == "token":
+        return bool(repo.token_enc) and not (access["token"] or "").strip()
+    return auth == "ssh" and bool(repo.ssh_key_enc) and not (access["ssh_private_key"] or "").strip() and not new_ssh_key
+
+
+async def update(session: AsyncSession, repo: Repository, data: RepositoryUpdate, *, keep_access: bool = True) -> Repository:
+    """``keep_access``: may the stored token or key go along to another address (the project's owner or an
+    admin, services/ownership.py)? Else such a change needs them entered again, so they never reach a host
+    someone else chose."""
     fields = data.model_dump(exclude_unset=True)
     agent_ids = fields.pop("agent_ids", None)
     access = {key: fields.pop(key, None) for key in ("token", "token_user", "ssh_private_key")}
     new_ssh_key = bool(fields.pop("new_ssh_key", False))
+    if not keep_access and _keeps_access(repo, fields, access, new_ssh_key):
+        raise ServiceError("Only the project's owner or an admin can give a repository with its own access another address. Enter the token or SSH key again along with it.", 403)
     if "name" in fields and fields["name"]:
         fields["name"] = _validate_name(fields["name"].strip())
         await _check_unique(session, repo.project_id, fields["name"], exclude_id=repo.id)

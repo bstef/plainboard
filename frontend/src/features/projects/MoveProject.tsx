@@ -3,7 +3,7 @@ import { Check, Download, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../../api/client";
-import { qk } from "../../api/queries";
+import { qk, useMe, useMembers } from "../../api/queries";
 import type { Project } from "../../api/types";
 import { Button, ErrorText, Field, Input, Toggle } from "../../components/ui";
 
@@ -21,6 +21,11 @@ export function ExportProject({ project }: { project: Project }) {
   const [chats, setChats] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const me = useMe();
+  const members = useMembers(project.id);
+  // The credentials are the project owner's (or the installation's): only they or an admin take them along (checked again by the server).
+  const owner = (members.data ?? []).find((m) => m.project_owner);
+  const mayCarry = !!me && (me.is_admin || owner?.user_id === me.id);
 
   const download = async () => {
     setBusy(true);
@@ -30,7 +35,7 @@ export function ExportProject({ project }: { project: Project }) {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passphrase, chats }),
+        body: JSON.stringify({ passphrase: mayCarry ? passphrase : "", chats }),
       });
       if (!resp.ok) throw new ApiError(resp.status, (await resp.json().catch(() => null))?.detail ?? resp.statusText);
       const link = document.createElement("a");
@@ -47,8 +52,8 @@ export function ExportProject({ project }: { project: Project }) {
 
   return (
     <div className="space-y-4">
-      <Field label={t("move.passphrase")} hint={t("move.passphraseHint")}>
-        <Input type="password" autoComplete="new-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
+      <Field label={t("move.passphrase")} hint={mayCarry ? t("move.passphraseHint") : t("move.passphraseOwnerOnly")}>
+        <Input type="password" autoComplete="new-password" value={passphrase} disabled={!mayCarry} onChange={(e) => setPassphrase(e.target.value)} />
       </Field>
       <div className="space-y-1">
         <Toggle checked={chats} onChange={setChats} label={t("move.chats")} />

@@ -22,11 +22,12 @@ from ..schemas import (
 )
 from ..services import mcp as mcp_service
 from ..services import notes as note_service
+from ..services import ownership
 from ..services import projects as project_service
 from ..services import schedules as schedule_service
 from ..services import skills as skill_service
 from ..services.errors import ServiceError
-from .deps import Runs, Session
+from .deps import Runs, Session, Who
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["knowledge"])
 
@@ -87,9 +88,10 @@ async def create_mcp(project_id: int, body: McpServerCreate, session: Session) -
 
 
 @router.patch("/mcp-servers/{server_id}", response_model=McpServerOut)
-async def update_mcp(project_id: int, server_id: int, body: McpServerUpdate, session: Session) -> McpServerOut:
+async def update_mcp(project_id: int, server_id: int, body: McpServerUpdate, session: Session, who: Who) -> McpServerOut:
     server = await mcp_service.get(session, server_id, project_id)
-    (out,) = await mcp_service.to_out(session, [await mcp_service.update(session, server, body, project_id)])
+    holder = who.is_admin if server.project_id is None else ownership.holds(await project_service.get(session, project_id), who.user)
+    (out,) = await mcp_service.to_out(session, [await mcp_service.update(session, server, body, project_id, keep_secrets=holder)])
     return out
 
 
