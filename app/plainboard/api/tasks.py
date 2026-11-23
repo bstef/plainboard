@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy import select
@@ -13,6 +15,9 @@ from ..schemas import (
     DecisionAnswer,
     DecisionOut,
     FlowFinding,
+    FlowHistory,
+    FlowLive,
+    FlowTicketBranch,
     RunOut,
     StatsOut,
     TaskCreate,
@@ -23,6 +28,7 @@ from ..schemas import (
 )
 from ..services import board as board_service
 from ..services import decisions as decision_service
+from ..services import flow as flow_service
 from ..services import flow_check as flow_check_service
 from ..services import projects as project_service
 from ..services import stats as stats_service
@@ -103,6 +109,27 @@ async def flow_check(project_id: int, session: Session, hours: int = Query(defau
     """What PlainBoard's own checks found that slows the team down, heaviest first."""
     await project_service.get(session, project_id)
     return [FlowFinding(key=f.key, title=f.title, detail=f.detail, action=f.action) for f in await flow_check_service.findings(session, project_id, hours)]
+
+
+@router.get("/projects/{project_id}/flow", response_model=FlowLive)
+async def flow_live(project_id: int, session: Session) -> FlowLive:
+    """What works where, is checked and lands right now."""
+    return await flow_service.live(session, project_id)
+
+
+@router.get("/projects/{project_id}/flow/history", response_model=FlowHistory)
+async def flow_history(project_id: int, session: Session, repository_id: int | None = None, before: datetime | None = None, limit: int = Query(default=30, ge=1, le=100)) -> FlowHistory:
+    """Trains, branch sweeps and stuck branches, newest first; ``before`` is the ``next_before`` of the page before."""
+    if before is not None and before.tzinfo is not None:
+        before = before.astimezone(UTC).replace(tzinfo=None)
+    return await flow_service.history(session, project_id, repository_id=repository_id, before=before, limit=limit)
+
+
+@router.get("/tasks/{task_id}/flow", response_model=list[FlowTicketBranch])
+async def task_flow(task_id: int, session: Session) -> list[FlowTicketBranch]:
+    """The way the ticket's branches take to the base branch."""
+    await board_service.get_task(session, task_id)
+    return await flow_service.of_ticket(session, task_id)
 
 
 @router.get("/projects/{project_id}/work-report")

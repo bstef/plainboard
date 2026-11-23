@@ -1288,3 +1288,112 @@ class ProjectRunnerIn(BaseModel):
 class Event(BaseModel):
     type: str
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- flow: what works where, is checked and lands (services/flow.py) ----------------------------
+
+
+class FlowRepo(BaseModel):
+    id: int
+    name: str
+    base: str  # the base branch
+    land_first: bool  # branches land before their checks (a development branch)
+    typical_check_seconds: int | None  # the median of the last check runs that landed; None until there is one
+    check_target_seconds: int
+    red: bool  # the base branch fails its checks
+
+
+class FlowJob(BaseModel):
+    id: int
+    command: str
+    started_at: UTCDateTime
+
+
+class FlowWork(BaseModel):
+    """What an agent is busy with right now: a turn (or one waiting to start) and the jobs it left running."""
+
+    agent_id: int
+    status: Literal["running", "queued", "background"]
+    run_id: int | None = None
+    trigger: str | None = None
+    since: UTCDateTime | None = None
+    task_id: int | None = None
+    task_number: int | None = None
+    title: str = ""  # the work order, if the turn is one
+    repair: bool = False  # PlainBoard ordered it: a branch or train that failed its checks
+    branch: str | None = None  # the branch it repairs, if one
+    jobs: list[FlowJob] = Field(default_factory=list)
+
+
+class FlowBranch(BaseModel):
+    id: int
+    repository_id: int
+    branch: str
+    title: str
+    agent_id: int | None
+    task_id: int | None
+    task_number: int | None
+    status: Literal["waiting", "checking", "repairing", "merged", "stuck", "closed"]
+    train_id: int | None
+    failures: int  # times it went back to its author
+    since: UTCDateTime  # when it entered this state
+    merged_at: UTCDateTime | None
+    conflict_files: list[str] = Field(default_factory=list)
+
+
+class FlowTrain(BaseModel):
+    id: int
+    repository_id: int
+    status: Literal["checking", "blocked", "landed", "failed", "aborted"]
+    direct: bool  # its branches landed first, the checks look at the base branch afterwards
+    size: int  # branches on it; 0: a look at the base branch
+    started_at: UTCDateTime
+    finished_at: UTCDateTime | None
+    check_seconds: int
+    failed_checks: list[str] = Field(default_factory=list)
+    repaired_group: bool = False  # branches that failed together, checked again as a group
+    escalated: bool = False
+    branches: list[str] = Field(default_factory=list)
+
+
+class FlowLive(BaseModel):
+    now: UTCDateTime
+    repositories: list[FlowRepo]
+    work: list[FlowWork]
+    branches: list[FlowBranch]  # on their way (waiting, checking, repairing, stuck) and the last ones that landed
+    trains: list[FlowTrain]  # being checked now (or blocked)
+
+
+class FlowRepair(BaseModel):
+    agent_id: int | None
+    assignment_id: int | None
+    at: UTCDateTime
+
+
+class FlowHistoryItem(BaseModel):
+    id: str
+    kind: Literal["train", "sweep", "stuck"]
+    at: UTCDateTime
+    repository_id: int | None
+    train: FlowTrain | None = None
+    repairs: list[FlowRepair] = Field(default_factory=list)  # who was ordered to repair what failed
+    detail: str = ""  # a sweep: the branches removed; stuck: why
+
+
+class FlowHistory(BaseModel):
+    items: list[FlowHistoryItem]
+    next_before: UTCDateTime | None  # ask for the next page with this; None: that was all
+
+
+class FlowStep(BaseModel):
+    key: Literal["handed", "failed", "repair", "checking", "landed", "stuck"]
+    state: Literal["done", "now", "todo"]
+    at: UTCDateTime | None = None
+    detail: str = ""
+
+
+class FlowTicketBranch(BaseModel):
+    branch: FlowBranch
+    repository: str
+    train: FlowTrain | None
+    steps: list[FlowStep]

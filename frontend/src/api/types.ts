@@ -876,3 +876,106 @@ export interface SearchKind {
   /** Chunks with a vector of the current model. */
   embedded: number;
 }
+
+// --- flow: what works where, is checked and lands (GET /projects/{id}/flow, services/flow.py) ---
+
+export interface FlowRepo {
+  id: number;
+  name: string;
+  base: string;
+  /** Branches land before their checks (a development branch). */
+  land_first: boolean;
+  /** The median of the last check runs that landed; null until there is one. */
+  typical_check_seconds: number | null;
+  check_target_seconds: number;
+  /** The base branch fails its checks. */
+  red: boolean;
+}
+export interface FlowJob {
+  id: number;
+  command: string;
+  started_at: string;
+}
+export interface FlowWork {
+  agent_id: number;
+  status: "running" | "queued" | "background";
+  run_id: number | null;
+  trigger: string | null;
+  since: string | null;
+  task_id: number | null;
+  task_number: number | null;
+  /** The work order, if the turn is one. */
+  title: string;
+  /** PlainBoard ordered it: a branch or train failed its checks. */
+  repair: boolean;
+  branch: string | null;
+  jobs: FlowJob[];
+}
+export interface FlowBranch {
+  id: number;
+  repository_id: number;
+  branch: string;
+  title: string;
+  agent_id: number | null;
+  task_id: number | null;
+  task_number: number | null;
+  status: "waiting" | "checking" | "repairing" | "merged" | "stuck" | "closed";
+  train_id: number | null;
+  failures: number;
+  since: string;
+  merged_at: string | null;
+  conflict_files: string[];
+}
+export interface FlowTrain {
+  id: number;
+  repository_id: number;
+  status: "checking" | "blocked" | "landed" | "failed" | "aborted";
+  /** Its branches landed first; the checks look at the base branch afterwards. */
+  direct: boolean;
+  /** Branches on it; 0: a look at the base branch. */
+  size: number;
+  started_at: string;
+  finished_at: string | null;
+  check_seconds: number;
+  failed_checks: string[];
+  repaired_group: boolean;
+  escalated: boolean;
+  branches: string[];
+}
+export interface FlowLive {
+  now: string;
+  repositories: FlowRepo[];
+  work: FlowWork[];
+  branches: FlowBranch[];
+  trains: FlowTrain[];
+}
+export interface FlowRepair {
+  agent_id: number | null;
+  assignment_id: number | null;
+  at: string;
+}
+export interface FlowHistoryItem {
+  id: string;
+  kind: "train" | "sweep" | "stuck";
+  at: string;
+  repository_id: number | null;
+  train: FlowTrain | null;
+  repairs: FlowRepair[];
+  detail: string;
+}
+export interface FlowHistory {
+  items: FlowHistoryItem[];
+  next_before: string | null;
+}
+export interface FlowStep {
+  key: "handed" | "failed" | "repair" | "checking" | "landed" | "stuck";
+  state: "done" | "now" | "todo";
+  at: string | null;
+  detail: string;
+}
+export interface FlowTicketBranch {
+  branch: FlowBranch;
+  repository: string;
+  train: FlowTrain | null;
+  steps: FlowStep[];
+}

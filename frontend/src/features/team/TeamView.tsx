@@ -5,6 +5,7 @@ import { useMe, useRepositories, useUsage } from "../../api/queries";
 import type { Agent } from "../../api/types";
 import { AgentDot, AgentSquare, Badge, Button, PageHead } from "../../components/ui";
 import { formatBytes, formatCost, formatTokens } from "../../lib/format";
+import { FlowMember } from "../flow/Integrations";
 import { useShell } from "../layout/shell-context";
 import { AgentEditor } from "./AgentEditor";
 import { OwnNotesDialog } from "./OwnNotesDialog";
@@ -120,6 +121,7 @@ export function TeamView() {
                   {t("team.chat")}
                 </Button>
               </div>
+              <FlowMember agentId={agent.id} />
             </article>
           ))}
         </div>

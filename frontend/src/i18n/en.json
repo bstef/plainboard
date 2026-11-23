@@ -44,7 +44,8 @@
     "theme": "Design and theme",
     "views": "Views",
     "project": "Project settings",
-    "projectShort": "Settings"
+    "projectShort": "Settings",
+    "flow": "Flow"
   },
   "browser": {
     "address": "Address, e.g. localhost:5173",
@@ -1445,6 +1446,89 @@
       "minute": "about a minute",
       "minutes": "about {{count}} minutes",
       "hours": "about {{count}} hours"
+    }
+  },
+  "flow": {
+    "title": "Flow",
+    "live": "Live",
+    "working": "Working",
+    "handed": "Handed over",
+    "checking": "Being checked",
+    "landed": "On main",
+    "nobody": "Nobody is working here",
+    "repair": "Repair",
+    "noRepos": "Branches and trains appear here once a repository is added to the project.",
+    "landFirst": "Land first",
+    "typical": "typically {{time}}",
+    "baseGreen": "Base branch green",
+    "baseRed": "Base branch fails its checks",
+    "state": {
+      "waiting": "goes on the next train",
+      "repairing": "back with its author ({{count}}×)",
+      "stuck": "with the manager"
+    },
+    "noneHanded": "Nothing handed over",
+    "train": "Train #{{n}}",
+    "branches_one": "{{count}} branch",
+    "branches_other": "{{count}} branches",
+    "blocked": "Checks passed, but it could not be merged",
+    "repairedGroup": "Repaired branches, checked again together",
+    "landFirstIdle": "Lands first, the base branch is checked afterwards",
+    "noTrain": "No train is running",
+    "noneLanded": "Nothing landed yet",
+    "history": "History",
+    "repository": "Repository",
+    "allRepos": "All",
+    "historyEmpty": "Nothing has landed or failed yet",
+    "more": "Show more",
+    "escalated": "The base stays red: the manager was told",
+    "h": {
+      "sweep": "Branch sweep: merged branches removed",
+      "stuck": "Handed to the manager",
+      "basePassed": "Base branch checked: passed (#{{n}})",
+      "baseFailed": "Base branch checked: failed (#{{n}})",
+      "directPassed_one": "Landed first, checks passed (#{{n}}, 1 branch)",
+      "directPassed_other": "Landed first, checks passed (#{{n}}, {{count}} branches)",
+      "directFailed_one": "Landed first, checks failed (#{{n}}, 1 branch)",
+      "directFailed_other": "Landed first, checks failed (#{{n}}, {{count}} branches)",
+      "train": {
+        "landed_one": "Train #{{n}} landed (1 branch)",
+        "landed_other": "Train #{{n}} landed ({{count}} branches)",
+        "failed_one": "Train #{{n}} failed (1 branch)",
+        "failed_other": "Train #{{n}} failed ({{count}} branches)",
+        "blocked_one": "Train #{{n}}: checks passed, not merged (1 branch)",
+        "blocked_other": "Train #{{n}}: checks passed, not merged ({{count}} branches)",
+        "aborted_one": "Train #{{n}} stopped, its branch goes on the next one",
+        "aborted_other": "Train #{{n}} stopped, its branches go on the next one",
+        "checking_one": "Train #{{n}} (1 branch)",
+        "checking_other": "Train #{{n}} ({{count}} branches)"
+      },
+      "repairOrdered": "Repair ordered: {{name}}",
+      "someone": "an agent"
+    },
+    "ticket": {
+      "title": "Branch & landing"
+    },
+    "step": {
+      "handed": "Handed over",
+      "failed": "Check failed",
+      "repair": "Repair by its author",
+      "checking": "Checked on a train",
+      "landed": "Landed on the base branch",
+      "stuck": "With the manager"
+    },
+    "member": {
+      "turn": "Working",
+      "repairs": "repairing",
+      "waiting": "waits for the next train",
+      "checking": "on train #{{n}}",
+      "repairing": "back with its author, repairing"
+    },
+    "side": {
+      "title": "Landing",
+      "quiet": "Nothing on its way",
+      "waiting": "{{count}} handed over",
+      "repairing": "{{count}} being repaired"
     }
   }
 }

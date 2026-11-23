@@ -91,6 +91,10 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
   const { type, data } = event;
   const [entity] = type.split(".");
   switch (entity) {
+    case "flow":
+      invalidateSoon(qc, qk.flow(pid));
+      invalidateSoon(qc, ["taskflow"]);
+      break;
     case "task":
     case "comment":
     case "attachment":
@@ -108,6 +112,7 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
       break;
     case "assignment":
       invalidateSoon(qc, qk.assignments(pid));
+      invalidateSoon(qc, qk.flow(pid));
       invalidateSoon(qc, ["task"]);
       break;
     case "agent":
@@ -121,6 +126,7 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
       break;
     case "run":
       invalidateSoon(qc, qk.runs(pid));
+      invalidateSoon(qc, qk.flow(pid));
       if (type === "run.upserted" && data.status !== "running" && data.status !== "queued") streamStore.clear(data.agent_id);
       break;
     case "message":
