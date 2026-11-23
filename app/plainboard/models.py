@@ -886,6 +886,14 @@ class SearchDocument(Base):
     repo: Mapped[str | None] = mapped_column(String(100))
     paths: Mapped[list[str] | None] = mapped_column(JSON)  # a commit's first changed files: whether they still exist is said with a hit
     content_hash: Mapped[str] = mapped_column(String(64))
+    # Where it comes from: deleting the item, or what holds it (its ticket, the agent of a report, the
+    # project, a repository), deletes its chunks and their vectors with it, in the same transaction.
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id", ondelete="CASCADE"), index=True)
+    decision_id: Mapped[int | None] = mapped_column(ForeignKey("decisions.id", ondelete="CASCADE"), index=True)
+    comment_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id", ondelete="CASCADE"), index=True)
+    note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"), index=True)
+    repository_id: Mapped[int | None] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"), index=True)
     tsv: Mapped[Any] = mapped_column(TSVECTOR, Computed("to_tsvector('simple', header || ' ' || body)", persisted=True), deferred=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

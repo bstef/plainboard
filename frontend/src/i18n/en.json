@@ -1377,7 +1377,14 @@
     "documents_other": "{{count}} chunks",
     "waiting_one": "{{count}} waits for its vector",
     "waiting_other": "{{count}} wait for their vector",
-    "sources": "Sources",
+    "progress": "Progress",
+    "rate": "{{rate}} chunks a second",
+    "eta": "done in {{duration}}",
+    "itemsOf": "{{items}} of {{total}} indexed",
+    "items_one": "{{count}} indexed",
+    "items_other": "{{count}} indexed",
+    "embeddedOf": "{{done}} of {{total}} chunks embedded",
+    "errors": "Last errors",
     "kinds": {
       "ticket": "tickets",
       "report": "reports",
@@ -1396,9 +1403,9 @@
     "facts": "{{tier}} · {{dim}} dimensions · up to {{tokens}} tokens · {{download}} MB download · about {{ram}} MB memory · {{licence}}",
     "quality": "quality {{score}}",
     "tier": {
-      "small": "small, fast",
+      "small": "lean",
       "balanced": "balanced",
-      "large": "large, slow"
+      "large": "best quality"
     },
     "confirmTitle": "Switch to {{model}}?",
     "confirmText": "Every chunk is embedded again with the new model: {{count}} chunks, which takes {{duration}} on this server (plus a download of {{download}} MB). Meanwhile search keeps using {{current}}; when the new index is complete it switches at once and the old vectors are deleted.",

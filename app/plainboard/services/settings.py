@@ -51,7 +51,7 @@ SETTINGS: dict[str, SettingDef] = {
     # Agents search the project's history by meaning (services/search): only with PostgreSQL and pgvector; each project can switch it off.
     "semantic_search": SettingDef(True),
     # The model search uses (services/search/embedding.MODELS), and the one the index is being made anew for (search.choose_model).
-    "semantic_search_model": SettingDef("gte-multilingual-base", managed=True),
+    "semantic_search_model": SettingDef("multilingual-e5-base", managed=True),
     "semantic_search_next": SettingDef(None, managed=True),
     "update_check": SettingDef(True),  # ask now and then whether a newer PlainBoard exists
     # The admin has gone through the basic settings once (the set-up in the browser). Until then the UI asks for them.

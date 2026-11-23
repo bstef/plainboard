@@ -462,7 +462,7 @@ class GitPresentSpec(BaseModel):
 
     key: str = Field(pattern=TRAIN_KEY)
     base: str = Field(min_length=1, max_length=200)
-    shas: list[Annotated[str, Field(pattern=r"^[0-9a-f]{7,64}$")]] = Field(default_factory=list, max_length=50)
+    shas: list[Annotated[str, Field(pattern=r"^[0-9a-f]{7,64}$")]] = Field(default_factory=list, max_length=2000)  # also the index's sweep
     paths: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(default_factory=list, max_length=300)
 
 

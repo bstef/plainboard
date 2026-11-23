@@ -843,6 +843,22 @@ export interface SearchStatus {
   documents: number;
   embedded: number;
   next_embedded: number;
-  by_kind: Record<string, number>;
+  by_kind: Record<string, SearchKind>;
+  /** Chunks embedded per second here, lately. */
+  rate: number | null;
+  /** Until every chunk has its vector (of the next model, while switching). */
+  eta_seconds: number | null;
+  /** The indexer's last failures. */
+  errors: { at: string; message: string }[];
   models: SearchModelOption[];
+}
+
+export interface SearchKind {
+  /** Items indexed. */
+  items: number;
+  /** Items in the source; null: not known (commits). */
+  total: number | null;
+  chunks: number;
+  /** Chunks with a vector of the current model. */
+  embedded: number;
 }

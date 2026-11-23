@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
+from collections import deque
 from datetime import datetime
 
 from plainboard_protocol import GitPresentSpec
@@ -20,19 +22,37 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Decision, Project, Repository, SearchCursor, Task, utcnow
+from .. import flow_log
 from .. import settings as settings_service
 from ..errors import ServiceError
 from . import embedding, store
-from .indexers import KINDS
+from .indexers import INDEXERS, KINDS
 from .schema import available
 from .store import Hit
 
-__all__ = ["KINDS", "Hit", "active_projects", "available", "choose_model", "embedder", "enabled", "find", "format_hits", "related", "states", "status"]
+__all__ = ["KINDS", "PROGRESS", "Hit", "active_projects", "available", "choose_model", "embedder", "enabled", "find", "format_hits", "related", "states", "status"]
 
 log = logging.getLogger(__name__)
 
 HINT_COUNT = 3
 PRESENT_TIMEOUT = 5.0  # seconds for the runner to say whether commits and files are still there; else it is left out
+
+
+class Progress:
+    """What the indexer met lately, for the settings: its last failures, and when it last embedded."""
+
+    def __init__(self) -> None:
+        self.errors: deque[tuple[datetime, str]] = deque(maxlen=5)
+        self.embedded_at: datetime | None = None
+
+    def failed(self, message: str) -> None:
+        self.errors.append((utcnow(), message[:300]))
+
+    def embedded(self, count: int) -> None:
+        self.embedded_at = utcnow()
+
+
+PROGRESS = Progress()
 
 
 async def _on(s: AsyncSession) -> bool:
@@ -105,22 +125,51 @@ async def _vector(s: AsyncSession, text: str) -> tuple[list[float] | None, str]:
 
 
 async def find(
-    s: AsyncSession, project: Project, query: str, *, kinds: list[str] | None = None, since: datetime | None = None, until: datetime | None = None, repo: str | None = None, limit: int = 8
+    s: AsyncSession,
+    project: Project,
+    query: str,
+    *,
+    kinds: list[str] | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    repo: str | None = None,
+    limit: int = 8,
+    who: dict | None = None,
 ) -> list[Hit]:
+    """The hits, and a flow event ``search.query`` with what was asked, what came back with its scores and how
+    long it took, so the quality can be judged on real searches (``who``: agent_id, assignment_id, task_id)."""
+    started = time.monotonic()
     vector, model = await _vector(s, query)
-    return await store.search(s, project.id, query, vector, model, kinds=kinds, since=since, until=until, repo=repo, limit=limit)
+    hits = await store.search(s, project.id, query, vector, model, kinds=kinds, since=since, until=until, repo=repo, limit=limit)
+    filters = {k: v for k, v in {"kinds": kinds, "since": since and since.isoformat(), "until": until and until.isoformat(), "repo": repo, "limit": limit}.items() if v}
+    await flow_log.record(
+        s, project.id, "search.query", **(who or {}), query=query, filters=filters, model=model, by_meaning=vector is not None,
+        ms=round((time.monotonic() - started) * 1000), hits=[_scores(h) for h in hits],
+    )  # fmt: skip
+    return hits
 
 
-async def related(s: AsyncSession, project: Project, text: str, ticket_number: int | None) -> list[Hit]:
+def _scores(hit: Hit) -> dict:
+    return {"ref": hit.ref, "kind": hit.kind, "fused": round(hit.score, 5), "vector": None if hit.similarity is None else round(hit.similarity, 4), "vector_rank": hit.vector_rank, "word_rank": hit.word_rank}
+
+
+async def related(s: AsyncSession, project: Project, text: str, ticket_number: int | None, who: dict | None = None) -> list[Hit]:
     """What is very close in meaning to a new piece of work, apart from its own ticket: above the model's
-    own threshold (``ModelCard.hint_similarity``, calibrated on real tickets). Nothing while the model is not ready."""
+    own threshold (``ModelCard.hint_similarity``, calibrated on real tickets). Nothing while the model is not ready.
+    The nearest ones and their similarity go into a flow event ``search.hint``, written with the turn."""
     if not text.strip() or not await enabled(s, project):
         return []
     model = await embedder(s)
     if model.state != "ready":
         return []
+    started = time.monotonic()
     hits = await store.nearest(s, project.id, await model.query(text), model.name, exclude_ticket=ticket_number, limit=HINT_COUNT)
-    return [h for h in hits if (h.similarity or 0) >= model.card.hint_similarity]
+    shown = [h for h in hits if (h.similarity or 0) >= model.card.hint_similarity]
+    await flow_log.record(
+        s, project.id, "search.hint", commit=False, **(who or {}), model=model.name, threshold=model.card.hint_similarity,
+        ms=round((time.monotonic() - started) * 1000), nearest=[_scores(h) for h in hits], shown=[h.ref for h in shown],
+    )  # fmt: skip
+    return shown
 
 
 # --- where a hit's item stands now ---------------------------------------------------------------------
@@ -259,16 +308,37 @@ def _model_view(model: embedding.Embedder | None) -> dict | None:
     return {"name": model.name, "label": model.card.label, "state": model.state, "progress": model.progress, "error": model.error}
 
 
+async def _totals(s: AsyncSession) -> dict[str, int]:
+    """How many items each source has in the projects with search on (commits: as many as were read)."""
+    out: dict[str, int] = {}
+    for project in await active_projects(s):
+        for indexer in INDEXERS:
+            query = indexer.existing(project.id).subquery()
+            out[indexer.kind] = out.get(indexer.kind, 0) + int(await s.scalar(select(func.count()).select_from(query)) or 0)
+    return out
+
+
 async def status(s: AsyncSession) -> dict:
+    """For the settings, polled while it works: the models (download share, state, errors), per source the items
+    there, indexed and embedded, the throughput, how long the rest takes, and what failed lately."""
     model, nxt = await embedder(s), await next_embedder(s)
     out: dict = {"available": await available(s), "enabled": bool(await settings_service.get(s, "semantic_search")), "model": _model_view(model), "next": _model_view(nxt)}
     names = [model.name] + ([nxt.name] if nxt else [])
     counts = await store.counts(s, names) if out["available"] else {"documents": 0, "by_kind": {}, "vectors": dict.fromkeys(names, 0)}
+    totals = await _totals(s) if out["available"] and out["enabled"] else {}
+    by_kind = {kind: counts["by_kind"].get(kind, {"items": 0, "chunks": 0, "embedded": 0}) | {"total": totals.get(kind)} for kind in KINDS if kind in totals or kind in counts["by_kind"]}
     documents = counts["documents"]
-    out |= {"documents": documents, "by_kind": counts["by_kind"], "embedded": counts["vectors"][model.name], "next_embedded": counts["vectors"][nxt.name] if nxt else 0}
-    # How long a full index takes with each model, here: its measured speed, scaled by how fast this server
-    # ran the current model compared with the reference machine.
-    scale = (model.rate / model.card.speed) if model.rate and model.card.speed else 1.0
+    embedded, next_embedded = counts["vectors"][model.name], counts["vectors"][nxt.name] if nxt else 0
+    rate = (nxt or model).rate if nxt else model.rate
+    rest = (documents - next_embedded) if nxt else (documents - embedded)
+    out |= {
+        "documents": documents, "by_kind": by_kind, "embedded": embedded, "next_embedded": next_embedded,
+        "rate": round(rate, 1) if rate else None, "eta_seconds": int(rest / rate) if rate and rest > 0 else None,
+        "errors": [{"at": at, "message": message} for at, message in PROGRESS.errors],
+    }  # fmt: skip
+    # How long a full index takes with each model, here: its measured speed, scaled by how fast the current
+    # model ran here against its own measured speed (until it has run: by this server's threads).
+    scale = (model.rate / model.card.speed) if model.rate and model.card.speed else min(embedding.threads(), embedding.REFERENCE_THREADS) / embedding.REFERENCE_THREADS
     out["models"] = [
         {
             "name": c.name, "label": c.label, "tier": c.tier, "description": c.description, "dim": c.dim, "max_tokens": c.max_tokens,

@@ -187,19 +187,45 @@ the extension) its tables are never made, the tool and the switch are absent and
   decisions with their answer, comments, notes). Each reads what changed after its cursor (stamp and id,
   keyset), oldest first, 200 at a time; the first pass is the backfill. Commits come from the runner
   (`/git/log`: base branch, no merges, message, changed paths, line counts), per repository from the last
-  commit read, every 10 min. Every 30 min what was deleted at its source leaves the index.
+  commit read, every 10 min.
+- **Deleted is gone at once.** Every chunk names its source by foreign key with `ON DELETE CASCADE`
+  (`task_id`, `assignment_id`, `decision_id`, `comment_id`, `note_id`, `repository_id`, `project_id`):
+  deleting a ticket (with its comments, decisions and reports), a note, an agent (its reports), a
+  repository or a project deletes its chunks and vectors in the same transaction, also where the
+  database cascades by itself. An edit replaces the item's chunks (same rows, new text and hash, old
+  vectors deleted; chunks it no longer has go). Archived tickets stay findable, marked archived. Every
+  30 min a sweep removes what is missing at its source (the net under the keys) and the commits no
+  longer on their branch (a force push; runner `/git/present` against the branch's history).
 - **Texts** (`documents.py`): one self-contained chunk per piece: a header (kind and reference, project,
   date, status, labels, author, title) and the text cleaned of markdown (links keep their words, code its
-  identifiers), cut at paragraph boundaries into ~1200 characters with 200 of overlap (within 512 tokens).
+  identifiers), cut at paragraph boundaries into ~1000 characters with 150 of overlap. Measured with the
+  models' tokenizer (all five use XLM-R's) on real tickets: 2.6 to 3.4 characters a token, so a chunk with
+  its header is ~200 to 400 tokens, inside the 512 the e5 models read. Nothing is cut off silently: a
+  denser text (code, paths) that is longer than its model reads is embedded in overlapping windows of the
+  model's length and their mean (`LocalOnnxEmbedder.split` counts them).
   Each chunk has a content hash: unchanged ones keep their vectors, so a ticket moved on the board is never
   embedded again. Each chunk also keeps when its item was made and last changed.
 - **Embeddings** (`embedding.py`): an `Embedder` interface and a curated list of models (`MODELS`,
-  chosen in Settings > Semantic search). All run on the app's CPU with onnxruntime (int8 ONNX), no key, no
-  cost; downloaded once into `/data/models` (pinned revision, sha256) when the model first has work, in
-  the background, with progress. The watcher embeds 16 chunks a call, newest first, on two threads, with
-  onnxruntime's memory arena off (with it a model kept GBs); a turn or a request never waits for it.
-  Until the model is ready the search finds by words. An API provider later: an `Embedder` whose card
-  says so (`embedding.make`).
+  chosen in Settings > Semantic search). All run on the app's CPU with onnxruntime (int8 ONNX, all graph
+  optimisations), no key, no cost; downloaded once into `/data/models` (pinned revision, sha256) when the
+  model first has work, in the background, with progress. The index is embedded in one thread of its own
+  at nice 10 (on Linux its onnxruntime pool inherits that), with `threads()` = up to 8, two cores always
+  left (`PLAINBOARD_SEARCH_THREADS` sets it; more than 8 hardly helps), idle threads not spinning, the
+  memory arena off (with it a model kept GBs). Texts go in batches of 32 sorted by length (padding to the
+  longest is what costs). A search's own query runs beside it, not behind it. Until the model is ready
+  the search finds by words. An API provider later: an `Embedder` whose card says so (`embedding.make`).
+- **Indexing never holds anything up** (`orchestration/search_indexer.py`): a look first reads the
+  sources (up to 5 s, 200 items a transaction), so a backfill has all its chunks early, then embeds what
+  waits, newest first, 128 chunks a transaction, for up to 20 s; then the next look after a second.
+  Measured here (Ryzen 9 5950X, 18 cores visible, shared with other agents at load ~15): e5-base
+  backfilled 1 800 chunks of 1 600 real tickets at 11 chunks/s; API latency idle p50 10 ms / p95 25 ms,
+  during the backfill p50 16 ms / p95 40 ms; a search's query vector took 17-59 ms meanwhile.
+- **What it did is readable** for judging quality on production (`scripts/remote.py sql`): flow events
+  `search.query` (agent, assignment, ticket, query, filters, model, latency, each hit's ref with its
+  cosine, vector rank, word rank and fused score), `search.hint` (the nearest items with their cosine, the
+  threshold, which were shown) and `search.indexed` per project and look that did something (chunks
+  read, embedded, seconds, chunks/s). The settings poll `/api/search/status` every 3 s while it works:
+  download share, per source items indexed of all and chunks embedded, chunks/s, time left, last errors.
 - **Changing the model.** Vectors are per chunk and model (`search_vectors`). The settings show, before
   switching, how many chunks are embedded again and roughly how long that takes here (the model's
   measured speed, scaled by how fast this server runs the current one). Then `semantic_search_next` names
@@ -225,22 +251,24 @@ the extension) its tables are never made, the tool and the switch are absent and
 - **Add a source:** a subclass of `Indexer` in `INDEXERS` (and its kind in `tools/search.Kind`). **Add
   a model:** a `ModelCard` in `MODELS`, measured as below.
 
-**The models offered** (measured for PlainBoard on 200 real tickets, 2 CPU threads, batches of 16;
-quality from MTEB(Multilingual, v2): mean over its tasks / its retrieval tasks, higher is better):
+**The models offered** (measured for PlainBoard on 200 real tickets, 8 threads at nice 10 on the machine
+above, batches of 32 by length; quality from MTEB(Multilingual, v2): mean over its tasks / its retrieval
+tasks, higher is better):
 
 | Model | Dim. | Tokens | Download | Memory | Chunks/s | Quality | Licence | Hint from |
 |---|---|---|---|---|---|---|---|---|
-| multilingual-e5-small (small) | 384 | 512 | 135 MB | ~550 MB | 8.0 | 55.5 / 49.3 | MIT | 0.90 |
-| **gte-multilingual-base** (balanced, default) | 768 | 8192 | 357 MB | ~950 MB | 3.8 | 58.2 / 56.5 | Apache-2.0 | 0.79 |
-| multilingual-e5-base (balanced) | 768 | 512 | 296 MB | ~750 MB | 3.4 | 57.0 / 52.7 | MIT | 0.86 |
-| bge-m3 (large) | 1024 | 8192 | 587 MB | ~1.2 GB | 1.2 | – / 55.6 | MIT | 0.71 |
-| multilingual-e5-large (large) | 1024 | 512 | 579 MB | ~1.2 GB | 1.2 | 58.6 / 54.1 | MIT | 0.88 |
+| multilingual-e5-small (lean) | 384 | 512 | 135 MB | ~550 MB | 30 | 55.5 / 49.3 | MIT | 0.90 |
+| **multilingual-e5-base** (balanced, default) | 768 | 512 | 296 MB | ~750 MB | 12.4 | 57.0 / 52.7 | MIT | 0.86 |
+| gte-multilingual-base (balanced) | 768 | 8192 | 357 MB | ~950 MB | 5.4 | 58.2 / 56.5 | Apache-2.0 | 0.79 |
+| bge-m3 (best quality) | 1024 | 8192 | 587 MB | ~1.2 GB | 3.5 | – / 55.6 | MIT | 0.71 |
+| multilingual-e5-large (best quality) | 1024 | 512 | 579 MB | ~1.2 GB | 4.2 | 58.6 / 54.1 | MIT | 0.88 |
 
 Memory is the app process's growth with the model loaded and embedding. "Hint from" is the cosine above
 which about one ticket in five had its nearest other ticket (for e5-small: 0.90; there the pairs were
-about the same thing, below mostly loosely related): models spread their cosines differently. gte is the
-default: by far the best retrieval for twice e5-small's time and memory (a backfill of 20 000 chunks
-takes ~1.5 h in the background). Left out: paraphrase-multilingual-MiniLM/mpnet (trained for paraphrases,
+about the same thing, below mostly loosely related): models spread their cosines differently. e5-base is
+the default (the user's choice): clearly better than small at finding, at less than half its speed (e5-base
+on 4 / 8 / 16 threads: 8.8 / 12.4 / 13.2 chunks/s); gte finds a little better still but runs at less than
+half of e5-base's speed here. Left out: paraphrase-multilingual-MiniLM/mpnet (trained for paraphrases,
 128 tokens; MiniLM is no faster than e5-small at the same size), multilingual-e5-large-instruct (best
 quality, 63.2 / 57.1, but only as a 2.2 GB fp32 ONNX), jina-embeddings-v3 (CC BY-NC: no commercial use),
 EmbeddingGemma (gated download under Gemma's own terms). Sources: MMTEB (arXiv 2502.13595), the

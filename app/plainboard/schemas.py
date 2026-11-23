@@ -334,7 +334,7 @@ class SearchModelOption(BaseModel):
 
     name: str
     label: str
-    tier: str  # small | balanced | large
+    tier: str  # small (lean) | balanced | large (best quality)
     description: str
     dim: int
     max_tokens: int
@@ -347,6 +347,18 @@ class SearchModelOption(BaseModel):
     estimate_seconds: int | None = None  # a full index of what is indexed now, with it, on this server
 
 
+class SearchKindOut(BaseModel):
+    items: int = 0  # indexed
+    total: int | None = None  # in the source (projects with search on); None: not known (commits)
+    chunks: int = 0
+    embedded: int = 0  # chunks with a vector of the current model
+
+
+class SearchErrorOut(BaseModel):
+    at: UTCDateTime
+    message: str
+
+
 class SearchStatusOut(BaseModel):
     available: bool  # PostgreSQL with pgvector
     enabled: bool  # the setting
@@ -355,7 +367,10 @@ class SearchStatusOut(BaseModel):
     documents: int = 0  # chunks in the index
     embedded: int = 0  # of them with a vector of the current model; the rest waits (backfill, changes)
     next_embedded: int = 0  # of them with a vector of the next model
-    by_kind: dict[str, int] = Field(default_factory=dict)
+    by_kind: dict[str, SearchKindOut] = Field(default_factory=dict)
+    rate: float | None = None  # chunks embedded per second here, lately
+    eta_seconds: int | None = None  # until every chunk has its vector (of the next model, while switching)
+    errors: list[SearchErrorOut] = Field(default_factory=list)  # the indexer's last failures
     models: list[SearchModelOption] = Field(default_factory=list)
 
 
