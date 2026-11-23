@@ -26,6 +26,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,8 @@ CODEX_BIN = os.environ.get("PLAINBOARD_CODEX_BIN", "codex")
 SUBSCRIPTION_HOME = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 API_KEY_HOME = Path.home() / ".plainboard" / "codex-api-key"
 ACCOUNTS_HOME = Path.home() / ".plainboard" / "codex-accounts"  # further accounts, one home each
+CATALOG_HOME = Path.home() / ".plainboard" / "codex-catalog"  # the model list once the default home's sign-in is the app's
+REFRESH_AFTER_DAYS = 4  # a kept sign-in is refreshed ahead (refresh_sign_in) well before Codex would itself
 SIGN_IN_FILES = ("auth.json",)  # what a person's own ChatGPT sign-in is (signins.py), with cli_auth_credentials_store "file"
 BRIDGE_DIR = Path(tempfile.gettempdir()) / "plainboard-bridge"
 MCP_SERVER_NAME = "plainboard"
@@ -127,6 +130,21 @@ def share_sessions(home: Path) -> None:
     target = SUBSCRIPTION_HOME / "sessions"
     target.mkdir(parents=True, exist_ok=True)
     link.symlink_to(target, target_is_directory=True)
+
+
+def refresh_due(files: dict[str, str], now: datetime | None = None) -> bool:
+    """A ChatGPT sign-in last refreshed ``REFRESH_AFTER_DAYS`` ago or more (or not known when)."""
+    try:
+        stored = json.loads(files.get("auth.json") or "{}")
+    except ValueError:
+        return False
+    if not isinstance(stored, dict) or not stored.get("tokens") or stored.get("auth_mode") not in (None, "chatgpt"):
+        return False
+    try:
+        last = datetime.fromisoformat(str(stored.get("last_refresh") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return True  # not known when: refreshed once, then it is
+    return (now or datetime.now(timezone.utc)) - last >= timedelta(days=REFRESH_AFTER_DAYS)
 
 
 def guess_tier(model_id: str) -> str:
@@ -590,8 +608,13 @@ class CodexProvider(Provider):
     async def catalog(self) -> ProviderInfo:
         if not self._models or time.monotonic() - self._models[0] > MODELS_TTL_SECONDS:
             try:
-                async with AppServer(SUBSCRIPTION_HOME) as server:
-                    listed = (await server.request("model/list", {}, timeout=20)).get("data") or []
+                if signins.taken(self.name, DEFAULT_ACCOUNT):  # never the home's copy of a sign-in the app keeps
+                    async with AppServer(CATALOG_HOME) as server:
+                        listed = (await server.request("model/list", {}, timeout=20)).get("data") or []
+                else:
+                    with SIGN_INS.in_home(self.name, DEFAULT_ACCOUNT, "This ChatGPT sign-in"):
+                        async with AppServer(SUBSCRIPTION_HOME) as server:
+                            listed = (await server.request("model/list", {}, timeout=20)).get("data") or []
                 known = {m.id: m for m in MODELS}
                 models = [known.get(m["id"]) or ModelInfo(id=m["id"], label=m.get("displayName") or m["id"], tier=guess_tier(m["id"])) for m in listed if not m.get("hidden")]
                 self._models = (time.monotonic(), models or MODELS)
@@ -614,7 +637,11 @@ class CodexProvider(Provider):
             async with SIGN_INS.home(self.name, creds.login_account, creds.login_files, SIGN_IN_FILES) as home:
                 yield home
             return
-        yield await self._shared_home(creds)
+        if creds.codex_auth_mode == "api_key":
+            yield await self._shared_home(creds)
+            return
+        with SIGN_INS.in_home(self.name, creds.codex_account, "This ChatGPT sign-in"):
+            yield await self._shared_home(creds)
 
     async def _shared_home(self, creds: Credentials) -> Path:
         """The Codex home in the runner's home. An API key is signed in to its own home."""
@@ -718,7 +745,7 @@ class CodexProvider(Provider):
         mode = credentials.codex_auth_mode
         if mode == "api_key" or (mode == "own_login" and not credentials.login_files):
             return []
-        if mode != "own_login" and not (account_home(credentials.codex_account) / "auth.json").is_file():
+        if mode != "own_login" and (signins.taken(self.name, credentials.codex_account) or not (account_home(credentials.codex_account) / "auth.json").is_file()):
             return []
         async with self._home(credentials) as home, AppServer(home) as server:
             if not (await server.request("account/read", {"refreshToken": False})).get("account"):
@@ -734,7 +761,7 @@ class CodexProvider(Provider):
             return ProviderAccount(signed_in=login.succeeded, login_url=login.url, login_code=login.code, login_error=login.error)
         login = self._device_login(key)
         state = ProviderAccount(login_url=login.url, login_code=login.code, login_error=login.error)
-        if login.active:
+        if login.active or signins.taken(self.name, key):  # the app keeps that one: the home's copy is not used
             return state
         async with AppServer(login.home) as server:
             account = (await server.request("account/read", {"refreshToken": False})).get("account") or {}
@@ -784,6 +811,24 @@ class CodexProvider(Provider):
             return ProviderAccount()
         login = self._device_login(key)
         await login.cancel()
+        if signins.taken(self.name, key):  # signing the backup out would end the app's copy too: the same tokens
+            return ProviderAccount()
         async with AppServer(login.home) as server:
             await server.request("account/logout", None)
         return ProviderAccount()
+
+    async def take_over(self, key: str) -> dict[str, str]:
+        if self._device_login(key).active:
+            raise signins.Busy("A sign-in is in progress.")
+        return SIGN_INS.take_over(self.name, key, account_home(key), SIGN_IN_FILES)
+
+    async def refresh_sign_in(self, credentials: Credentials) -> None:
+        """Codex refreshes a sign-in that is some days old on its own, in every runner that has the same file at
+        once; here it happens before that, on one runner, and the others get the new file from the app."""
+        if credentials.codex_auth_mode != "own_login" or not credentials.login_files:
+            return
+        async with self._home(credentials) as home:
+            if not refresh_due(signins.read(home, SIGN_IN_FILES)):
+                return
+            async with AppServer(home) as server:
+                await server.request("account/read", {"refreshToken": True}, timeout=60)

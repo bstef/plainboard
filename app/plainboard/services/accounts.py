@@ -17,14 +17,15 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from plainboard_protocol import LimitWindow, ModelInfo, ProviderInfo, SignInAck, files_digest
+from plainboard_protocol import LimitWindow, ModelInfo, ProviderInfo, SignInAck, SignInFiles, files_digest
 from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Account, Agent, Conversation, InboxItem, Project, Run, User, utcnow
+from ..models import Account, Agent, Conversation, InboxItem, Project, Run, Runner, User, utcnow
 from ..schemas import AccountCreate, AccountOut, AccountUpdate
 from ..security import decrypt, encrypt
 from . import limits as limits_service
@@ -35,10 +36,11 @@ from .errors import NotFound, ServiceError
 AUTH_MODES = {"claude_code": ("oauth_token", "api_key", "runner_login"), "codex": ("chatgpt", "api_key")}
 # Every other provider is an endpoint (ProviderInfo.endpoint): which ones exist is the runner's list, not the app's.
 ENDPOINT_MODES = ("api_key",)
-# A sign-in in the browser (Claude's runner_login, Codex's ChatGPT sign-in). The installation's lives in the
-# runner's home. A person's own is never there, since every agent on the runner reads that home: its files are
-# kept here, encrypted like a token, and go with each run of it into a private folder (runner signins.py), from
-# which refreshed ones come back (``take_sign_ins``).
+# A sign-in in the browser (Claude's runner_login, Codex's ChatGPT sign-in). It is never in the runner's home,
+# which every agent there reads, and so works on every runner: its files are kept here, encrypted like a token,
+# and go with each run of it into a private folder (runner signins.py), from which refreshed ones come back
+# (``take_sign_ins``). The installation's from before (#84) are copied over once from the built-in runner's home
+# (``Account.home_login``, ``take_over``); until then they work on the built-in runner only, as before.
 LOGIN_MODES = ("runner_login", "chatgpt")
 LABELS = {"claude_code": "Claude", "codex": "Codex"}
 ENV_SECRETS = {("claude_code", "oauth_token"): "CLAUDE_CODE_OAUTH_TOKEN", ("claude_code", "api_key"): "ANTHROPIC_API_KEY", ("codex", "api_key"): "OPENAI_API_KEY"}
@@ -61,13 +63,33 @@ def _check_mode(provider: str, mode: str) -> None:
         raise ServiceError(f"Unknown sign-in for {provider}: {mode}")
 
 
-def own_login(account: Account) -> bool:
-    """A person's own browser sign-in: kept here, never in the runner's home."""
-    return account.owner_id is not None and account.auth_mode in LOGIN_MODES
+def kept_login(account: Account) -> bool:
+    """A browser sign-in kept here, not in the runner's home: a person's own, or the installation's."""
+    return account.auth_mode in LOGIN_MODES and not account.home_login
+
+
+@dataclass(frozen=True)
+class Where:
+    """The runner a turn, a summary or a question goes to, as far as the choice of a subscription goes."""
+
+    runner_id: int | None  # None: the built-in one
+    signins: bool  # it takes kept sign-ins (Credentials.login_files; a runner from before them does not)
+
+
+def unusable(account: Account, where: Where | None) -> str:
+    """Why ``account`` has no working sign-in on that runner: "not_signed_in", "home_only" (still in the built-in
+    runner's home), "old_runner"; "" if it has, or nothing is known against it. ``where`` None: anywhere."""
+    if account.auth_mode not in LOGIN_MODES:
+        return ""
+    if account.home_login:
+        return "home_only" if where is not None and where.runner_id is not None else ""
+    if not account.secret_enc:
+        return "not_signed_in"
+    return "old_runner" if where is not None and not where.signins else ""
 
 
 def login_files(account: Account) -> dict[str, str]:
-    """The files of an own sign-in; none while it is not signed in."""
+    """The files of a kept sign-in; none while it is not signed in."""
     try:
         files = json.loads(decrypt(account.secret_enc) or "{}")
     except ValueError:
@@ -159,7 +181,7 @@ async def create(session: AsyncSession, data: AccountCreate, name: str = "", use
     adds it; an admin's is the installation's, anyone else's their own (``Account.owner_id``)."""
     own = user is not None and not user.is_admin
     _check_mode(data.provider, data.auth_mode)
-    if own and data.auth_mode in LOGIN_MODES and data.secret:
+    if data.auth_mode in LOGIN_MODES and data.secret:
         raise ServiceError("This subscription is signed in in the browser, not with a token.")
     count = len(await list_accounts(session, data.provider))
     label = data.label.strip() or ((name or LABELS.get(data.provider) or data.provider) + (f" {count + 1}" if count else ""))
@@ -188,9 +210,10 @@ async def update(session: AsyncSession, account: Account, data: AccountUpdate) -
     if data.auth_mode is not None and data.auth_mode != account.auth_mode:
         _check_mode(account.provider, data.auth_mode)
         account.auth_mode = data.auth_mode
+        account.home_login = False  # a sign-in of the new kind is made anew, and kept here
         if data.secret is None:
             account.secret_enc = None  # a token is no API key
-    if data.secret and own_login(account):
+    if data.secret and kept_login(account):
         raise ServiceError("This subscription is signed in in the browser, not with a token.")
     if data.secret is not None:
         account.secret_enc = encrypt(data.secret)
@@ -343,9 +366,10 @@ async def _cache_warm(session: AsyncSession, agent: Agent | None) -> bool:
     return last is not None and utcnow() - last < timedelta(seconds=CACHE_SECONDS)
 
 
-async def _candidates(session: AsyncSession, provider: str, agent: Agent | None, model: str | None = None) -> list[Account]:
-    """The accounts the agent's turn may run on: the one it or its project chose, else all it may use."""
-    accounts = [a for a in await list_accounts(session, provider) if a.enabled]
+async def _candidates(session: AsyncSession, provider: str, agent: Agent | None, model: str | None = None, where: Where | None = None) -> list[Account]:
+    """The accounts the agent's turn may run on: the one it or its project chose, else all it may use. ``where``:
+    only those with a working sign-in on that runner; a chosen one without counts as not chosen."""
+    accounts = [a for a in await list_accounts(session, provider) if a.enabled and (where is None or not unusable(a, where))]
     project = await session.get(Project, agent.project_id) if agent else None
     if (allowed := await permissions.account_ids(session, project)) is not None:  # a project limited to some accounts never gets another one
         accounts = [a for a in accounts if a.id in allowed]
@@ -380,12 +404,19 @@ async def used_up_until(session: AsyncSession, agent: Agent) -> int | None:
 
 
 async def pick(
-    session: AsyncSession, provider: str, agent: Agent | None = None, conv: Conversation | None = None, model: str | None = None, fresh: bool = False
+    session: AsyncSession,
+    provider: str,
+    agent: Agent | None = None,
+    conv: Conversation | None = None,
+    model: str | None = None,
+    fresh: bool = False,
+    where: Where | None = None,
 ) -> Account | None:
     """The account for an agent's next turn; None if the provider has no (enabled) account.
     ``model``: what the turn runs on, the agent's own model if not given. ``fresh``: the turn starts
-    a new session (a new piece of work, a compressed context), so there is no cache to keep."""
-    accounts = await _candidates(session, provider, agent, model)
+    a new session (a new piece of work, a compressed context), so there is no cache to keep. ``where``:
+    the runner it goes to; an account without a working sign-in there is never picked (``not_signed_in``)."""
+    accounts = await _candidates(session, provider, agent, model, where)
     if len(accounts) <= 1:
         return accounts[0] if accounts else None
     found = await limits_service.windows(session)
@@ -406,10 +437,33 @@ async def pick(
     return best if -rank(best)[1] > -rank(last)[1] * MARGIN else last
 
 
-async def other_with_room(session: AsyncSession, provider: str, agent: Agent, conv: Conversation | None, used_up: str) -> Account | None:
+async def not_signed_in(session: AsyncSession, provider: str, agent: Agent, where: Where) -> str:
+    """Why no account was picked, if the reason is the runner: the agent may use accounts of the provider, but
+    none of them has a working sign-in there. Else ""."""
+    accounts = [a for a in await _candidates(session, provider, agent) if unusable(a, where)]
+    if not accounts or await _candidates(session, provider, agent, where=where):
+        return ""
+    name = "the built-in runner"
+    if where.runner_id is not None:
+        runner = await session.get(Runner, where.runner_id)
+        name = f"runner {runner.name}" if runner else "its runner"
+    label = LABELS.get(provider, provider)
+    why = []
+    for account in accounts:
+        reason = unusable(account, where)
+        if reason == "not_signed_in":
+            why.append(f"'{account.label}' is not signed in (Settings, Subscriptions: sign in)")
+        elif reason == "home_only":
+            why.append(f"'{account.label}' is signed in on the built-in runner only, until PlainBoard has taken that sign-in over")
+        else:
+            why.append(f"'{account.label}' needs a newer version of {name}, which it gets with its update")
+    return f"{label} is not signed in on {name}: " + "; ".join(why) + ". No turn was started without a sign-in."
+
+
+async def other_with_room(session: AsyncSession, provider: str, agent: Agent, conv: Conversation | None, used_up: str, where: Where | None = None) -> Account | None:
     """Another account for a turn the account ``used_up`` (by key) was turned away on; None if
     there is none that is not used up as well."""
-    account = await pick(session, provider, agent, conv)
+    account = await pick(session, provider, agent, conv, where=where)
     if account is None or account.key == used_up or used_up_now(account, await limits_service.windows(session)):
         return None
     return account
@@ -419,7 +473,7 @@ def fields(account: Account | None) -> dict[str, Any]:
     """The account's part of the run's ``Credentials``."""
     if account is None:
         return {}
-    if own_login(account):  # its files only, never a token field: a runner that does not know "own_login" refuses the run
+    if kept_login(account):  # its files only, never a token field: a runner that does not know "own_login" refuses the run
         own = {"claude_auth_mode" if account.provider == "claude_code" else "codex_auth_mode": "own_login", "login_account": account.key, "login_files": login_files(account)}
         own |= {"claude_oauth_token": None, "anthropic_api_key": None, "openai_api_key": None}
         return own | ({"codex_account": account.key} if account.provider == "codex" else {})
@@ -451,27 +505,73 @@ async def catalog(session: AsyncSession, providers: list[ProviderInfo]) -> list[
     return out
 
 
-async def any_own_login(session: AsyncSession) -> bool:
-    return await session.scalar(select(Account.id).where(Account.owner_id.is_not(None), Account.auth_mode.in_(LOGIN_MODES)).limit(1)) is not None
+async def kept_logins(session: AsyncSession) -> list[Account]:
+    """The accounts whose browser sign-in is kept here."""
+    query = select(Account).where(Account.auth_mode.in_(LOGIN_MODES), Account.home_login.is_(False)).order_by(Account.id)
+    return list((await session.scalars(query)).all())
 
 
-async def take_sign_ins(session: AsyncSession, runner: Any) -> int:
-    """Keep what a runner holds of people's own sign-ins: a finished sign-in, or files a run refreshed. One
-    derived from an older version than the one kept here is dropped: the newest wins. Returns how many were kept."""
+async def any_kept_login(session: AsyncSession) -> bool:
+    return await session.scalar(select(Account.id).where(Account.auth_mode.in_(LOGIN_MODES), Account.home_login.is_(False)).limit(1)) is not None
+
+
+async def any_home_login(session: AsyncSession) -> bool:
+    return await session.scalar(select(Account.id).where(Account.home_login.is_(True)).limit(1)) is not None
+
+
+async def take_over(session: AsyncSession, runner: Any) -> int:
+    """Copy the installation's sign-ins from the built-in runner's home (``runner``), from before #84: from then on
+    they are kept here and work on every runner. The runner leaves its files where they are and uses them no
+    more (runner signins.py), so only this copy is refreshed: two copies that are refreshed each on their own
+    would outdate one another. One in use waits for the next look. Claude's home has one sign-in for all its
+    runner_login accounts: the first of them gets it, the others are signed out. Returns how many were taken."""
+    accounts = list(await session.scalars(select(Account).where(Account.home_login.is_(True)).order_by(Account.id)))
+    taken, claude = 0, ""  # Claude's home sign-in: "given" to an account, "waiting" for the next look
+    for account in accounts:
+        if account.auth_mode not in LOGIN_MODES:
+            account.home_login = False
+            continue
+        if account.provider == "claude_code" and claude:
+            continue
+        try:
+            got = await runner.take_over(account.provider, account.key)
+        except Exception as exc:  # in use, away, or a runner from before this
+            log.info("The sign-in of account %s is taken over later: %s", account.key, str(exc)[:200])
+            claude = "waiting" if account.provider == "claude_code" else claude
+            continue
+        account.home_login, account.secret_enc = False, encrypt(json.dumps(got.files)) if got.files else None
+        if account.provider == "claude_code":
+            claude = "given"
+            for other in accounts:  # one sign-in, one account: never two copies of it; in the same commit
+                if other is not account and other.provider == "claude_code" and other.home_login:
+                    other.home_login, other.secret_enc = False, None
+        taken += bool(got.files)
+        await session.commit()  # each at once: the runner no longer uses the home's copy
+        log.info("Account %s: the sign-in from the built-in runner's home is kept by PlainBoard now (%s)", account.key, "signed in" if got.files else "not signed in there")
+    await session.commit()
+    return taken
+
+
+async def take_sign_ins(session: AsyncSession, runner: Any) -> list[SignInFiles]:
+    """Keep what a runner holds of kept sign-ins: a finished sign-in, or files a run refreshed. One derived from an
+    older version than the one kept here is dropped: the newest wins. Returns what was kept, each with the digest
+    of the version it replaced as ``base`` (for the other runners, ``RunManager.keep_sign_ins``)."""
     try:
         waiting = await runner.sign_ins()
     except Exception as exc:  # away, or a runner from before own sign-ins
         log.debug("No sign-ins from the runner: %s", exc)
-        return 0
+        return []
     if not waiting:
-        return 0
-    kept, acks = 0, []
+        return []
+    kept: list[SignInFiles] = []
+    acks = []
     for entry in waiting:
         account = await session.scalar(select(Account).where(Account.key == entry.account))
-        if account is not None and own_login(account) and account.provider == entry.provider and entry.files:
-            if not entry.base or entry.base == files_digest(login_files(account) or None):
+        if account is not None and kept_login(account) and account.provider == entry.provider and entry.files:
+            before = files_digest(login_files(account) or None)
+            if not entry.base or entry.base == before:
                 account.secret_enc = encrypt(json.dumps(entry.files))
-                kept += 1
+                kept.append(SignInFiles(provider=entry.provider, account=entry.account, files=entry.files, base=before, digest=files_digest(entry.files)))
         acks.append(SignInAck(account=entry.account, digest=entry.digest))
     await session.commit()
     try:

@@ -778,14 +778,11 @@
       "api_keyHint": "Recommended · Anthropic Console",
       "oauth_token": "Own Claude login (token)",
       "oauth_tokenHint": "From claude setup-token",
-      "runner_login": "Own Claude login (container)",
-      "runner_loginHint": "Interactive claude login",
-      "runner_loginOwn": "Own Claude login (browser)",
-      "runner_loginOwnHint": "Sign in with your Claude account"
+      "runner_login": "Claude login (browser)",
+      "runner_loginHint": "Sign in with the Claude account"
     },
     "oauthToken": "Claude login token",
     "apiKey": "Anthropic API key",
-    "runnerLoginHint": "Log in once inside the runner container; the login is kept in a volume:",
     "codex": "Codex",
     "codexHint": "Subscriptions and API keys for agents that run on OpenAI models with Codex. Which one an agent uses is chosen per agent.",
     "codexAuth": {

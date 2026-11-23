@@ -202,6 +202,13 @@ class SignInAck(BaseModel):
     digest: str
 
 
+class SignInRefresh(BaseModel):
+    """A kept sign-in to refresh ahead of time where it is due soon (runner ``refresh_sign_in``)."""
+
+    provider: str
+    credentials: Credentials
+
+
 class ToolCallResult(BaseModel):
     text: str
     is_error: bool = False

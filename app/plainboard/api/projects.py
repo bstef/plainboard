@@ -91,10 +91,12 @@ async def update_project(project_id: int, body: ProjectUpdate, session: Session,
 
 
 @router.get("/projects/{project_id}/accounts", response_model=list[int])
-async def usable_accounts(project_id: int, session: Session) -> list[int]:
-    """The subscriptions this project's agents may run on: its own limit and what its owner may use."""
+async def usable_accounts(project_id: int, session: Session, runs: Runs) -> list[int]:
+    """The subscriptions this project's agents may run on: its own limit and what its owner may use, with a
+    working sign-in on the project's runner (``accounts.unusable``)."""
     allowed = await permissions.account_ids(session, await project_service.get(session, project_id)) or set()
-    return [a.id for a in await account_service.list_accounts(session) if a.id in allowed]
+    where = runs.runners.where(project_id)
+    return [a.id for a in await account_service.list_accounts(session) if a.id in allowed and not account_service.unusable(a, where)]
 
 
 @router.put("/projects/{project_id}/accounts", response_model=ProjectOut)

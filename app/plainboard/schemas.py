@@ -433,6 +433,7 @@ class AccountOut(ORM):
     share: str = "private"
     shared_with: list[int] | None = None  # to its managers only
     can_manage: bool = False  # the viewer may change, test, share and delete it
+    home_login: bool = False  # the installation's sign-in is still in the built-in runner's home (accounts.take_over)
 
 
 class RepositoryOut(ORM):

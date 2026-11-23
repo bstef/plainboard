@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import Response, StreamingResponse
-from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CommitRef, CompletionResult, CompletionSpec, Credentials, DeleteSpec, ErrorEvent, GitLogResult, GitLogSpec, GitPresentResult, GitPresentSpec, JobPort, JobTiming, JobSpec, JobState, LimitsEvent, MachineUsage, ProjectFiles, ProviderAccount, ProviderInfo, SignInAck, SignInFiles, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RerunRef, RunSpec, SkillFetch, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamRef, UpstreamState
+from plainboard_protocol import ACCOUNT_KEY_PATTERN, DEFAULT_ACCOUNT, BranchRef, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CommitRef, CompletionResult, CompletionSpec, Credentials, DeleteSpec, ErrorEvent, GitLogResult, GitLogSpec, GitPresentResult, GitPresentSpec, JobPort, JobTiming, JobSpec, JobState, LimitsEvent, MachineUsage, ProjectFiles, ProviderAccount, ProviderInfo, SignInAck, SignInFiles, SignInRefresh, files_digest, PullRequestCheck, PullRequestRef, PullRequestState, RepoSpec, RerunRef, RunSpec, SkillFetch, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamRef, UpstreamState
 from pydantic import BaseModel, Field
 
 from . import cleanup
@@ -198,6 +198,34 @@ async def provider_logout(name: str, key: str = AccountKey, own: bool = False) -
         raise HTTPException(404, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(502, str(exc)[:1000]) from exc
+
+
+@app.post("/providers/{name}/takeover", response_model=SignInFiles)
+async def provider_take_over(name: str, key: str = AccountKey) -> SignInFiles:
+    """The installation's sign-in of account ``key`` from this runner's home, for the app to keep from now on
+    (signins.py): copied, never moved; nothing here uses the home's copy again. 409 while it is in use."""
+    try:
+        files = await _signin_provider(name).take_over(key)
+    except NotImplementedError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except signins.Busy as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return SignInFiles(provider=name, account=key, files=files, digest=files_digest(files))
+
+
+@app.post("/signins/refresh", status_code=204)
+async def sign_in_refresh(body: SignInRefresh) -> None:
+    """Refresh a kept sign-in ahead of time if it is due soon; what changed waits in ``/signins``."""
+    try:
+        await _signin_provider(body.provider).refresh_sign_in(body.credentials)
+    except Exception as exc:
+        raise HTTPException(502, str(exc)[:300]) from exc
+
+
+@app.post("/signins/update", status_code=204)
+async def sign_ins_update(body: list[SignInFiles]) -> None:
+    """Sign-ins another runner refreshed, into the folders of the accounts in use here."""
+    await SIGN_INS.update(body)
 
 
 @app.get("/signins", response_model=list[SignInFiles])
