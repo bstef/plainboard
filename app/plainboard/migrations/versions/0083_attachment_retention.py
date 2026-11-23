@@ -1,14 +1,14 @@
 """Attachments of done tickets can be deleted after a project's retention (#97): projects.attachment_retention_days
 (0: never, the default for every project), projects.attachment_retention_min_mb, attachments.purged_at / purged_after_days
 
-Revision ID: 0082
-Revises: 0081
+Revision ID: 0083
+Revises: 0082
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0082"
-down_revision = "0081"
+revision = "0083"
+down_revision = "0082"
 branch_labels = None
 depends_on = None
 
