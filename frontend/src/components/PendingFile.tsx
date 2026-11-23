@@ -3,7 +3,7 @@ import { Paperclip, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-/** A file picked, dropped or pasted but not uploaded yet: a thumbnail for images, else its name; removable. */
+/** A file picked or pasted but not sent yet: a thumbnail for an image, else its name; removable. */
 export function PendingFile({ file, onRemove }: { file: File; onRemove: () => void }) {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<string>();
