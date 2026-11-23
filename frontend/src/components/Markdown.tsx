@@ -7,7 +7,9 @@ import { AppWindow, Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useShell } from "../features/layout/shell-context";
 import { browserAddress } from "../lib/preview";
+import { isVideoName } from "../lib/media";
 import { Lightbox } from "./Lightbox";
+import { VideoThumb } from "./VideoThumb";
 import { linkMentions, MentionChip, usePeopleMap } from "./Mentions";
 
 // Not inside words, URL paths or entities ("a#1", "x/#1", "&#1"), but "#1/#2" links both.
@@ -113,12 +115,19 @@ export function TicketText({ text, linkClassName }: { text: string; linkClassNam
 
 function ZoomableImage({ src, alt }: { src: string; alt: string }) {
   const [open, setOpen] = useState(false);
+  const video = isVideoName(src) || isVideoName(alt);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="inline-block max-w-full cursor-zoom-in align-top">
-        <img src={src} alt={alt} className="max-h-80 max-w-full rounded-sm" />
+      <button type="button" onClick={() => setOpen(true)} title={alt} className="inline-block max-w-full cursor-zoom-in align-top">
+        {video ? (
+          <span className="block h-40 w-64 max-w-full">
+            <VideoThumb src={src} />
+          </span>
+        ) : (
+          <img src={src} alt={alt} className="max-h-80 max-w-full rounded-sm" />
+        )}
       </button>
-      {open && <Lightbox images={[{ src, alt }]} onClose={() => setOpen(false)} />}
+      {open && <Lightbox images={[{ src, alt, video }]} onClose={() => setOpen(false)} />}
     </>
   );
 }

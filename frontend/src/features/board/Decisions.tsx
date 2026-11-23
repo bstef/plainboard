@@ -6,12 +6,15 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk } from "../../api/queries";
 import type { Attachment, Decision } from "../../api/types";
+import { VideoThumb } from "../../components/VideoThumb";
+import { isImageFile, isMediaFile, isVideoFile } from "../../lib/media";
 import { AttachmentLink } from "../../components/AttachmentLink";
 import { Markdown, TicketText } from "../../components/Markdown";
 import { Button, ErrorText, Textarea } from "../../components/ui";
 import { useShell } from "../layout/shell-context";
 
-export const isImage = (attachment: Attachment) => attachment.content_type.startsWith("image/");
+export const isImage = isImageFile;
+export const isMedia = isMediaFile;
 
 /** Attachments of open decisions: those still wait for the user's review. */
 export function reviewAttachmentIds(decisions: Decision[]): Set<number> {
@@ -26,9 +29,9 @@ function Thumbs({ ids, attachments, onView, small }: { ids: number[]; attachment
   return (
     <div className={clsx("gap-1.5", small ? "flex flex-wrap" : "grid grid-cols-[repeat(auto-fit,minmax(6rem,1fr))]")}>
       {files.map((a) =>
-        isImage(a) ? (
+        isMedia(a) ? (
           <button key={a.id} type="button" onClick={() => onView(a.id)} title={a.filename} className={clsx("cursor-zoom-in overflow-hidden rounded-sm ring-1 ring-line", box)}>
-            <img src={`/api/attachments/${a.id}`} alt={a.filename} className="size-full object-cover" />
+            {isVideoFile(a) ? <VideoThumb src={`/api/attachments/${a.id}`} /> : <img src={`/api/attachments/${a.id}`} alt={a.filename} className="size-full object-cover" />}
           </button>
         ) : (
           <AttachmentLink
