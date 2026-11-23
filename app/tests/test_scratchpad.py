@@ -69,7 +69,7 @@ def test_write_append_cap_archive_restore_and_purge(client, project):
     chat(client, manager["id"], "TOOL delegate " + json.dumps(again))
     wait_for(lambda: idle(client, pid) and all(a["status"] == "done" for a in client.get(f"/api/projects/{pid}/assignments").json()) and len(client.get(f"/api/projects/{pid}/assignments").json()) == 2)
     opening = next(s.prompt for s in runner(client).specs if s.workspace.path.endswith("/dev") and "finding 3" in s.prompt)
-    assert f"Earlier assignments of this ticket left a scratchpad (#{first['id']})" in opening
+    assert "left their scratchpads" in opening and f'<scratchpad assignment="#{first["id"]}">\nfinding 1\nfinding 2\n</scratchpad>' in opening
     results = _tool_results(client, dev["id"])[-4:]
     assert results[0]["result"] == "finding 1\nfinding 2" and results[3]["result"] == "finding 1\nfinding 2\nfinding 3"
 
@@ -119,8 +119,8 @@ def test_the_scratchpad_survives_compression_verbatim(client, project):
     wait_for(lambda: idle(client, pid) and client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "done")
     spec = [s for s in runner(client).specs if "Go on with assignment" in s.prompt][-1]
     assert spec.resume_session_id is None and "<scratchpad>\n- bug in a.py:12\n- open: b.py\n</scratchpad>" in spec.prompt
-    # A compaction by the provider in the middle of a turn: the agent is told its scratchpad is intact.
-    assert any("scratchpad (29 chars) is intact" in text for _, text in runner(client).notices)
+    # A compaction by the provider in the middle of a turn: the running turn gets the content again.
+    assert any("is intact, here it is verbatim:\n<scratchpad>\n- bug in a.py:12\n- open: b.py\n</scratchpad>" in text for _, text in runner(client).notices)
 
 
 def test_a_restart_keeps_the_scratchpad_and_the_agent_hears_of_it(client, project):
@@ -131,4 +131,4 @@ def test_a_restart_keeps_the_scratchpad_and_the_agent_hears_of_it(client, projec
     wait_for(lambda: idle(client, pid) and client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "done")
     assert _notes(client, assignment_id) == "step 3 of 5"  # archived, not gone
     resumed = next(s for s in runner(client).specs if "PlainBoard was restarted" in s.prompt)
-    assert "Your scratchpad (11 chars) is intact" in resumed.prompt
+    assert "<scratchpad>\nstep 3 of 5\n</scratchpad>" in resumed.prompt

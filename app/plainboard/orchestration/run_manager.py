@@ -413,7 +413,7 @@ class RunManager:
                     )  # fmt: skip
                     if run.id in resumed:
                         held = await scratchpad_service.current(s, run.agent_id, run.assignment_id)
-                        await inbox.push(s, run.agent_id, " ".join(filter(None, (prompts.RESTART_NOTE, scratchpad_service.hint(held and held.scratchpad)))))
+                        await inbox.push(s, run.agent_id, "\n".join(filter(None, (prompts.RESTART_NOTE, scratchpad_service.delivered(held and held.scratchpad)))))
                         await self._settle(s, run.agent_id)
                     else:
                         await self._report_interrupted(s, run)
@@ -1481,7 +1481,7 @@ class RunManager:
                     earlier = list(await s.scalars(done.order_by(Assignment.id.desc()).limit(3)))
                 facts = timing_service.facts_text(await timing_service.cached_overview(s, project.id, timing_service.FACTS_DAYS * 24))
                 board = prompts.assignment_opening(facts, earlier, fresh)
-                if archived := await scratchpad_service.archived_line(s, assignment):
+                if archived := await scratchpad_service.archived_block(s, assignment):
                     board = f"{board}\n\n{archived}" if board else archived
             subscriptions = prompts.subscriptions_line(values["timezone"], await account_service.used_up_until(s, agent), await _limit_since_answer(s, conv.id))
             full_text = prompts.with_preface(
@@ -1597,10 +1597,10 @@ class RunManager:
                     s.add(marker)
                     await s.commit()
                     bus.publish(ctx.project_id, "message.created", MessageOut.model_validate(marker))
-                    # The scratchpad is not part of the compacted conversation: tell the agent it is intact.
+                    # The scratchpad is not part of the compacted conversation: give the agent its content again.
                     held = await scratchpad_service.current(s, ctx.agent_id, ctx.assignment_id)
                     if held and held.scratchpad:
-                        await self.runners.of(ctx.project_id).notify_run(ctx.run_id, scratchpad_service.hint(held.scratchpad))
+                        await self.runners.of(ctx.project_id).notify_run(ctx.run_id, scratchpad_service.delivered(held.scratchpad))
                 elif event.type == "result":
                     outcome.result = event
                 elif event.type == "error":
@@ -1756,7 +1756,7 @@ class RunManager:
             # turn (_settle), or when it is enabled again. Only one that keeps breaking off goes to the manager.
             earlier = await s.scalar(select(func.count(Run.id)).where(Run.assignment_id == assignment.id, Run.error == LOST))
             if earlier <= MAX_RESTART_RESUMES:
-                await inbox.push(s, agent.id, " ".join(filter(None, (prompts.LOST_NOTE, scratchpad_service.hint(assignment.scratchpad)))))
+                await inbox.push(s, agent.id, "\n".join(filter(None, (prompts.LOST_NOTE, scratchpad_service.delivered(assignment.scratchpad)))))
                 bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
                 return
         assignment.status = {
