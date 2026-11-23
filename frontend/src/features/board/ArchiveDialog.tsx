@@ -18,7 +18,7 @@ export function ArchiveDialog({ onClose }: { onClose: () => void }) {
   const matches = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return (tasks.data ?? []).filter(
-      (task) => !needle || task.title.toLowerCase().includes(needle) || `#${task.number}` === needle || task.labels.some((l) => l.toLowerCase().includes(needle)),
+      (task) => !needle || task.title.toLowerCase().includes(needle) || needle.replace(/^#/, "") === String(task.number) || task.labels.some((l) => l.toLowerCase().includes(needle)),
     );
   }, [tasks.data, filter]);
 
