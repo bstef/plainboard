@@ -685,6 +685,8 @@ class TaskOut(ORM):
     active_agent_ids: list[int] = Field(default_factory=list)  # agents with open assignments
     manager_active: bool = False
     open_decisions: int = 0
+    # Work is finished and only waits to land (no open assignment): its branch waits for a train, is checked, or is repaired.
+    landing: Literal["waiting", "checking", "repairing"] | None = None
 
 
 class StatsDay(BaseModel):

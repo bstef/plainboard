@@ -50,7 +50,7 @@ export const TaskCard = memo(function TaskCard({ task, overlay, done }: { task: 
 
   const working = task.active_agent_ids.map((id) => agentById(id)).filter((a) => a !== undefined);
   const forYou = !!task.user_action || task.open_decisions > 0;
-  const mark = forYou ? "mk-you" : working.length > 0 ? "mk-run" : task.manager_active ? "mk-plan" : done ? "mk-done" : "";
+  const mark = forYou ? "mk-you" : working.length > 0 ? "mk-run" : task.manager_active || task.landing ? "mk-plan" : done ? "mk-done" : "";
   // The turn on this ticket: a member working on it, or the manager planning it.
   const run = [...running.values()].find((r) => r.task_id === task.id) ?? working.map((a) => running.get(a.id)).find((r) => r !== undefined);
   const active = working.length > 0 || task.manager_active;
@@ -65,6 +65,7 @@ export const TaskCard = memo(function TaskCard({ task, overlay, done }: { task: 
       {...listeners}
       data-part="ticket"
       data-for-you={forYou || undefined}
+      data-landing={(!forYou && task.landing) || undefined}
       data-overlay={overlay || undefined}
       onClick={() => !overlay && openTask(task.id)}
       className={clsx(
@@ -74,7 +75,7 @@ export const TaskCard = memo(function TaskCard({ task, overlay, done }: { task: 
         overlay && "shadow-lg ring-1 ring-line-2",
       )}
     >
-      <span className={clsx("mk mt-[7px] md:mt-[6px]", mark)} title={task.manager_active && !working.length ? t("board.managerPlanning") : undefined} />
+      <span className={clsx("mk mt-[7px] md:mt-[6px]", mark)} title={task.manager_active && !working.length ? t("board.managerPlanning") : task.landing ? t(`board.landing.${task.landing}`) : undefined} />
       <div className="min-w-0">
         <h3 className="font-medium text-pretty break-words">
           <span className="mr-1.5 font-normal text-fg-3">#{task.number}</span>

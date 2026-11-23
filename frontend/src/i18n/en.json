@@ -254,6 +254,11 @@
     "newTicketPlaceholder": "Ticket title",
     "newTicketKeys": "Enter to add · Ctrl+Enter to add and open · Esc to cancel",
     "managerPlanning": "Manager is working on this ticket",
+    "landing": {
+      "waiting": "Finished: the branch waits to land",
+      "checking": "Finished: the branch is being checked before it lands",
+      "repairing": "Finished: the branch is being repaired before it lands"
+    },
     "userAction": "For you"
   },
   "stats": {

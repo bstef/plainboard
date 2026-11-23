@@ -189,6 +189,37 @@
     border-radius: 50%;
     border: 1.5px solid var(--fg-2);
   }
+  /* A ticket whose work is finished and only waits to land: a soft diagonal shimmer crosses the card
+     about every 5.5 s, then it rests. With reduced motion it keeps a still tint. */
+  [data-part="ticket"][data-landing] {
+    position: relative;
+    overflow: hidden;
+  }
+  [data-part="ticket"][data-landing]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 0%, color-mix(in oklab, var(--fg) 7%, transparent) 50%, transparent 100%);
+    transform: translateX(-100%);
+    animation: landing-shimmer 5.5s ease-in-out infinite;
+  }
+  @keyframes landing-shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    35%,
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-part="ticket"][data-landing]::after {
+      animation: none;
+      transform: none;
+      background: color-mix(in oklab, var(--fg) 4%, transparent);
+    }
+  }
   .mk-you {
     background: var(--you);
     transform: rotate(45deg) scale(0.86);
