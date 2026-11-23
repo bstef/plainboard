@@ -5,9 +5,11 @@ import { useAccounts, useMe } from "../../api/queries";
 import type { Account, Project } from "../../api/types";
 
 /** The accounts a project may choose from: all of them, or the ones an admin limited it to, and of
- *  those only what its owner may use (``usable``, from the server). */
+ *  those only what its owner may use; with what members gave it (``usable``, from the server, which knows all of that). */
 export const allowedAccounts = (project: Pick<Project, "account_ids"> | null | undefined, accounts: Account[], usable?: number[]) =>
-  (project?.account_ids?.length ? accounts.filter((a) => project.account_ids.includes(a.id)) : accounts).filter((a) => !usable || usable.includes(a.id));
+  accounts.filter(
+    (a) => (!usable || usable.includes(a.id)) && (!project?.account_ids?.length || project.account_ids.includes(a.id) || (usable != null && a.owner_id != null)),
+  );
 
 /** The ids of the subscriptions a project's agents may run on: its own limit and what its owner may use. */
 export const useUsableAccounts = (projectId: number | null | undefined) =>
