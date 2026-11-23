@@ -253,6 +253,38 @@ def test_codex_accounts_have_their_own_sign_in(client, project):
     assert moved["account_id"] is None  # the pin belonged to Codex
 
 
+def test_codex_subscriptions_list_the_models_they_may_use(client, project):
+    """Each Codex subscription says with its read of the limits which models it may use (#92): what any of them
+    may use can be chosen, and a turn goes to a subscription that has the agent's model."""
+    from plainboard_protocol import ModelInfo
+
+    pid = project["id"]
+    team = client.post("/api/accounts", json={"provider": "codex", "label": "Team", "auth_mode": "chatgpt"}).json()
+    client.post(f"/api/accounts/{team['id']}/signin")
+    client.post(f"/api/accounts/{team['id']}/signin/code", json={"code": "good#code"})
+    sol, daybreak = ModelInfo(id="gpt-6.1-sol", label="Sol"), ModelInfo(id="gpt-daybreak-blue-latest", label="Daybreak Blue")
+    runs, fake = client.app_ref.state.runs, runner(client)
+    fake.limit_models = {"chatgpt": [sol], "own_login": [sol, daybreak]}
+    wait_for(lambda: not (runs._limits_task and not runs._limits_task.done()))
+    client.portal.call(runs._refresh_limits)
+    found = accounts(client)
+    assert (found["Codex"]["models"], found["Team"]["models"]) == (["gpt-6.1-sol"], ["gpt-6.1-sol", "gpt-daybreak-blue-latest"])
+    codex = next(p for p in client.get("/api/meta").json()["providers"] if p["name"] == "codex")
+    assert [m["id"] for m in codex["models"]] == ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-daybreak-blue-latest"]
+
+    # Pinned to the subscription that does not have the model: the one that has it runs the turn.
+    dev = make_dev(client, pid, provider="codex")
+    client.patch(f"/api/agents/{dev['id']}", json={"account_id": found["Codex"]["id"], "model": "gpt-daybreak-blue-latest"})
+    assert turn(client, pid, dev["id"]).codex_auth_mode == "own_login"
+    client.patch(f"/api/agents/{dev['id']}", json={"model": "gpt-6.1-sol"})
+    assert turn(client, pid, dev["id"]).codex_account == "default"
+    # A model no list names (typed by hand) is not held back: it may run anywhere.
+    client.patch(f"/api/agents/{dev['id']}", json={"model": "gpt-9-new"})
+    assert turn(client, pid, dev["id"]).codex_account == "default"
+    # Another kind of sign-in may offer other models: its list is asked anew.
+    assert client.patch(f"/api/accounts/{team['id']}", json={"auth_mode": "api_key", "secret": "sk-o"}).json()["models"] == []
+
+
 def test_only_a_subscription_without_a_fresh_report_is_asked(client, project):
     """A subscription in use reports its limits with every turn. One that PlainBoard has stopped
     using (nearly full) reports nothing any more: that one has to be asked, or its numbers stay."""

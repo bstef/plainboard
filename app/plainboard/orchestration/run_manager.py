@@ -1026,7 +1026,12 @@ class RunManager:
             values = await settings_service.get_all(s)
             # An account in use reports its limits with every turn, but not its plan.
             reported, planned = await limits_service.fresh(s), await limits_service.plan_checked(s)
-            accounts = [a for a in await account_service.list_accounts(s) if a.enabled and account_service.has_plan(a) and not (a.key in reported and a.key in planned)]
+            # An account whose models are not known yet (account_service.LISTED) is asked even while in use.
+            accounts = [
+                a
+                for a in await account_service.list_accounts(s)
+                if a.enabled and account_service.has_plan(a) and not (a.key in reported and a.key in planned and (a.provider not in account_service.LISTED or a.models))
+            ]
             found = await asyncio.gather(
                 *(self.runner.limits(a.provider, settings_service.credentials(values, account=account_service.fields(a))) for a in accounts)
             )
@@ -1034,6 +1039,8 @@ class RunManager:
                 if report.windows:
                     await limits_service.record(s, account.key, report.windows, complete=report.complete)
                 await limits_service.record_plan(s, account.key, report.plan, report.plan_size)
+                if account_service.record_models(account, report.models):
+                    await s.commit()
             if any(account_service.kept_login(a) for a in accounts):
                 await self.keep_sign_ins(s, None)
 

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, LimitWindow, ProviderAccount, ProviderInfo, RunEvent, RunSpec
+from plainboard_protocol import CheckResult, CompletionResult, CompletionSpec, Credentials, LimitWindow, ModelInfo, ProviderAccount, ProviderInfo, RunEvent, RunSpec
 
 from ..tool_bridge import ToolBridge
 
@@ -51,6 +51,11 @@ class Provider(ABC):
     async def limits(self, credentials: Credentials) -> list[LimitWindow]:
         """The account's plan limits, without using the model. Empty if it has none or they are unknown."""
         return []
+
+    async def offered(self, credentials: Credentials) -> list[ModelInfo] | None:
+        """The models the account in ``credentials`` may use, as its last read of the limits found them (only once).
+        None: not known, or the provider lists the same models for every account."""
+        return None
 
     async def plan(self, credentials: Credentials) -> tuple[str | None, float | None]:
         """The account's plan: its name and its size as a multiple of the provider's smallest plan. None: not known."""

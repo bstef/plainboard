@@ -102,6 +102,22 @@ def _models(names: list[str]) -> list[str]:
     return list(dict.fromkeys(name.strip() for name in names if name.strip()))
 
 
+# Providers whose subscriptions each list the models they may use (LimitsEvent.models): kept in Account.models,
+# where an endpoint's account has the models its owner named.
+LISTED = {"codex"}
+
+
+def record_models(account: Account, models: list[ModelInfo] | None) -> bool:
+    """Keep what a read of the limits found the subscription may use. Returns whether that changed."""
+    if models is None or account.provider not in LISTED:
+        return False
+    ids = list(dict.fromkeys(m.id for m in models))
+    if ids == (account.models or []):
+        return False
+    account.models = ids
+    return True
+
+
 def has_plan(account: Account) -> bool:
     """Subscriptions have plan limits, API keys do not."""
     return account.auth_mode != "api_key"
@@ -211,6 +227,8 @@ async def update(session: AsyncSession, account: Account, data: AccountUpdate) -
         _check_mode(account.provider, data.auth_mode)
         account.auth_mode = data.auth_mode
         account.home_login = False  # a sign-in of the new kind is made anew, and kept here
+        if account.provider in LISTED:
+            account.models = []  # another sign-in may offer other models: asked anew (record_models)
         if data.secret is None:
             account.secret_enc = None  # a token is no API key
     if data.secret and kept_login(account):
@@ -376,8 +394,9 @@ async def _candidates(session: AsyncSession, provider: str, agent: Agent | None,
     if not accounts:
         return []
     # Endpoints of one provider differ in what they offer (two model servers, say): one that names the model.
+    # A subscription whose list comes from the provider (LISTED) and is not known yet may offer it as well.
     model = model or (agent.model if agent else None)
-    accounts = [a for a in accounts if model and model in (a.models or [])] or accounts
+    accounts = [a for a in accounts if model and (model in (a.models or []) or (a.provider in LISTED and not a.models))] or accounts
     # The agent's own subscription, else its project's. One of another provider does not count.
     wanted = agent.account_id if agent else None
     if wanted is None and project is not None:
@@ -491,8 +510,10 @@ async def catalog(session: AsyncSession, providers: list[ProviderInfo]) -> list[
     accounts = [a for a in await list_accounts(session) if a.enabled]
     out = []
     for provider in providers:
-        if provider.endpoint is None:
-            out.append(provider)
+        if provider.endpoint is None:  # with what any subscription's own list adds (LISTED)
+            known = {m.id for m in provider.models}
+            added = list(dict.fromkeys(name for a in accounts if a.provider == provider.name for name in a.models or [] if name not in known))
+            out.append(provider.model_copy(update={"models": [*provider.models, *(ModelInfo(id=name, label=name) for name in added)]}) if added else provider)
             continue
         mine = [a for a in accounts if a.provider == provider.name]
         if not mine:
