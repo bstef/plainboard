@@ -228,7 +228,9 @@ export function ChatPanel({
       {membersOff ? (
         <MembersOffHint className={column} isAdmin={!!me?.is_admin} onOpenSettings={() => openSettings("general")} />
       ) : !canWrite ? (
-        <p className={clsx(column, "shrink-0 border-t border-line py-3 text-fg-3")}>{t("members.readOnlyShort")}</p>
+        <div className="shrink-0 border-t border-line px-3 py-3 text-fg-3">
+          <p className={column}>{t("members.readOnlyShort")}</p>
+        </div>
       ) : (
       <Composer
         seed={seed}
