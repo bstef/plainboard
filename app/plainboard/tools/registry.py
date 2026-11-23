@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 MANAGER = "manager"
 WORKER = "worker"
 ALL = (MANAGER, WORKER)
+SEARCH = "search"  # a feature: tools of it go only to agents whose project has it (``RunManager`` names them)
 
 
 @dataclass
@@ -60,6 +61,7 @@ class Tool:
     handler: Handler | None
     roles: frozenset[str]
     local: bool = False
+    feature: str | None = None  # only where this feature is on
 
     def definition(self) -> ToolDef:
         return ToolDef(name=self.name, description=self.description, input_schema=clean_schema(self.args_model.model_json_schema()), local=self.local)
@@ -68,11 +70,11 @@ class Tool:
 _TOOLS: dict[str, Tool] = {}
 
 
-def tool(name: str, description: str, args: type[BaseModel] = NoArgs, roles: tuple[str, ...] = ALL, local: bool = False):
+def tool(name: str, description: str, args: type[BaseModel] = NoArgs, roles: tuple[str, ...] = ALL, local: bool = False, feature: str | None = None):
     def register(fn: Handler | None) -> Handler | None:
         if name in _TOOLS:
             raise RuntimeError(f"Duplicate tool {name}")
-        _TOOLS[name] = Tool(name, description, args, fn, frozenset(roles), local)
+        _TOOLS[name] = Tool(name, description, args, fn, frozenset(roles), local, feature)
         return fn
 
     return register
@@ -115,13 +117,13 @@ def role_of(agent: Agent) -> str:
     return MANAGER if agent.is_manager else WORKER
 
 
-def tools_for(agent: Agent) -> list[Tool]:
+def tools_for(agent: Agent, features: frozenset[str] = frozenset()) -> list[Tool]:
     role = role_of(agent)
-    return [t for t in _TOOLS.values() if role in t.roles]
+    return [t for t in _TOOLS.values() if role in t.roles and (t.feature is None or t.feature in features)]
 
 
-def tool_defs_for(agent: Agent) -> list[ToolDef]:
-    return [t.definition() for t in tools_for(agent)]
+def tool_defs_for(agent: Agent, features: frozenset[str] = frozenset()) -> list[ToolDef]:
+    return [t.definition() for t in tools_for(agent, features)]
 
 
 def all_tools() -> list[Tool]:
@@ -149,7 +151,7 @@ async def execute(name: str, ctx: ToolContext, raw_args: dict[str, Any] | None) 
 
 
 def _load_modules() -> None:
-    from . import automation, board, flow, integrations, jobs, knowledge, project, repos, skills, storage, team, todos, scratchpad  # noqa: F401
+    from . import automation, board, flow, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
 
 
 _load_modules()

@@ -214,3 +214,24 @@ def test_job_timings_name_the_slowest_jobs_and_their_slowest_steps():
     slowest = github.parse_job_timings(jobs)
     assert [(j.name, j.seconds) for j in slowest] == [("CI / tests", 480), ("CI / lint", 60)]
     assert slowest[0].steps == [("pytest", 360), ("install", 120), ("skipped", 0)]
+
+
+async def test_the_commit_log_of_the_base_branch_goes_on_from_the_last_commit_read(remote, tmp_path):
+    from plainboard_protocol import GitLogSpec
+
+    work = tmp_path / "work"
+    commit(work, "b.txt", "b\n", "Add b\n\nWith a body.")
+    git(work, "push", "-q", "origin", "main")
+    log_spec = GitLogSpec(credentials=Credentials(), key="p1-r1", remote=RepoSpec(name="api", url=str(remote)))
+    first = await trains.commit_log(log_spec)
+    assert first.branch == "main" and first.head == heads(remote)["main"]
+    assert [(c.message, c.files, c.insertions) for c in first.commits] == [("Add b\n\nWith a body.", ["b.txt"], 1), ("start", ["a.txt"], 1)]
+    commit(work, "c.txt", "c\n", "Add c")
+    git(work, "push", "-q", "origin", "main")
+    later = await trains.commit_log(log_spec.model_copy(update={"since": first.head}))
+    assert [c.message for c in later.commits] == ["Add c"]
+    assert (await trains.commit_log(log_spec.model_copy(update={"since": later.head}))).commits == []
+    from plainboard_protocol import GitPresentSpec
+
+    there = await trains.present(GitPresentSpec(key="p1-r1", base="main", shas=[later.head, "f" * 40], paths=["b.txt", "gone.txt"]))
+    assert there.on_base == [later.head] and there.missing == ["gone.txt"]

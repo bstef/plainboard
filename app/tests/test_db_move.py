@@ -13,7 +13,6 @@ from sqlalchemy.engine import make_url
 
 from conftest import POSTGRES
 from plainboard import config, db_move, migrate
-from plainboard.models import Base
 
 pytestmark = pytest.mark.skipif(not POSTGRES, reason="needs PostgreSQL (PLAINBOARD_DATABASE)")
 
@@ -66,7 +65,7 @@ def _populate(sqlite_file) -> None:
     engine = create_engine(f"sqlite:///{sqlite_file}")
     ids: dict[str, list] = {}
     with engine.begin() as conn:
-        for table in Base.metadata.sorted_tables:
+        for table in db_move.moved_tables():
             pk = list(table.primary_key.columns)
             start = (conn.scalar(select(pk[0]).order_by(pk[0].desc()).limit(1)) or 0) if len(pk) == 1 and isinstance(pk[0].type, Integer) else 0
             for n in range(1, 4):
@@ -87,7 +86,7 @@ def _rows(url: str) -> dict:
     engine = create_engine(url)
     try:
         with engine.connect() as conn:
-            return {t.name: [tuple(r) for r in conn.execute(db_move.reading(t))] for t in Base.metadata.sorted_tables}
+            return {t.name: [tuple(r) for r in conn.execute(db_move.reading(t))] for t in db_move.moved_tables()}
     finally:
         engine.dispose()
 

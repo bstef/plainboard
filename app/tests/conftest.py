@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from plainboard_protocol import (
+    GitLogResult,
     EndpointInfo,
     LimitsEvent,
     LimitWindow,
@@ -360,6 +361,22 @@ class FakeRunner:
         full = f"{owner or 'me'}/{name}"
         return {"ok": True, "detail": "", "repos": [{"full_name": full, "name": name, "clone_url": f"https://github.com/{full}.git", "private": private}]}
 
+    async def git_log(self, spec):
+        """The commits of a repository's base branch: ``self.commits`` (newest first) after ``spec.since``."""
+        self.git_log_specs = getattr(self, "git_log_specs", []) + [spec]
+        commits = list(getattr(self, "commits", []))
+        if spec.since and any(c.sha == spec.since for c in commits):
+            commits = commits[: [c.sha for c in commits].index(spec.since)]
+        head = getattr(self, "commits", [None])[0]
+        return GitLogResult(branch=spec.base or "main", head=head.sha if head else "", commits=commits[: spec.limit])
+
+    async def git_present(self, spec):
+        """Every commit asked is on the base branch and every path there, except ``self.gone`` (shas whose files went too)."""
+        from plainboard_protocol import GitPresentResult
+
+        gone = getattr(self, "gone", set())
+        return GitPresentResult(on_base=[sha for sha in spec.shas if sha not in gone], missing=list(spec.paths) if gone else [])
+
     async def tidy_branches(self, spec):
         self.tidy_specs = getattr(self, "tidy_specs", []) + [spec]
         removed = [TidyBranch(name=b, sha=f"{i + 1:040x}", how="squashed") for i, b in enumerate(getattr(self, "merged_branches", [])) if b not in spec.keep]
@@ -573,6 +590,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_JOB_WATCH_INTERVAL_SECONDS", "3600")
     monkeypatch.setenv("PLAINBOARD_LANDING_INTERVAL_SECONDS", "3600")
     monkeypatch.setenv("PLAINBOARD_LANDING_LINGER_SECONDS", "0")
+    monkeypatch.setenv("PLAINBOARD_SEARCH_INTERVAL_SECONDS", "3600")  # tests index with app.state.search.tick
     for var in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "PLAINBOARD_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
     from plainboard import config, main

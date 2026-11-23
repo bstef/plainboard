@@ -20,6 +20,10 @@ dependencies = [
     "python-multipart>=0.0.9",
     "croniter>=3.0",
     "tzdata>=2024.1",
+    # Semantic search (services/search, PostgreSQL with pgvector only): the local embedding model on the CPU.
+    "onnxruntime>=1.18",
+    "tokenizers>=0.19",
+    "numpy>=1.26",
 ]
 
 [project.scripts]

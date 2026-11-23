@@ -174,15 +174,21 @@ def _value(column, value: Any) -> Any:
     return value
 
 
+def moved_tables() -> list[Table]:
+    """Parents before the rows that point at them. Not semantic search's: derived data that SQLite never has,
+    made afterwards where the server offers pgvector (``migrate._search_tables``) and indexed anew."""
+    return [t for t in Base.metadata.sorted_tables if t.info.get("needs") != "vector"]
+
+
 def _copy(src: Connection, dst: Connection) -> dict[str, int]:
     if inspect(dst).get_table_names():
         raise MoveError("the PostgreSQL database is not empty")
-    tables = Base.metadata.sorted_tables  # parents before the rows that point at them
+    tables = moved_tables()
     known = {t.name for t in tables} | {"alembic_version"}
     for name in inspect(src).get_table_names():
         if name not in known and not name.startswith("sqlite_") and src.scalar(text(f'SELECT count(*) FROM "{name}"')):
             log.warning("SQLite table %s is not part of PlainBoard's schema and is not moved", name)
-    Base.metadata.create_all(dst)
+    Base.metadata.create_all(dst, tables=tables)
     counts: dict[str, int] = {}
     for table in tables:
         write, columns, copied = _writing(table), list(table.columns), 0

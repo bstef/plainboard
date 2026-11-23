@@ -321,6 +321,48 @@ class RunnerUsageOut(MachineOut):
     known_at: UTCDateTime | None = None  # when the numbers are from; None: nothing known
 
 
+class SearchModelState(BaseModel):
+    name: str
+    label: str
+    state: str  # absent | downloading | loading | ready | failed
+    progress: float | None = None  # while downloading: the share done
+    error: str = ""
+
+
+class SearchModelOption(BaseModel):
+    """One of the models the settings offer (services/search/embedding.MODELS)."""
+
+    name: str
+    label: str
+    tier: str  # small | balanced | large
+    description: str
+    dim: int
+    max_tokens: int
+    licence: str
+    download_mb: int
+    ram_mb: int
+    mmteb: float | None = None
+    mmteb_retrieval: float | None = None
+    recommended: bool = False
+    estimate_seconds: int | None = None  # a full index of what is indexed now, with it, on this server
+
+
+class SearchStatusOut(BaseModel):
+    available: bool  # PostgreSQL with pgvector
+    enabled: bool  # the setting
+    model: SearchModelState  # what search uses
+    next: SearchModelState | None = None  # the model the index is being made anew for
+    documents: int = 0  # chunks in the index
+    embedded: int = 0  # of them with a vector of the current model; the rest waits (backfill, changes)
+    next_embedded: int = 0  # of them with a vector of the next model
+    by_kind: dict[str, int] = Field(default_factory=dict)
+    models: list[SearchModelOption] = Field(default_factory=list)
+
+
+class SearchModelIn(BaseModel):
+    model: str = Field(min_length=1, max_length=100)
+
+
 class UsageOut(MachineOut):
     """The built-in runner's machine (the fields of ``MachineOut``) and the app's, and the external runners'."""
 
@@ -429,6 +471,7 @@ class ProjectUpdate(BaseModel):
     auto_wake_manager: bool | None = None
     continue_with_backlog: bool | None = None
     fast_checks: bool | None = None
+    semantic_search: bool | None = None
     parallel_agents: int | None = Field(default=None, ge=0, le=20)  # null: the number from the settings again
     account_id: int | None = None  # null: the subscription with the most room again
     auto_archive_days: int | None = Field(default=None, ge=0, le=3650)
@@ -452,6 +495,7 @@ class ProjectOut(ORM):
     auto_wake_manager: bool
     continue_with_backlog: bool = True
     fast_checks: bool = True
+    semantic_search: bool = True
     parallel_agents: int | None = None
     account_id: int | None = None
     account_ids: list[int] = []  # the only accounts it may use, set by an admin; empty: any

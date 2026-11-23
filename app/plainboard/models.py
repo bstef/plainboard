@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false, true
+from sqlalchemy import JSON, BigInteger, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Table, Text, UniqueConstraint, cast, false, true
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import UserDefinedType
 
 
 def utcnow() -> datetime:
@@ -167,6 +169,8 @@ class Project(Timestamps, Base):
     continue_with_backlog: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # PlainBoard measures the check runs and has slow ones made faster (landing._checks_slow); off: none of it.
     fast_checks: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # Its history is searchable for its agents (services/search): only with PostgreSQL and pgvector, and while the setting is on.
+    semantic_search: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # Members of this project working at the same time. Unset: the number from the settings (`max_parallel_runs`).
     parallel_agents: Mapped[int | None] = mapped_column(Integer)
     # The subscription this project's agents run on, unless an agent has its own. Unset: the one with the most room.
@@ -828,3 +832,82 @@ class McpServer(Timestamps, Base):
     headers_enc: Mapped[str | None] = mapped_column(Text)  # encrypted JSON object
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     all_agents: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# --- semantic search (services/search): PostgreSQL with pgvector only ----------------------------
+
+
+class Vector(UserDefinedType):
+    """pgvector's ``vector``, without a fixed dimension: each row names the model that made it."""
+
+    cache_ok = True
+
+    def get_col_spec(self, **kw: Any) -> str:
+        return "vector"
+
+    def bind_processor(self, dialect: Any):
+        return lambda value: None if value is None else "[" + ",".join(f"{float(x):.6g}" for x in value) + "]"
+
+    def bind_expression(self, bindvalue: Any):
+        return cast(bindvalue, self)
+
+    def result_processor(self, dialect: Any, coltype: Any):
+        return lambda value: None if value is None else [float(x) for x in value.strip("[]").split(",") if x]
+
+
+# Tables that need the extension: never made by ``create_all`` with the others, only by ``search.schema.ensure``.
+NEEDS_VECTOR = {"info": {"needs": "vector"}}
+
+
+class SearchDocument(Base):
+    """One chunk of something in a project's history, prepared for retrieval (services/search/documents.py):
+    a header that makes it self-contained, the cleaned text and its hash (unchanged text is never embedded
+    again); its vectors are in ``SearchVector``. Derived data: made again from the sources at any time."""
+
+    __tablename__ = "search_documents"
+    __table_args__ = (
+        UniqueConstraint("project_id", "kind", "source_id", "chunk"),
+        Index("ix_search_documents_scope", "project_id", "kind", "at"),
+        Index("ix_search_documents_tsv", "tsv", postgresql_using="gin"),
+        NEEDS_VECTOR,
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(20))  # an indexer's kind: ticket, report, decision, comment, note, commit
+    source_id: Mapped[str] = mapped_column(String(100))  # the item within its kind (a row id, repository:sha)
+    chunk: Mapped[int] = mapped_column(Integer, default=0)
+    ref: Mapped[str] = mapped_column(String(120))  # how an agent names it: #64, assignment #5043, 1a2b3c4d5e
+    title: Mapped[str] = mapped_column(String(300), default="")
+    header: Mapped[str] = mapped_column(Text, default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    at: Mapped[datetime] = mapped_column(DateTime)  # when the item was made (a ticket, a commit)
+    changed_at: Mapped[datetime] = mapped_column(DateTime)  # when it last changed at its source
+    ticket_number: Mapped[int | None] = mapped_column(Integer)
+    repo: Mapped[str | None] = mapped_column(String(100))
+    paths: Mapped[list[str] | None] = mapped_column(JSON)  # a commit's first changed files: whether they still exist is said with a hit
+    content_hash: Mapped[str] = mapped_column(String(64))
+    tsv: Mapped[Any] = mapped_column(TSVECTOR, Computed("to_tsvector('simple', header || ' ' || body)", persisted=True), deferred=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class SearchVector(Base):
+    """A chunk's vector by one model. Two models side by side while the index is made anew for another one:
+    search keeps using the current model's until the new one has every chunk, then switches at once."""
+
+    __tablename__ = "search_vectors"
+    __table_args__ = (Index("ix_search_vectors_scope", "project_id", "model"), NEEDS_VECTOR)
+    document_id: Mapped[int] = mapped_column(ForeignKey("search_documents.id", ondelete="CASCADE"), primary_key=True)
+    model: Mapped[str] = mapped_column(String(100), primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    embedding: Mapped[list[float]] = mapped_column(Vector())
+
+
+class SearchCursor(Base):
+    """How far an indexer has read a project's source: the last item's stamp and id, or a repository's last commit."""
+
+    __tablename__ = "search_cursors"
+    __table_args__ = (NEEDS_VECTOR,)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(60), primary_key=True)  # an indexer's kind, commit:<repository id>, sweep
+    value: Mapped[str] = mapped_column(String(200), default="")
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
