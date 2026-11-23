@@ -17,7 +17,7 @@ import {
   Settings,
   Ticket,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { useTasks } from "../../api/queries";
@@ -74,6 +74,16 @@ export function ProjectMenu({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // How far the open menu moves sideways to stay half a rem inside the screen (on a phone the "…" sits mid-bar).
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open || !menuRef.current) return setShift(0);
+    const r = menuRef.current.getBoundingClientRect();
+    // Not innerWidth: on a phone it grows with the very menu that sticks out.
+    const [edge, width] = [8, document.documentElement.clientWidth];
+    setShift(r.right > width - edge ? width - edge - r.right : r.left < edge ? edge - r.left : 0);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
@@ -114,9 +124,11 @@ export function ProjectMenu({
       </IconButton>
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           data-part="navmenu"
-          className={clsx("absolute top-full z-40 mt-1 flex w-60 flex-col rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2", align === "left" ? "left-0" : "right-0")}
+          style={shift ? { transform: `translateX(${shift}px)` } : undefined}
+          className={clsx("absolute top-full z-40 mt-1 flex w-60 max-w-[calc(100vw-1rem)] flex-col rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2", align === "left" ? "left-0" : "right-0")}
         >
           {items.map((it, i) => (
             <div key={it.key}>
