@@ -10,6 +10,8 @@ ideas (``Project.idea_*``; default: the provider's small model), stored as a ``R
   fails or answers nonsense, the ideas stay unsorted (``sort_state`` failed).
 - After a few newly sorted ideas, or when the sorting was unsure, the topics are rearranged (also in the
   background; ``reorder`` for the button). Each rearrangement is an undoable change.
+- Ideas that sorting or rearranging found to say the same are then merged into one, one call per group with
+  their whole texts: an undoable change each (``_merge_duplicates``).
 - Reading an input and an answer happen while the person waits: a few seconds of a small model.
 """
 
@@ -42,6 +44,7 @@ SORT_DELAY = 3.0  # seconds to wait for more ideas before sorting
 SORT_BATCH = 60  # ideas sorted with one call; more wait for the next
 REORDER_AFTER = 3  # newly sorted ideas after which the topics are rearranged
 REORDER_MIN_IDEAS = 3  # fewer open ideas need no rearranging
+MERGE_BATCH = 10  # groups of duplicates merged in one go; more wait for the next
 
 
 class Ideas:
@@ -76,6 +79,8 @@ class Ideas:
                 more = await self._sort(project_id)
                 if (source := self._reorder.pop(project_id, None)) is not None:
                     await self._rearrange(project_id, source)
+                if await self._merge_duplicates(project_id):
+                    more = True  # the merged idea is sorted again
                 if not more and project_id not in self._again:
                     break
                 if project_id in self._again:
@@ -128,6 +133,23 @@ class Ideas:
             return None
         async with self.runs._sm() as s:
             return await idea_service.apply_reorder(s, project_id, data, source)
+
+    async def _merge_duplicates(self, project_id: int) -> bool:
+        """Merge what was found to say the same, group by group. Returns whether anything was merged."""
+        async with self.runs._sm() as s:
+            groups = await idea_service.duplicate_groups(s, project_id)
+        merged = False
+        for ids in groups[:MERGE_BATCH]:
+            async with self.runs._sm() as s:
+                project = await s.get(Project, project_id)
+                request = await idea_service.merge_request(s, project, ids) if project else None
+                if request is None:
+                    continue
+                prompt, seen = request
+                data, _error = await self._ask(s, project, idea_service.MERGE_SYSTEM, prompt)
+            async with self.runs._sm() as s:
+                merged = await idea_service.apply_merge(s, project_id, seen, data) is not None or merged
+        return merged
 
     # --- while the person waits ----------------------------------------------------------------
 

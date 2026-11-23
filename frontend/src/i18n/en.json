@@ -1674,6 +1674,7 @@
       "kept": "Kept as a new idea",
       "amend": "Added to “{{title}}”",
       "merge": "{{count}} ideas merged into “{{title}}”",
+      "duplicates": "Duplicates merged into “{{title}}”",
       "several_one": "Split into {{count}} idea",
       "several_other": "Split into {{count}} ideas",
       "question": "The AI has a question about it",
@@ -1716,7 +1717,7 @@
     },
     "empty": {
       "title": "Collect ideas for your project",
-      "text": "Write down whatever comes to mind, roughly is fine. The AI sorts the ideas into topics, notices duplicates and asks when something is unclear. Nothing starts here: it is only for planning, also before there is a repository.",
+      "text": "Write down whatever comes to mind, roughly is fine. The AI sorts the ideas into topics, merges duplicates and asks when something is unclear. Nothing starts here: it is only for planning, also before there is a repository.",
       "starters": "Not sure where to start?"
     },
     "starter": {

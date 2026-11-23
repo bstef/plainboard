@@ -2,8 +2,8 @@
 only when the user asks the manager (tools/ideas.py) or takes one idea over by hand.
 
 A model (``orchestration/ideas.py``) reads what a person types (a new idea, an addition to one, several,
-merging, or a question back), sorts ideas into topics (islands on the board) with similar ones and duplicates
-(``IdeaLink``), and rearranges the topics now and then. What a person placed or named by hand stays (``manual``).
+merging, or a question back), sorts ideas into topics (islands on the board) with similar ones (``IdeaLink``),
+merges ideas that say the same into one (``merge_request``/``apply_merge``), and rearranges the topics now and then. What a person placed or named by hand stays (``manual``).
 Every step is an ``IdeaChange`` that can be undone, every replaced text an ``IdeaVersion``: no idea and no text
 is ever lost. Only a person deletes an idea, on purpose.
 """
@@ -27,8 +27,12 @@ from .util import format_bytes, truncate
 
 COLORS = 10  # the design's --chart-1..10
 PENDING, SORTED, FAILED = "pending", "sorted", "failed"
-SIMILAR, DUPLICATE = "similar", "duplicate"
+# Links: similar; duplicate (to be merged, or left out as one by the manager); kept (were merged or asked
+# about once: never merged on their own again, shown as similar).
+SIMILAR, DUPLICATE, KEPT = "similar", "duplicate", "kept"
 SORT_TEXT = 600  # what the sorting model reads of an idea
+MERGE_TEXT = 8000  # what the model reads of an idea it merges with another
+MERGE_GROUP = 6  # ideas merged into one at most at a time
 CONTEXT_IDEAS = 300  # other ideas the model is shown
 QUESTION_OPEN, QUESTION_ANSWERED, QUESTION_WITHDRAWN = "open", "answered", "withdrawn"
 IDEA_FIELDS = (
@@ -169,6 +173,8 @@ class Snap:
         self.topics: dict[int, dict[str, Any]] = {}
         self.new_ideas: list[int] = []
         self.new_topics: list[int] = []
+        self.files: dict[int, int] = {}  # attachment -> the idea it belonged to
+        self.new_links: list[int] = []
 
     def idea(self, idea: Idea) -> Idea:
         if idea.id not in self.ideas and idea.id not in self.new_ideas:
@@ -181,7 +187,10 @@ class Snap:
         return topic
 
     def data(self) -> dict[str, Any]:
-        return {"ideas": {str(k): v for k, v in self.ideas.items()}, "topics": {str(k): v for k, v in self.topics.items()}, "new_ideas": self.new_ideas, "new_topics": self.new_topics}
+        return {
+            "ideas": {str(k): v for k, v in self.ideas.items()}, "topics": {str(k): v for k, v in self.topics.items()}, "new_ideas": self.new_ideas, "new_topics": self.new_topics,
+            "files": {str(k): v for k, v in self.files.items()}, "new_links": self.new_links,
+        }  # fmt: skip
 
 
 def _record(session: AsyncSession, project_id: int, kind: str, source: str, author: str, summary: dict[str, Any], snap: Snap) -> IdeaChange:
@@ -233,6 +242,13 @@ async def undo(session: AsyncSession, change: IdeaChange) -> IdeaChange:
                 value = value if await session.get(table, value) is not None else None
             setattr(idea, field, value)
         touched.append(idea)
+    for key, idea_id in (data.get("files") or {}).items():
+        attachment = await session.get(Attachment, int(key))
+        if attachment is not None and await session.get(Idea, idea_id) is not None:
+            attachment.idea_id = idea_id
+    for link_id in data.get("new_links") or []:
+        if (link := await session.get(IdeaLink, link_id)) is not None:
+            await session.delete(link)
     now = utcnow()
     for idea_id in data.get("new_ideas") or []:
         idea = await session.get(Idea, idea_id)
@@ -484,9 +500,27 @@ def _set_text(session: AsyncSession, snap: Snap, idea: Idea, title: str, text: s
     idea.title, idea.text, idea.sort_state = truncate(title, 200), text, PENDING
 
 
-def _merge_into(snap: Snap, idea: Idea, target: Idea) -> None:
-    snap.idea(idea)
-    idea.status, idea.merged_into_id, idea.closed_at, idea.closed_reason = IdeaStatus.MERGED, target.id, utcnow(), f"merged into i{target.id}"
+async def _merge_into(session: AsyncSession, snap: Snap, ideas: list[Idea], target: Idea) -> None:
+    """``ideas`` merged into ``target`` (which has the text of all of them by now): kept, closed, pointing to it.
+    Their files go to ``target``, and so do their links to other open ideas. Not committed."""
+    ids = [i.id for i in ideas if i.id != target.id]
+    if not ids:
+        return
+    now = utcnow()
+    for idea in ideas:
+        if idea.id != target.id:
+            snap.idea(idea)
+            idea.status, idea.merged_into_id, idea.closed_at, idea.closed_reason = IdeaStatus.MERGED, target.id, now, f"merged into i{target.id}"
+    for attachment in await session.scalars(select(Attachment).where(Attachment.idea_id.in_(ids))):
+        snap.files.setdefault(attachment.id, attachment.idea_id)
+        attachment.idea_id = target.id
+    links = (await session.scalars(select(IdeaLink).where(or_(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids))))).all()
+    others = {link.other_id if link.idea_id in ids else link.idea_id for link in links} - {target.id, *ids} - await _linked(session, [target.id])
+    still_open = set((await session.scalars(select(Idea.id).where(Idea.id.in_(others), Idea.status == IdeaStatus.OPEN))).all()) if others else set()
+    made = [IdeaLink(project_id=target.project_id, idea_id=other, other_id=target.id, kind=SIMILAR) for other in sorted(still_open)]
+    session.add_all(made)
+    await session.flush()
+    snap.new_links += [link.id for link in made]
 
 
 async def _new_idea(session: AsyncSession, snap: Snap, project_id: int, title: str, text: str, author: str) -> Idea:
@@ -530,9 +564,10 @@ including {id}), or "new" with several ideas if it splits up (the first replaces
 async def intent_prompt(session: AsyncSession, project: Project, text: str, draft: Idea | None = None, answer: str = "") -> str:
     ideas = await open_ideas(session, project.id)
     names = {t.id: t.name for t in await topics(session, project.id)}
+    whole = ({draft.id} | await _linked(session, [draft.id])) if draft is not None else set()  # e.g. asked whether to merge: nothing may get lost
     parts = [_project_head(project)]
     if ideas:
-        parts.append("Ideas:\n" + "\n".join(f"{_idea_line(i, SORT_TEXT if draft and i.id == draft.id else 300)} [{names.get(i.topic_id, 'no topic')}]" for i in ideas[-CONTEXT_IDEAS:]))
+        parts.append("Ideas:\n" + "\n".join(f"{_idea_line(i, MERGE_TEXT if i.id in whole else 300)} [{names.get(i.topic_id, 'no topic')}]" for i in ideas[-CONTEXT_IDEAS:]))
     if draft is not None:
         parts.append(RESOLVE_NOTE.format(id=draft.id, question=draft.question, answer=answer))
     else:
@@ -557,7 +592,7 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
         summary.update(idea_id=target.id, before={"title": target.title, "text": target.text}, after={"title": title or target.title, "text": new_text})
         _set_text(session, snap, target, title or target.title, new_text, "ai")
         if draft is not None and draft.id != target.id:
-            _merge_into(snap, draft, target)
+            await _merge_into(session, snap, [draft], target)
             summary["merged"] = [draft.id]
         kind = "amend"
     elif action == "merge" and new_text:
@@ -568,8 +603,7 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
             target = by_id[ids[0]]
             summary.update(idea_id=target.id, merged=ids[1:], before={str(i): {"title": by_id[i].title, "text": by_id[i].text} for i in ids}, after={"title": title or target.title, "text": new_text})
             _set_text(session, snap, target, title or target.title, new_text, "ai")
-            for idea_id in ids[1:]:
-                _merge_into(snap, by_id[idea_id], target)
+            await _merge_into(session, snap, [by_id[i] for i in ids[1:]], target)
             kind = "merge"
     elif action in ("new", "several"):
         items = [(_str(i.get("title"), 200), i["text"].strip()) for i in data.get("ideas") or [] if isinstance(i, dict) and isinstance(i.get("text"), str) and i["text"].strip()]
@@ -627,7 +661,7 @@ Answer with one JSON object and nothing else:
 - "topic": the name of an existing topic if the idea fits it (exactly as written), else a new one: one to \
 three words, in the language of the ideas.
 - "similar": ids of other ideas about nearly the same thing. "duplicate_of": the id of an idea that says the \
-same, if there is one. Only ids from this message.
+same, if there is one: the two are then merged into one. Only ids from this message.
 - "hint": a few words for the person, only where there is something to say, e.g. "similar to i5". Else "".
 - "unsure": true if the idea fits no topic well or the topics should be rearranged.
 - "question": rarely, only if an idea is so unclear that it can neither be sorted nor later planned: \
@@ -695,12 +729,13 @@ async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], dat
         if not asked and not idea.question_status and isinstance(question, dict) and (text := _str(question.get("question"), 500)) and (options := _options(question.get("options"))):
             idea.question, idea.question_options, idea.question_status, idea.question_at = text, options, QUESTION_OPEN, utcnow()
             asked = True
-        await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id))
+        await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id, IdeaLink.kind != KEPT))
         duplicate = _int(item.get("duplicate_of"))
-        if duplicate in valid and duplicate != idea.id:
+        kept = await _kept_apart(session, [idea.id])
+        if duplicate in valid and duplicate != idea.id and frozenset((idea.id, duplicate)) not in kept:
             session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=duplicate, kind=DUPLICATE))
         for other in dict.fromkeys(_ints(item.get("similar"))):
-            if other in valid and other not in (idea.id, duplicate):
+            if other in valid and other not in (idea.id, duplicate) and frozenset((idea.id, other)) not in kept:
                 session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=other, kind=SIMILAR))
     for idea in batch.values():
         if idea.id not in done and idea.sort_state == PENDING:
@@ -732,6 +767,8 @@ Answer with one JSON object and nothing else:
 you leave out are removed.
 - Names have one to three words, in the language of the ideas; "hint" is a short note, e.g. "3 ideas about \
 payment". Usually 3 to 10 topics, with 2 or more ideas each.
+- "duplicates" (optional, else leave it out): groups of ideas that say the same, e.g. [[5, 9]]. Each group is \
+merged into one idea afterwards, nothing of them is lost. Not for ideas that only touch the same thing.
 """
 
 
@@ -799,6 +836,7 @@ async def apply_reorder(session: AsyncSession, project_id: int, data: dict[str, 
         if idea.sort_state != SORTED:
             snap.idea(idea)
             idea.sort_state = SORTED
+    await _mark_duplicates(session, project_id, [[i for i in _ints(group) if i in by_id] for group in data.get("duplicates") or [] if isinstance(group, list)])
     await session.flush()
     destinations: dict[int, set[str]] = {}
     for move in moved:
@@ -819,6 +857,127 @@ async def apply_reorder(session: AsyncSession, project_id: int, data: dict[str, 
         if topic.id in snap.topics or topic in new_topics or topic in hinted:
             publish_topic(topic)
     await publish(session, project_id, [by_id[i] for i in snap.ideas if i in by_id])
+    if change is not None:
+        await _publish_change(session, change)
+    return change
+
+
+# --- merging duplicates -----------------------------------------------------------------------
+
+MERGE_SYSTEM = """\
+Some ideas on the board of ideas of a software project say the same thing. You put them together into one \
+idea. You only write the idea: you plan and start nothing.
+
+Answer with one JSON object and nothing else, one of:
+{"title": "...", "text": "..."}
+  The merged idea: a title of 2-6 words and its whole text. The text keeps everything each of them says \
+(every detail, wish, example, reason and open point) and says it once. Keep the persons' words and language.
+{"question": "...", "options": [{"label": "...", "description": "..."}]}
+  Instead, if the message says to ask first, or if they turn out to mean different things: a short question \
+to the person whether to merge them, with 2-4 options, the recommended first.
+"""
+
+
+async def _kept_apart(session: AsyncSession, ids: list[int]) -> set[frozenset[int]]:
+    """Pairs among links of these ideas that were merged or asked about once: not merged on their own again."""
+    query = select(IdeaLink.idea_id, IdeaLink.other_id).where(IdeaLink.kind == KEPT, or_(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids)))
+    return {frozenset(pair) for pair in (await session.execute(query)).all()}
+
+
+async def _mark_duplicates(session: AsyncSession, project_id: int, groups: list[list[int]]) -> None:
+    """The model found these groups of open ideas to say the same: linked, to be merged (``merge_request``)."""
+    for group in groups:
+        group = list(dict.fromkeys(group))
+        if len(group) < 2:
+            continue
+        kept = await _kept_apart(session, group)
+        for other in group[1:]:
+            if frozenset((group[0], other)) not in kept:
+                session.add(IdeaLink(project_id=project_id, idea_id=other, other_id=group[0], kind=DUPLICATE))
+
+
+async def duplicate_groups(session: AsyncSession, project_id: int) -> list[list[int]]:
+    """Open ideas the model found to say the same (duplicate links between them), in groups, each by age."""
+    open_ids = select(Idea.id).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN)
+    query = select(IdeaLink.idea_id, IdeaLink.other_id).where(
+        IdeaLink.project_id == project_id, IdeaLink.kind == DUPLICATE, IdeaLink.idea_id.in_(open_ids), IdeaLink.other_id.in_(open_ids)
+    )
+    root: dict[int, int] = {}
+
+    def find(n: int) -> int:
+        while root.setdefault(n, n) != n:
+            n = root[n]
+        return n
+
+    for a, b in (await session.execute(query)).all():
+        if a != b:
+            root[find(a)] = find(b)
+    groups: dict[int, list[int]] = {}
+    for n in root:
+        groups.setdefault(find(n), []).append(n)
+    return [sorted(g)[:MERGE_GROUP] for g in sorted(groups.values(), key=min)]
+
+
+async def _fixed(session: AsyncSession, ideas: list[Idea]) -> list[Idea]:
+    """Those a person placed or whose text a person wrote again: the model does not rewrite them unasked."""
+    edited = set((await session.scalars(select(IdeaVersion.idea_id).where(IdeaVersion.idea_id.in_([i.id for i in ideas]), IdeaVersion.source == "user"))).all())
+    return [i for i in ideas if i.topic_manual or i.id in edited]
+
+
+async def merge_request(session: AsyncSession, project: Project, ids: list[int]) -> tuple[str, dict[int, tuple[str, str]]] | None:
+    """The prompt to merge these ideas, and what the model saw of each (``apply_merge`` merges only if that
+    is still so). None if they are no longer open."""
+    ideas = list((await session.scalars(select(Idea).where(Idea.id.in_(ids), Idea.project_id == project.id, Idea.status == IdeaStatus.OPEN).order_by(Idea.id))).all())
+    if len(ideas) < 2:
+        return None
+    parts = [_project_head(project), "These ideas say the same:\n" + "\n\n".join(f"i{i.id} {i.title.strip() or '(no title)'}\n{truncate(i.text, MERGE_TEXT)}" for i in ideas)]
+    if fixed := await _fixed(session, ideas):
+        parts.append(f"A person wrote or placed {', '.join(f'i{i.id}' for i in fixed)} by hand: do not merge, ask first.")
+    return "\n\n".join(parts), {i.id: (i.title, i.text) for i in ideas}
+
+
+async def apply_merge(session: AsyncSession, project_id: int, seen: dict[int, tuple[str, str]], data: dict[str, Any] | None) -> IdeaChange | None:
+    """Merge the ideas the model saw (``merge_request``) into the oldest, with the text it wrote: one change,
+    undone as one. One a person placed or wrote by hand is not rewritten unasked: the model's question goes to
+    the person instead. Afterwards the ideas are kept apart (``KEPT``): an undone merge is not made again.
+    Returns the change, or None (asked; or the ideas changed meanwhile or the answer was no use: tried again
+    with the next sorting)."""
+    ideas = list((await session.scalars(select(Idea).where(Idea.id.in_(list(seen)), Idea.project_id == project_id).order_by(Idea.id))).all())
+    if len(ideas) != len(seen) or any(i.status != IdeaStatus.OPEN or (i.title, i.text) != seen[i.id] for i in ideas):
+        return None
+    data = data if isinstance(data, dict) else {}
+    title, text = _str(data.get("title"), 200), data.get("text").strip() if isinstance(data.get("text"), str) else ""
+    fixed = await _fixed(session, ideas)
+    question, options = _str(data.get("question"), 500), _options(data.get("options"))
+    merge = bool(text) and not fixed
+    if not merge and not fixed and not (question and len(options) >= 2):
+        return None
+    if not merge and question and len(options) >= 2:
+        asked = next((i for i in reversed(ideas) if i not in fixed and not i.question_status), None) or next((i for i in reversed(ideas) if not i.question_status), None)
+        if asked is not None:  # else asked about all of them before: they stay as they are
+            asked.question, asked.question_options, asked.question_status, asked.question_at = question, options, QUESTION_OPEN, utcnow()
+    target, others = ideas[0], ideas[1:]
+    ids = [i.id for i in ideas]
+    linked = set()
+    for link in (await session.scalars(select(IdeaLink).where(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids)))).all():
+        link.kind = KEPT  # not part of the change: an undone merge is not made again
+        linked |= {link.idea_id, link.other_id} if target.id in (link.idea_id, link.other_id) else set()
+    session.add_all([IdeaLink(project_id=project_id, idea_id=i.id, other_id=target.id, kind=KEPT) for i in others if i.id not in linked])
+    change, gone = None, []
+    if merge:
+        snap = Snap()
+        before = {str(i.id): {"title": i.title, "text": i.text} for i in ideas}
+        _set_text(session, snap, target, title or target.title, text, "ai")
+        await _merge_into(session, snap, others, target)
+        await session.flush()
+        gone = await _drop_empty_topics(session, project_id, snap)
+        summary = {"idea_id": target.id, "merged": [i.id for i in others], "before": before, "after": {"title": target.title, "text": target.text}, "duplicates": True}
+        change = _record(session, project_id, "merge", "auto", "", summary, snap)
+    await session.commit()
+    for topic_id in gone:
+        bus.publish(project_id, "idea_topic.deleted", {"id": topic_id})
+    await publish(session, project_id, ideas)
+    await _publish_linked(session, project_id, ids)
     if change is not None:
         await _publish_change(session, change)
     return change
