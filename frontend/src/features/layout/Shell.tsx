@@ -468,7 +468,6 @@ function ProjectWorkspace({
       onSelect={(id) => setView(id as View)}
       onSettings={onSettings}
       onLook={() => setLookOpen(true)}
-      onPalette={() => setPaletteOpen(true)}
     />
   );
 

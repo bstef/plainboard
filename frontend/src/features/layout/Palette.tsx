@@ -55,20 +55,18 @@ export function NavButton({ entry, active, wide, onClick }: { entry: NavEntry; a
   );
 }
 
-/** The "…" at the project name: the rare views, the settings and the palette. Marked while something runs behind one. */
+/** The "…" at the project name: the rare views and the settings (the search has its own line). Marked while something runs behind one. */
 export function ProjectMenu({
   entries,
   onSelect,
   onSettings,
   onLook,
-  onPalette,
   align = "left",
 }: {
   entries: NavEntry[];
   onSelect: (id: string) => void;
   onSettings: () => void;
   onLook: () => void;
-  onPalette: () => void;
   align?: "left" | "right";
 }) {
   const { t } = useTranslation();
@@ -88,7 +86,6 @@ export function ProjectMenu({
     ...entries.map((e) => ({ key: e.id, label: e.label, icon: e.icon("size-4 shrink-0 text-fg-2"), marked: e.marked, run: () => onSelect(e.id) })),
     { key: "settings", label: t("nav.settings"), icon: <Settings className="size-4 shrink-0 text-fg-2" />, run: onSettings },
     { key: "theme", label: t("nav.theme"), icon: <Palette className="size-4 shrink-0 text-fg-2" />, run: onLook },
-    { key: "palette", label: t("palette.open"), icon: <Search className="size-4 shrink-0 text-fg-2" />, kbd: "Ctrl K", run: onPalette },
   ];
   const onKey = (e: React.KeyboardEvent) => {
     if (!open) return;
