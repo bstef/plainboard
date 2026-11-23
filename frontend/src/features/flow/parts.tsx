@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { useEffect, useRef } from "react";
 import { GitBranch } from "lucide-react";
 import { AgentSquare } from "../../components/ui";
 import type { Agent } from "../../api/types";
@@ -22,12 +23,33 @@ export function Branch({ name, className }: { name: string; className?: string }
   );
 }
 
-/** Time against the typical duration of a check run. The bar stays full when it takes longer. */
+/** Time against the typical duration of a check run. The bar stays full when it takes longer.
+ * It grows smoothly: one linear animation over the typical duration, set to the elapsed time and only
+ * corrected when the clock drifts by more than a second. With reduced motion it moves with the 1 s tick. */
 export function Progress({ elapsed, typical, className }: { elapsed: number; typical: number; className?: string }) {
   const pct = Math.min(100, (elapsed / Math.max(typical, 1)) * 100);
+  const duration = Math.max(typical, 1) * 1000;
+  const bar = useRef<HTMLDivElement>(null);
+  const anim = useRef<Animation | null>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el?.animate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const a = el.animate([{ width: "0%" }, { width: "100%" }], { duration, easing: "linear", fill: "forwards" });
+    anim.current = a;
+    return () => {
+      a.cancel();
+      anim.current = null;
+    };
+  }, [duration]);
+  useEffect(() => {
+    const a = anim.current;
+    if (!a) return;
+    const target = Math.min(elapsed * 1000, duration);
+    if (Math.abs(Number(a.currentTime ?? 0) - target) > 1000) a.currentTime = target;
+  }, [elapsed, duration]);
   return (
     <div className={clsx("h-1.5 w-full overflow-hidden rounded-sm bg-line", className)} data-part="progress" role="progressbar" aria-valuenow={Math.round(pct)}>
-      <div className="flow-stripes h-full rounded-sm bg-fg-2" style={{ width: `${pct}%` }} />
+      <div ref={bar} className="flow-stripes h-full rounded-sm bg-fg-2" style={{ width: `${pct}%` }} />
     </div>
   );
 }
