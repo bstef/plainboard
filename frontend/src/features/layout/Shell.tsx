@@ -434,11 +434,12 @@ function ProjectWorkspace({
     else if (m.task_id !== null) api.openTask(m.task_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  /** A view that has something running behind it gets a mark: the browser while previews run. */
+  /** A view that has something running behind it: the browser while previews run. Its label stays short; the
+   * sidebar lists the previews, the rail marks its icon and the phone the "…". */
   const marked = (id: View) => id === "browser" && previews.length > 0;
   const entry = (id: View): NavEntry => ({
     id,
-    label: marked(id) ? `${t(`nav.${id}`)} · ${t("previews.count", { count: previews.length })}` : t(`nav.${id}`),
+    label: t(`nav.${id}`),
     icon: VIEWS.find((v) => v.id === id)!.icon,
     marked: marked(id),
   });
@@ -465,6 +466,7 @@ function ProjectWorkspace({
     <ProjectMenu
       align={align}
       entries={rare.map(entry)}
+      marked={!isDesktop && rare.some(marked)}
       onSelect={(id) => setView(id as View)}
       onSettings={isDesktop ? undefined : onSettings}
       onLook={isDesktop ? undefined : () => setLookOpen(true)}

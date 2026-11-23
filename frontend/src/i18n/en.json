@@ -1214,8 +1214,6 @@
   "previews": {
     "title": "Previews",
     "running": "Previews running now",
-    "count_one": "{{count}} preview running",
-    "count_other": "{{count}} previews running",
     "openHere": "Open here",
     "openTab": "New tab",
     "stop": "Stop this server",
