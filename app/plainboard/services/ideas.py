@@ -13,17 +13,17 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, BinaryIO
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Project, Task, TaskStatus, utcnow
-from ..schemas import IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
+from ..models import Agent, Attachment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Project, Task, TaskStatus, utcnow
+from ..schemas import AttachmentOut, IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
 from . import board as board_service
 from .errors import NotFound, ServiceError
-from .util import truncate
+from .util import format_bytes, truncate
 
 COLORS = 10  # the design's --chart-1..10
 PENDING, SORTED, FAILED = "pending", "sorted", "failed"
@@ -103,10 +103,14 @@ async def outs(session: AsyncSession, ideas: list[Idea]) -> list[IdeaOut]:
     still_open = set((await session.scalars(select(Idea.id).where(Idea.id.in_(linked), Idea.status == IdeaStatus.OPEN))).all()) if linked else set()
     task_ids = {i.task_id for i in ideas if i.task_id}
     numbers = dict((await session.execute(select(Task.id, Task.number).where(Task.id.in_(task_ids)))).all()) if task_ids else {}
+    files: dict[int, list[AttachmentOut]] = {}
+    for a in await session.scalars(select(Attachment).where(Attachment.idea_id.in_(ids)).order_by(Attachment.id)):
+        files.setdefault(a.idea_id, []).append(AttachmentOut.model_validate(a))
     result = []
     for idea in ideas:
         out = IdeaOut.model_validate(idea)
         out.task_number = numbers.get(idea.task_id) if idea.task_id else None
+        out.attachments = files.get(idea.id, [])
         similar: list[int] = []
         for link in links:
             if link.idea_id == idea.id and link.kind == DUPLICATE and link.other_id in still_open:
@@ -307,10 +311,25 @@ async def restore_version(session: AsyncSession, idea: Idea, version_id: int, au
     return await update(session, idea, {"title": version.title, "text": version.text}, author)
 
 
+async def attachments(session: AsyncSession, idea: Idea) -> list[Attachment]:
+    return list((await session.scalars(select(Attachment).where(Attachment.idea_id == idea.id).order_by(Attachment.id))).all())
+
+
+async def add_attachments(session: AsyncSession, idea: Idea, files: list[tuple[str, str, bytes | BinaryIO]]) -> list[Attachment]:
+    """Files attached to an idea (name, type, content), stored like a ticket's. Closing the idea keeps them,
+    the retention never deletes them (services/retention.py only looks at tickets' files)."""
+    added = [await board_service.store_attachment(session, idea.project_id, name, kind, data, idea_id=idea.id) for name, kind, data in files]
+    await publish(session, idea.project_id, [idea])
+    return added
+
+
 async def remove(session: AsyncSession, idea: Idea) -> None:
-    """Deleted on purpose by a person: gone for good, with its links and versions."""
+    """Deleted on purpose by a person: gone for good, with its links, versions and files."""
     project_id, idea_id = idea.project_id, idea.id
     others = await _linked(session, [idea_id])
+    for attachment in await attachments(session, idea):
+        board_service.storage_path(attachment).unlink(missing_ok=True)
+        await session.delete(attachment)
     await session.delete(idea)
     await session.commit()
     bus.publish(project_id, "idea.deleted", {"id": idea_id})
@@ -877,6 +896,11 @@ async def count_open(session: AsyncSession, project_id: int) -> int:
 LIST_CHARS = 150_000  # one page of list_ideas; never cut within an idea
 
 
+def _file_lines(files: list[Attachment]) -> list[str]:
+    """An idea's files as the agents read them: under /uploads, like a ticket's."""
+    return [f"{a.id} {a.filename} ({format_bytes(a.size)}): " + (board_service.purged_text(a) if a.purged_at else board_service.runner_path(a)) for a in files]
+
+
 async def manager_list(session: AsyncSession, project_id: int, *, topic: str | None, query: str | None, status: str, offset: int = 0) -> str:
     """The ideas in full (title, whole text, topic, links), by topic. Pages by whole ideas: a page ends before
     the idea that would pass ``LIST_CHARS`` and says where the next one starts."""
@@ -897,6 +921,9 @@ async def manager_list(session: AsyncSession, project_id: int, *, topic: str | N
     size, current, shown = 0, -1, 0
     page = ideas[offset:]
     outs_by_id = {o.id: o for o in await outs(session, page)}
+    files: dict[int, list[Attachment]] = {}
+    for a in await session.scalars(select(Attachment).where(Attachment.idea_id.in_([i.id for i in page])).order_by(Attachment.id)):
+        files.setdefault(a.idea_id, []).append(a)
     for idea in page:
         block: list[str] = []
         if idea.topic_id != current:
@@ -910,6 +937,7 @@ async def manager_list(session: AsyncSession, project_id: int, *, topic: str | N
         marks += [f"answered: {idea.question} → {idea.question_answer}"] if idea.question_status == QUESTION_ANSWERED else []
         block.append(f"i{idea.id} {idea.title or '(no title)'}" + (f" [{'; '.join(marks)}]" if marks else ""))
         block.append("\n".join(f"  {line}" for line in idea.text.splitlines()) or "  -")
+        block += [f"  file: {line}" for line in _file_lines(files.get(idea.id, []))]
         text = "\n".join(block)
         if shown and size + len(text) > LIST_CHARS:
             break
@@ -932,6 +960,8 @@ async def manager_detail(session: AsyncSession, idea: Idea) -> str:
     if idea.question_status:
         lines.append(f"Question ({idea.question_status}): {idea.question}" + (f" → {idea.question_answer}" if idea.question_answer else ""))
     lines.append(f"\n{idea.text}")
+    if files := await attachments(session, idea):
+        lines.append("\nAttachments:\n" + "\n".join(f"- {line}" for line in _file_lines(files)))
     older = await versions(session, idea)
     if older:
         lines.append("\nEarlier versions (newest first):\n" + "\n".join(f"- {truncate((v.title + ': ' if v.title else '') + ' '.join(v.text.split()), 300)}" for v in older[:10]))
