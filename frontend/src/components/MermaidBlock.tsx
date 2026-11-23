@@ -22,12 +22,49 @@ function hex(color: string, ctx: CanvasRenderingContext2D): string {
   return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** Mermaid's theme from the design's colour tokens, as they apply where the diagram stands. */
+/** Relative luminance of #rrggbb (WCAG). */
+function luminance(color: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(color.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrast = (a: string, b: string) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m);
+  return (x + 0.05) / (y + 0.05);
+};
+
+/** The 10 data colours of the design (`--chart-1…`), see the design stylesheets. */
+const CHART_COLORS = 10;
+
+/** Mermaid's theme from the design's colour tokens, as they apply where the diagram stands. Every
+ * diagram's own colours come from the design's data colours, with text that reads on them. */
 function themeVariables(el: Element, dark: boolean) {
   const style = getComputedStyle(el);
   const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
   const token = (name: string) => hex(style.getPropertyValue(name).trim(), ctx);
-  const [bg, sunk, line, line2, fg, fg2, fg3, you, youBg] = ["--bg", "--sunk", "--line", "--line-2", "--fg", "--fg-2", "--fg-3", "--you", "--you-bg"].map(token);
+  const mix = (a: string, b: string, share: number) => hex(`color-mix(in oklab, ${a} ${share}%, ${b})`, ctx);
+  const [bg, sunk, line, line2, fg, fg2, fg3, you, youBg, del] = ["--bg", "--sunk", "--line", "--line-2", "--fg", "--fg-2", "--fg-3", "--you", "--you-bg", "--del"].map(token);
+  const data = Array.from({ length: CHART_COLORS }, (_, i) => token(`--chart-${i + 1}`));
+  const on = (color: string) => (contrast(color, fg) >= contrast(color, bg) ? fg : bg);
+  const at = (i: number) => data[i % data.length];
+  const scale: Record<string, string> = {};
+  for (let i = 0; i < 12; i++) {
+    scale[`cScale${i}`] = at(i);
+    scale[`cScalePeer${i}`] = mix(at(i), fg, 70);
+    scale[`cScaleInv${i}`] = mix(at(i), fg, 70);
+    scale[`cScaleLabel${i}`] = on(at(i));
+    scale[`pie${i + 1}`] = at(i);
+  }
+  for (let i = 0; i < 8; i++) {
+    scale[`git${i}`] = at(i);
+    scale[`gitInv${i}`] = on(at(i));
+    scale[`gitBranchLabel${i}`] = on(at(i));
+    scale[`fillType${i}`] = at(i);
+  }
+  for (let i = 0; i < 6; i++) scale[`actor${i}`] = at(i); // journey's people
+  const tint = (color: string) => mix(color, bg, dark ? 22 : 16);
   return {
     darkMode: dark,
     background: bg,
@@ -66,7 +103,126 @@ function themeVariables(el: Element, dark: boolean) {
     activationBkgColor: line,
     activationBorderColor: line2,
     sequenceNumberColor: bg,
+    ...scale,
+    scaleLabelColor: on(data[0]),
+    // Pie
+    pieStrokeColor: bg,
+    pieStrokeWidth: "2px",
+    pieOuterStrokeColor: line2,
+    pieOuterStrokeWidth: "1px",
+    pieOpacity: "1",
+    pieTitleTextColor: fg,
+    pieTitleTextSize: "16px",
+    pieSectionTextColor: on(data[0]),
+    pieSectionTextSize: "14px",
+    pieLegendTextColor: fg,
+    pieLegendTextSize: "14px",
+    // xychart
+    xyChart: {
+      backgroundColor: bg,
+      titleColor: fg,
+      dataLabelColor: fg,
+      legendTextColor: fg,
+      xAxisTitleColor: fg2,
+      xAxisLabelColor: fg2,
+      xAxisTickColor: line2,
+      xAxisLineColor: line2,
+      yAxisTitleColor: fg2,
+      yAxisLabelColor: fg2,
+      yAxisTickColor: line2,
+      yAxisLineColor: line2,
+      plotColorPalette: data.join(","),
+    },
+    // Quadrant chart
+    quadrant1Fill: tint(at(0)),
+    quadrant2Fill: tint(at(1)),
+    quadrant3Fill: tint(at(2)),
+    quadrant4Fill: tint(at(3)),
+    quadrant1TextFill: fg,
+    quadrant2TextFill: fg,
+    quadrant3TextFill: fg,
+    quadrant4TextFill: fg,
+    quadrantPointFill: fg,
+    quadrantPointTextFill: fg,
+    quadrantXAxisTextFill: fg2,
+    quadrantYAxisTextFill: fg2,
+    quadrantInternalBorderStrokeFill: line2,
+    quadrantExternalBorderStrokeFill: line2,
+    quadrantTitleFill: fg,
+    // Radar
+    radar: { axisColor: fg3, graticuleColor: line, graticuleOpacity: 0.5, curveOpacity: 0.25, axisLabelFontSize: 13, legendFontSize: 13 },
+    // Gantt: bars in the first data colour, text that reads on it; done, active and critical
+    // tasks are tints with the text colour.
+    sectionBkgColor: tint(at(0)),
+    sectionBkgColor2: tint(at(1)),
+    altSectionBkgColor: bg,
+    excludeBkgColor: sunk,
+    gridColor: line,
+    taskBkgColor: at(0),
+    taskBorderColor: mix(at(0), fg, 70),
+    taskTextColor: on(at(0)),
+    taskTextLightColor: on(at(0)),
+    taskTextOutsideColor: fg,
+    taskTextDarkColor: fg,
+    taskTextClickableColor: fg,
+    activeTaskBkgColor: mix(at(0), bg, 45),
+    activeTaskBorderColor: at(0),
+    doneTaskBkgColor: line2,
+    doneTaskBorderColor: fg3,
+    critBkgColor: mix(del, bg, 40),
+    critBorderColor: del,
+    todayLineColor: fg2,
+    vertLineColor: fg3,
+    // Git graph
+    commitLabelColor: fg,
+    commitLabelBackground: sunk,
+    tagLabelColor: fg,
+    tagLabelBackground: sunk,
+    tagLabelBorder: line2,
+    // Class, state and ER diagrams
+    classText: fg,
+    stateBkg: sunk,
+    stateLabelColor: fg,
+    labelBackgroundColor: bg,
+    compositeBackground: bg,
+    compositeTitleBackground: sunk,
+    compositeBorder: line2,
+    altBackground: sunk,
+    transitionColor: fg3,
+    transitionLabelColor: fg2,
+    specialStateColor: fg,
+    innerEndBackground: fg,
+    attributeBackgroundColorOdd: bg,
+    attributeBackgroundColorEven: sunk,
+    relationColor: fg3,
+    relationLabelBackground: bg,
+    relationLabelColor: fg,
+    requirementBackground: sunk,
+    requirementBorderColor: line2,
+    requirementTextColor: fg,
+    errorBkgColor: sunk,
+    errorTextColor: fg,
   };
+}
+
+/** What Mermaid draws without its theme. Sankey's nodes are d3's Tableau 10, which are swapped for
+ * the data colours, and its links blend by "multiply", which drowns them on a dark background. Some
+ * lines (timeline, journey) and arrowheads are plain black, the timeline's take the colour of its
+ * labels: they take the line colour. */
+const TABLEAU10 = ["#4e79a7", "#f28e2c", "#e15759", "#76b7b2", "#59a14f", "#edc949", "#af7aa1", "#ff9da7", "#9c755f", "#bab0ab"];
+function restyle(svg: string, id: string, vars: ReturnType<typeof themeVariables>): string {
+  // :where() keeps these below every rule of Mermaid's own.
+  let css = `#${id} :where(line[stroke="black"]){stroke:${vars.lineColor}} #${id} :where(marker path:not([fill])){fill:${vars.lineColor}}`;
+  // Journey writes on its coloured boxes in the text colour.
+  if (svg.includes('aria-roledescription="journey"')) css += ` #${id} .label{color:${vars.scaleLabelColor}}`;
+  if (svg.includes('aria-roledescription="timeline"')) css += ` #${id} .lineWrapper line{stroke:${vars.lineColor}}`;
+  if (svg.includes('aria-roledescription="sankey"')) {
+    const data = vars.xyChart.plotColorPalette.split(",");
+    const colors = new Map(TABLEAU10.map((c, i) => [c, data[i % data.length]]));
+    svg = svg.replace(/#[0-9a-f]{6}\b/gi, (c) => colors.get(c.toLowerCase()) ?? c).replace(/mix-blend-mode:\s*multiply/g, "mix-blend-mode: normal");
+    css += ` #${id} .node-labels text{fill:${vars.textColor}}`;
+  }
+  return svg.replace("</style>", `${css}</style>`);
 }
 
 /** The SVG for the page and for the lightbox. On the page it fills the block's width, but shrinks
@@ -114,11 +270,14 @@ export function MermaidBlock({ code, open, fallback }: { code: string; open: boo
             htmlLabels: false,
             theme: "base",
             themeVariables: vars,
+            // Gantt takes the page's width (it is drawn off-screen): a fixed one that suits a message.
+            gantt: { useWidth: 800, fontSize: 12, sectionFontSize: 12, barHeight: 22, leftPadding: 90, axisFormat: "%b %d" },
           });
           configured = key;
         }
-        const { svg } = await mermaid.render(`mermaid-${++counter}`, code);
-        if (!cancelled) setState({ svg: sized(svg, vars.background) });
+        const id = `mermaid-${++counter}`;
+        const { svg } = await mermaid.render(id, code);
+        if (!cancelled) setState({ svg: sized(restyle(svg, id, vars), vars.background) });
       })
       .catch((e: unknown) => {
         // A parse error: "Parse error on line 3:", the line, a marker, "Expecting …, got …".
