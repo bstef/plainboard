@@ -129,14 +129,14 @@ async def hold_for_message(session: AsyncSession, agent_id: int, text: str, reas
     """Someone wrote to an agent while branches it handed over have not landed: they may be about to
     change (#95: a correction arrived after the hand-over). Those branches are held until the agent
     has read the message and hands them over again or confirms them. A message that names tickets
-    (#<number>) holds only the branches of those tickets, if it has any. A branch the manager holds
-    stays held by the manager."""
+    (#<number>) holds only the branches of those tickets, and none if it has none of them (#106: a
+    message about other work must not stop finished branches). A message that names no ticket holds
+    all of them. A branch the manager holds stays held by the manager."""
     mine = list(await session.scalars(select(Landing).where(Landing.agent_id == agent_id, Landing.status.in_(ACTIVE), Landing.hold != MANAGER).order_by(Landing.id)))
     named = {int(n) for n in re.findall(r"#(\d+)", text)}
     if mine and named:
         numbers = dict((await session.execute(select(Task.id, Task.number).where(Task.id.in_([m.task_id for m in mine if m.task_id])))).all())
-        about = [m for m in mine if numbers.get(m.task_id or 0) in named]
-        mine = about or mine
+        mine = [m for m in mine if numbers.get(m.task_id or 0) in named]
     for landing in mine:
         hold(landing, MESSAGE, reason, now)
     if mine:

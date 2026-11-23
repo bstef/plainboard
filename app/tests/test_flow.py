@@ -1784,6 +1784,25 @@ def test_a_message_after_the_hand_over_holds_the_branch_until_its_author_hands_i
     assert sorted(fake.land_specs[-1].delete_branches) == ["feat-a"]
 
 
+def test_a_message_that_names_tickets_holds_only_the_branches_of_those_tickets(client, project):
+    pid = project["id"]
+    make_member(client, pid)
+    assert client.post(f"/api/projects/{pid}/repositories", json={"url": "https://gitlab.com/acme/api.git", "check_command": "./ci.sh"}).status_code == 201
+    for title in ("Feature", "Other work"):
+        client.post(f"/api/projects/{pid}/tasks", json={"title": title, "status": "todo"})
+    fake = runner(client)
+    fake.branches["feat-a"] = "a1"
+    manager = manager_of(client, pid)
+    chat(client, manager["id"], delegate("dev", "Add it", handed("feat-a"), ticket_number=1))
+    wait_for(lambda: idle(client, pid) and hold_of(client, "feat-a") == "")
+    # About another ticket (#106: its work has no branch yet): the finished branch of #1 goes on.
+    chat(client, manager["id"], message("dev", "For #2: rename the endpoint"))
+    wait_for(lambda: idle(client, pid))
+    assert hold_of(client, "feat-a") == ""
+    chat(client, manager["id"], message("dev", "For #1: rename the endpoint"))
+    wait_for(lambda: idle(client, pid) and hold_of(client, "feat-a") == "message")
+
+
 def test_a_message_while_the_branch_is_checked_takes_it_off_its_train_and_the_rest_lands(client, project):
     pid = project["id"]
     fake = team_with_branches(client, pid, ["feat-a", "feat-b", "feat-c"])
