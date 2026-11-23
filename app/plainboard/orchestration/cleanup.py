@@ -15,7 +15,7 @@ import asyncio
 import contextlib
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from plainboard_protocol import CleanedItem, CleanupResult, CleanupSpec, MachineUsage, TrimSpec
@@ -31,6 +31,7 @@ from ..services import preview as preview_service
 from ..services import scratchpad as scratchpad_service
 from ..services import settings as settings_service
 from ..services import storage
+from ..services import tool_details
 from . import inbox
 from .run_manager import RunManager
 from .runner_client import RunnerError
@@ -43,6 +44,7 @@ def _on(runner_id: int | None):
     return Project.runner_id.is_(None) if runner_id is None else Project.runner_id == runner_id
 
 
+DETAILS_EVERY = timedelta(days=1)  # tool messages past their limit are trimmed this often
 MEASURE_EVERY = 3600  # folder sizes are measured again this often while the disk is high (else every 6 h)
 
 
@@ -56,6 +58,7 @@ class CleanupWatcher:
         self._measures: dict[int | None, list[tuple[float, dict[str, int]]]] = {}  # the last two folder measurements: who grows
         self._emergency_at: dict[int | None, datetime] = {}
         self._trim_at: dict[int | None, datetime] = {}
+        self._details_at: datetime | None = None
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop(), name="cleanup")
@@ -80,12 +83,27 @@ class CleanupWatcher:
         async with self._sm() as s:
             settings = await settings_service.get_all(s)
             await scratchpad_service.purge(s, now)  # archived scratchpads past their retention
+        if self._details_at is None or now - self._details_at >= DETAILS_EVERY:
+            self._details_at = now
+            await self._tool_details(settings, now)
         hub = self._runs.runners
         waits = [self._interval]
         for runner_id in hub.in_use():
             if hub.connected(runner_id):
                 waits.append(await self._look(runner_id, hub.client(runner_id), settings, now))
         return min(waits)
+
+    async def _tool_details(self, settings: dict, now: datetime) -> None:
+        """Tool details past their limit become a preview; each project's manager hears it once, not woken."""
+        async with self._sm() as s:
+            found = await tool_details.trim(s, now)
+            kept = tool_details.days(settings)
+            for project_id, (count, size) in found.items():
+                manager = await s.scalar(select(Agent).where(Agent.project_id == project_id, Agent.is_manager))
+                if manager is not None:
+                    await inbox.push(s, manager.id, tool_details.notice(count, size, kept))
+        if found:
+            log.info("Trimmed tool details of %d messages (%d bytes)", sum(n for n, _ in found.values()), sum(b for _, b in found.values()))
 
     async def _look(self, runner_id: int | None, client: Any, settings: dict, now: datetime) -> float:
         try:

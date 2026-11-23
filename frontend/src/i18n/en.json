@@ -373,6 +373,7 @@
   },
   "chat": {
     "selectAgent": "Select agent",
+    "toolTrimmed": "Details removed after {{days}} days.",
     "loadOlder": "Load older messages",
     "working": "{{name}} is working…",
     "copying": "{{name}} is working… Copying attachments to the runner: {{done}} of {{total}}",
@@ -1311,6 +1312,8 @@
     "hint": "Never touched by itself: folders of members who work or have an open assignment, unpushed work, uploads, the database, secrets.",
     "memory": "Stop idle servers below (% memory free)",
     "memoryHint": "Preview servers of idle agents that nobody opened for 12 hours.",
+    "toolDetails": "Keep full tool details (days)",
+    "toolDetailsHint": "After this, tool steps in chats keep only a short preview of input and result; chat texts, tickets, comments and reports always stay complete. 0: forever (the value after an update, so nothing goes unasked).",
     "target": "Target: at most {{percent}} % used",
     "now": "Now {{percent}} % used",
     "growing": "growing {{rate}}/h",

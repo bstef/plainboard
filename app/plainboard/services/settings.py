@@ -54,6 +54,9 @@ SETTINGS: dict[str, SettingDef] = {
     # Disk space under the manager's control (services/storage.py): from this share used (or when the
     # trend crosses it soon) the manager of the project causing it hears it and cleans up with his tools.
     "scratchpad_retention_days": SettingDef(14),  # an ended assignment's scratchpad stays archived this long
+    # Tool messages keep their full input and result this many days, then a preview (services/tool_details.py); 0: forever.
+    "tool_details_days": SettingDef(30),
+    "tool_details_floor": SettingDef(0, managed=True),  # message id up to which tool messages were looked at
     "checks_growth_percent": SettingDef(30),  # check runs this much slower than their baseline: the manager has them made faster
     "checks_cooldown_days": SettingDef(7),  # not again within this after it was told or its ticket was done, unless clearly slower
     "storage_notify_percent": SettingDef(80),
