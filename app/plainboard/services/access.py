@@ -106,6 +106,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/secrets", Need.ADMIN),
     Rule("/api/access-keys", Need.ADMIN),
     Rule("/api/inspect", Need.ADMIN),
+    Rule("/api/database", Need.ADMIN),  # the move to PostgreSQL restarts the installation
     Rule("/api/runners", Need.ADMIN),  # external runners: their tokens and machines
     Rule("/api/runners/choices", Need.USER),  # names only: where the user's new project may start
     Rule("/api/usage", Need.ADMIN),  # disk and memory of the whole installation

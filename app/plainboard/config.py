@@ -1,4 +1,4 @@
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 from pydantic import model_validator
@@ -11,7 +11,9 @@ class Config(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PLAINBOARD_", extra="ignore")
 
     data_dir: Path = Path("/data")
-    # Empty: SQLite in the data folder. Or a PostgreSQL database: postgresql://user:password@host:5432/name
+    # Empty or "sqlite": SQLite in the data folder. A PostgreSQL database: postgresql://user:password@host:5432/name.
+    # "auto" (the compose file): the bundled PostgreSQL "db", unless the data folder holds a SQLite installation
+    # that was not asked to move yet (db_move.resolve_auto).
     database: str = ""
     uploads_dir: Path = Path("/uploads")
     static_dir: Path = Path("/app/static")
@@ -51,8 +53,24 @@ class Config(BaseSettings):
     runner_uploads_dir: str = "/uploads"
 
     @property
+    def auto(self) -> bool:
+        return self.database.strip().lower() == "auto"
+
+    @cached_property
+    def effective_database(self) -> str:
+        """What `database` comes to: "" (SQLite) or a PostgreSQL URL. For "auto" decided once, at the first look."""
+        if self.auto:
+            from .db_move import resolve_auto
+
+            return resolve_auto(self.data_dir / "plainboard.db")
+        return "" if self.database.strip().lower() == "sqlite" else self.database.strip()
+
+    def resolve_again(self) -> None:
+        self.__dict__.pop("effective_database", None)
+
+    @property
     def postgres(self) -> bool:
-        return self.database.strip().startswith(("postgresql://", "postgres://", "postgresql+psycopg://"))
+        return _is_postgres(self.effective_database)
 
     @property
     def database_url(self) -> str:
@@ -65,13 +83,18 @@ class Config(BaseSettings):
         return self._postgres_url() if self.postgres else f"sqlite:///{self.data_dir / 'plainboard.db'}"
 
     def _postgres_url(self) -> str:
-        return "postgresql+psycopg://" + self.database.strip().split("://", 1)[1]
+        return "postgresql+psycopg://" + self.effective_database.split("://", 1)[1]
 
     @model_validator(mode="after")
     def _known_database(self) -> "Config":
-        if self.database.strip() and not self.postgres:
-            raise ValueError("PLAINBOARD_DATABASE must be empty (SQLite) or start with postgresql://")
+        value = self.database.strip()
+        if value and value.lower() not in ("sqlite", "auto") and not _is_postgres(value):
+            raise ValueError("PLAINBOARD_DATABASE must be empty or sqlite (SQLite), auto, or start with postgresql://")
         return self
+
+
+def _is_postgres(value: str) -> bool:
+    return value.startswith(("postgresql://", "postgres://", "postgresql+psycopg://"))
 
 
 @lru_cache

@@ -31,9 +31,10 @@ services:
       PLAINBOARD_SECURE_COOKIES: ${PLAINBOARD_SECURE_COOKIES:-}
       PLAINBOARD_HSTS: ${PLAINBOARD_HSTS:-true}
       PLAINBOARD_ALLOWED_ORIGINS: ${PLAINBOARD_ALLOWED_ORIGINS:-}
-      # Empty: SQLite in the data volume. PostgreSQL: the "db" below (two lines in .env, docs/guide.md, "PostgreSQL")
-      # or yours: postgresql://user:password@host:5432/name. The data of SQLite moves over by itself.
-      PLAINBOARD_DATABASE: ${PLAINBOARD_DATABASE:-}
+      # auto: PostgreSQL in the "db" below. An installation that has its data in SQLite stays on it until
+      # you move it with one click in Settings (docs/guide.md, "PostgreSQL"). Or sqlite, or a PostgreSQL
+      # server of yours: postgresql://user:password@host:5432/name.
+      PLAINBOARD_DATABASE: ${PLAINBOARD_DATABASE:-auto}
       PLAINBOARD_RUNNER_URL: http://runner:8090
       PLAINBOARD_INTERNAL_URL: http://app:8080
       PLAINBOARD_UPDATE_REPOSITORY: ${PLAINBOARD_UPDATE_REPOSITORY:-hthoene/plainboard}
@@ -52,7 +53,6 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
-        required: false
 
   # Where the agents work: their shell, their tools, your code. Only the app talks to it.
   runner:
@@ -72,11 +72,9 @@ services:
       - uploads:/uploads:ro
       - agent-home:/home/agent
 
-  # PostgreSQL instead of SQLite, only with COMPOSE_PROFILES=postgres in .env. Reachable by the app only:
-  # neither from outside nor from the agents in the runner.
+  # The database. Reachable by the app only: neither from outside nor from the agents in the runner.
   db:
     image: pgvector/pgvector:pg17
-    profiles: [postgres]
     restart: unless-stopped
     logging: *logging
     environment:
@@ -98,7 +96,7 @@ networks:
 
 volumes:
   data: # the database and the key your secrets are encrypted with: back this up
-  db: # PostgreSQL's data, if you use the "db" above: back this up too
+  db: # PostgreSQL's data: back this up too
   uploads:
   workspaces:
   agent-home:

@@ -16,6 +16,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from . import db_move
@@ -31,30 +32,63 @@ def alembic_config() -> AlembicConfig:
 def upgrade() -> None:
     config = get_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    if config.postgres and _empty(config.sync_database_url):
-        sqlite_file = config.data_dir / "plainboard.db"
-        if sqlite_file.exists() and not db_move.marker(sqlite_file).exists():
-            # An installation that ran on SQLite until now: its data comes along, before anything is served.
+    sqlite_file = config.data_dir / "plainboard.db"
+    if config.postgres:
+        try:
+            empty = _empty(config.sync_database_url)
+        except OperationalError as exc:
+            if config.auto and db_move.requested(sqlite_file).exists():
+                return _move_failed(config, sqlite_file, f"the bundled PostgreSQL (service db) is not reachable: {exc}")
+            if config.auto:
+                log.error(
+                    "PLAINBOARD_DATABASE=auto: the bundled PostgreSQL (service db of the compose file) is not reachable: %s "
+                    "PlainBoard does not start. Take the current docker-compose.yml (it has the db service), or set "
+                    "PLAINBOARD_DATABASE=sqlite in .env for SQLite.", exc,
+                )
+            raise
+        if config.auto and db_move.requested(sqlite_file).exists():
+            # An admin asked for it in Settings: the SQLite installation moves now, before anything is served.
+            if not empty:
+                return _move_failed(config, sqlite_file, "the bundled PostgreSQL database holds data already, so nothing was copied into it")
             try:
                 db_move.move(sqlite_file, config.sync_database_url)
             except db_move.MoveError as exc:
-                log.error("%s PlainBoard does not start.", exc)
-                raise
+                return _move_failed(config, sqlite_file, str(exc))
+            db_move.requested(sqlite_file).unlink(missing_ok=True)
+            db_move.failed(sqlite_file).unlink(missing_ok=True)
             return
-        if sqlite_file.exists():
-            log.warning("%s was moved to PostgreSQL before; this PostgreSQL database is new and starts empty. To copy it again, delete %s.", sqlite_file, db_move.marker(sqlite_file))
-        # The migrations up to here were written for SQLite, where every installation began. A new
-        # PostgreSQL database starts at today's tables instead, and takes every migration from now on.
-        from .models import Base
+        if empty:
+            if sqlite_file.exists() and not db_move.marker(sqlite_file).exists():
+                # An installation that ran on SQLite until now: its data comes along, before anything is served.
+                try:
+                    db_move.move(sqlite_file, config.sync_database_url)
+                except db_move.MoveError as exc:
+                    log.error("%s PlainBoard does not start.", exc)
+                    raise
+                return
+            if sqlite_file.exists():
+                log.warning("%s was moved to PostgreSQL before; this PostgreSQL database is new and starts empty. To copy it again, delete %s.", sqlite_file, db_move.marker(sqlite_file))
+            # The migrations up to here were written for SQLite, where every installation began. A new
+            # PostgreSQL database starts at today's tables instead, and takes every migration from now on.
+            from .models import Base
 
-        engine = create_engine(config.sync_database_url)
-        try:
-            Base.metadata.create_all(engine)
-            _first_rows(engine)
-        finally:
-            engine.dispose()
-        command.stamp(alembic_config(), "head")
-        return
+            engine = create_engine(config.sync_database_url)
+            try:
+                Base.metadata.create_all(engine)
+                _first_rows(engine)
+            finally:
+                engine.dispose()
+            command.stamp(alembic_config(), "head")
+            return
+    command.upgrade(alembic_config(), "head")
+
+
+def _move_failed(config: Config, sqlite_file: Path, reason: str) -> None:
+    """The move asked for in Settings did not happen: SQLite goes on as it was, and Settings says why."""
+    log.error("Moving to PostgreSQL failed, PlainBoard goes on with SQLite: %s", reason)
+    db_move.failed(sqlite_file).write_text(reason + "\n", encoding="utf-8")
+    db_move.requested(sqlite_file).unlink(missing_ok=True)
+    config.resolve_again()
     command.upgrade(alembic_config(), "head")
 
 

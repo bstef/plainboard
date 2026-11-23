@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
+import signal
 import time
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request
 from pydantic import BaseModel
 
+from .. import db_move
 from ..config import get_config
 from ..models import TaskStatus
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
@@ -58,6 +62,46 @@ async def meta(runner: Runner, session: Session) -> dict[str, Any]:
         "version": version_service.current() if await settings_service.get(session, "update_check") else None,
         "database": "postgresql" if get_config().postgres else "sqlite",
     }
+
+
+RESTART_AFTER_SECONDS = 1.0  # the answer goes out first
+
+
+@router.get("/database")
+async def database() -> dict[str, Any]:
+    """Which database, and with SQLite whether the move to the bundled PostgreSQL can be asked for here
+    (`move`: ready, not_empty, unreachable, requested; None: no bundled one) and why the last one failed."""
+    config = get_config()
+    sqlite_file = config.data_dir / "plainboard.db"
+    out: dict[str, Any] = {"database": "postgresql" if config.postgres else "sqlite", "auto": config.auto, "move": None, "failed": None}
+    if not config.postgres:
+        failed = db_move.failed(sqlite_file)
+        out["failed"] = failed.read_text(encoding="utf-8").strip() if failed.exists() else None
+        if config.auto:
+            out["move"] = "requested" if db_move.requested(sqlite_file).exists() else await asyncio.to_thread(db_move.bundled_state)
+    return out
+
+
+@router.post("/database/move")
+async def move_database() -> dict[str, Any]:
+    """Move to the bundled PostgreSQL: asked for in a file, then PlainBoard ends and its container is
+    started again (restart: unless-stopped), and the move runs at that start (migrate.upgrade)."""
+    config = get_config()
+    if config.postgres:
+        raise ServiceError("PlainBoard runs on PostgreSQL already.", 409)
+    if not config.auto:
+        raise ServiceError("Only with the current docker-compose.yml (PLAINBOARD_DATABASE=auto and its db service).", 409)
+    state = await asyncio.to_thread(db_move.bundled_state)
+    if state != "ready":
+        raise ServiceError(
+            "The bundled PostgreSQL (service db) is not reachable." if state == "unreachable" else "The bundled PostgreSQL database holds data already.",
+            409,
+        )
+    sqlite_file = config.data_dir / "plainboard.db"
+    db_move.requested(sqlite_file).write_text("Asked for in Settings: move to PostgreSQL at the next start.\n", encoding="utf-8")
+    db_move.failed(sqlite_file).unlink(missing_ok=True)
+    asyncio.get_running_loop().call_later(RESTART_AFTER_SECONDS, os.kill, os.getpid(), signal.SIGTERM)
+    return {"restarting": True}
 
 
 @router.get("/pause", response_model=PauseOut)

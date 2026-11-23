@@ -150,3 +150,32 @@ def test_failure_leaves_postgresql_empty_and_sqlite_untouched(tmp_path, target):
     engine.dispose()
     assert _digest(sqlite_file) == digest
     assert not db_move.marker(sqlite_file).exists()
+
+
+def test_move_asked_for_in_settings(tmp_path, monkeypatch, target):
+    """PLAINBOARD_DATABASE=auto with the move asked for: it runs once; into a database with data it does not."""
+    data = tmp_path / "data"
+    sqlite_file = data / "plainboard.db"
+    _populate(sqlite_file)
+    before = _rows(f"sqlite:///{sqlite_file}")
+    monkeypatch.setenv("PLAINBOARD_DATA_DIR", str(data))
+    monkeypatch.setenv("PLAINBOARD_DATABASE", "auto")
+    monkeypatch.setattr(db_move, "BUNDLED", target)
+    config.get_config.cache_clear()
+    try:
+        assert db_move.bundled_state() == "ready"
+        db_move.requested(sqlite_file).write_text("x")
+        migrate.upgrade()
+        url = config.get_config().sync_database_url
+        assert url.startswith("postgresql") and _rows(url) == before
+        assert db_move.marker(sqlite_file).exists() and not db_move.requested(sqlite_file).exists()
+        assert db_move.bundled_state() == "not_empty"
+
+        db_move.marker(sqlite_file).unlink()  # asked again, but PostgreSQL holds data: SQLite goes on
+        db_move.requested(sqlite_file).write_text("x")
+        config.get_config.cache_clear()
+        migrate.upgrade()
+        assert not config.get_config().postgres
+        assert "holds data" in db_move.failed(sqlite_file).read_text()
+    finally:
+        config.get_config.cache_clear()
