@@ -1,19 +1,17 @@
 import { useQueryClient } from "@tanstack/react-query";
-import clsx from "clsx";
-import { Archive, ArchiveRestore, Bot, Check, ChevronDown, ChevronRight, CircleDashed, FileText, FileX, Play, Send, Trash2, Upload, UserRound, X } from "lucide-react";
-import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type ReactNode } from "react";
+import { Archive, ArchiveRestore, Bot, Check, ChevronDown, ChevronRight, CircleDashed, Play, Send, Trash2, UserRound, X } from "lucide-react";
+import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { qk, useTask } from "../../api/queries";
 import type { Assignment, Attachment, Comment, Priority, TaskDetail, TaskStatus } from "../../api/types";
-import { AttachmentLink } from "../../components/AttachmentLink";
+import { AttachmentGrid } from "../../components/AttachmentGrid";
 import { Lightbox } from "../../components/Lightbox";
-import { VideoThumb } from "../../components/VideoThumb";
 import { isVideoFile } from "../../lib/media";
 import { Markdown, TicketText } from "../../components/Markdown";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, AgentDot, Badge, Button, ErrorText, IconButton, Input, Modal, Segmented, Select, Spinner, Textarea } from "../../components/ui";
-import { chatTime, formatBytes, formatDateTime, timeAgo } from "../../lib/format";
+import { formatDateTime, timeAgo } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
 import { STATUSES } from "./Board";
 import { Decisions, isMedia, reviewAttachmentIds } from "./Decisions";
@@ -47,6 +45,15 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
     for (const file of Array.from(files)) form.append("files", file, file.name || "pasted.png");
     try {
       await api.post(`/tasks/${taskId}/attachments`, form);
+      qc.invalidateQueries({ queryKey: qk.task(taskId) });
+    } catch (err) {
+      setError(err);
+    }
+  };
+
+  const removeAttachment = async (a: Attachment) => {
+    try {
+      await api.del(`/attachments/${a.id}`);
       qc.invalidateQueries({ queryKey: qk.task(taskId) });
     } catch (err) {
       setError(err);
@@ -120,7 +127,14 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
           <FlowTicket taskId={taskId} />
           <DescriptionEditor value={data.description} onSave={(description) => patch({ description })} canWrite={canWrite} />
           <CustomerTexts task={data} languages={project.customer_languages?.length ? project.customer_languages : ["en"]} onSave={patch} canWrite={canWrite} />
-          <Attachments attachments={data.attachments} reviewIds={reviewAttachmentIds(data.decisions)} onUpload={upload} onView={setViewing} canWrite={canWrite} />
+          <AttachmentGrid
+            attachments={data.attachments}
+            reviewIds={reviewAttachmentIds(data.decisions)}
+            onUpload={upload}
+            onView={setViewing}
+            onRemove={removeAttachment}
+            canWrite={canWrite}
+          />
           {data.state && (
             <section>
               <SectionTitle right={data.state_updated_at && <span className="text-fg-3">{timeAgo(data.state_updated_at)}</span>}>{t("ticket.state")}</SectionTitle>
@@ -432,111 +446,6 @@ function LabelsEditor({ value, onSave, canWrite }: { value: string[]; onSave: (v
       )}
       {canWrite && <Input value={draft} placeholder={t("ticket.addLabel")} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} onBlur={add} />}
     </div>
-  );
-}
-
-function Attachments({
-  attachments,
-  reviewIds,
-  onUpload,
-  onView,
-  canWrite,
-}: {
-  attachments: Attachment[];
-  reviewIds: Set<number>;
-  onUpload: (files: FileList) => void;
-  onView: (id: number) => void;
-  canWrite: boolean;
-}) {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
-
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    setOver(false);
-    onUpload(e.dataTransfer.files);
-  };
-  const remove = async (a: Attachment) => {
-    await api.del(`/attachments/${a.id}`);
-    qc.invalidateQueries({ queryKey: ["task"] });
-  };
-
-  return (
-    <section>
-      <SectionTitle
-        right={
-          canWrite && (
-            <Button size="sm" variant="ghost" icon={<Upload className="size-3.5" />} onClick={() => input.current?.click()}>
-              {t("ticket.upload")}
-            </Button>
-          )
-        }
-      >
-        {t("ticket.attachments")}
-      </SectionTitle>
-      <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files && onUpload(e.target.files)} />
-      <div
-        onDragOver={
-          canWrite
-            ? (e) => {
-                e.preventDefault();
-                setOver(true);
-              }
-            : undefined
-        }
-        onDragLeave={canWrite ? () => setOver(false) : undefined}
-        onDrop={canWrite ? onDrop : undefined}
-        className={clsx("rounded-sm p-2 transition-colors", canWrite && "border border-dashed", over ? "border-fg bg-sunk" : "border-line")}
-      >
-        {attachments.length === 0 ? (
-          <p className="py-3 text-center text-fg-3">{t(canWrite ? "ticket.dropFiles" : "ticket.noFiles")}</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {attachments.map((a) => (
-              <div key={a.id} className="group relative overflow-hidden rounded-sm ring-1 ring-line">
-                {a.purged_at ? (
-                  <div className="flex h-24 w-full flex-col items-center justify-center gap-1 bg-sunk px-2 text-center text-fg-3">
-                    <FileX className="size-7 text-line-2" />
-                    <span>{t("ticket.filePurged", { date: formatDateTime(a.purged_at), days: a.purged_after_days ?? 0 })}</span>
-                  </div>
-                ) : isMedia(a) ? (
-                  <button type="button" onClick={() => onView(a.id)} className="block h-24 w-full cursor-zoom-in">
-                    {isVideoFile(a) ? <VideoThumb src={`/api/attachments/${a.id}`} /> : <img src={`/api/attachments/${a.id}`} alt={a.filename} className="h-24 w-full object-cover" />}
-                  </button>
-                ) : (
-                  <AttachmentLink file={a} className="flex h-24 w-full items-center justify-center bg-sunk">
-                    <FileText className="size-8 text-line-2" />
-                  </AttachmentLink>
-                )}
-                {a.purged_at ? (
-                  <span className="block w-full truncate px-2 py-1 text-fg-3" title={a.filename}>
-                    {a.filename} · {formatBytes(a.size)}
-                  </span>
-                ) : (
-                  <AttachmentLink file={a} className="block w-full truncate px-2 py-1">
-                    {a.filename} <span className="text-fg-3" title={formatDateTime(a.created_at)}>
-                      · {formatBytes(a.size)} · {chatTime(a.created_at)}
-                    </span>
-                  </AttachmentLink>
-                )}
-                {reviewIds.has(a.id) && (
-                  <Badge tone="amber" className="absolute top-1 left-1">
-                    {t("ticket.forReview")}
-                  </Badge>
-                )}
-                {canWrite && (
-                  <IconButton label={t("common.delete")} onClick={() => remove(a)} className="absolute top-1 right-1 bg-bg opacity-0 group-hover:opacity-100">
-                    <Trash2 className="size-3.5" />
-                  </IconButton>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </section>
   );
 }
 

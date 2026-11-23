@@ -244,6 +244,7 @@ export interface TodoPage {
 export interface Attachment {
   id: number;
   task_id: number | null;
+  idea_id?: number | null;
   filename: string;
   content_type: string;
   size: number;
@@ -1077,6 +1078,7 @@ export interface Idea {
   question: string;
   /** The first is recommended; a free answer is possible too. */
   question_options: IdeaOption[];
+  attachments: Attachment[];
   question_status: "" | "open" | "answered" | "withdrawn";
   question_answer: string;
   question_at: string | null;

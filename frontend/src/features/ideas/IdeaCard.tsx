@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ArrowRight, Copy, GripVertical, MessageCircleQuestion, Send, Sparkles, X } from "lucide-react";
+import { ArrowRight, Copy, GripVertical, MessageCircleQuestion, Paperclip, Send, Sparkles, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -97,6 +97,13 @@ export function IdeaCard({
         ))}
         {!idea.title && idea.sort_state === "pending" && <AiLine className="text-[0.92em]">{t("ideas.reading")}</AiLine>}
         {idea.hint && !similar.length && !original && <AiLine className="text-[0.92em]">{idea.hint}</AiLine>}
+        {idea.attachments?.length > 0 && (
+          <span data-part="idea-files" title={t("ideas.files", { count: idea.attachments.length })} className="inline-flex items-center gap-1 self-start text-[0.92em] text-fg-3">
+            <Paperclip aria-hidden className="size-3.5" />
+            <span className="sr-only">{t("ideas.files", { count: idea.attachments.length })}</span>
+            <span aria-hidden>{idea.attachments.length}</span>
+          </span>
+        )}
         {(idea.status === "taken" || idea.status === "merged") && (
           <span className="inline-flex items-center gap-1 self-end font-semibold text-ok">
             <ArrowRight className="size-3.5" />
