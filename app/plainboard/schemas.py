@@ -768,6 +768,7 @@ class AssignmentOut(ORM):
     run_id: int | None
     created_at: UTCDateTime
     finished_at: UTCDateTime | None
+    work_notes: str | None = None
 
 
 class DecisionOption(BaseModel):

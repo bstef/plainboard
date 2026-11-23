@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Table, Text, UniqueConstraint, false, true
+from sqlalchemy import event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -483,6 +484,15 @@ class Assignment(Timestamps, Base):
     landing_id: Mapped[int | None] = mapped_column(Integer, index=True)
     # Or repairing the branches of that train, which did not pass together.
     train_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    # The agent's working notes for this piece of work (services/work_notes.py): they survive context
+    # compression and go when the assignment ends.
+    work_notes: Mapped[str | None] = mapped_column(Text)
+
+
+@event.listens_for(Assignment.status, "set")
+def _drop_work_notes(target: Assignment, value: str, _old: Any, _initiator: Any) -> None:
+    if value in (AssignmentStatus.DONE, AssignmentStatus.FAILED, AssignmentStatus.CANCELLED):
+        target.work_notes = None
 
 
 class Landing(Timestamps, Base):

@@ -278,7 +278,7 @@ async def import_project(session: AsyncSession, source: IO[bytes], *, passphrase
                 if spec.name == "projects":
                     values["slug"] = await project_service.unique_slug(session, str(values.get("name") or "project"))
                 elif spec.name == "assignments" and values.get("status") in (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING):
-                    values.update(status=AssignmentStatus.CANCELLED, finished_at=now, result=values.get("result") or MOVED)
+                    values.update(status=AssignmentStatus.CANCELLED, finished_at=now, result=values.get("result") or MOVED, work_notes=None)
                 elif spec.name == "attachments":
                     stored = _store(archive, uploads, str(values.get("storage_name") or ""))
                     if stored is None:
