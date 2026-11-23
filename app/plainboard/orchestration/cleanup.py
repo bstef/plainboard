@@ -28,6 +28,7 @@ from ..services import cleanup as cleanup_service
 from ..services import flow_log
 from ..services import jobs as job_service
 from ..services import preview as preview_service
+from ..services import scratchpad as scratchpad_service
 from ..services import settings as settings_service
 from ..services import storage
 from . import inbox
@@ -78,6 +79,7 @@ class CleanupWatcher:
         now = now or utcnow()
         async with self._sm() as s:
             settings = await settings_service.get_all(s)
+            await scratchpad_service.purge(s, now)  # archived scratchpads past their retention
         hub = self._runs.runners
         waits = [self._interval]
         for runner_id in hub.in_use():

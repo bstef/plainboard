@@ -30,7 +30,7 @@ from ..services import permissions
 from ..services import accounts as account_service
 from ..services import settings as settings_service
 from ..services import todos as todo_service
-from ..services import work_notes as work_notes_service
+from ..services import scratchpad as scratchpad_service
 from ..services.util import truncate
 from . import prompts
 
@@ -89,10 +89,10 @@ class ContextManager:
         return list((await session.scalars(q.order_by(Message.id))).all())
 
     async def build_turn(
-        self, session: AsyncSession, *, project: Project, agent: Agent, conv: Conversation, text: str, message_id: int, work_notes: str | None = None
+        self, session: AsyncSession, *, project: Project, agent: Agent, conv: Conversation, text: str, message_id: int, scratchpad: str | None = None
     ) -> Turn:
-        """``work_notes``: those of the agent's open assignment. A fresh session (first turn, after
-        compression) gets them verbatim, so they survive every compression."""
+        """``scratchpad``: that of the agent's open assignment. A fresh session (after compression) gets
+        it verbatim, so it survives every compression."""
         team = await agent_service.list_for_project(session, project.id)
         pinned = await notes_service.pinned(session, project.id)
         own_notes = await own_note_service.for_agent(session, agent.id)
@@ -153,7 +153,7 @@ class ContextManager:
         conv.session_sections = current
         conv.todos_shown = todos
         await session.commit()
-        head = "\n\n".join(part for part in (work_notes_service.block(work_notes), todos, text) if part)
+        head = "\n\n".join(part for part in (scratchpad_service.block(scratchpad), todos, text) if part)
         return Turn(conv.system_prompt, prompts.fresh_session_prompt(recent, head), None)
 
     @staticmethod

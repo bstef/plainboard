@@ -237,7 +237,7 @@ export interface Assignment {
   run_id: number | null;
   created_at: string;
   finished_at: string | null;
-  work_notes?: string | null;
+  scratchpad?: string | null;
 }
 
 export interface DecisionOption {
