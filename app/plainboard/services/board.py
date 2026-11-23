@@ -25,6 +25,7 @@ from ..models import (
     Comment,
     Decision,
     DecisionStatus,
+    Idea,
     Job,
     JobStatus,
     Landing,
@@ -762,6 +763,7 @@ async def store_attachment(
     data: bytes | BinaryIO,
     *,
     task_id: int | None = None,
+    idea_id: int | None = None,
     agent_id: int | None = None,
 ) -> Attachment:
     """``data``: the content, or a file to read it from (an upload: never read whole into memory)."""
@@ -770,6 +772,7 @@ async def store_attachment(
     attachment = Attachment(
         project_id=project_id,
         task_id=task_id,
+        idea_id=idea_id,
         filename=Path(filename).name[:300] or "file",
         content_type=content_type or "application/octet-stream",
         storage_name=f"{uuid.uuid4().hex}{suffix}",
@@ -798,7 +801,7 @@ async def list_attachments(session: AsyncSession, task_id: int) -> list[Attachme
 
 async def chat_attachments(session: AsyncSession, project_id: int, ids: list[int]) -> list[Attachment]:
     """Files of a chat message (they belong to the project, not to a ticket)."""
-    q = select(Attachment).where(Attachment.project_id == project_id, Attachment.task_id.is_(None), Attachment.id.in_(ids))
+    q = select(Attachment).where(Attachment.project_id == project_id, Attachment.task_id.is_(None), Attachment.idea_id.is_(None), Attachment.id.in_(ids))
     return list((await session.scalars(q.order_by(Attachment.id))).all())
 
 
@@ -820,12 +823,17 @@ async def get_attachment(session: AsyncSession, attachment_id: int) -> Attachmen
 
 
 async def delete_attachment(session: AsyncSession, attachment: Attachment) -> None:
-    project_id, attachment_id, task_id = attachment.project_id, attachment.id, attachment.task_id
+    project_id, attachment_id, task_id, idea_id = attachment.project_id, attachment.id, attachment.task_id, attachment.idea_id
     _remove_file(attachment)
     await session.delete(attachment)
     await session.commit()
-    bus.publish(project_id, "attachment.deleted", {"id": attachment_id, "task_id": task_id})
+    bus.publish(project_id, "attachment.deleted", {"id": attachment_id, "task_id": task_id, "idea_id": idea_id})
     await publish_task_id(session, task_id)
+    if idea_id is not None:
+        from . import ideas as idea_service
+
+        if (idea := await session.get(Idea, idea_id)) is not None:
+            await idea_service.publish(session, project_id, [idea])
 
 
 async def list_decisions(session: AsyncSession, task_id: int) -> list[Decision]:

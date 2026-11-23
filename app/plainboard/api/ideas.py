@@ -3,9 +3,9 @@ Members change them, viewers read (services/access.py). Tickets come from them t
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, File, UploadFile
 
-from ..schemas import IdeaAnswer, IdeaChangeOut, IdeaCreate, IdeaInput, IdeaOut, IdeasOut, IdeaTicketIn, IdeaTicketOut, IdeaTopicIn, IdeaTopicOut, IdeaUpdate, IdeaVersionOut
+from ..schemas import AttachmentOut, IdeaAnswer, IdeaChangeOut, IdeaCreate, IdeaInput, IdeaOut, IdeasOut, IdeaTicketIn, IdeaTicketOut, IdeaTopicIn, IdeaTopicOut, IdeaUpdate, IdeaVersionOut
 from ..services import board as board_service
 from ..services import ideas as idea_service
 from ..services import projects as project_service
@@ -101,6 +101,14 @@ async def update_idea(project_id: int, idea_id: int, body: IdeaUpdate, session: 
 @router.delete("/{idea_id}", status_code=204)
 async def delete_idea(project_id: int, idea_id: int, session: Session) -> None:
     await idea_service.remove(session, await idea_service.get(session, project_id, idea_id))
+
+
+@router.post("/{idea_id}/attachments", response_model=list[AttachmentOut], status_code=201)
+async def upload(project_id: int, idea_id: int, session: Session, files: list[UploadFile] = File(...)) -> list[AttachmentOut]:
+    """Files attached to the idea; downloaded and deleted at ``/api/attachments/{id}`` like a ticket's."""
+    idea = await idea_service.get(session, project_id, idea_id)
+    added = await idea_service.add_attachments(session, idea, [(f.filename or "file", f.content_type or "", f.file) for f in files])
+    return [AttachmentOut.model_validate(a) for a in added]
 
 
 @router.get("/{idea_id}/versions", response_model=list[IdeaVersionOut])

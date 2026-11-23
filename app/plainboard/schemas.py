@@ -909,6 +909,7 @@ class CommentOut(ORM):
 class AttachmentOut(ORM):
     id: int
     task_id: int | None
+    idea_id: int | None = None
     filename: str
     content_type: str
     size: int
@@ -1559,6 +1560,7 @@ class IdeaOut(ORM):
     question_at: UTCDateTime | None
     closed_at: UTCDateTime | None
     closed_reason: str
+    attachments: list[AttachmentOut] = Field(default_factory=list)
     created_at: UTCDateTime
     updated_at: UTCDateTime
 

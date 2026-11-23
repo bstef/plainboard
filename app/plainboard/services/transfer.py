@@ -78,7 +78,7 @@ TABLES: tuple[Table, ...] = (
     Table("schedules", refs={"agent_id": "agents", **AGENT}, reset={"last_run_id": None}),
     Table("tasks", refs=AGENT),
     Table("task_transitions"),
-    Table("attachments", refs={"task_id": "tasks", "uploaded_by_agent_id": "agents"}),
+    Table("attachments", refs={"task_id": "tasks", "uploaded_by_agent_id": "agents"}, late={"idea_id": "ideas"}),
     Table("comments", ("task_id", "tasks"), {"task_id": "tasks", "author_agent_id": "agents"}),
     Table("decisions", refs={"task_id": "tasks", "requested_by_agent_id": "agents"}, lists={"attachment_ids": "attachments"}),
     Table("assignments", refs={"task_id": "tasks", "agent_id": "agents", **AGENT}, reset={"run_id": None, "landing_id": None, "train_id": None}),

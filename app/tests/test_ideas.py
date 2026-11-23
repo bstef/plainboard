@@ -431,3 +431,61 @@ def test_list_ideas_gives_every_text_whole_and_pages_by_whole_ideas(client, proj
     second = client.portal.call(page, 1)
     assert f"i{ids[1]} (no title)\n  Short" in second and f"i{ids[2]}" in second and "continue" not in second
     assert client.portal.call(page, 5) == "No ideas at offset 5 (3 in all)."
+
+
+def test_files_of_an_idea_are_shown_read_by_the_manager_kept_by_the_retention_and_moved(client, project):
+    from test_retention import _age, _file, _purge
+
+    pid = project["id"]
+    answer(client)
+    _file.client = client
+    viewer, member = new_user(client, "vera"), new_user(client, "max")
+    for user, role in ((viewer, "viewer"), (member, "member")):
+        assert client.put(f"/api/projects/{pid}/members/{user['id']}", json={"role": role}).status_code == 200
+    idea = add(client, pid, "Dark mode")
+    other = add(client, pid, "Bigger fonts")
+    settled(client, pid)
+
+    sign_in(client, "max", "max-password")
+    resp = client.post(f"/api/projects/{pid}/ideas/{idea['id']}/attachments", files=[("files", ("sketch.png", b"x" * 10, "image/png")), ("files", ("notes.txt", b"dark", "text/plain"))])
+    assert resp.status_code == 201, resp.text
+    sketch, notes = resp.json()
+    assert (sketch["idea_id"], sketch["task_id"], sketch["filename"], sketch["size"]) == (idea["id"], None, "sketch.png", 10)
+    shown = by_id(ideas_of(client, pid))
+    assert [a["filename"] for a in shown[idea["id"]]["attachments"]] == ["sketch.png", "notes.txt"] and shown[other["id"]]["attachments"] == []
+    assert client.get(f"/api/attachments/{notes['id']}").content == b"dark"
+    assert client.delete(f"/api/attachments/{notes['id']}").status_code == 204
+    assert [a["id"] for a in by_id(ideas_of(client, pid))[idea["id"]]["attachments"]] == [sketch["id"]]
+
+    sign_in(client, "vera", "vera-password")
+    assert client.get(f"/api/attachments/{sketch['id']}").status_code == 200
+    assert client.post(f"/api/projects/{pid}/ideas/{idea['id']}/attachments", files=[("files", ("x.txt", b"x", "text/plain"))]).status_code == 403
+    assert client.delete(f"/api/attachments/{sketch['id']}").status_code == 403
+    sign_in(client, "admin", "admin-password")
+
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], "Look at the ideas\nTOOL list_ideas {}\nTOOL get_idea " + json.dumps({"idea": idea["id"]}))
+    wait_for(lambda: idle(client, pid))
+    listed, detail = tool_results(client, manager["id"])[-2:]
+    assert f"  file: {sketch['id']} sketch.png (10 B): /uploads/" in listed
+    assert f"Attachments:\n- {sketch['id']} sketch.png (10 B): /uploads/" in detail
+
+    # Taken into a ticket that is done long since: the retention leaves the idea's file alone.
+    ticket = client.post(f"/api/projects/{pid}/ideas/{idea['id']}/ticket", json={}).json()["ticket"]
+    assert client.patch(f"/api/tasks/{ticket['id']}", json={"status": "done"}).status_code == 200
+    _age(client, pid, ticket["number"], 400)
+    assert client.patch(f"/api/projects/{pid}", json={"attachment_retention_days": 30}).status_code == 200
+    assert _purge(client) == {}
+    assert _file(sketch).is_file()
+    assert by_id(ideas_of(client, pid, closed=True))[idea["id"]]["attachments"][0]["purged_at"] is None
+
+    moved = bring_in(client, export(client, pid))
+    assert moved.status_code == 201, moved.text
+    there = {i["text"]: i for i in ideas_of(client, moved.json()["project"]["id"], closed=True)["ideas"]}
+    (copy,) = there["Dark mode"]["attachments"]
+    assert copy["filename"] == "sketch.png" and copy["idea_id"] == there["Dark mode"]["id"]
+    assert client.get(f"/api/attachments/{copy['id']}").content == b"x" * 10
+
+    path = _file(sketch)
+    assert client.delete(f"/api/projects/{pid}/ideas/{idea['id']}").status_code == 204
+    assert not path.exists() and client.get(f"/api/attachments/{sketch['id']}").status_code == 404

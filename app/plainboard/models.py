@@ -588,6 +588,8 @@ class Attachment(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    # A file of an idea (#100): never deleted by the retention, kept when the idea is closed.
+    idea_id: Mapped[int | None] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
     filename: Mapped[str] = mapped_column(String(300))
     content_type: Mapped[str] = mapped_column(String(150))
     size: Mapped[int] = mapped_column(Integer)
