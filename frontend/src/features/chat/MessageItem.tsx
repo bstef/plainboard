@@ -290,6 +290,7 @@ function ToolStep({ message }: { message: Message }) {
 }
 
 function ToolLine({ message }: { message: Message }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { name, input, result, is_error } = message.meta as { name?: string; input?: string; result?: string; is_error?: boolean };
   const pending = result === undefined;
@@ -304,6 +305,7 @@ function ToolLine({ message }: { message: Message }) {
         <div className="space-y-1.5 border-t border-line bg-sunk px-4 py-2.5 font-mono text-[0.9em]">
           {input && <pre className="break-words whitespace-pre-wrap text-fg-2">{input}</pre>}
           {result !== undefined && <pre className={clsx("max-h-64 overflow-auto break-words whitespace-pre-wrap", is_error ? "text-fg-2" : "text-fg")}>{result || "(empty)"}</pre>}
+          {message.meta.trimmed && <p className="font-sans text-fg-3">{t("chat.toolTrimmed", { days: message.meta.trimmed_days })}</p>}
         </div>
       )}
     </div>

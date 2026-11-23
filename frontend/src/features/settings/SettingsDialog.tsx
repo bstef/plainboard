@@ -92,7 +92,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   const MODELS = ["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_manager_effort", "default_worker_effort", "default_summary_effort", "default_context_limit", "default_keep_recent"];
   const PACE = ["max_parallel_runs", "manager_parallel_limit"];
   const GENERAL = ["timezone", "member_chat", "update_check"];
-  const CLEANUP = ["storage_notify_percent", "storage_emergency_percent", "cleanup", "cleanup_memory_free_percent"];
+  const CLEANUP = ["storage_notify_percent", "storage_emergency_percent", "cleanup", "cleanup_memory_free_percent", "tool_details_days"];
 
   const account: SettingsSection = { id: "account", label: t("account.title"), description: t("account.hint"), content: <AccountEditor /> };
   const ownAccounts = (
@@ -318,6 +318,9 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                 <FieldRow>
                   <Field label={t("cleanup.memory")} hint={t("cleanup.memoryHint")}>
                     <Input type="number" min={0} max={50} value={values.cleanup_memory_free_percent ?? 10} onChange={(e) => set({ cleanup_memory_free_percent: Number(e.target.value) })} />
+                  </Field>
+                  <Field label={t("cleanup.toolDetails")} hint={t("cleanup.toolDetailsHint")}>
+                    <Input type="number" min={0} value={values.tool_details_days ?? 30} onChange={(e) => set({ tool_details_days: Number(e.target.value) })} />
                   </Field>
                 </FieldRow>
                 <SaveRow dirty={dirty(...CLEANUP)} onSave={() => save(CLEANUP)} />
