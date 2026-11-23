@@ -466,8 +466,8 @@ function ProjectWorkspace({
       align={align}
       entries={rare.map(entry)}
       onSelect={(id) => setView(id as View)}
-      onSettings={onSettings}
-      onLook={() => setLookOpen(true)}
+      onSettings={isDesktop ? undefined : onSettings}
+      onLook={isDesktop ? undefined : () => setLookOpen(true)}
     />
   );
 

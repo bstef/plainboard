@@ -55,7 +55,8 @@ export function NavButton({ entry, active, wide, onClick }: { entry: NavEntry; a
   );
 }
 
-/** The "…" at the project name: the rare views and the settings (the search has its own line). Marked while something runs behind one. */
+/** The "…" at the project name: the rare views (the search has its own line). Marked while something runs behind one.
+ * Settings and design only on phones: the desktop sidebar has their icons at its foot. */
 export function ProjectMenu({
   entries,
   onSelect,
@@ -65,8 +66,8 @@ export function ProjectMenu({
 }: {
   entries: NavEntry[];
   onSelect: (id: string) => void;
-  onSettings: () => void;
-  onLook: () => void;
+  onSettings?: () => void;
+  onLook?: () => void;
   align?: "left" | "right";
 }) {
   const { t } = useTranslation();
@@ -84,8 +85,8 @@ export function ProjectMenu({
   }, [open, active]);
   const items: { key: string; label: string; icon: ReactNode; marked?: boolean; kbd?: string; run: () => void }[] = [
     ...entries.map((e) => ({ key: e.id, label: e.label, icon: e.icon("size-4 shrink-0 text-fg-2"), marked: e.marked, run: () => onSelect(e.id) })),
-    { key: "settings", label: t("nav.settings"), icon: <Settings className="size-4 shrink-0 text-fg-2" />, run: onSettings },
-    { key: "theme", label: t("nav.theme"), icon: <Palette className="size-4 shrink-0 text-fg-2" />, run: onLook },
+    ...(onSettings ? [{ key: "settings", label: t("nav.settings"), icon: <Settings className="size-4 shrink-0 text-fg-2" />, run: onSettings }] : []),
+    ...(onLook ? [{ key: "theme", label: t("nav.theme"), icon: <Palette className="size-4 shrink-0 text-fg-2" />, run: onLook }] : []),
   ];
   const onKey = (e: React.KeyboardEvent) => {
     if (!open) return;
