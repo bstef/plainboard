@@ -264,6 +264,32 @@ def test_commits_are_read_from_the_last_one_indexed_and_deleted_items_leave(clie
 
 
 @pg_only
+def test_the_older_history_is_read_page_by_page_to_the_root_while_new_commits_come_in(client, project, embedder, monkeypatch):
+    from datetime import timedelta
+
+    from plainboard.models import utcnow
+    from plainboard.orchestration import search_indexer
+
+    monkeypatch.setattr(search_indexer, "COMMITS_FIRST", 3)
+    pid = project["id"]
+    client.post(f"/api/projects/{pid}/repositories", json={"name": "api", "url": "https://github.com/acme/api.git"})
+    fake = runner(client)
+    fake.commits = [GitCommit(sha=f"{i:040x}", message=f"Change number {i}") for i in range(8, 0, -1)]  # 8 commits, newest first
+    index(client)
+    first, older = fake.git_log_specs[0], fake.git_log_specs[1]
+    assert first.since is None and first.upto is None and (older.upto, older.skip) == ("8".zfill(40), 3)
+    fake.commits = [GitCommit(sha="9".zfill(40), message="Change number 9"), *fake.commits]  # new on the branch meanwhile
+    now = utcnow()
+    for minutes in (1, 2, 11, 12):
+        client.portal.call(client.app_ref.state.search.tick, now + timedelta(minutes=minutes))
+    pages = [(s.upto, s.skip) for s in fake.git_log_specs if s.upto]
+    assert pages == [("8".zfill(40), 3), ("8".zfill(40), 6)]  # from the same commit down; the last one has fewer than a page: the root
+    assert [s.since for s in fake.git_log_specs if not s.upto] == [None, "8".zfill(40)]  # the new one, from the head
+    commits = client.get("/api/search/status").json()["by_kind"]["commit"]
+    assert (commits["items"], commits["total"]) == (9, 9)
+
+
+@pg_only
 def test_new_work_on_a_ticket_starts_with_what_is_very_close_in_the_history(client, project, embedder):
     pid = project["id"]
     old = ticket(client, pid, "Webhook retries of Stripe time out", "Stripe webhook retries time out after the payment")

@@ -26,7 +26,7 @@ from .. import flow_log
 from .. import settings as settings_service
 from ..errors import ServiceError
 from . import embedding, store
-from .indexers import INDEXERS, KINDS
+from .indexers import COMMIT, INDEXERS, KINDS
 from .schema import available
 from .store import Hit
 
@@ -309,12 +309,17 @@ def _model_view(model: embedding.Embedder | None) -> dict | None:
 
 
 async def _totals(s: AsyncSession) -> dict[str, int]:
-    """How many items each source has in the projects with search on (commits: as many as were read)."""
+    """How many items each source has in the projects with search on (commits: as many as the runner counted on
+    each repository's branch, without merges; a repository it has not counted yet: as many as were read)."""
     out: dict[str, int] = {}
     for project in await active_projects(s):
         for indexer in INDEXERS:
             query = indexer.existing(project.id).subquery()
             out[indexer.kind] = out.get(indexer.kind, 0) + int(await s.scalar(select(func.count()).select_from(query)) or 0)
+        for repo_id in await s.scalars(select(Repository.id).where(Repository.project_id == project.id)):
+            cursor = await s.get(SearchCursor, (project.id, f"commit-old:{repo_id}"))
+            parts = cursor.value.split(" ") if cursor else []
+            out[COMMIT] = out.get(COMMIT, 0) + (int(parts[2]) if len(parts) == 3 else len(await store.commit_shas(s, project.id, repo_id)))
     return out
 
 
