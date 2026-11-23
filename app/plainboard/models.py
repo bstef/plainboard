@@ -52,6 +52,7 @@ class RunTrigger(StrEnum):
     MESSAGE = "message"  # non-blocking message from another agent
     SCHEDULE = "schedule"
     WAKE = "wake"  # inbox updates (e.g. finished assignments) for the agent
+    QUESTION = "question"  # a person's question (orchestration/questions.py): stored when it ends, for the statistics only
 
 
 class AssignmentStatus(StrEnum):
@@ -191,6 +192,10 @@ class Project(Timestamps, Base):
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never
     review_days: Mapped[int] = mapped_column(Integer, default=3)  # tickets left in review move to done after this; 0 = never
+    # What answers people's questions (orchestration/questions.py). Empty: the default (questions.DEFAULT_*).
+    ask_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
+    ask_model: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    ask_effort: Mapped[str] = mapped_column(String(20), default="", server_default="")
 
     agents: Mapped[list[Agent]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
 

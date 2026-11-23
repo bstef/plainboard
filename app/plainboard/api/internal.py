@@ -26,6 +26,13 @@ def _context(runs: Runs, run_id: int, authorization: str | None):
     return ctx
 
 
+def _writer(ctx):
+    """A turn that may change something: a question (``RunContext.tools``) only reads."""
+    if ctx.tools is not None:
+        raise HTTPException(403, "This turn only reads")
+    return ctx
+
+
 # A tool call that takes longer is answered "pending" and asked for again: a proxy between an external runner
 # and the app (Cloudflare: 100 s) ends a longer request, and the tool's result would reach nobody.
 TOOL_ANSWER_SECONDS = 60.0
@@ -87,7 +94,7 @@ async def upload_attachment(
     task_number: int = Form(...),
     authorization: str | None = Header(default=None),
 ) -> ToolCallResult:
-    ctx = _context(runs, run_id, authorization)
+    ctx = _writer(_context(runs, run_id, authorization))
     try:
         task = await board_service.get_task_by_number(session, ctx.project_id, task_number)
         attachment = await board_service.add_attachment(
@@ -108,7 +115,7 @@ async def send_chat_files(
     authorization: str | None = Header(default=None),
 ) -> ToolCallResult:
     """The send_files tool: existing attachments and new files from the agent's workspace, into its chat."""
-    ctx = _context(runs, run_id, authorization)
+    ctx = _writer(_context(runs, run_id, authorization))
     try:
         ids = [int(i) for i in attachment_ids.split(",") if i.strip()]
         shown = await board_service.project_attachments(session, ctx.project_id, ids)

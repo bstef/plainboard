@@ -126,6 +126,7 @@ RULES: tuple[Rule, ...] = (
     # --- a project. Everything in it can be read by its viewers; what is not listed is changed by owners only.
     _project(""),
     _project("/agents", write=Need.MEMBER),
+    _project("/questions", read=Need.MEMBER, write=Need.MEMBER),  # who may chat with the manager may ask (orchestration/questions.py)
     _project("/tasks", write=Need.MEMBER),
     _project("/notes", write=Need.MEMBER),
     _project("/schedules", write=Need.MEMBER),

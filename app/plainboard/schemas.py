@@ -491,6 +491,9 @@ class ProjectUpdate(BaseModel):
     account_id: int | None = None  # null: the subscription with the most room again
     auto_archive_days: int | None = Field(default=None, ge=0, le=3650)
     review_days: int | None = Field(default=None, ge=0, le=365)
+    ask_provider: str | None = Field(default=None, max_length=50)  # questions: "" the default again
+    ask_model: str | None = Field(default=None, max_length=100)
+    ask_effort: str | None = Field(default=None, max_length=20)
 
 
 class ProjectAccountsIn(BaseModel):
@@ -518,6 +521,9 @@ class ProjectOut(ORM):
     role: ProjectRole | None = None  # the asking user's role; not part of events, which go to everyone
     auto_archive_days: int
     review_days: int = 3
+    ask_provider: str = ""
+    ask_model: str = ""
+    ask_effort: str = ""
     label_colors: dict[str, str] = Field(default_factory=dict)
     created_at: UTCDateTime
 

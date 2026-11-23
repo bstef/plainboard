@@ -215,8 +215,8 @@ SNAPSHOT_SECONDS = 120
 
 
 async def _snapshot(spec: RunSpec, workspace: Path) -> None:
-    """Keep the workspace's uncommitted work (snapshots.py); never in a folder also used by others."""
-    if spec.workspace.shared:
+    """Keep the workspace's uncommitted work (snapshots.py); never in a folder also used by others, nor for a turn that only reads."""
+    if spec.workspace.shared or spec.toolset == "read":
         return
     try:
         await asyncio.wait_for(asyncio.to_thread(snapshots.snapshot_workspace, workspace), SNAPSHOT_SECONDS)

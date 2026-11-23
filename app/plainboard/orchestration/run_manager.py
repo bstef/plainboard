@@ -124,6 +124,7 @@ class RunContext:
     account_key: str | None = None  # the provider account the run uses (its limit reports belong to it)
     assignment_id: int | None = None  # the piece of work this turn belongs to
     task_id: int | None = None
+    tools: frozenset[str] | None = None  # the only tools it may call (a question, orchestration/questions.py); None: its role's
 
 
 def _count_and_age(stats: tuple[int, datetime | None] | None) -> tuple[int, int]:
@@ -197,6 +198,9 @@ class RunManager:
         self.updates = RunnerUpdates(self)  # external runners update themselves when free
         self.runners.on_connect = lambda _runner_id: self._wake.set()
         self.context = ContextManager(self.runners)
+        from .questions import Questions  # it builds on this module
+
+        self.questions = Questions(self)  # people's questions beside the chat: no queue, read only
         self._uploads: dict[int, set[str]] = {}  # external runner -> attachment files it has
         self._copying: dict[tuple[int, int], asyncio.Task[None]] = {}  # (runner, project) -> attachments being copied in the background
         self._seen: dict[int, float] = {}  # runner id -> when its last_seen_at was last written (monotonic)
@@ -1949,6 +1953,8 @@ class RunManager:
     # ------------------------------------------------------------------ tools
 
     async def execute_tool(self, ctx: RunContext, name: str, args: dict) -> ToolCallResult:
+        if ctx.tools is not None and name not in ctx.tools:
+            return ToolCallResult(text=f"Tool {name} is not available to you", is_error=True)
         async with self._sm() as s:
             agent = await s.get(Agent, ctx.agent_id)
             project = await s.get(Project, ctx.project_id)
