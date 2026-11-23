@@ -433,6 +433,14 @@ export interface Meta {
   database: "sqlite" | "postgresql";
 }
 
+/** GET /database (admins). `move`: whether the bundled PostgreSQL can take the move; null: there is none. */
+export interface DatabaseStatus {
+  database: "sqlite" | "postgresql";
+  auto: boolean;
+  move: "ready" | "not_empty" | "unreachable" | "requested" | null;
+  failed: string | null;
+}
+
 export interface SettingsResponse {
   values: Record<string, any>;
   secrets: string[];

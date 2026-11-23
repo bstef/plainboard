@@ -8,6 +8,11 @@ migration and copied, table by table in the order of their references, in one Po
 Rows are counted on both sides before the commit. Whatever fails, PostgreSQL is left without a table and
 the SQLite file as it was. A file next to it (`plainboard.db.moved-to-postgresql`) says it was moved, so
 it is never copied twice; the SQLite file stays as the backup.
+
+With PLAINBOARD_DATABASE=auto (the compose file) a new installation starts on the bundled PostgreSQL, and
+one that has its data in SQLite stays there until an admin asks for the move (Settings: a file
+`plainboard.db.move-to-postgresql`). That move runs at the next start; if it fails, PlainBoard goes on with
+SQLite as before and says why (`plainboard.db.move-failed`).
 """
 
 from __future__ import annotations
@@ -32,6 +37,8 @@ log = logging.getLogger("plainboard.db_move")
 
 BATCH = 1000
 MARKER_SUFFIX = ".moved-to-postgresql"
+# The PostgreSQL service "db" of the compose file, reachable by the app only.
+BUNDLED = "postgresql://plainboard:plainboard@db:5432/plainboard"
 
 
 class MoveError(RuntimeError):
@@ -40,6 +47,50 @@ class MoveError(RuntimeError):
 
 def marker(sqlite_file: Path) -> Path:
     return sqlite_file.with_name(sqlite_file.name + MARKER_SUFFIX)
+
+
+def requested(sqlite_file: Path) -> Path:
+    """Written by Settings: move at the next start (PLAINBOARD_DATABASE=auto)."""
+    return sqlite_file.with_name(sqlite_file.name + ".move-to-postgresql")
+
+
+def failed(sqlite_file: Path) -> Path:
+    """Why the last requested move did not happen."""
+    return sqlite_file.with_name(sqlite_file.name + ".move-failed")
+
+
+def has_data(sqlite_file: Path) -> bool:
+    """Whether the file is an installation (it has tables). What cannot be read counts as one: it is never
+    left behind for an empty PostgreSQL by mistake."""
+    if not sqlite_file.exists():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{sqlite_file}?mode=ro", uri=True)
+        try:
+            return bool(conn.execute("SELECT count(*) FROM sqlite_master WHERE type = 'table'").fetchone()[0])
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return True
+
+
+def resolve_auto(sqlite_file: Path) -> str:
+    """PLAINBOARD_DATABASE=auto: SQLite ("") for an installation in SQLite that was not asked to move, else
+    the bundled PostgreSQL (new, moved before, or the move asked for)."""
+    if has_data(sqlite_file) and not marker(sqlite_file).exists() and not requested(sqlite_file).exists():
+        return ""
+    return BUNDLED
+
+
+def bundled_state() -> str:
+    """Whether the bundled PostgreSQL can take a move: "ready" (reachable, no tables), "not_empty" or "unreachable"."""
+    engine = create_engine("postgresql+psycopg://" + BUNDLED.split("://", 1)[1], connect_args={"connect_timeout": 3})
+    try:
+        return "not_empty" if inspect(engine).get_table_names() else "ready"
+    except Exception:
+        return "unreachable"
+    finally:
+        engine.dispose()
 
 
 def alembic_config(url: str) -> AlembicConfig:

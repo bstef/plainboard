@@ -474,43 +474,38 @@ preview.example.com`.
 
 ## PostgreSQL
 
-PlainBoard keeps its data in one SQLite file in the data volume. That needs nothing and is the right
-choice for most installations. If you would rather have the data in PostgreSQL (your own backups and
-tools, a managed database), the move takes three steps, and all data comes along:
+PlainBoard keeps its data in PostgreSQL: the service `db` of the `docker-compose.yml` (the one
+[above](../README.md), also in [`deploy/`](../deploy/docker-compose.yml)), reachable by the app only. A
+new installation needs nothing for it.
 
-1. Use the current `docker-compose.yml` (the one [above](../README.md), also in
-   [`deploy/`](../deploy/docker-compose.yml)): it has a PostgreSQL service `db` that only starts when asked for.
-2. Put these two lines into the `.env` next to it:
+An installation from before has its data in one SQLite file in the data volume, and **stays on it**,
+also with the current `docker-compose.yml`: nothing is moved without being asked for. To move it, with
+all data:
 
-   ```bash
-   COMPOSE_PROFILES=postgres
-   PLAINBOARD_DATABASE=postgresql://plainboard:plainboard@db:5432/plainboard
-   ```
+1. Back up the data volume, and pause the agents (Settings > Pause) if they are working.
+2. Take the current `docker-compose.yml` and run `docker compose up -d`.
+3. Settings > General > **Move to PostgreSQL**.
 
-3. `docker compose up -d`
-
-That is all. At this start PlainBoard sees the empty PostgreSQL database and the SQLite file, sets up
-the tables, copies every table and counts the rows on both sides, and only then serves
-(`docker compose logs -f app` shows it; a large database takes a few minutes). A new installation
-simply starts on PostgreSQL.
+PlainBoard restarts, copies every table and counts the rows on both sides, and only then serves again
+(a few minutes for a large database; `docker compose logs -f app` shows it).
 
 - **The SQLite file stays** as the backup of that moment: `plainboard.db` in the data volume, with
-  `plainboard.db.moved-to-postgresql` next to it, so it is never copied twice. To copy it again
-  into a new, empty database, delete that second file.
-- **If anything fails**, nothing changes: PostgreSQL is left empty, the SQLite file as it was, and
-  PlainBoard does not start; the log says why. Remove the two lines from `.env` and run
-  `docker compose up -d` to go on with SQLite. Going back later works the same way, with the data of
-  the moment you moved.
-- **The database is the app's only.** The `db` service has a network of its own with the app: it is
-  reachable neither from outside nor by the agents. Back up its volume (`db`) as you do the data volume.
-- **A PostgreSQL server of yours:** name an empty database in `PLAINBOARD_DATABASE` instead (and
-  leave out `COMPOSE_PROFILES`). The move is the same.
+  `plainboard.db.moved-to-postgresql` next to it, so it is never copied twice.
+- **If anything fails**, PlainBoard goes on with SQLite as before, and Settings says why. PostgreSQL is
+  left empty, the SQLite file as it was.
+- **Without the restart** (PlainBoard not started by compose with `restart: unless-stopped`): run
+  `docker compose up -d` after the click.
+- **To stay on SQLite** for good, or to go back to it with the data of the moment you moved: put
+  `PLAINBOARD_DATABASE=sqlite` into the `.env` and run `docker compose up -d`.
+- **A compose file from before** (without the `db` service) goes on with SQLite, as it did.
+- **Back up** the volume `db` as you do the data volume. The data volume stays as it is: the key your
+  secrets are encrypted with is there, not in the database.
+- **A PostgreSQL server of yours:** `PLAINBOARD_DATABASE=postgresql://user:password@host:5432/name` in
+  `.env`, an empty database. At the next start the data of SQLite moves over by itself, the same way.
 - **By hand**, e.g. without compose: stop PlainBoard, then run in its image
   `plainboard migrate-db --to postgresql://user:password@host:5432/name`, e.g.
   `docker run --rm -v plainboard_data:/data thoenehannes/plainboard:latest plainboard migrate-db --to postgresql://...`,
   and start PlainBoard with `PLAINBOARD_DATABASE` set to it.
-- **The data volume stays.** The key your secrets are encrypted with and the uploaded files are
-  still there, not in the database.
 - **Reading with SQL** (the read access for analysis, `scripts/remote.py sql`) works with SQLite
   only. With PostgreSQL, ask the database itself.
 
