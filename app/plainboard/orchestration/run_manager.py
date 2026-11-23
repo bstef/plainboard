@@ -94,7 +94,8 @@ from .tunnel import Tunnel
 log = logging.getLogger(__name__)
 
 MAX_ASK_DEPTH = 3
-SIGN_INS_SECONDS = 60  # how often the runners are asked for people's own sign-ins that were refreshed (check_sign_ins)
+SIGN_INS_SECONDS = 60  # how often the runners are asked for kept sign-ins that were refreshed (check_sign_ins)
+FRESH_SECONDS = 1800  # how often the built-in runner looks whether a kept sign-in is due for a refresh ahead
 ASK_TIMEOUT_SECONDS = 900
 ASK_BUSY_TIMEOUT_SECONDS = 120  # the teammate is in a turn of unknown length, so don't block the asker for long
 CANCEL_GRACE_SECONDS = 15
@@ -228,6 +229,7 @@ class RunManager:
         self._limits_asked = 0.0
         self._limits_task: asyncio.Task[None] | None = None
         self._sign_ins_asked = 0.0
+        self._fresh_asked = 0.0
         self._sign_in_tasks: set[asyncio.Task[None]] = set()
         self._state_tasks: dict[int, asyncio.Task[None]] = {}  # tickets whose state is being rewritten
         self._resting: set[asyncio.Task[None]] = set()  # paused projects whose turns and jobs are being stopped
@@ -310,25 +312,62 @@ class RunManager:
         self._seen.update(dict.fromkeys(due, now))
 
     async def check_sign_ins(self, force: bool = False) -> None:
-        """Keep what the runners hold of people's own sign-ins (a limit check or a completion may have
-        refreshed one), at most every ``SIGN_INS_SECONDS`` (the job watcher's look), and only while there are any."""
+        """Kept sign-ins, at most every ``SIGN_INS_SECONDS`` (the job watcher's look): the installation's still in the
+        built-in runner's home are taken over (``accounts.take_over``), what the runners refreshed is kept and
+        handed on (``keep_sign_ins``), and every ``FRESH_SECONDS`` those due soon are refreshed ahead on the
+        built-in runner, so the other runners always get them fresh and none refreshes one itself."""
         if not force and time.monotonic() - self._sign_ins_asked < SIGN_INS_SECONDS:
             return
         self._sign_ins_asked = time.monotonic()
         async with self._sm() as s:
-            if not await account_service.any_own_login(s):
+            if await account_service.any_home_login(s):
+                await account_service.take_over(s, self.runner)
+            if not await account_service.any_kept_login(s):
                 return
             for runner_id in self.runners.in_use():
                 if self.runners.connected(runner_id):
-                    await account_service.take_sign_ins(s, self.runners.client(runner_id))
+                    await self.keep_sign_ins(s, runner_id)
+            if force or time.monotonic() - self._fresh_asked >= FRESH_SECONDS:
+                self._fresh_asked = time.monotonic()
+                await self._refresh_sign_ins(s)
+
+    async def keep_sign_ins(self, s: AsyncSession, runner_id: int | None) -> None:
+        """Keep what a runner refreshed of kept sign-ins, and give it to the other runners where a turn of the
+        account is going on: the CLI there reads its file again before it refreshes, and finds the new token."""
+        kept = await account_service.take_sign_ins(s, self.runners.client(runner_id))
+        if not kept:
+            return
+        busy: dict[int | None, set[str]] = {}
+        for ctx in self._tokens.values():
+            if ctx.account_key:
+                busy.setdefault(self.runners.runner_id(ctx.project_id), set()).add(ctx.account_key)
+        for other, keys in busy.items():
+            entries = [e for e in kept if e.account in keys]
+            if other == runner_id or not entries or not self.runners.connected(other) or not self.runners.signins(other):
+                continue
+            try:
+                await self.runners.client(other).update_sign_ins(entries)
+            except Exception as exc:
+                log.info("Runner %s did not take the refreshed sign-ins: %s", other, exc)
+
+    async def _refresh_sign_ins(self, s: AsyncSession) -> None:
+        values = await settings_service.get_all(s)
+        accounts = [a for a in await account_service.kept_logins(s) if a.enabled and a.secret_enc]
+        for account in accounts:
+            try:
+                await self.runner.refresh_sign_in(account.provider, settings_service.credentials(values, account=account_service.fields(account)))
+            except Exception as exc:
+                log.info("Could not refresh the sign-in of account %s ahead: %s", account.key, str(exc)[:200])
+        if accounts:
+            await self.keep_sign_ins(s, None)
 
     def _take_sign_ins_soon(self, project_id: int) -> None:
-        """A turn on an own sign-in ended: what it refreshed is kept at once, not only at the next look."""
+        """A turn on a kept sign-in ended: what it refreshed is kept at once, not only at the next look."""
 
         async def take() -> None:
             try:
                 async with self._sm() as s:
-                    await account_service.take_sign_ins(s, self.runners.of(project_id))
+                    await self.keep_sign_ins(s, self.runners.runner_id(project_id))
             except Exception:
                 log.exception("Could not keep the sign-ins of project %s's runner", project_id)
 
@@ -945,7 +984,7 @@ class RunManager:
                 if not task or not (reports or closed):
                     return
                 manager = await agent_service.get_manager(s, task.project_id)
-                account = await account_service.pick(s, manager.provider, manager, model=manager.summary_model)
+                account = await account_service.pick(s, manager.provider, manager, model=manager.summary_model, where=self.runners.where(task.project_id))
                 values = await settings_service.get_all(s)
                 credentials = settings_service.credentials(values, account=account_service.fields(account))
                 before = await ticket_state.text_for(s, task.id)
@@ -995,8 +1034,8 @@ class RunManager:
                 if report.windows:
                     await limits_service.record(s, account.key, report.windows, complete=report.complete)
                 await limits_service.record_plan(s, account.key, report.plan, report.plan_size)
-            if any(account_service.own_login(a) for a in accounts):
-                await account_service.take_sign_ins(s, self.runner)
+            if any(account_service.kept_login(a) for a in accounts):
+                await self.keep_sign_ins(s, None)
 
     async def wind_down(self, s: AsyncSession, agent: Agent, reason: str = "", *, jobs_end: bool = False) -> bool:
         """Let an agent finish safely: drop what it has not started and tell its running turn to wrap up.
@@ -1538,8 +1577,9 @@ class RunManager:
                 message.meta = {**message.meta, "briefing_update": turn.briefing_changes}
                 await s.commit()
                 bus.publish(project.id, "message.updated", MessageOut.model_validate(message))
-            account = await account_service.pick(s, agent.provider, agent, conv, fresh=turn.resume_session_id is None)
-            if account is None and (why := await account_service.shut_out(s, agent.provider, agent)):
+            where = self.runners.where(project.id)
+            account = await account_service.pick(s, agent.provider, agent, conv, fresh=turn.resume_session_id is None, where=where)
+            if account is None and (why := await account_service.shut_out(s, agent.provider, agent) or await account_service.not_signed_in(s, agent.provider, agent, where)):
                 raise RuntimeError(why)  # the turn fails with the reason, instead of at the provider for a missing key
             if account:
                 conv.account_key, run.account_key = account.key, account.key
@@ -1667,7 +1707,7 @@ class RunManager:
             if run is None or agent is None or run.status != RunStatus.RUNNING:
                 return None
             conv = await agent_service.conversation_for(s, agent.id)
-            account = await account_service.other_with_room(s, agent.provider, agent, conv, ctx.account_key)
+            account = await account_service.other_with_room(s, agent.provider, agent, conv, ctx.account_key, where=self.runners.where(agent.project_id))
             if account is None:
                 return None
             log.info("Run %s: account %s is used up, the turn runs again on %s", run.id, ctx.account_key, account.key)

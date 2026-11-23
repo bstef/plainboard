@@ -8,7 +8,7 @@ import time
 from collections.abc import AsyncIterator
 
 import httpx
-from plainboard_protocol import GitLogResult, GitLogSpec, GitPresentResult, GitPresentSpec, ProjectFiles, TidyResult, TidySpec, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CompletionResult, CompletionSpec, Credentials, DeleteSpec, JobPort, JobSpec, JobState, JobTiming, LimitsEvent, MachineUsage, ProviderAccount, ProviderInfo, SignInAck, SignInFiles, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, SkillFetch, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamState, parse_event
+from plainboard_protocol import GitLogResult, GitLogSpec, GitPresentResult, GitPresentSpec, ProjectFiles, TidyResult, TidySpec, CandidatesSpec, CheckResult, CleanupCandidate, CleanupResult, CleanupSpec, CompletionResult, CompletionSpec, Credentials, DeleteSpec, JobPort, JobSpec, JobState, JobTiming, LimitsEvent, MachineUsage, ProviderAccount, ProviderInfo, SignInAck, SignInFiles, SignInRefresh, PullRequestCheck, PullRequestState, RepoSpec, RunEvent, RunSpec, SkillFetch, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec, TrimSpec, UnpushedSpec, UnpushedWork, UpstreamState, parse_event
 
 from ..services.errors import ServiceError
 
@@ -245,6 +245,32 @@ class RunnerClient:
         if resp.status_code == 404:
             return []
         return [SignInFiles.model_validate(entry) for entry in self._answer(resp)]
+
+    async def take_over(self, provider: str, key: str) -> SignInFiles:
+        """The installation's sign-in of account ``key`` from the runner's home, which it no longer uses then."""
+        try:
+            resp = await self._client.post(f"/providers/{provider}/takeover", params={"key": key}, timeout=30)
+        except httpx.HTTPError as exc:
+            raise RunnerError(unreachable(exc)) from exc
+        return SignInFiles.model_validate(self._answer(resp))
+
+    async def refresh_sign_in(self, provider: str, credentials: Credentials) -> None:
+        """A kept sign-in refreshed ahead of time if it is due soon; what changed comes with ``sign_ins``."""
+        try:
+            resp = await self._client.post("/signins/refresh", json=SignInRefresh(provider=provider, credentials=credentials).model_dump(), timeout=90)
+        except httpx.HTTPError as exc:
+            raise RunnerError(unreachable(exc)) from exc
+        if resp.status_code >= 400:
+            raise RunnerError(resp.text[:300])
+
+    async def update_sign_ins(self, entries: list[SignInFiles]) -> None:
+        """What another runner refreshed, for the accounts in use here."""
+        try:
+            resp = await self._client.post("/signins/update", json=[e.model_dump() for e in entries], timeout=20)
+        except httpx.HTTPError as exc:
+            raise RunnerError(unreachable(exc)) from exc
+        if resp.status_code >= 400 and resp.status_code != 404:
+            raise RunnerError(resp.text[:300])
 
     async def ack_sign_ins(self, acks: list[SignInAck]) -> None:
         try:

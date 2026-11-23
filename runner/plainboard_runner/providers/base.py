@@ -71,6 +71,15 @@ class Provider(ABC):
         """The code the provider's page showed after signing in, for an own sign-in in progress."""
         raise NotImplementedError(f"{self.name} takes no sign-in code")
 
+    async def take_over(self, key: str) -> dict[str, str]:
+        """The installation's sign-in of account ``key`` in the runner's home, for the app to keep (signins.py);
+        none if it is not signed in there. Raises ``signins.Busy`` while it is in use."""
+        raise NotImplementedError(f"{self.name} has no sign-in")
+
+    async def refresh_sign_in(self, credentials: Credentials) -> None:
+        """Refresh a kept sign-in (``login_files``) ahead of time where it is due soon, so the runners that use it
+        get it fresh and none of them has to refresh it itself (two refreshes of one token: the second fails)."""
+
     async def check(self, spec: CompletionSpec) -> CheckResult:
         try:
             result = await self.complete(spec)

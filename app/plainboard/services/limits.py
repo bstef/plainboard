@@ -201,6 +201,8 @@ async def current(session: AsyncSession) -> LimitsOut:
     now = time.time()
     out = []
     for account in accounts:
+        if account.auth_mode in ("runner_login", "chatgpt") and not account.home_login and not account.secret_enc:
+            continue  # a browser sign-in that is not signed in: nothing to show as usable (accounts.unusable)
         # An API key has no plan limits, so what a subscription reported earlier no longer applies.
         entry = AccountLimits(account_id=account.id, provider=account.provider, label=account.label, available=account.auth_mode != "api_key")
         data = stored.get(account.key, {})

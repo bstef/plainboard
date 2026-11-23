@@ -201,7 +201,7 @@ class ContextManager:
             return False
 
         values = await settings_service.get_all(session)
-        account = await account_service.pick(session, agent.provider, agent, conv, model=agent.summary_model)
+        account = await account_service.pick(session, agent.provider, agent, conv, model=agent.summary_model, where=self.runners.where(agent.project_id))
         credentials = settings_service.credentials(values, account=account_service.fields(account))
         summary = conv.summary
         cost = 0.0

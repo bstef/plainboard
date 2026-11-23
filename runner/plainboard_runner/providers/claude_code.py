@@ -43,6 +43,7 @@ from plainboard_protocol import (
     AssistantTextEvent,
     ProviderAccount,
     CompactionEvent,
+    DEFAULT_ACCOUNT,
     CompletionResult,
     CompletionSpec,
     Credentials,
@@ -151,6 +152,20 @@ LOGIN_START_SECONDS = 30
 LOGIN_CODE_SECONDS = 30
 LOGIN_TIMEOUT_SECONDS = 15 * 60
 LOGIN_URL = re.compile(r"https://\S+")
+HOME_SIGN_IN = "claude_code"  # the mark of the home's sign-in once the app took it over (signins.TAKEN)
+REFRESH_AHEAD_SECONDS = 3 * 3600  # a kept sign-in whose token ends sooner is refreshed ahead (refresh_sign_in)
+
+
+def refresh_due(files: dict[str, str], now: float | None = None) -> bool:
+    """A Claude sign-in whose access token ends within ``REFRESH_AHEAD_SECONDS``."""
+    try:
+        oauth = json.loads(files.get(SIGN_IN_FILES[0]) or "{}").get("claudeAiOauth") or {}
+    except (ValueError, AttributeError):
+        return False
+    expires = oauth.get("expiresAt")
+    if not oauth.get("refreshToken") or not isinstance(expires, (int, float)):
+        return False
+    return expires / 1000 - (time.time() if now is None else now) < REFRESH_AHEAD_SECONDS
 
 
 def private_config(home: Path) -> None:
@@ -709,6 +724,10 @@ class ClaudeCodeProvider(Provider):
     @contextlib.asynccontextmanager
     async def _home(self, creds: Credentials) -> AsyncIterator[Path | None]:
         """The private folder of a person's own sign-in while the block runs; None for every other sign-in."""
+        if creds.claude_auth_mode == "runner_login":  # the home's own, all runner_login accounts share it
+            with SIGN_INS.in_home(HOME_SIGN_IN, DEFAULT_ACCOUNT, "This Claude sign-in"):
+                yield None
+            return
         if creds.claude_auth_mode != "own_login":
             yield None
             return
@@ -814,6 +833,8 @@ class ClaudeCodeProvider(Provider):
 
     async def limits(self, credentials: Credentials) -> list[LimitWindow]:
         if credentials.claude_auth_mode == "api_key" or (credentials.claude_auth_mode == "own_login" and not credentials.login_files):
+            return []
+        if credentials.claude_auth_mode == "runner_login" and signins.taken(HOME_SIGN_IN, DEFAULT_ACCOUNT):
             return []
         async with self._home(credentials) as home:
             try:
@@ -974,6 +995,24 @@ class ClaudeCodeProvider(Provider):
         await self._end_login(key)
         SIGN_INS.forget(key)
         return ProviderAccount()
+
+    async def take_over(self, key: str) -> dict[str, str]:
+        """The home's sign-in (``claude`` in the runner's terminal): one for all runner_login accounts."""
+        return SIGN_INS.take_over(HOME_SIGN_IN, DEFAULT_ACCOUNT, shared_home(), SIGN_IN_FILES)
+
+    async def refresh_sign_in(self, credentials: Credentials) -> None:
+        """Claude Code refreshes a token when it ends, in every runner that has the same file at that moment;
+        here it is made to do so earlier, on one runner: the token is marked as ended, then the usage is read."""
+        if credentials.claude_auth_mode != "own_login" or not credentials.login_files:
+            return
+        async with self._home(credentials) as home:
+            files = signins.read(home, SIGN_IN_FILES)
+            if not home or not refresh_due(files):
+                return
+            stored = json.loads(files[SIGN_IN_FILES[0]])
+            stored["claudeAiOauth"]["expiresAt"] = 0
+            signins.write(home, {SIGN_IN_FILES[0]: json.dumps(stored)})
+            await self._usage(credentials, home)
 
     async def _end_login(self, key: str) -> None:
         if (login := self._logins.pop(key, None)) is not None:

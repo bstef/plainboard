@@ -15,8 +15,8 @@ const MODES: Record<string, string[]> = {
   claude_code: ["api_key", "oauth_token", "runner_login"],
   codex: ["chatgpt", "api_key"],
 };
-// The text of a sign-in kind: a person's own Claude login is made in the browser, the installation's in the runner's terminal.
-const modeText = (provider: string, mode: string, own: boolean) => `${MODE_TEXTS[provider]}.${mode}${own && provider === "claude_code" && mode === "runner_login" ? "Own" : ""}`;
+// The text of a sign-in kind. A sign-in in the browser is kept by PlainBoard and works on every runner.
+const modeText = (provider: string, mode: string) => `${MODE_TEXTS[provider]}.${mode}`;
 const SHARES = ["private", "people", "everyone"] as const;
 // i18n group of the sign-in kinds per provider
 const MODE_TEXTS: Record<string, string> = { claude_code: "settings.auth", codex: "settings.codexAuth" };
@@ -71,7 +71,6 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
   const meta = useMeta();
   const me = useMe();
   const modes = MODES[account.provider]; // a person's own has every sign-in too: one in the browser is kept for it alone
-  const own = account.owner_id != null;
   const limits = useLimits();
   const detected = limits.data?.accounts.find((entry) => entry.account_id === account.id);
   const [label, setLabel] = useState(account.label);
@@ -124,8 +123,8 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
               account.auth_mode === mode ? "bg-sunk ring-fg" : "ring-line hover:bg-sunk",
             )}
           >
-            <div className="font-medium">{t(modeText(account.provider, mode, own))}</div>
-            <div className="text-fg-3">{t(`${modeText(account.provider, mode, own)}Hint`)}</div>
+            <div className="font-medium">{t(modeText(account.provider, mode))}</div>
+            <div className="text-fg-3">{t(`${modeText(account.provider, mode)}Hint`)}</div>
           </button>
         ))}
       </div>
@@ -154,12 +153,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
           </span>
         </div>
       )}
-      {account.auth_mode === "runner_login" && own && <SignIn accountId={account.id} provider={account.provider} />}
-      {account.auth_mode === "runner_login" && !own && (
-        <p className="rounded-sm bg-sunk p-3 text-fg-2">
-          {t("settings.runnerLoginHint")} <code className="font-mono">docker compose exec -it runner claude</code>
-        </p>
-      )}
+      {account.auth_mode === "runner_login" && <SignIn accountId={account.id} provider={account.provider} />}
       {account.provider === "codex" && account.auth_mode === "chatgpt" && <SignIn accountId={account.id} provider={account.provider} />}
       {account.auth_mode !== "api_key" && (
         <label className="block space-y-1">

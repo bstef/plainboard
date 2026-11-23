@@ -125,6 +125,9 @@ class Account(Timestamps, Base):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     share: Mapped[str] = mapped_column(String(20), default="private", server_default="private")
     shared_with: Mapped[list[int] | None] = mapped_column(JSON)
+    # The installation's browser sign-in from before #84, still in the built-in runner's home only: the app
+    # copies it over once (services/accounts.take_over), from then on it is kept here like any other.
+    home_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class Setting(Base):

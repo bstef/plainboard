@@ -244,8 +244,11 @@ def test_codex_accounts_have_their_own_sign_in(client, project):
     assert turn(client, pid, dev["id"]).codex_account == "default"
     assert client.patch(f"/api/agents/{dev['id']}", json={"account_id": claude["id"]}).status_code == 400
     client.patch(f"/api/agents/{dev['id']}", json={"account_id": other["id"]})
+    assert turn(client, pid, dev["id"]).codex_account == "default"  # not signed in yet: never chosen (#84)
+    client.post(f"/api/accounts/{other['id']}/signin")  # a new one is signed in in a private folder and kept here
+    client.post(f"/api/accounts/{other['id']}/signin/code", json={"code": "good#code"})
     creds = turn(client, pid, dev["id"])
-    assert creds.codex_account not in ("default", "") and creds.codex_auth_mode == "chatgpt"
+    assert creds.codex_account not in ("default", "") and creds.codex_auth_mode == "own_login" and creds.login_account == creds.codex_account and creds.login_files
     moved = client.patch(f"/api/agents/{dev['id']}", json={"provider": "claude_code"}).json()
     assert moved["account_id"] is None  # the pin belonged to Codex
 
