@@ -434,6 +434,30 @@ class AccountOut(ORM):
     shared_with: list[int] | None = None  # to its managers only
     can_manage: bool = False  # the viewer may change, test, share and delete it
     home_login: bool = False  # the installation's sign-in is still in the built-in runner's home (accounts.take_over)
+    project_ids: list[int] | None = None  # the projects its owner gave it to (#93); to its managers only
+
+
+class ProjectAccountOut(BaseModel):
+    """A person's own subscription in a project's list of what members gave it (#93). Never a secret."""
+
+    id: int
+    provider: str
+    label: str
+    enabled: bool
+    owner_id: int | None
+    owner_name: str = ""
+    mine: bool = False  # the viewer's own: they give it or take it back
+    given: bool = False  # its owner gave it to this project
+    blocked: bool = False  # the project's owner switched it off for the project
+    used: bool = False  # the project's runs may use it now (also one shared with its owner)
+
+
+class ProjectAccountGiveIn(BaseModel):
+    given: bool
+
+
+class ProjectAccountBlockIn(BaseModel):
+    blocked: bool
 
 
 class RepositoryOut(ORM):

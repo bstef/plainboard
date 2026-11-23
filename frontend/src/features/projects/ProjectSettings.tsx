@@ -17,6 +17,7 @@ import { ProjectAccounts, allowedAccounts, sameAccounts, useUsableAccounts } fro
 import { ProjectPauseSwitch } from "./ProjectPause";
 import { ProjectRunnerEditor } from "./ProjectRunner";
 import { ExportProject } from "./MoveProject";
+import { GivenAccounts } from "./GivenAccounts";
 import { CustomerLanguages } from "./CustomerLanguages";
 import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
 import { SkillsEditor } from "./SkillsEditor";
@@ -27,7 +28,7 @@ const days = (value: string, max: number) => Math.max(0, Math.min(max, Math.roun
  * navigation, one section per subject, every setting with its name and what it does. */
 export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => void; onDeleted: () => void }) {
   const { t } = useTranslation();
-  const { project, isOwner } = useShell();
+  const { project, isOwner, canWrite } = useShell();
   const qc = useQueryClient();
   const [current, setCurrent] = useStored<string>("plainboard.projectSection", "general");
   const settings = useSettings();
@@ -107,7 +108,18 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
     return (
       <div className="flex h-full flex-col">
         <PageHead title={t("projectSettings.title")} />
-        <p className="p-4 text-fg-2">{t("projectSettings.ownersOnly")}</p>
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
+          <p className="text-fg-2">{t("projectSettings.ownersOnly")}</p>
+          {canWrite && (
+            <section className="max-w-2xl space-y-3">
+              <div>
+                <h2 className="font-semibold">{t("givenAccounts.label")}</h2>
+                <p className="text-fg-3">{t("givenAccounts.description")}</p>
+              </div>
+              <GivenAccounts projectId={project.id} isOwner={false} />
+            </section>
+          )}
+        </div>
       </div>
     );
   }
@@ -330,6 +342,17 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
       content: (
         <div className="space-y-4">
           <SkillsEditor projectId={project.id} />
+          <SavedAtOnce />
+        </div>
+      ),
+    },
+    {
+      id: "givenAccounts",
+      label: t("givenAccounts.label"),
+      description: t("givenAccounts.description"),
+      content: (
+        <div className="space-y-4">
+          <GivenAccounts projectId={project.id} isOwner />
           <SavedAtOnce />
         </div>
       ),

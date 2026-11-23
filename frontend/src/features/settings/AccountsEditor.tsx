@@ -4,7 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useAccounts, useDirectory, useLimits, useMe, useMeta } from "../../api/queries";
+import { checks, qk, useAccounts, useDirectory, useLimits, useMe, useMeta, useProjects } from "../../api/queries";
 import type { Account, CheckResult } from "../../api/types";
 import { Button, ErrorText, IconButton, Input, Toggle } from "../../components/ui";
 import { smallModel } from "../../lib/models";
@@ -113,6 +113,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
       </div>
       {account.owner_id != null && account.owner_id !== me?.id && <p className="text-fg-3">{t("accounts.ownedBy", { name: account.owner_name })}</p>}
       {account.owner_id != null && <Sharing account={account} patch={patch} />}
+      {account.owner_id != null && account.owner_id === me?.id && <GiveToProjects account={account} onChange={onChange} />}
       <div className={clsx("grid gap-2", modes.length === 3 ? "sm:grid-cols-3" : modes.length === 2 ? "grid-cols-2" : "grid-cols-1")}>
         {modes.map((mode) => (
           <button
@@ -226,6 +227,37 @@ export function Sharing({ account, patch }: { account: Account; patch: (body: Re
           <p className="text-fg-3">{t("accounts.share.nobody")}</p>
         ))}
       <p className="text-fg-3">{t("accounts.share.hint")}</p>
+    </div>
+  );
+}
+
+/** The projects one works in that get one's own subscription for their runs, whoever it is shared with. */
+function GiveToProjects({ account, onChange }: { account: Account; onChange: (action: () => Promise<unknown>) => Promise<boolean> }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const projects = (useProjects().data ?? []).filter((p) => p.role === "member" || p.role === "owner");
+  const given = account.project_ids ?? [];
+  if (!projects.length) return null;
+  const toggle = (projectId: number) =>
+    onChange(async () => {
+      await api.put(`/projects/${projectId}/given-accounts/${account.id}`, { given: !given.includes(projectId) });
+      await Promise.all([qc.invalidateQueries({ queryKey: ["project-accounts", projectId] }), qc.invalidateQueries({ queryKey: ["given-accounts", projectId] })]);
+    });
+
+  return (
+    <div className="space-y-1.5" data-part="account-projects">
+      <span className="block font-medium text-fg-2">{t("givenAccounts.toProjects")}</span>
+      <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+        {projects.map((p) => (
+          <li key={p.id}>
+            <label className="flex cursor-pointer items-center gap-1.5 py-0.5">
+              <input type="checkbox" checked={given.includes(p.id)} onChange={() => toggle(p.id)} />
+              <span className="truncate">{p.name}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <p className="text-fg-3">{t("givenAccounts.toProjectsHint")}</p>
     </div>
   );
 }

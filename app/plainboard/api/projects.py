@@ -12,7 +12,7 @@ from starlette.background import BackgroundTask
 from ..events import bus
 from ..models import ACTIVE_RUN_STATUSES, ProjectRole, Run
 from ..orchestration.runner_client import RunnerError
-from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ExportIn, ImportOut, PreviewOut, ProjectAccountsIn, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
+from ..schemas import AgentCreate, AgentOut, AgentUpdate, CheckOut, ExportIn, ImportOut, PreviewOut, ProjectAccountBlockIn, ProjectAccountGiveIn, ProjectAccountOut, ProjectAccountsIn, ProjectCreate, ProjectOut, ProjectUpdate, PublicApiKeyIn, PublicApiKeyOut
 from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
@@ -106,6 +106,30 @@ async def limit_accounts(project_id: int, body: ProjectAccountsIn, session: Sess
     out = project_service.to_out(project, await user_service.role_in(session, who.user, project_id) if who.user else None)
     bus.publish(project.id, "project.updated", project_service.to_out(project))
     return out
+
+
+@router.get("/projects/{project_id}/given-accounts", response_model=list[ProjectAccountOut])
+async def given_accounts(project_id: int, session: Session, who: Who) -> list[ProjectAccountOut]:
+    """The subscriptions members gave the project themselves (#93), and the viewer's own ones they could give it."""
+    return await account_service.given(session, await project_service.get(session, project_id), who.user)
+
+
+@router.put("/projects/{project_id}/given-accounts/{account_id}", response_model=list[ProjectAccountOut])
+async def give_account(project_id: int, account_id: int, body: ProjectAccountGiveIn, session: Session, runs: Runs, who: Who) -> list[ProjectAccountOut]:
+    """A member gives the project one of their own subscriptions, or takes it back."""
+    project = await project_service.get(session, project_id)
+    await account_service.give(session, project, await account_service.get(session, account_id), who.user, body.given)
+    runs.recheck()  # a turn waiting for a subscription may start now
+    return await account_service.given(session, project, who.user)
+
+
+@router.put("/projects/{project_id}/blocked-accounts/{account_id}", response_model=list[ProjectAccountOut])
+async def block_account(project_id: int, account_id: int, body: ProjectAccountBlockIn, session: Session, runs: Runs, who: Who) -> list[ProjectAccountOut]:
+    """The project's owner switches a subscription a member gave it off for the project, or on again."""
+    project = await project_service.get(session, project_id)
+    await account_service.block(session, project, await account_service.get(session, account_id), body.blocked)
+    runs.recheck()
+    return await account_service.given(session, project, who.user)
 
 
 @router.post("/projects/{project_id}/pause", response_model=ProjectOut)

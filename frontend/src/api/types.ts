@@ -542,6 +542,25 @@ export interface Account {
   shared_with: number[];
   /** The viewer may change, test, share and delete it (its owner, an admin). */
   can_manage: boolean;
+  /** The projects its owner gave it to themselves (to its managers only). */
+  project_ids: number[] | null;
+}
+
+/** A person's own subscription in a project's list of what members gave it. Never a secret. */
+export interface ProjectAccount {
+  id: number;
+  provider: string;
+  label: string;
+  enabled: boolean;
+  owner_id: number | null;
+  owner_name: string;
+  /** The viewer's own: they give it to the project or take it back. */
+  mine: boolean;
+  given: boolean;
+  /** The project's owner switched it off for the project. */
+  blocked: boolean;
+  /** The project's runs may use it now (also one not given: shared with its owner). */
+  used: boolean;
 }
 
 export interface StatsDay {

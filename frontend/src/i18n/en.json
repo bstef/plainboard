@@ -724,6 +724,22 @@
     "hint": "Nothing ticked: any of the installation's. Tick some, and this project's agents run on those only, whatever anyone chooses for an agent. For a project you share with others, when another subscription is meant for your own work.",
     "readonly": "This project may only use: {{names}}. An admin decides that."
   },
+  "givenAccounts": {
+    "label": "Own subscriptions",
+    "description": "Whoever works in this project can give it their own subscriptions, without its owner.",
+    "mine": "Contribute your own subscription",
+    "mineHint": "Its runs in this project may use it, also if it is set to “Only me”. Who may use it in their own projects is still what “Who may use it” says. Nobody here sees its token or key. Take it back at any time: a turn on it finishes, the next one takes another subscription.",
+    "noneMine": "You have no subscription of your own. Add one in PlainBoard settings, My subscriptions.",
+    "blockedMine": "The project's owner switched it off for this project.",
+    "others": "Given by members",
+    "noneOthers": "No member has given this project a subscription.",
+    "from": "from {{name}}",
+    "blocked": "switched off",
+    "unused": "not in use: its owner no longer works in this project",
+    "ownerHint": "Switch one off and this project's runs no longer use it. You never see its token or key.",
+    "toProjects": "Give to projects",
+    "toProjectsHint": "The runs of the projects ticked here may use it, also if it is set to “Only me”. Each project's owner sees its name and yours, never its token or key, and can switch it off for their project."
+  },
   "endpoints": {
     "title": "Other models",
     "hint": "Models of your own or of other hosts: a model server on your machine or in your network (Ollama, LM Studio, llama.cpp, vLLM), Gemini, or a host or gateway that speaks one of the two common interfaces. An agent on such a model works with the same tools as one on Claude. How well it does depends on the model: it has to call tools reliably and read a long prompt.",

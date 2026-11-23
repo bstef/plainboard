@@ -128,6 +128,9 @@ class Account(Timestamps, Base):
     # The installation's browser sign-in from before #84, still in the built-in runner's home only: the app
     # copies it over once (services/accounts.take_over), from then on it is kept here like any other.
     home_login: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # The projects its owner gave it to themselves, as a member of each (#93): their runs may use it, whatever
+    # ``share`` says, while the owner works in the project and its owner has not switched it off there.
+    project_ids: Mapped[list[int] | None] = mapped_column(JSON)
 
 
 class Setting(Base):
@@ -184,6 +187,8 @@ class Project(Timestamps, Base):
     # The only accounts this project's agents may run on, set by an admin (empty: any). A project
     # shared with others does not draw on a subscription that is meant for something else.
     account_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
+    # Subscriptions members gave the project (``Account.project_ids``) that its owner switched off for it.
+    blocked_account_ids: Mapped[list[int] | None] = mapped_column(JSON)
     # The runner its agents, jobs and trains run on. Unset: the built-in one.
     runner_id: Mapped[int | None] = mapped_column(ForeignKey("runners.id", ondelete="SET NULL"))
     # Whose project it is: the person who created it. What that person may use (``services/permissions.py``)

@@ -26,7 +26,7 @@ from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Account, Agent, Conversation, InboxItem, Project, Run, Runner, User, utcnow
-from ..schemas import AccountCreate, AccountOut, AccountUpdate
+from ..schemas import AccountCreate, AccountOut, AccountUpdate, ProjectAccountOut
 from ..security import decrypt, encrypt
 from . import limits as limits_service
 from . import permissions
@@ -127,10 +127,11 @@ def to_out(account: Account, viewer: User | None = None, names: dict[int, str] |
             "owner_name": (names or {}).get(account.owner_id, "") if account.owner_id else "",
             "shared_with": account.shared_with or [],
             "can_manage": manage,
+            "project_ids": account.project_ids or [],
         }
     )
     if not manage:
-        out = out.model_copy(update={"secret_set": False, "secret_from_env": False, "endpoint_url": "", "shared_with": [], "share": "private" if account.owner_id else out.share})
+        out = out.model_copy(update={"secret_set": False, "secret_from_env": False, "endpoint_url": "", "shared_with": [], "project_ids": [], "share": "private" if account.owner_id else out.share})
     return out
 
 
@@ -244,9 +245,10 @@ async def update(session: AsyncSession, account: Account, data: AccountUpdate) -
     return account
 
 
-async def release(session: AsyncSession, account: Account, gone: bool = False) -> list[Project]:
+async def release(session: AsyncSession, account: Account, gone: bool = False, why: str = "") -> list[Project]:
     """Projects and agents that chose the account but may no longer use it (it is deleted, or shared with
-    fewer people) choose automatically again; each such project's manager is told once. Not committed."""
+    fewer people) choose automatically again; each such project's manager is told once (``why``: what
+    happened to it). Not committed."""
     pinned = set(await session.scalars(select(Project.id).where(Project.account_id == account.id)))
     pinned |= set(await session.scalars(select(Agent.project_id).where(Agent.account_id == account.id)))
     out = []
@@ -262,7 +264,7 @@ async def release(session: AsyncSession, account: Account, gone: bool = False) -
         await session.execute(sql_update(Agent).where(Agent.project_id == project.id, Agent.account_id == account.id).values(account_id=None))
         manager = await session.scalar(select(Agent).where(Agent.project_id == project.id, Agent.is_manager.is_(True)))
         if manager is not None:
-            what = "was deleted" if gone else "is no longer shared with this project's owner"
+            what = "was deleted" if gone else why or "is no longer shared with this project's owner"
             who = f" ({', '.join(names)})"
             session.add(InboxItem(agent_id=manager.id, text=f"The subscription '{account.label}' {what}. What ran on it{who} now chooses a subscription automatically."))
         out.append(project)
@@ -302,11 +304,75 @@ async def limit_project(session: AsyncSession, project: Project, account_ids: li
         raise NotFound(f"Account not found: {unknown[0]}")
     project.account_ids = list(dict.fromkeys(account_ids))
     if project.account_ids:
-        if project.account_id not in project.account_ids:
+        keep = list(set(project.account_ids) | await permissions.contributed(session, project))  # what members gave it stays
+        if project.account_id not in keep:
             project.account_id = None
-        await session.execute(sql_update(Agent).where(Agent.project_id == project.id, Agent.account_id.is_not(None), Agent.account_id.not_in(project.account_ids)).values(account_id=None))
+        await session.execute(sql_update(Agent).where(Agent.project_id == project.id, Agent.account_id.is_not(None), Agent.account_id.not_in(keep)).values(account_id=None))
     await session.commit()
     return project
+
+
+# --- what members give a project themselves (#93, permissions.contributed) ----------------------
+
+
+async def given(session: AsyncSession, project: Project, user: User | None) -> list[ProjectAccountOut]:
+    """The subscriptions people gave the project, and the viewer's own ones they could give it. No secret."""
+    accounts = {a.id: a for a in await permissions.given(session, project)}
+    if user is not None:
+        accounts |= {a.id: a for a in await session.scalars(select(Account).where(Account.owner_id == user.id))}
+    used = await permissions.account_ids(session, project) or set()
+    names = await owner_names(session)
+    blocked = set(project.blocked_account_ids or [])
+    return [
+        ProjectAccountOut(
+            id=a.id,
+            provider=a.provider,
+            label=a.label,
+            enabled=a.enabled,
+            owner_id=a.owner_id,
+            owner_name=names.get(a.owner_id or 0, ""),
+            mine=user is not None and a.owner_id == user.id,
+            given=project.id in (a.project_ids or []),
+            blocked=a.id in blocked,
+            used=a.id in used,
+        )
+        for a in sorted(accounts.values(), key=lambda a: (a.provider, a.id))
+    ]
+
+
+async def give(session: AsyncSession, project: Project, account: Account, user: User | None, on: bool) -> None:
+    """A member gives the project their own subscription, or takes it back. Only one's own: the installation's
+    and other people's are its owner's and an admin's call (``limit_project``, ``block``)."""
+    if user is None or account.owner_id != user.id:
+        raise ServiceError("Only your own subscriptions can be given to a project here.", 403)
+    ids = [i for i in account.project_ids or [] if i != project.id]
+    account.project_ids = [*ids, project.id] if on else ids
+    if not on:
+        await session.flush()
+        await release(session, account, why="was taken back by the person it belongs to")
+    await session.commit()
+
+
+async def block(session: AsyncSession, project: Project, account: Account, blocked: bool) -> None:
+    """The project's owner switches a subscription a member gave it off for it, or on again. Its secrets stay hidden."""
+    if project.id not in (account.project_ids or []):
+        raise ServiceError("Only a subscription a member gave this project can be switched off here.")
+    ids = [i for i in project.blocked_account_ids or [] if i != account.id]
+    project.blocked_account_ids = [*ids, account.id] if blocked else ids
+    if blocked:
+        await session.flush()
+        await release(session, account, why="was switched off for this project")
+    await session.commit()
+
+
+async def leave(session: AsyncSession, project_id: int, user_id: int) -> None:
+    """A person no longer works in the project (removed, or only watching now): what they gave it goes with them."""
+    for account in list(await session.scalars(select(Account).where(Account.owner_id == user_id))):
+        if project_id in (account.project_ids or []):
+            account.project_ids = [i for i in account.project_ids or [] if i != project_id]
+            await session.flush()
+            await release(session, account, why="left with the person it belongs to")
+    await session.commit()
 
 
 async def shut_out(session: AsyncSession, provider: str, agent: Agent) -> str:

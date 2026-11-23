@@ -87,7 +87,7 @@ const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "flow", icon: (c) => <GitMerge className={c} /> },
   { id: "chat", icon: (c) => <MessageSquare className={c} /> },
   { id: "team", icon: (c) => <Users className={c} /> },
-  // The project's own settings: for its owners. Fixed entry after the core views; on the phone the 4th tab.
+  // The project's own settings: for its owners (a member: to give it an own subscription). Fixed entry after the core views; on the phone the 4th tab.
   { id: "project", icon: (c) => <SlidersHorizontal className={c} /> },
   { id: "notes", icon: (c) => <NotebookPen className={c} /> },
   { id: "schedules", icon: (c) => <CalendarClock className={c} /> },
@@ -340,7 +340,8 @@ function ProjectWorkspace({
   const roomy = useMediaQuery("(min-width: 1440px)");
   const [storedView, setView] = useStored<View>("plainboard.view", "board");
   const owner = project.role === "owner";
-  const views = VIEWS.filter((v) => v.id !== "project" || owner);
+  const settings = owner || project.role === "member"; // a member's part: giving the project an own subscription
+  const views = VIEWS.filter((v) => v.id !== "project" || settings);
   const view = views.some((v) => v.id === storedView) ? storedView : "board";
   const [panelOpen, setPanelOpen] = useStored<boolean>(
     "plainboard.chatOpen",
@@ -461,7 +462,7 @@ function ProjectWorkspace({
       current={project}
       onSelect={onSelectProject}
       onNew={onNewProject}
-      onEdit={owner ? () => setView("project") : undefined}
+      onEdit={settings ? () => setView("project") : undefined}
     />
   );
 
