@@ -680,6 +680,8 @@ class Landing(Timestamps, Base):
     held_at: Mapped[datetime | None] = mapped_column(DateTime)
     hold_reason: Mapped[str] = mapped_column(String(300), default="", server_default="")
     hold_told_at: Mapped[datetime | None] = mapped_column(DateTime)  # the manager heard it has been held for long
+    # Closed because a repair branch carries it (landings.carry): that landing's id. Its ticket shows that one's way.
+    carried_by: Mapped[int | None] = mapped_column(Integer, index=True)
 
 
 class Train(Timestamps, Base):

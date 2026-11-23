@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from sqlalchemy import event, func, inspect, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
@@ -306,6 +306,7 @@ async def untouched(session: AsyncSession, project_id: int, statuses: tuple[str,
         # An assignment stays open while it waits for its jobs, a branch is in flight until it has landed.
         *await session.scalars(select(Assignment.task_id).where(Assignment.project_id == project_id, Assignment.status.in_(OPEN_ASSIGNMENT_STATUSES))),
         *await session.scalars(select(Landing.task_id).where(Landing.project_id == project_id, Landing.status.in_(LANDING_IN_FLIGHT))),
+        *(task_id for task_id, _, _ in await carried(session, project_id=project_id)),
     }
     return [t for t in tasks if t.id not in busy]
 
@@ -424,7 +425,8 @@ async def in_flight(session: AsyncSession, project_id: int, now: datetime | None
             lands = "handed over again: it lands with the next train, not this one"
         else:
             lands = "PlainBoard lands it"
-        lines.append(f'- Branch {truncate(landing.branch, 60)}{ticket}, {author}: {state}; {lands}')
+        name = truncate(landing.title, 160) if (landing.title or "").startswith(f"{landing.branch} carrying ") else truncate(landing.branch, 60)
+        lines.append(f'- Branch {name}{ticket}, {author}: {state}; {lands}')
     return lines[:IN_FLIGHT_LINES], max(len(lines) - IN_FLIGHT_LINES, 0)
 
 
@@ -499,17 +501,38 @@ LANDING_PHASE = {LandingStatus.WAITING: "waiting", LandingStatus.TRAIN: "checkin
 LANDING_ORDER = ["waiting", "checking", "repairing", "held"]  # the one shown when a ticket has several branches: the furthest from done
 
 
+async def carried(session: AsyncSession, task_ids: list[int] | None = None, project_id: int | None = None) -> list[tuple[int, str, str]]:
+    """Tickets whose branch a repair branch carries (landings.carry) while that one is on its way:
+    (ticket id, the carrier's status, its hold). The ticket's branch is closed, the carrier has no ticket."""
+    carrier = aliased(Landing)
+    q = (
+        select(Landing.task_id, carrier.status, carrier.hold)
+        .join(carrier, carrier.id == Landing.carried_by)
+        .where(Landing.status == LandingStatus.CLOSED, Landing.task_id.is_not(None), carrier.status.in_(LANDING_IN_FLIGHT))
+    )
+    if task_ids is not None:
+        q = q.where(Landing.task_id.in_(task_ids))
+    if project_id is not None:
+        q = q.where(Landing.project_id == project_id)
+    return [(task_id, status, hold) for task_id, status, hold in (await session.execute(q)).all()]
+
+
 @event.listens_for(Session, "before_flush")
 def _note_landing_changes(session: Session, _ctx, _instances) -> None:  # noqa: ANN001
     """A branch that starts or ends landing changes what its ticket's card shows: remember the ticket until the commit."""
     for obj in (*session.new, *session.dirty):
-        if isinstance(obj, Landing) and obj.task_id and (obj in session.new or inspect(obj).attrs.status.history.has_changes() or inspect(obj).attrs.hold.history.has_changes()):
+        if not isinstance(obj, Landing) or not (obj in session.new or inspect(obj).attrs.status.history.has_changes() or inspect(obj).attrs.hold.history.has_changes()):
+            continue
+        if obj.task_id:
             session.info.setdefault("landing_tasks", set()).add(obj.task_id)
+        if obj.id:  # the tickets of the branches it carries show its way
+            session.info.setdefault("landing_carriers", set()).add(obj.id)
 
 
 @event.listens_for(Session, "after_rollback")
 def _forget_landing_changes(session: Session) -> None:
     session.info.pop("landing_tasks", None)
+    session.info.pop("landing_carriers", None)
 
 
 _publishing: set[asyncio.Task] = set()
@@ -518,17 +541,21 @@ _publishing: set[asyncio.Task] = set()
 @event.listens_for(Session, "after_commit")
 def _publish_landing_changes(session: Session) -> None:
     ids = session.info.pop("landing_tasks", None)
-    if ids:
-        job = asyncio.get_running_loop().create_task(_publish_tasks(sorted(ids)))
+    carriers = session.info.pop("landing_carriers", None)
+    if ids or carriers:
+        job = asyncio.get_running_loop().create_task(_publish_tasks(sorted(ids or ()), sorted(carriers or ())))
         _publishing.add(job)
         job.add_done_callback(_publishing.discard)
 
 
-async def _publish_tasks(ids: list[int]) -> None:
+async def _publish_tasks(ids: list[int], carriers: list[int] = ()) -> None:  # type: ignore[assignment]
     from ..db import sessionmaker
 
     try:
         async with sessionmaker()() as session:
+            if carriers:
+                q = select(Landing.task_id).where(Landing.carried_by.in_(carriers), Landing.task_id.is_not(None))
+                ids = sorted({*ids, *await session.scalars(q)})
             for task_id in ids:
                 await publish_task_id(session, task_id)
     except Exception:  # noqa: BLE001 - a missed card refresh must not break the landing
@@ -561,9 +588,8 @@ async def task_outs(session: AsyncSession, tasks: list[Task]) -> list[TaskOut]:
         ).all()
     )
     landing: dict[int, str] = {}
-    for task_id, status, hold in (
-        await session.execute(select(Landing.task_id, Landing.status, Landing.hold).where(Landing.task_id.in_(ids), Landing.status.in_(LANDING_IN_FLIGHT)))
-    ).all():
+    own = (await session.execute(select(Landing.task_id, Landing.status, Landing.hold).where(Landing.task_id.in_(ids), Landing.status.in_(LANDING_IN_FLIGHT)))).all()
+    for task_id, status, hold in (*own, *await carried(session, ids)):  # a branch a repair branch carries shows that one's way
         phase = "held" if hold in ("message", "manager") else LANDING_PHASE[status]
         landing[task_id] = max(landing.get(task_id, "waiting"), phase, key=LANDING_ORDER.index)
     out = []
