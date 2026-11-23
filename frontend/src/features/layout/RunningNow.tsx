@@ -27,7 +27,7 @@ function useRows() {
 
 /** Who is working on what and for how long: a table with fixed columns (sidebar) or one scrolling
  * line (phone). A row opens the chat with that agent. */
-export function RunningNow({ variant }: { variant: "table" | "strip" }) {
+export function RunningNow({ variant, onTight }: { variant: "table" | "strip"; onTight?: (tier: number) => void }) {
   const { t } = useTranslation();
   const { openChat } = useShell();
   const rows = useRows();
@@ -47,33 +47,47 @@ export function RunningNow({ variant }: { variant: "table" | "strip" }) {
       </div>
     );
   }
-  return <RunningTable rows={rows} />;
+  return <RunningTable rows={rows} onTight={onTight} />;
 }
 
 type Row = ReturnType<typeof useRows>[number];
 
-/** The sidebar table never scrolls: it lists everyone (busy first) when the stack has the height for it,
- * otherwise only the busy agents plus a count of the idle ones. The height is measured, not guessed. */
-function RunningTable({ rows }: { rows: Row[] }) {
+/** The sidebar table never scrolls and never gets cut off. With the height for it, it lists everyone
+ * (busy first); with less it keeps as many busy rows as fit plus one "+N more" line (busy and idle
+ * together); at the very least it is one line, "N running". When even that does not fit beside the
+ * full Landing block, Landing shrinks step by step (`onTight` reports the tier). Everything is measured, never guessed. */
+function RunningTable({ rows, onTight }: { rows: Row[]; onTight?: (tier: number) => void }) {
   const { t } = useTranslation();
   const { openChat } = useShell();
   const section = useRef<HTMLElement>(null);
   const probe = useRef<HTMLDivElement>(null);
-  const [roomy, setRoomy] = useState(false);
+  const [fit, setFit] = useState(Infinity);
+  const [tier, setTier] = useState(0);
   const sorted = [...rows].sort((a, b) => Number(a.agent.status === "idle") - Number(b.agent.status === "idle"));
   const busy = sorted.filter((row) => row.agent.status !== "idle");
-  const idle = sorted.length - busy.length;
 
   useLayoutEffect(() => {
     const me = section.current;
     const stack = me?.closest<HTMLElement>("[data-part=side-stack]");
     if (!me || !stack) return;
     const measure = () => {
+      const head = (probe.current?.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0;
+      const rowH = sorted.length ? ((probe.current?.offsetHeight ?? 0) - head) / sorted.length : 33;
       const leaves = [...stack.children].flatMap((c) => (c.hasAttribute("data-stack-end") ? [...c.children] : [c])).filter((c) => c !== me) as HTMLElement[];
       const gap = parseFloat(getComputedStyle(stack).rowGap) || 0;
       const used = leaves.reduce((sum, c) => sum + c.offsetHeight, 0) + gap * leaves.length;
-      const need = probe.current?.offsetHeight ?? 0;
-      setRoomy(need <= stack.clientHeight - used);
+      const flow = leaves.find((c) => c.matches("[data-part=flow-side]"));
+      const flowFull = flow?.querySelector<HTMLElement>("[data-flow-probe]")?.offsetHeight ?? flow?.offsetHeight ?? 0;
+      // Tiers: 0 everything; 1 Landing on one line; 2 Landing without its heading; 3 Running now without its heading too; 4 Landing gone.
+      const total = stack.clientHeight - (used - (flow?.offsetHeight ?? 0));
+      const flowH = [flowFull, head + rowH, rowH, rowH, -gap];
+      const runMin = [head + rowH, head + rowH, head + rowH, rowH, rowH];
+      const found = [0, 1, 2, 3].find((i) => total >= flowH[i] + runMin[i]);
+      const next = flow ? (found ?? 4) : total >= head + rowH ? 0 : 3;
+      const avail = total - (flow ? flowH[next] : 0);
+      setFit(Math.floor((avail - (next < 3 ? head : 0)) / rowH));
+      setTier(next);
+      onTight?.(next);
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -81,7 +95,7 @@ function RunningTable({ rows }: { rows: Row[] }) {
       ro.disconnect();
       ro.observe(stack);
       if (probe.current) ro.observe(probe.current);
-      stack.querySelectorAll(":scope > *, :scope > [data-stack-end] > *").forEach((c) => c !== me && ro.observe(c));
+      stack.querySelectorAll(":scope > *, :scope > [data-stack-end] > *, [data-flow-probe]").forEach((c) => c !== me && ro.observe(c));
     };
     watch();
     const mo = new MutationObserver(watch);
@@ -90,19 +104,32 @@ function RunningTable({ rows }: { rows: Row[] }) {
       ro.disconnect();
       mo.disconnect();
     };
-  }, [rows.length]);
+  }, [rows.length, onTight]);
 
-  const shown = roomy ? sorted : busy;
+  const total = sorted.length;
   const line = "block w-full border-b border-line py-[7px] text-left text-fg-3";
+  let shown: Row[] = sorted;
+  let note = "";
+  if (fit < total) {
+    if (busy.length + (total > busy.length ? 1 : 0) <= fit) {
+      shown = busy;
+      note = t("shell.idleMore", { count: total - busy.length });
+    } else if (fit >= 2) {
+      shown = busy.slice(0, fit - 1);
+      note = t("shell.moreRows", { count: total - shown.length });
+    } else {
+      shown = [];
+      note = busy.length ? t("shell.runningCount", { count: busy.length }) : t("shell.nobodyWorking");
+    }
+  }
   return (
     <section ref={section} className="relative flex shrink-0 flex-col px-3.5" data-part="running-now">
-      <h2 className="caps shrink-0 rule-b pb-1.5">{t("shell.runningNow")}</h2>
+      {tier < 3 && <h2 className="caps shrink-0 rule-b pb-1.5">{t("shell.runningNow")}</h2>}
       <div>
         {shown.map((row) => (
           <RowLine key={row.agent.id} row={row} onOpen={() => openChat(row.agent.id)} />
         ))}
-        {!roomy && !busy.length && <p className={line}>{t("shell.nobodyWorking")}</p>}
-        {!roomy && busy.length > 0 && idle > 0 && <p className={line}>{t("shell.idleMore", { count: idle })}</p>}
+        {note && <p className={line}>{note}</p>}
       </div>
       {/* Invisible copy of the full list: its height is what "enough room" is measured against. */}
       <div ref={probe} aria-hidden className="pointer-events-none invisible absolute inset-x-3.5 top-0 -z-10">

@@ -333,6 +333,7 @@ function ProjectWorkspace({
   onPause: () => void;
   openSettings: (section?: string) => void;
 }) {
+  const [tier, setTier] = useState(0);
   const { t } = useTranslation();
   const isDesktop = useIsDesktop();
   const xl = useMediaQuery("(min-width: 1280px)");
@@ -532,8 +533,8 @@ function ProjectWorkspace({
                 <PreviewsSide />
                 {/* Landing and Running now sit at the bottom, apart from the nav above. */}
                 <div data-stack-end className="mt-auto flex shrink-0 flex-col gap-5">
-                  <FlowSide variant="table" onOpen={() => setView("flow")} />
-                  <RunningNow variant="table" />
+                  <FlowSide variant="table" compact={tier >= 1} bare={tier >= 2} gone={tier >= 4} onOpen={() => setView("flow")} />
+                  <RunningNow variant="table" onTight={setTier} />
                 </div>
               </div>
             ) : (

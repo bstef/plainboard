@@ -114,7 +114,7 @@ export function FlowMember({ agentId }: { agentId: number }) {
 }
 
 /** The sidebar block (desktop) and the line above the board (phone): the train that is checked, what waits, what is repaired. */
-export function FlowSide({ onOpen, variant }: { onOpen: () => void; variant: "table" | "strip" }) {
+export function FlowSide({ onOpen, variant, compact = false, bare = false, gone = false }: { onOpen: () => void; variant: "table" | "strip"; compact?: boolean; bare?: boolean; gone?: boolean }) {
   const { t } = useTranslation();
   const m = useFlowModel();
   if (!m || m.live.repositories.length === 0) return null;
@@ -145,35 +145,62 @@ export function FlowSide({ onOpen, variant }: { onOpen: () => void; variant: "ta
         {repairing > 0 && <span>{t("flow.side.repairing", { count: repairing })}</span>}
       </button>
     );
-  return (
-    <section className="flex shrink-0 flex-col px-3.5" data-part="flow-side">
-      <h2 className="caps shrink-0 rule-b pb-1.5">{t("flow.side.title")}</h2>
-      <button type="button" onClick={onOpen} className="block w-full text-left hover:bg-sunk" title={t("nav.flow")}>
-        {train && (
-          <div className="border-b border-line py-[7px]">
-            <div className="flex items-baseline gap-2">
-              <span className="mk mk-run" />
-              <span className="flex-1 truncate">
-                {t("flow.train", { n: train.id })} · {t("flow.branches", { count: train.size })}
-              </span>
-              <span className="text-fg-2">{clock(elapsedOf(train, m.now))}</span>
-            </div>
-            {typical && <Progress elapsed={elapsedOf(train, m.now)} typical={typical} className="mt-1.5" />}
+  const body = (
+    <>
+      {train && (
+        <div className="border-b border-line py-[7px]">
+          <div className="flex items-baseline gap-2">
+            <span className="mk mk-run" />
+            <span className="flex-1 truncate">
+              {t("flow.train", { n: train.id })} · {t("flow.branches", { count: train.size })}
+            </span>
+            <span className="text-fg-2">{clock(elapsedOf(train, m.now))}</span>
           </div>
-        )}
+          {typical && <Progress elapsed={elapsedOf(train, m.now)} typical={typical} className="mt-1.5" />}
+        </div>
+      )}
+      <p className="flex items-baseline gap-2 border-b border-line py-[7px]">
+        <span className="mk mk-plan" />
+        <span className="flex-1">{t("flow.handed")}</span>
+        <span className="text-fg-2">{waiting}</span>
+      </p>
+      {repairing > 0 && (
         <p className="flex items-baseline gap-2 border-b border-line py-[7px]">
-          <span className="mk mk-plan" />
-          <span className="flex-1">{t("flow.handed")}</span>
-          <span className="text-fg-2">{waiting}</span>
+          <span className="mk mk-you" />
+          <span className="flex-1">{t("flow.repair")}</span>
+          <span className="text-fg-2">{repairing}</span>
         </p>
-        {repairing > 0 && (
-          <p className="flex items-baseline gap-2 border-b border-line py-[7px]">
-            <span className="mk mk-you" />
-            <span className="flex-1">{t("flow.repair")}</span>
-            <span className="text-fg-2">{repairing}</span>
-          </p>
-        )}
+      )}
+    </>
+  );
+  // Little height: one line, the train if there is one, else what waits. The full block stays as an invisible probe to measure against.
+  const one = train ? (
+    <p className="flex items-baseline gap-2 border-b border-line py-[7px]">
+      <span className="mk mk-run" />
+      <span className="flex-1 truncate">
+        {t("flow.train", { n: train.id })} · {t("flow.branches", { count: train.size })}
+      </span>
+      <span className="text-fg-2">{clock(elapsedOf(train, m.now))}</span>
+    </p>
+  ) : (
+    <p className="flex items-baseline gap-2 border-b border-line py-[7px]">
+      <span className={repairing && !waiting ? "mk mk-you" : "mk mk-plan"} />
+      <span className="flex-1">{repairing && !waiting ? t("flow.repair") : t("flow.handed")}</span>
+      <span className="text-fg-2">{repairing && !waiting ? repairing : waiting}</span>
+    </p>
+  );
+  return (
+    <section className={clsx("relative flex shrink-0 flex-col px-3.5", gone && "-mb-5 h-0 overflow-hidden")} inert={gone} data-part="flow-side">
+      {!bare && <h2 className="caps shrink-0 rule-b pb-1.5">{t("flow.side.title")}</h2>}
+      <button type="button" onClick={onOpen} className="block w-full text-left hover:bg-sunk" title={t("nav.flow")}>
+        {compact ? one : body}
       </button>
+      {compact && (
+        <div data-flow-probe aria-hidden className="pointer-events-none invisible absolute inset-x-3.5 top-0 -z-10">
+          <h2 className="caps rule-b pb-1.5">{t("flow.side.title")}</h2>
+          {body}
+        </div>
+      )}
     </section>
   );
 }
