@@ -1235,6 +1235,7 @@
   },
   "runners": {
     "title": "Runners",
+    "builtin": "Built-in runner (this server)",
     "description": "Let a project's agents work on another server.",
     "intro": "The agents of a project can work on a server of their own: more room, more power, or kept apart from the rest.",
     "requirements": "The server needs Docker and internet access. No open port or domain needed.",
