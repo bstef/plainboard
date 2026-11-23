@@ -385,7 +385,8 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
       >
         <span className={clsx("absolute top-1 size-3 rounded-[1px] transition-all", checked ? "left-5 bg-bg" : "left-1 bg-fg-3")} />
       </button>
-      <span>{label}</span>
+      {/* Trim the text box to cap height and baseline so the letters, not the line box, are centred on the switch in every design's font. */}
+      <span className="[text-box:trim-both_cap_alphabetic]">{label}</span>
     </label>
   );
 }
