@@ -56,7 +56,7 @@ export function Board() {
       (task) =>
         !needle ||
         task.title.toLowerCase().includes(needle) ||
-        `#${task.number}` === needle ||
+        needle.replace(/^#/, "") === String(task.number) ||
         task.labels.some((l) => l.toLowerCase().includes(needle)),
     );
     const byStatus = Object.fromEntries(STATUSES.map((s) => [s, [] as Task[]])) as Record<TaskStatus, Task[]>;
