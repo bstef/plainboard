@@ -29,7 +29,7 @@ export interface NavEntry {
   id: string;
   label: string;
   icon: (cls: string) => ReactNode;
-  /** Something runs behind it (the browser while previews run). */
+  /** Something runs behind it (the browser while previews run): a dot on its icon in the rail, which has no list of it. */
   marked?: boolean;
 }
 
@@ -50,21 +50,23 @@ export function NavButton({ entry, active, wide, onClick }: { entry: NavEntry; a
     >
       {entry.icon("size-4 shrink-0")}
       {wide && <span className="label-line">{entry.label}</span>}
-      {entry.marked && <span className={clsx("mk mk-run scale-75 bg-current", wide ? "ml-auto" : "absolute top-1 right-1")} />}
+      {entry.marked && !wide && <span className="mk mk-run absolute top-1 right-1 scale-75 bg-current" />}
     </button>
   );
 }
 
-/** The "…" at the project name: the rare views (the search has its own line). Marked while something runs behind one.
- * Settings and design only on phones: the desktop sidebar has their icons at its foot. */
+/** The "…" at the project name: the rare views (the search has its own line). Marked where nothing else shows
+ * that something runs behind one. Settings and design only on phones: the desktop sidebar has their icons at its foot. */
 export function ProjectMenu({
   entries,
+  marked = false,
   onSelect,
   onSettings,
   onLook,
   align = "left",
 }: {
   entries: NavEntry[];
+  marked?: boolean;
   onSelect: (id: string) => void;
   onSettings?: () => void;
   onLook?: () => void;
@@ -93,8 +95,8 @@ export function ProjectMenu({
   useEffect(() => {
     if (open) ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]')[active]?.focus();
   }, [open, active]);
-  const items: { key: string; label: string; icon: ReactNode; marked?: boolean; kbd?: string; run: () => void }[] = [
-    ...entries.map((e) => ({ key: e.id, label: e.label, icon: e.icon("size-4 shrink-0 text-fg-2"), marked: e.marked, run: () => onSelect(e.id) })),
+  const items: { key: string; label: string; icon: ReactNode; kbd?: string; run: () => void }[] = [
+    ...entries.map((e) => ({ key: e.id, label: e.label, icon: e.icon("size-4 shrink-0 text-fg-2"), run: () => onSelect(e.id) })),
     ...(onSettings ? [{ key: "settings", label: t("nav.settings"), icon: <Settings className="size-4 shrink-0 text-fg-2" />, run: onSettings }] : []),
     ...(onLook ? [{ key: "theme", label: t("nav.theme"), icon: <Palette className="size-4 shrink-0 text-fg-2" />, run: onLook }] : []),
   ];
@@ -120,7 +122,7 @@ export function ProjectMenu({
         className={clsx("relative", open && "bg-sunk text-fg")}
       >
         <MoreHorizontal className="size-4" />
-        {entries.some((e) => e.marked) && <span className="mk mk-run absolute top-0.5 right-0.5 scale-75 bg-current" />}
+        {marked && <span className="mk mk-run absolute top-0.5 right-0.5 scale-75 bg-current" />}
       </IconButton>
       {open && (
         <div
@@ -146,7 +148,6 @@ export function ProjectMenu({
               >
                 {it.icon}
                 <span className="flex-1">{it.label}</span>
-                {it.marked && <span className="mk mk-run scale-75 bg-current" />}
                 {it.kbd && <kbd className="kbd">{it.kbd}</kbd>}
               </button>
             </div>
