@@ -107,7 +107,7 @@
 [data-design="slop2gether"] [data-part="badge"] {
   padding-inline: 8px;
 }
-/* Variant A: the send button is a full circle. */
+/* The send button in the chat composer is a full circle. */
 [data-design="slop2gether"] [data-part="send"] {
   border-radius: 9999px;
 }
