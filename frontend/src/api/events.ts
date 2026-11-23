@@ -71,6 +71,22 @@ function upsertMessage(qc: QueryClient, agentId: number | undefined, conversatio
   if (agentId !== undefined && msg.role === "assistant" && msg.kind === "text") streamStore.clear(agentId);
 }
 
+// A run produces bursts of events (ticket, comment, assignment, run, ...). Each refetches whole lists,
+// so equal invalidations within a short window are merged into one.
+const pending = new Map<string, { qc: QueryClient; queryKey: readonly unknown[] }>();
+let flushTimer: number | undefined;
+
+function invalidateSoon(qc: QueryClient, queryKey: readonly unknown[]) {
+  pending.set(JSON.stringify(queryKey), { qc, queryKey });
+  if (flushTimer !== undefined) return;
+  flushTimer = window.setTimeout(() => {
+    flushTimer = undefined;
+    const batch = [...pending.values()];
+    pending.clear();
+    for (const { qc, queryKey } of batch) void qc.invalidateQueries({ queryKey });
+  }, 120);
+}
+
 function handle(qc: QueryClient, pid: number, event: ServerEvent) {
   const { type, data } = event;
   const [entity] = type.split(".");
@@ -79,20 +95,20 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
     case "comment":
     case "attachment":
     case "decision":
-      qc.invalidateQueries({ queryKey: qk.tasks(pid) });
-      qc.invalidateQueries({ queryKey: ["task"] });
+      invalidateSoon(qc, qk.tasks(pid));
+      invalidateSoon(qc, ["task"]);
       break;
     case "todo":
-      qc.invalidateQueries({ queryKey: ["todos"] });
-      qc.invalidateQueries({ queryKey: qk.agents(pid) });
+      invalidateSoon(qc, ["todos"]);
+      invalidateSoon(qc, qk.agents(pid));
       break;
     case "ownnote":
-      qc.invalidateQueries({ queryKey: ["ownNotes"] });
-      qc.invalidateQueries({ queryKey: qk.agents(pid) });
+      invalidateSoon(qc, ["ownNotes"]);
+      invalidateSoon(qc, qk.agents(pid));
       break;
     case "assignment":
-      qc.invalidateQueries({ queryKey: qk.assignments(pid) });
-      qc.invalidateQueries({ queryKey: ["task"] });
+      invalidateSoon(qc, qk.assignments(pid));
+      invalidateSoon(qc, ["task"]);
       break;
     case "agent":
       if (type === "agent.upserted") {
@@ -101,10 +117,10 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
           const exists = old.some((a) => a.id === data.id);
           return exists ? old.map((a) => (a.id === data.id ? data : a)) : [...old, data];
         });
-      } else qc.invalidateQueries({ queryKey: qk.agents(pid) });
+      } else invalidateSoon(qc, qk.agents(pid));
       break;
     case "run":
-      qc.invalidateQueries({ queryKey: qk.runs(pid) });
+      invalidateSoon(qc, qk.runs(pid));
       if (type === "run.upserted" && data.status !== "running" && data.status !== "queued") streamStore.clear(data.agent_id);
       break;
     case "message":
@@ -118,29 +134,29 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
       );
       break;
     case "note":
-      qc.invalidateQueries({ queryKey: qk.notes(pid) });
+      invalidateSoon(qc, qk.notes(pid));
       break;
     case "schedule":
-      qc.invalidateQueries({ queryKey: qk.schedules(pid) });
+      invalidateSoon(qc, qk.schedules(pid));
       break;
     case "mcp":
-      qc.invalidateQueries({ queryKey: qk.mcp(pid) });
+      invalidateSoon(qc, qk.mcp(pid));
       break;
     case "repository":
-      qc.invalidateQueries({ queryKey: qk.repos(pid) });
-      qc.invalidateQueries({ queryKey: qk.agents(pid) });
+      invalidateSoon(qc, qk.repos(pid));
+      invalidateSoon(qc, qk.agents(pid));
       break;
     case "project":
-      qc.invalidateQueries({ queryKey: qk.projects });
+      invalidateSoon(qc, qk.projects);
       break;
     case "pause":
-      qc.invalidateQueries({ queryKey: qk.pause });
+      invalidateSoon(qc, qk.pause);
       break;
     case "uploads":
       setCopying(pid, data);
       break;
     case "mention":
-      qc.invalidateQueries({ queryKey: qk.mentions });
+      invalidateSoon(qc, qk.mentions);
       break;
   }
 }
