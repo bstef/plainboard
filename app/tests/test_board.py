@@ -558,3 +558,50 @@ def test_a_long_tool_call_is_answered_pending_and_asked_for_again(client, projec
     assert client.post(f"/api/internal/runs/1/tools/pending/{first['pending']}", headers=auth).json()["text"] == "merge_when_green done"
     assert client.post(f"/api/internal/runs/1/tools/pending/{first['pending']}", headers=auth).json()["is_error"]  # given once
     assert client.post("/api/internal/runs/1/tools/x", headers=auth, json={}).json() == {"text": "x done", "is_error": False, "pending": ""}  # an older runner waits
+
+
+def test_a_ticket_whose_branch_waits_to_land_says_so_and_the_board_hears_when_that_ends(client, project):
+    """The card shows work that is finished and only waits to land (#70): from the landing list, no extra query per ticket."""
+    from plainboard.db import sessionmaker
+    from plainboard.events import bus
+    from plainboard.models import Landing, LandingStatus, Repository
+    from sqlalchemy import select
+
+    ticket = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Done"}).json()
+    other = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Not yet"}).json()
+    queue = bus.subscribe(project["id"])
+
+    async def land(status: LandingStatus | None = None) -> None:
+        async with sessionmaker()() as session:
+            if status is None:
+                repo = Repository(project_id=project["id"], name="api", url="https://example.com/api.git")
+                session.add(repo)
+                await session.flush()
+                session.add(Landing(project_id=project["id"], repository_id=repo.id, branch="feat", task_id=ticket["id"]))
+            else:
+                landing = await session.scalar(select(Landing))
+                landing.status = status
+            await session.commit()
+
+    def landing_of(task_id: int) -> str | None:
+        return next(t["landing"] for t in client.get(f"/api/projects/{project['id']}/tasks").json() if t["id"] == task_id)
+
+    client.portal.call(land)
+    assert landing_of(ticket["id"]) == "waiting" and landing_of(other["id"]) is None
+    client.portal.call(land, LandingStatus.TRAIN)
+    assert landing_of(ticket["id"]) == "checking"
+    client.portal.call(land, LandingStatus.BACK)
+    assert landing_of(ticket["id"]) == "repairing"
+    client.portal.call(land, LandingStatus.MERGED)
+    assert landing_of(ticket["id"]) is None
+
+    seen: list = []
+
+    def heard() -> bool:
+        while not queue.empty():
+            event = queue.get_nowait()
+            if event["type"] == "task.upserted" and event["data"]["id"] == ticket["id"]:
+                seen.append(event["data"]["landing"])
+        return bool(seen) and seen[-1] is None and "waiting" in seen
+
+    wait_for(heard)

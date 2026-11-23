@@ -184,6 +184,8 @@ export interface Task {
   active_agent_ids: number[];
   manager_active: boolean;
   open_decisions: number;
+  /** Work is finished and only waits to land: its branch waits for a train, is checked, or is repaired. */
+  landing: "waiting" | "checking" | "repairing" | null;
 }
 
 export interface Comment {

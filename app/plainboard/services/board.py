@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import event, func, inspect, or_, select, update
+from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_config
@@ -45,6 +47,8 @@ from . import mentions as mention_service
 from .errors import NotFound, ServiceError
 from .timing import duration
 from .util import truncate
+
+log = logging.getLogger(__name__)
 
 OPEN_ASSIGNMENT_STATUSES = (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)
 
@@ -469,6 +473,46 @@ async def list_tasks(
     return list((await session.scalars(q)).all())
 
 
+LANDING_PHASE = {LandingStatus.WAITING: "waiting", LandingStatus.TRAIN: "checking", LandingStatus.BACK: "repairing"}
+LANDING_ORDER = ["waiting", "checking", "repairing"]  # the one shown when a ticket has several branches: the furthest from done
+
+
+@event.listens_for(Session, "before_flush")
+def _note_landing_changes(session: Session, _ctx, _instances) -> None:  # noqa: ANN001
+    """A branch that starts or ends landing changes what its ticket's card shows: remember the ticket until the commit."""
+    for obj in (*session.new, *session.dirty):
+        if isinstance(obj, Landing) and obj.task_id and (obj in session.new or inspect(obj).attrs.status.history.has_changes()):
+            session.info.setdefault("landing_tasks", set()).add(obj.task_id)
+
+
+@event.listens_for(Session, "after_rollback")
+def _forget_landing_changes(session: Session) -> None:
+    session.info.pop("landing_tasks", None)
+
+
+_publishing: set[asyncio.Task] = set()
+
+
+@event.listens_for(Session, "after_commit")
+def _publish_landing_changes(session: Session) -> None:
+    ids = session.info.pop("landing_tasks", None)
+    if ids:
+        job = asyncio.get_running_loop().create_task(_publish_tasks(sorted(ids)))
+        _publishing.add(job)
+        job.add_done_callback(_publishing.discard)
+
+
+async def _publish_tasks(ids: list[int]) -> None:
+    from ..db import sessionmaker
+
+    try:
+        async with sessionmaker()() as session:
+            for task_id in ids:
+                await publish_task_id(session, task_id)
+    except Exception:  # noqa: BLE001 - a missed card refresh must not break the landing
+        log.warning("Could not publish landing change for tickets %s", ids, exc_info=True)
+
+
 async def task_outs(session: AsyncSession, tasks: list[Task]) -> list[TaskOut]:
     if not tasks:
         return []
@@ -494,9 +538,15 @@ async def task_outs(session: AsyncSession, tasks: list[Task]) -> list[TaskOut]:
             )
         ).all()
     )
+    landing: dict[int, str] = {}
+    for task_id, status in (
+        await session.execute(select(Landing.task_id, Landing.status).where(Landing.task_id.in_(ids), Landing.status.in_(LANDING_IN_FLIGHT)))
+    ).all():
+        landing[task_id] = max(landing.get(task_id, "waiting"), LANDING_PHASE[status], key=LANDING_ORDER.index)
     out = []
     for task in tasks:
         item = TaskOut.model_validate(task)
+        item.landing = landing.get(task.id) if task.id not in active and task.id not in manager_busy else None
         item.comment_count = comments.get(task.id, 0)
         item.attachment_count = files.get(task.id, 0)
         item.active_agent_ids = sorted(active.get(task.id, set()))
