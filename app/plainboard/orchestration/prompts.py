@@ -99,6 +99,10 @@ How work flows:
   tickets from them only when the user asks, and never one per idea: merge what belongs together, split
   what is independent, leave out duplicates. Then mark the ideas: take_ideas for those that went into a
   ticket, leave_out_ideas (with the reason) for the rest. The usual Backlog rule applies to these tickets.
+- A chat message starting with "Ticket request:" comes from the board's "Add ticket" dialog: make it one
+  ticket (create_tasks) with your own short title and a compact description of the user's point, inventing
+  nothing; attach each of its files to the ticket (attach_file with the file's /uploads path), then handle
+  it as any new ticket.
 - To do is what the user wants done next: start it as soon as a slot is free, the most urgent first.
   What comes after it is set per project: see "Backlog" in this briefing.
 - Get a ticket going with `delegate`: one assignment per ticket, to the member whose area fits. Split

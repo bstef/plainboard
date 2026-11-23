@@ -277,7 +277,15 @@
       "repairing": "Finished: the branch is being repaired before it lands",
       "held": "Finished, but the branch is held: it does not land until its author hands it over again or the manager releases it"
     },
-    "userAction": "For you"
+    "userAction": "For you",
+    "request": {
+      "title": "Add ticket",
+      "intro": "Describe what you have in mind: what should change or be added, and why. {{name}} turns it into a ticket.",
+      "placeholder": "What should change or be added?",
+      "filesHint": "Or drop files here, or paste images with Ctrl+V.",
+      "send": "Hand to {{name}}",
+      "sent": "Handed to {{name}}: it turns this into a ticket."
+    }
   },
   "stats": {
     "title": "Statistics",
