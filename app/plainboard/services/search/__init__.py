@@ -30,7 +30,7 @@ from .indexers import COMMIT, INDEXERS, KINDS
 from .schema import available
 from .store import Hit
 
-__all__ = ["KINDS", "PROGRESS", "Hit", "active_projects", "available", "choose_model", "embedder", "enabled", "find", "format_hits", "related", "states", "status"]
+__all__ = ["KINDS", "PROGRESS", "Hit", "active_projects", "available", "choose_model", "embedder", "enabled", "find", "for_user", "format_hits", "related", "states", "status"]
 
 log = logging.getLogger(__name__)
 
@@ -170,6 +170,46 @@ async def related(s: AsyncSession, project: Project, text: str, ticket_number: i
         ms=round((time.monotonic() - started) * 1000), nearest=[_scores(h) for h in hits], shown=[h.ref for h in shown],
     )  # fmt: skip
     return shown
+
+
+def _commit_url(repo_url: str, sha: str) -> str | None:
+    """The commit's page on GitHub or GitLab; other hosts get no link."""
+    url = repo_url.strip().removesuffix("/").removesuffix(".git")
+    if url.startswith("git@"):  # git@github.com:owner/name
+        url = "https://" + url[4:].replace(":", "/", 1)
+    if url.startswith("https://github.com/"):
+        return f"{url}/commit/{sha}"
+    if url.startswith("https://gitlab.com/"):
+        return f"{url}/-/commit/{sha}"
+    return None
+
+
+async def for_user(s: AsyncSession, project: Project, query: str, limit: int = 8) -> dict:
+    """A person's search in the web UI (the command palette): the state of search and the hits, each with what
+    opens it (its ticket's id, a note's id, a commit's page). Off or not there: no hits and why, never an error."""
+    if not await available(s):
+        return {"state": "unavailable", "hits": []}
+    if not await enabled(s, project):
+        return {"state": "off", "hits": []}
+    ready = (await embedder(s)).state == "ready"
+    hits = await find(s, project, query, limit=limit)
+    numbers = {h.ticket_number for h in hits if h.ticket_number}
+    ids = dict((await s.execute(select(Task.number, Task.id).where(Task.project_id == project.id, Task.number.in_(numbers)))).all()) if numbers else {}
+    repos = {r.id: r for r in await s.scalars(select(Repository).where(Repository.project_id == project.id))} if any(h.kind == COMMIT for h in hits) else {}
+    out = []
+    for h in hits:
+        item = {
+            "kind": h.kind, "ref": h.ref, "title": h.title, "snippet": snippet(h.body, query, 160), "at": h.at, "changed_at": h.changed_at,
+            "ticket_number": h.ticket_number, "task_id": ids.get(h.ticket_number) if h.ticket_number else None, "repo": h.repo,
+        }  # fmt: skip
+        if h.kind == "note" and h.source_id.isdigit():
+            item["note_id"] = int(h.source_id)
+        if h.kind == COMMIT:
+            repo_id, _, sha = h.source_id.partition(":")
+            repo = repos.get(int(repo_id)) if repo_id.isdigit() else None
+            item |= {"sha": sha, "url": _commit_url(repo.url, sha) if repo else None}
+        out.append(item)
+    return {"state": "ok" if ready else "preparing", "hits": out}
 
 
 # --- where a hit's item stands now ---------------------------------------------------------------------

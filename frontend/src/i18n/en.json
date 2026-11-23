@@ -34,17 +34,14 @@
     "team": "Team",
     "notes": "Notes",
     "schedules": "Schedules",
-    "tools": "Tools",
     "stats": "Stats",
     "chat": "Chat",
     "browser": "Browser",
     "settings": "PlainBoard settings",
     "togglePanel": "Toggle chat panel",
-    "more": "More",
     "theme": "Design and theme",
     "views": "Views",
     "project": "Project settings",
-    "projectShort": "Settings",
     "flow": "Flow"
   },
   "browser": {
@@ -262,7 +259,9 @@
     "askModelHint": "What answers questions asked with Ctrl+Enter in the chat. It only reads, so a small model is usually enough. Empty: Claude Haiku with effort high.",
     "askProvider": "Runs on",
     "askEffortDefault": "Effort: high (default)",
-    "askModelSmall": "{{model}} (default)"
+    "askModelSmall": "{{model}} (default)",
+    "ideaModel": "Ideas",
+    "ideaModelHint": "What reads, sorts and rearranges the ideas of this project. A small model is enough. Empty: the provider's small model."
   },
   "board": {
     "filter": "Filter tickets…",
@@ -1606,5 +1605,32 @@
     "showCode": "Show code",
     "showDiagram": "Show diagram",
     "diagramError": "The diagram could not be drawn: {{error}}"
+  },
+  "palette": {
+    "open": "Search and jump",
+    "short": "Search",
+    "menu": "More in this project",
+    "placeholder": "Search areas, tickets, history and projects…",
+    "areas": "Areas",
+    "tickets": "Tickets",
+    "history": "History",
+    "historyHint": "by meaning",
+    "projects": "Projects",
+    "none": "Nothing found",
+    "hint": "↑ ↓ to move · Enter to open · Esc to close",
+    "kinds": {
+      "ticket": "Ticket",
+      "report": "Report",
+      "decision": "Decision",
+      "comment": "Comment",
+      "note": "Note",
+      "commit": "Commit"
+    },
+    "state": {
+      "off": "Search by meaning is off for this project; it is switched on in the project settings.",
+      "unavailable": "Search by meaning needs PostgreSQL; this installation has none.",
+      "preparing": "Search by meaning is getting ready: these matches are by words only.",
+      "empty": "Nothing in the history matches."
+    }
   }
 }
