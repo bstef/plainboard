@@ -575,8 +575,11 @@ function Composer({
         <IconButton
           label={t("ask.button", { shortcut })}
           data-part="ask"
-          disabled={!text.trim() || disabled || asking !== null}
-          onClick={askQuestion}
+          disabled={disabled}
+          onClick={() => {
+            if (text.trim()) askQuestion();
+            else area.current?.focus();
+          }}
           className="size-8 touch:size-11"
         >
           <CircleHelp className="size-4" />
