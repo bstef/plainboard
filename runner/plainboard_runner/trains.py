@@ -259,19 +259,25 @@ PRESENT_ONE_BY_ONE = 20  # commits asked one at a time; more: against the branch
 
 async def commit_log(spec: GitLogSpec) -> GitLogResult:
     """The newest commits of the base branch (no merges), after ``spec.since`` when that is still on it
-    (after a force push: the newest ones again), each with its message, changed paths and line counts."""
+    (after a force push: the newest ones again), each with its message, changed paths and line counts.
+    With ``spec.upto`` the older history instead: the commits of ``upto`` after its ``skip`` newest (when
+    ``upto`` is no longer on the branch: of the head, from its newest; ``head`` says which was read)."""
     async with _lock(spec.key):
         git = await _clone(spec.credentials, spec.remote, folder(spec.key))
         base = spec.base or await default_branch(git, spec.remote.url)
         await git("fetch", "-q", "--no-tags", "origin", f"+refs/heads/{base}:refs/remotes/origin/{base}")
         head = (await git("rev-parse", f"refs/remotes/origin/{base}")).strip()
-        result = GitLogResult(branch=base, head=head)
+        total = int((await git("rev-list", "--count", "--no-merges", head)).strip() or 0)
+        skip = 0
+        if spec.upto and (spec.upto == head or await git.ok("merge-base", "--is-ancestor", spec.upto, head)):
+            head, skip = spec.upto, spec.skip  # the older history, page by page from a fixed commit
+        result = GitLogResult(branch=base, head=head, total=total)
         if spec.since and spec.since == head:
             return result
         span = head
         if spec.since and await git.ok("merge-base", "--is-ancestor", spec.since, head):
             span = f"{spec.since}..{head}"
-        out = await git("log", "--no-merges", f"-n{spec.limit}", "--format=%x1e%H%x1f%an%x1f%cI%x1f%B%x1f", "--numstat", span, timeout=300)
+        out = await git("log", "--no-merges", f"-n{spec.limit}", f"--skip={skip}", "--format=%x1e%H%x1f%an%x1f%cI%x1f%B%x1f", "--numstat", span, timeout=300)
         for record in (r for r in out.split("\x1e") if r.strip()):  # the output comes stripped, and \x1e counts as a space
             sha, author, date, message, stats = (record.split("\x1f", 4) + [""] * 5)[:5]
             commit = GitCommit(sha=sha.strip(), author=author, date=date, message=message.strip())

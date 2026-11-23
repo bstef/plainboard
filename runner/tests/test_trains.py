@@ -231,6 +231,8 @@ async def test_the_commit_log_of_the_base_branch_goes_on_from_the_last_commit_re
     later = await trains.commit_log(log_spec.model_copy(update={"since": first.head}))
     assert [c.message for c in later.commits] == ["Add c"]
     assert (await trains.commit_log(log_spec.model_copy(update={"since": later.head}))).commits == []
+    older = await trains.commit_log(log_spec.model_copy(update={"upto": first.head, "skip": 1}))  # the older history: from a fixed commit, a page on
+    assert (older.head, older.total, [c.message for c in older.commits]) == (first.head, 3, ["start"])
     from plainboard_protocol import GitPresentSpec
 
     there = await trains.present(GitPresentSpec(key="p1-r1", base="main", shas=[later.head, "f" * 40], paths=["b.txt", "gone.txt"]))

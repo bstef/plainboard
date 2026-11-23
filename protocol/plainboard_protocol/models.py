@@ -437,6 +437,8 @@ class GitLogSpec(BaseModel):
     base: str | None = None  # None: the repository's default branch
     since: str | None = Field(default=None, pattern=r"^[0-9a-f]{7,64}$")  # only commits after this one, when it is on the branch
     limit: int = Field(default=1000, ge=1, le=5000)  # the newest ones
+    upto: str | None = Field(default=None, pattern=r"^[0-9a-f]{7,64}$")  # the older history: read from this commit instead of the head, when it is on the branch
+    skip: int = Field(default=0, ge=0)  # with upto: after its newest this many (the pages read already)
 
 
 class GitCommit(BaseModel):
@@ -452,7 +454,8 @@ class GitCommit(BaseModel):
 
 class GitLogResult(BaseModel):
     branch: str = ""
-    head: str = ""  # the branch's commit now: where the next call starts
+    head: str = ""  # the branch's commit now: where the next call starts (with upto: the commit read from)
+    total: int | None = None  # the branch's commits without merges (None: a runner from before it)
     commits: list[GitCommit] = Field(default_factory=list)  # newest first
 
 

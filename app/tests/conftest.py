@@ -362,13 +362,17 @@ class FakeRunner:
         return {"ok": True, "detail": "", "repos": [{"full_name": full, "name": name, "clone_url": f"https://github.com/{full}.git", "private": private}]}
 
     async def git_log(self, spec):
-        """The commits of a repository's base branch: ``self.commits`` (newest first) after ``spec.since``."""
+        """The commits of a repository's base branch: ``self.commits`` (newest first) after ``spec.since``, or
+        those of ``spec.upto`` after its ``spec.skip`` newest."""
         self.git_log_specs = getattr(self, "git_log_specs", []) + [spec]
         commits = list(getattr(self, "commits", []))
-        if spec.since and any(c.sha == spec.since for c in commits):
-            commits = commits[: [c.sha for c in commits].index(spec.since)]
-        head = getattr(self, "commits", [None])[0]
-        return GitLogResult(branch=spec.base or "main", head=head.sha if head else "", commits=commits[: spec.limit])
+        shas = [c.sha for c in commits]
+        head, total = (shas or [""])[0], len(commits)
+        if spec.upto and spec.upto in shas:
+            head, commits = spec.upto, commits[shas.index(spec.upto) :][spec.skip :]
+        elif spec.since and spec.since in shas:
+            commits = commits[: shas.index(spec.since)]
+        return GitLogResult(branch=spec.base or "main", head=head, total=total, commits=commits[: spec.limit])
 
     async def git_present(self, spec):
         """Every commit asked is on the base branch and every path there, except ``self.gone`` (shas whose files went too)."""
