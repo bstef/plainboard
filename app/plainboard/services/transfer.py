@@ -81,6 +81,9 @@ TABLES: tuple[Table, ...] = (
     Table("comments", ("task_id", "tasks"), {"task_id": "tasks", "author_agent_id": "agents"}),
     Table("decisions", refs={"task_id": "tasks", "requested_by_agent_id": "agents"}, lists={"attachment_ids": "attachments"}),
     Table("assignments", refs={"task_id": "tasks", "agent_id": "agents", **AGENT}, reset={"run_id": None, "landing_id": None, "train_id": None}),
+    Table("idea_topics"),
+    Table("ideas", refs={"topic_id": "idea_topics", "task_id": "tasks"}),
+    Table("idea_links", refs={"idea_id": "ideas", "other_id": "ideas"}),
     Table("ticket_states", ("task_id", "tasks"), {"task_id": "tasks", "until_assignment_id": "assignments"}, key="task_id"),
     # A chat goes on from its summary and its latest messages: the provider's own session stays behind.
     Table(

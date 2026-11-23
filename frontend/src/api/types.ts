@@ -37,6 +37,10 @@ export interface Project {
   ask_provider: string;
   ask_model: string;
   ask_effort: string;
+  /** What sorts the project's ideas into topics; "" : the same as its questions. */
+  idea_provider: string;
+  idea_model: string;
+  idea_effort: string;
   label_colors: Record<string, string>;
   created_at: string;
 }

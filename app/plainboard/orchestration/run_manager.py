@@ -203,6 +203,9 @@ class RunManager:
         from .questions import Questions  # it builds on this module
 
         self.questions = Questions(self)  # people's questions beside the chat: no queue, read only
+        from .ideas import Ideas
+
+        self.ideas = Ideas(self)  # sorting ideas and planning tickets from them: no queue, no tools
         self._uploads: dict[int, set[str]] = {}  # external runner -> attachment files it has
         self._copying: dict[tuple[int, int], asyncio.Task[None]] = {}  # (runner, project) -> attachments being copied in the background
         self._seen: dict[int, float] = {}  # runner id -> when its last_seen_at was last written (monotonic)
