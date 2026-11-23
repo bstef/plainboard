@@ -1,9 +1,11 @@
 """Scratchpad: one text per assignment, the agent's working memory for long or detail-heavy work.
 
-It survives every context compression verbatim: a fresh session gets it in its first prompt, a
-provider-side compaction and a resumed turn get a one-line notice (never on ordinary turns). When the
-assignment ends it stays archived, read-only, for ``scratchpad_retention_days``: a later assignment of
-the same ticket may read or take it over, the user sees it on the ticket. Then it goes (``purge``).
+It survives every context compression verbatim, and the agent is never relied on to look into it:
+wherever it may have dropped out of view (a fresh session after compression, a provider-side compaction
+mid-turn, a turn resumed after a restart or a lost connection) its content is delivered with it. Only
+then and only when it is not empty: ordinary turns cost nothing. When the assignment ends it stays
+archived, read-only, for ``scratchpad_retention_days``: a later assignment of the same ticket gets it at
+its start (inline when short) and may take it over, the user sees it on the ticket. Then it goes (``purge``).
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ from . import settings as settings_service
 from .errors import NotFound, ServiceError
 
 CAP = 30_000
+INLINE = 4000  # archived scratchpads up to this size (together) come inline at the start of a later assignment
+EXCERPT = 500
 OPEN = (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING)
 
 
@@ -61,17 +65,29 @@ async def restore(session: AsyncSession, assignment: Assignment, other_id: int) 
     return await save(session, assignment, f"{taken}\n{assignment.scratchpad}" if assignment.scratchpad else taken)
 
 
-async def archived_line(session: AsyncSession, assignment: Assignment) -> str:
-    """One line for the start of an assignment whose ticket has archived scratchpads, else nothing."""
+async def archived_block(session: AsyncSession, assignment: Assignment) -> str:
+    """For the start of an assignment whose ticket has archived scratchpads (newest first): their
+    content, inline while short, else an excerpt; nothing if there are none."""
     if not assignment.task_id or assignment.scratchpad:
         return ""
-    q = select(Assignment.id).where(
+    q = select(Assignment).where(
         Assignment.task_id == assignment.task_id, Assignment.id != assignment.id, Assignment.status.not_in(OPEN), Assignment.scratchpad.is_not(None)
     )
-    ids = list(await session.scalars(q.order_by(Assignment.id.desc()).limit(5)))
-    if not ids:
+    earlier = list(await session.scalars(q.order_by(Assignment.id.desc()).limit(3)))
+    if not earlier:
         return ""
-    return f"Earlier assignments of this ticket left a scratchpad ({', '.join(f'#{i}' for i in ids)}): scratchpad read or restore with assignment_id, if useful."
+    parts, budget = [], INLINE
+    for a in earlier:
+        text = a.scratchpad or ""
+        if len(text) <= budget:
+            budget -= len(text)
+            parts.append(f'<scratchpad assignment="#{a.id}">\n{text}\n</scratchpad>')
+        else:
+            parts.append(f'<scratchpad assignment="#{a.id}" excerpt="{EXCERPT} of {len(text)} chars">\n{text[:EXCERPT]}\n</scratchpad>')
+    return (
+        "Earlier assignments of this ticket left their scratchpads (archived; scratchpad with assignment_id reads one whole, restore takes it over as the start of yours):\n"
+        + "\n".join(parts)
+    )
 
 
 async def purge(session: AsyncSession, now: datetime) -> int:
@@ -88,6 +104,6 @@ def block(text: str | None) -> str:
     return f"Your scratchpad for this assignment (intact, verbatim):\n<scratchpad>\n{text}\n</scratchpad>" if text else ""
 
 
-def hint(text: str | None) -> str:
-    """For a session that goes on but may have lost it from view."""
-    return f"Your scratchpad ({len(text)} chars) is intact: read it with scratchpad." if text else ""
+def delivered(text: str | None) -> str:
+    """For a session that goes on but may have lost it from view (compaction, resumed turn): the content itself."""
+    return f"Your scratchpad for this assignment is intact, here it is verbatim:\n<scratchpad>\n{text}\n</scratchpad>" if text else ""
