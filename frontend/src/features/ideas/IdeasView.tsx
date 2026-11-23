@@ -1,12 +1,13 @@
 import clsx from "clsx";
 import { CornerDownLeft, Lightbulb, Loader2, MessageSquare, PencilRuler, Shuffle, Undo2, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { showIdeaChange, useIdeaChange } from "../../api/events";
 import { qk, useIdeas } from "../../api/queries";
 import type { Idea, IdeaChange, IdeasData, IdeaTopic } from "../../api/types";
+import { PendingFile } from "../../components/PendingFile";
 import { Button, IconButton, Input, PageHead, Spinner } from "../../components/ui";
 import { useIsDesktop } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
@@ -29,6 +30,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const isDesktop = useIsDesktop();
   const [openId, setOpenId] = useState<number | null>(null);
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [reading, setReading] = useState<string | null>(null);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -100,21 +102,57 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
     el.style.height = `${Math.min(el.scrollHeight, line * 8)}px`;
     setMultiline(el.scrollHeight > line * 1.5);
   }, [text]);
+  // Pasted or dropped files go with the input: onto the idea it results in (new, added to or merged into).
+  // Files alone become a new idea named after them.
   const submit = async () => {
     const value = text.trim();
-    if (!value || reading !== null) return;
-    setReading(value);
+    const pending = files;
+    if ((!value && !pending.length) || reading !== null) return;
+    const names = pending.map(fileName);
+    setReading(value || names.join(", "));
     setText("");
+    setFiles([]);
     setError("");
+    let target: number | undefined;
     try {
-      showIdeaChange(await api.post<IdeaChange>(`/projects/${pid}/ideas/input`, { text: value }));
+      if (value) {
+        const change = await api.post<IdeaChange>(`/projects/${pid}/ideas/input`, { text: value });
+        showIdeaChange(change);
+        target = change.summary.idea_id ?? change.summary.created?.[0];
+      } else {
+        target = (await api.post<Idea>(`/projects/${pid}/ideas`, { text: names.join(", ") })).id;
+      }
     } catch (err) {
       setText(value);
+      setFiles(pending);
+      setError(errorMessage(err));
+      setReading(null);
+      return;
+    }
+    try {
+      if (pending.length) {
+        if (target === undefined) throw new Error(t("ideas.filesNoIdea"));
+        const form = new FormData();
+        for (const file of pending) form.append("files", file, fileName(file));
+        await api.post(`/projects/${pid}/ideas/${target}/attachments`, form);
+        if (!value) window.setTimeout(() => show(target!), 300);
+      }
+    } catch (err) {
+      setFiles(pending);
       setError(errorMessage(err));
     } finally {
       setReading(null);
     }
   };
+  const onPaste = (e: ClipboardEvent) => {
+    // Office apps also put a picture of copied text on the clipboard: text wins.
+    const pasted = Array.from(e.clipboardData.files);
+    if (pasted.length && !e.clipboardData.getData("text/plain")) {
+      e.preventDefault();
+      setFiles((cur) => [...cur, ...pasted]);
+    }
+  };
+  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
   const rearrange = async () => {
     try {
       qc.setQueryData<IdeasData>(qk.ideas(pid), (old) => old && { ...old, sorting: true });
@@ -141,7 +179,21 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const drag = canWrite && isDesktop;
 
   return (
-    <div data-part="ideas" className="flex h-full flex-col">
+    <div
+      data-part="ideas"
+      className="flex h-full flex-col"
+      onDragOver={canWrite ? (e) => hasFiles(e) && e.preventDefault() : undefined}
+      onDrop={
+        canWrite
+          ? (e) => {
+              if (!hasFiles(e)) return;
+              e.preventDefault();
+              setFiles((cur) => [...cur, ...Array.from(e.dataTransfer.files)]);
+              inputRef.current?.focus();
+            }
+          : undefined
+      }
+    >
       <PageHead title={t("nav.ideas")}>
         <span
           title={t("ideas.planningOnlyLong")}
@@ -221,37 +273,47 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   void submit();
                 }}
                 className={clsx(
-                  "pointer-events-auto flex w-full max-w-2xl gap-2 bg-[var(--card,var(--bg))] py-1.5 pr-1.5 pl-4 shadow-lg ring-1 ring-line-2",
-                  multiline ? "items-end rounded-2xl" : "items-center rounded-full",
+                  "pointer-events-auto w-full max-w-2xl bg-[var(--card,var(--bg))] shadow-lg ring-1 ring-line-2",
+                  multiline || files.length ? "rounded-2xl" : "rounded-full",
                 )}
               >
-                <Lightbulb
-                  className={clsx("size-4 shrink-0 text-fg-3", multiline && "mt-[calc(0.25rem_+_(1lh_-_1rem)_/_2)] self-start")}
-                />
-                <textarea
-                  ref={inputRef}
-                  rows={1}
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-                    e.preventDefault();
-                    void submit();
-                  }}
-                  maxLength={10000}
-                  aria-label={t("ideas.placeholder")}
-                  placeholder={empty ? t("ideas.placeholderFirst") : t("ideas.placeholder")}
-                  className={clsx(
-                    "min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-fg placeholder:text-fg-3 focus:outline-none",
-                    multiline && "my-1",
-                  )}
-                />
-                <span className={clsx("inline-flex items-center gap-1 text-fg-3 max-sm:hidden", multiline && "h-8 touch:h-11")}>
-                  <CornerDownLeft className="size-3.5" />
-                </span>
-                <Button type="submit" variant="primary" className="rounded-full!" disabled={!text.trim() || reading !== null}>
-                  {t("ideas.add")}
-                </Button>
+                {files.length > 0 && (
+                  <div data-part="idea-files-pending" className="flex flex-wrap items-end gap-2 px-3 pt-3">
+                    {files.map((file, i) => (
+                      <PendingFile key={`${file.name}-${file.lastModified}-${i}`} file={file} onRemove={() => setFiles((cur) => cur.filter((_, j) => j !== i))} />
+                    ))}
+                  </div>
+                )}
+                <div className={clsx("flex gap-2 py-1.5 pr-1.5 pl-4", multiline ? "items-end" : "items-center")}>
+                  <Lightbulb
+                    className={clsx("size-4 shrink-0 text-fg-3", multiline && "mt-[calc(0.25rem_+_(1lh_-_1rem)_/_2)] self-start")}
+                  />
+                  <textarea
+                    ref={inputRef}
+                    rows={1}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onPaste={onPaste}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      void submit();
+                    }}
+                    maxLength={10000}
+                    aria-label={t("ideas.placeholder")}
+                    placeholder={empty ? t("ideas.placeholderFirst") : t("ideas.placeholder")}
+                    className={clsx(
+                      "min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-fg placeholder:text-fg-3 focus:outline-none",
+                      multiline && "my-1",
+                    )}
+                  />
+                  <span className={clsx("inline-flex items-center gap-1 text-fg-3 max-sm:hidden", multiline && "h-8 touch:h-11")}>
+                    <CornerDownLeft className="size-3.5" />
+                  </span>
+                  <Button type="submit" variant="primary" className="rounded-full!" disabled={(!text.trim() && !files.length) || reading !== null}>
+                    {t("ideas.add")}
+                  </Button>
+                </div>
               </form>
             </div>
           </>
@@ -276,6 +338,8 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
     );
   }
 }
+
+const fileName = (file: File) => file.name || "pasted.png";
 
 /** A topic: a soft outline in its colour around its cards; ideas dropped on it are pinned there. */
 function Island({
