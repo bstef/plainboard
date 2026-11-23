@@ -605,3 +605,64 @@ def test_a_ticket_whose_branch_waits_to_land_says_so_and_the_board_hears_when_th
         return bool(seen) and seen[-1] is None and "waiting" in seen
 
     wait_for(heard)
+
+
+def test_tickets_whose_branches_a_repair_branch_carries_show_its_way_until_it_lands(client, project):
+    """A repair that merges a failed train's branches into one of its own (#98): their tickets show that one's landing state."""
+    from plainboard.db import sessionmaker
+    from plainboard.events import bus
+    from plainboard.models import Landing, LandingStatus, Repository, Train, TrainStatus
+    from plainboard.services import landings
+    from sqlalchemy import select
+
+    pid = project["id"]
+    tickets = [client.post(f"/api/projects/{pid}/tasks", json={"title": t}).json() for t in ("A", "B")]
+    queue = bus.subscribe(pid)
+
+    async def repair() -> None:
+        async with sessionmaker()() as session:
+            repo = Repository(project_id=pid, name="api", url="https://example.com/api.git")
+            session.add(repo)
+            await session.flush()
+            train = Train(project_id=pid, repository_id=repo.id, mode="command", status=TrainStatus.FAILED, size=2)
+            session.add(train)
+            await session.flush()
+            for branch, ticket in zip(("feat-a", "feat-b"), tickets, strict=True):
+                session.add(Landing(project_id=pid, repository_id=repo.id, branch=branch, task_id=ticket["id"], status=LandingStatus.BACK, train_id=train.id))
+            carrier = Landing(project_id=pid, repository_id=repo.id, branch="fix/both")
+            session.add(carrier)
+            await session.commit()
+            assert [m.branch for m in await landings.carry(session, carrier, train.id)] == ["feat-a", "feat-b"]
+
+    async def carrier_to(status: LandingStatus) -> None:
+        async with sessionmaker()() as session:
+            carrier = await session.scalar(select(Landing).where(Landing.branch == "fix/both"))
+            carrier.status = status
+            await session.commit()
+
+    def landing_of() -> list:
+        cards = {t["id"]: t["landing"] for t in client.get(f"/api/projects/{pid}/tasks").json()}
+        return [cards[t["id"]] for t in tickets]
+
+    client.portal.call(repair)
+    assert landing_of() == ["waiting", "waiting"]
+    client.portal.call(carrier_to, LandingStatus.TRAIN)
+    assert landing_of() == ["checking", "checking"]
+    (branch,) = client.get(f"/api/tasks/{tickets[0]['id']}/flow").json()
+    assert branch["branch"]["status"] == "checking" and branch["branch"]["title"].startswith("fix/both carrying feat-a")
+    assert [s["state"] for s in branch["steps"] if s["key"] == "checking"] == ["now"]
+
+    seen: list = []
+
+    def heard() -> bool:
+        while not queue.empty():
+            event = queue.get_nowait()
+            if event["type"] == "task.upserted" and event["data"]["id"] == tickets[1]["id"]:
+                seen.append(event["data"]["landing"])
+        return bool(seen) and seen[-1] is None
+
+    client.portal.call(carrier_to, LandingStatus.MERGED)
+    assert landing_of() == [None, None]
+    wait_for(heard)
+    (branch,) = client.get(f"/api/tasks/{tickets[0]['id']}/flow").json()
+    assert branch["branch"]["status"] == "merged" and [s["state"] for s in branch["steps"] if s["key"] == "landed"] == ["done"]

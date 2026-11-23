@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from plainboard_protocol import RepoSpec
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Assignment, AssignmentStatus, Landing, LandingStatus, Repository, Task, Train, TrainStatus
@@ -178,6 +178,7 @@ async def hand_over(
     if not (landing.title or "").startswith(f"{branch} carrying "):
         landing.title = branch[:300]
     landing.task_id = task_id or landing.task_id
+    landing.carried_by = None  # handed over on its own again
     # On a train already: its result decides. Being repaired: it goes on when the repair is finished,
     # together with the branches it failed with.
     if landing.status not in (LandingStatus.TRAIN, LandingStatus.BACK):
@@ -238,7 +239,9 @@ async def carry(session: AsyncSession, carrier: Landing, train_id: int) -> list[
         return []
     numbers = dict((await session.execute(select(Task.id, Task.number).where(Task.id.in_([m.task_id for m in group if m.task_id])))).all())
     for member in group:
-        member.status, member.group_no = LandingStatus.CLOSED, None
+        member.status, member.group_no, member.carried_by = LandingStatus.CLOSED, None, carrier.id
+    # What a member carried itself goes with it.
+    await session.execute(update(Landing).where(Landing.carried_by.in_([m.id for m in group])).values(carried_by=carrier.id))
     listed = ", ".join(m.branch + (f" (#{numbers[m.task_id]})" if m.task_id in numbers else "") for m in group)
     carrier.title = truncate(f"{carrier.branch} carrying {listed}", 300)
     await session.commit()

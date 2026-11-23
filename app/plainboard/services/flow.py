@@ -212,32 +212,40 @@ async def of_ticket(session: AsyncSession, task_id: int) -> list[FlowTicketBranc
     if not landings:
         return []
     numbers = await _numbers(session, {task_id})
-    trains = {t.id: t for t in await session.scalars(select(Train).where(Train.id.in_([x.train_id for x in landings if x.train_id])))}
+    # A branch a repair branch carries (landings.carry) goes that one's way: its checks and landing are the carrier's.
+    carriers = {c.id: c for c in await session.scalars(select(Landing).where(Landing.id.in_([x.carried_by for x in landings if x.carried_by and x.status == LandingStatus.CLOSED])))}
+    trains = {t.id: t for t in await session.scalars(select(Train).where(Train.id.in_([x.train_id for x in (*landings, *carriers.values()) if x.train_id])))}
     repos = {r.id: r.name for r in await session.scalars(select(Repository).where(Repository.id.in_({x.repository_id for x in landings})))}
     events: dict[int, list[FlowEvent]] = {}
     for e in await session.scalars(select(FlowEvent).where(FlowEvent.landing_id.in_([x.id for x in landings]), FlowEvent.kind.in_(("landing.back", "landing.stuck"))).order_by(FlowEvent.id)):
         events.setdefault(e.landing_id or 0, []).append(e)
     out = []
     for landing in landings:
-        train = trains.get(landing.train_id or 0)
+        carrier = carriers.get(landing.carried_by or 0) if landing.status == LandingStatus.CLOSED else None
+        way = carrier or landing
+        train = trains.get(way.train_id or 0)
         steps = [FlowStep(key="handed", state="done", at=landing.created_at)]
         back = [e for e in events.get(landing.id, []) if e.kind == "landing.back"]
         for i, e in enumerate(back):
             steps.append(FlowStep(key="failed", state="done", at=e.at, detail=str(e.data.get("why", ""))[:200]))
             steps.append(FlowStep(key="repair", state="now" if landing.status == LandingStatus.BACK and i == len(back) - 1 else "done"))
-        status = landing.status
+        status = way.status
         if status == LandingStatus.STUCK:
             steps.append(FlowStep(key="stuck", state="now", at=next((e.at for e in reversed(events.get(landing.id, [])) if e.kind == "landing.stuck"), None)))
         elif train is not None and train.direct and status == LandingStatus.MERGED:
-            steps.append(FlowStep(key="landed", state="done", at=landing.merged_at))
+            steps.append(FlowStep(key="landed", state="done", at=way.merged_at))
             steps.append(FlowStep(key="checking", state="done" if train.status != TrainStatus.CHECKING else "now", at=train.created_at))
         elif status == LandingStatus.MERGED:
             steps.append(FlowStep(key="checking", state="done", at=train.finished_at if train else None))
-            steps.append(FlowStep(key="landed", state="done", at=landing.merged_at))
+            steps.append(FlowStep(key="landed", state="done", at=way.merged_at))
         else:
             steps.append(FlowStep(key="checking", state="now" if status == LandingStatus.TRAIN else "todo", at=train.created_at if train and status == LandingStatus.TRAIN else None))
             steps.append(FlowStep(key="landed", state="todo"))
-        out.append(FlowTicketBranch(branch=_branch(landing, numbers), repository=repos.get(landing.repository_id, ""), train=_train(train, [landing.branch]) if train else None, steps=steps))
+        branch = _branch(landing, numbers)
+        if carrier is not None:
+            shown = _branch(carrier, numbers)
+            branch = branch.model_copy(update={"title": carrier.title, "status": shown.status, "train_id": carrier.train_id, "merged_at": carrier.merged_at, "held": shown.held, "held_reason": shown.held_reason})
+        out.append(FlowTicketBranch(branch=branch, repository=repos.get(landing.repository_id, ""), train=_train(train, [way.branch]) if train else None, steps=steps))
     return out
 
 
