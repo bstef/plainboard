@@ -17,6 +17,7 @@ from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import api_keys as api_key_service
 from ..services import jobs as job_service
+from ..services import ownership
 from ..services import permissions
 from ..services import preview as preview_service
 from ..services import projects as project_service
@@ -59,8 +60,10 @@ async def import_project(session: Session, runs: Runs, who: Who, file: UploadFil
 
 
 @router.post("/projects/{project_id}/export")
-async def export_project(project_id: int, body: ExportIn, session: Session) -> FileResponse:
+async def export_project(project_id: int, body: ExportIn, session: Session, who: Who) -> FileResponse:
     """The whole project as one file, to take it to another PlainBoard (services/transfer.py)."""
+    if body.passphrase:  # the credentials go along: they are its owner's, or the installation's
+        ownership.require_holder(await project_service.get(session, project_id), who.user, "take its credentials along. Export it without a passphrase")
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as out:
         try:
             name = await transfer_service.export_project(session, project_id, out, passphrase=body.passphrase, chats=body.chats)

@@ -81,8 +81,25 @@ async def create(session: AsyncSession, project_id: int, data: McpServerCreate) 
     return server
 
 
-async def update(session: AsyncSession, server: McpServer, data: McpServerUpdate, project_id: int) -> McpServer:
+TARGET = ("transport", "command", "args", "url")  # what runs, or where it connects
+
+
+def _keeps_secrets(server: McpServer, fields: dict) -> bool:
+    """Would stored env or header values go along to another command or address with this change?"""
+    if not any(key in fields and fields[key] != getattr(server, key) for key in TARGET):
+        return False
+    return any(
+        blob and (fields.get(key) is None or MASK in fields[key].values())
+        for key, blob in (("env", server.env_enc), ("headers", server.headers_enc))
+    )
+
+
+async def update(session: AsyncSession, server: McpServer, data: McpServerUpdate, project_id: int, *, keep_secrets: bool = True) -> McpServer:
+    """``keep_secrets``: may stored values go along to another command or address (for a project's server its
+    owner or an admin, for an installation's an admin)? Else such a change needs them entered again."""
     fields = data.model_dump(exclude_unset=True)
+    if not keep_secrets and _keeps_secrets(server, fields):
+        raise ServiceError("Only the project's owner or an admin can point this MCP server at another command or address while it keeps its stored values. Enter them again along with it.", 403)
     if "name" in fields:
         await _check_unique(session, server.project_id, fields["name"], exclude_id=server.id)
     if "env" in fields:

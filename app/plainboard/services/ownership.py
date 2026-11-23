@@ -35,6 +35,17 @@ async def _parties(session: AsyncSession, project: Project, actor: User | None, 
     return old, new
 
 
+def holds(project: Project, user: User | None) -> bool:
+    """Is this the project's owner (``Project.owner_id``) or an admin? An owner by role is neither: what the
+    project holds of its owner's credentials (and the installation's, ``permissions.shared``) is theirs to take out."""
+    return user is not None and (user.is_admin or (project.owner_id is not None and project.owner_id == user.id))
+
+
+def require_holder(project: Project, user: User | None, what: str) -> None:
+    if not holds(project, user):
+        raise ServiceError(f"Only the project's owner or an admin can {what}.", 403)
+
+
 def _limited(user: User | None) -> User | None:
     return user if permissions.limited(user) else None
 
