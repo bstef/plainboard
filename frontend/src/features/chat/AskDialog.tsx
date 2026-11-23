@@ -35,7 +35,7 @@ function InfoTip({ text, label }: { text: string; label: string }) {
   }, [open]);
   const shown = open || hover;
   return (
-    <span ref={box} className="relative inline-flex self-center" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <span ref={box} className="relative inline-flex shrink-0" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <button
         type="button"
         aria-label={label}
@@ -170,7 +170,7 @@ export function AskDialog({ projectId, question, onClose }: { projectId: number;
       onClose={close}
       width="max-w-2xl"
       title={
-        <span className="flex items-baseline gap-2">
+        <span className="flex items-center gap-2">
           <span>{t("ask.title")}</span>
           <InfoTip text={t("ask.private")} label={t("ask.about")} />
           {model && <span className="truncate font-normal text-fg-3">{model}</span>}
