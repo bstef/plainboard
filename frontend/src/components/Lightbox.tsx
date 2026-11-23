@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 export interface LightboxImage {
   src: string;
   alt: string;
+  /** A video: played with its own controls, not zoomed. */
+  video?: boolean;
 }
 
 /** How the image lies in its frame: its size relative to "fits the window", and how far its centre is moved. */
@@ -20,6 +22,7 @@ interface View {
 const FITS: View = { scale: 1, x: 0, y: 0, smooth: true };
 const STEP = 1.5; // one press of a zoom button
 const DOUBLE = 2.5; // a double click or double tap
+const LOOP_MAX_S = 30; // a video up to this long loops
 const TAP_MS = 300;
 const TAP_PX = 24;
 const MOVED_PX = 4; // a pointer that went further than this dragged, it did not click
@@ -98,6 +101,7 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
   /** Enlarge by a factor so that the point under the pointer stays where it is; without a point, the middle. */
   const zoom = (factor: number, at?: { x: number; y: number }, smooth = false) =>
     setView((v) => {
+      if (image?.video) return v; // a video is not zoomed
       const frame = stage.current?.getBoundingClientRect();
       const cx = at && frame ? at.x - frame.left - frame.width / 2 : 0;
       const cy = at && frame ? at.y - frame.top - frame.height / 2 : 0;
@@ -142,7 +146,7 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
   };
 
   const down = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest("button") || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if ((e.target as HTMLElement).closest("button, video") || (e.pointerType === "mouse" && e.button !== 0)) return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId); // a drag goes on when the pointer leaves the frame
     } catch {
@@ -189,6 +193,7 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
 
   if (!image) return null;
   const enlarged = view.scale > 1;
+  const video = image.video === true;
   return createPortal(
     <div
       role="dialog"
@@ -207,15 +212,19 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
           {image.alt}
           {many && <span className="ml-2 text-fg-3">{t("lightbox.position", { current: current + 1, total: images.length })}</span>}
         </span>
-        <ControlButton label={t("lightbox.zoomOut")} onClick={() => zoom(1 / STEP, undefined, true)} disabled={!enlarged}>
-          <ZoomOut className="size-4" />
-        </ControlButton>
-        <ControlButton label={t("lightbox.zoomReset")} onClick={() => setView(FITS)} disabled={!enlarged} className="w-14 tabular-nums max-sm:hidden">
-          {Math.round(view.scale * 100)}%
-        </ControlButton>
-        <ControlButton label={t("lightbox.zoomIn")} onClick={() => zoom(STEP, undefined, true)} disabled={view.scale >= limit()}>
-          <ZoomIn className="size-4" />
-        </ControlButton>
+        {!video && (
+          <>
+            <ControlButton label={t("lightbox.zoomOut")} onClick={() => zoom(1 / STEP, undefined, true)} disabled={!enlarged}>
+              <ZoomOut className="size-4" />
+            </ControlButton>
+            <ControlButton label={t("lightbox.zoomReset")} onClick={() => setView(FITS)} disabled={!enlarged} className="w-14 tabular-nums max-sm:hidden">
+              {Math.round(view.scale * 100)}%
+            </ControlButton>
+            <ControlButton label={t("lightbox.zoomIn")} onClick={() => zoom(STEP, undefined, true)} disabled={view.scale >= limit()}>
+              <ZoomIn className="size-4" />
+            </ControlButton>
+          </>
+        )}
         <a
           href={image.src}
           target="_blank"
@@ -241,17 +250,32 @@ export function Lightbox({ images, start = 0, onClose }: { images: LightboxImage
         onClick={(e) => e.stopPropagation()}
         className="relative mx-3 mb-3 flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden select-none"
       >
-        <img
-          ref={picture}
-          src={image.src}
-          alt={image.alt}
-          draggable={false}
-          onLoad={() => setView((v) => within(v))}
-          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
-          className={`max-h-full max-w-full rounded-sm object-contain ${view.smooth && !dragging ? "transition-transform duration-150 motion-reduce:transition-none" : ""} ${
-            dragging ? "cursor-grabbing" : enlarged ? "cursor-grab" : "cursor-zoom-in"
-          }`}
-        />
+        {video ? (
+          <video
+            key={image.src}
+            src={image.src}
+            aria-label={image.alt}
+            controls
+            autoPlay
+            muted
+            playsInline
+            // A short clip loops like a GIF; a long one plays once.
+            onLoadedMetadata={(e) => (e.currentTarget.loop = e.currentTarget.duration <= LOOP_MAX_S)}
+            className="max-h-full max-w-full rounded-sm bg-black object-contain"
+          />
+        ) : (
+          <img
+            ref={picture}
+            src={image.src}
+            alt={image.alt}
+            draggable={false}
+            onLoad={() => setView((v) => within(v))}
+            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+            className={`max-h-full max-w-full rounded-sm object-contain ${view.smooth && !dragging ? "transition-transform duration-150 motion-reduce:transition-none" : ""} ${
+              dragging ? "cursor-grabbing" : enlarged ? "cursor-grab" : "cursor-zoom-in"
+            }`}
+          />
+        )}
         {many && (
           <>
             <ControlButton label={t("lightbox.previous")} onClick={() => step(-1)} className="absolute left-0 top-1/2 -translate-y-1/2">

@@ -7,6 +7,8 @@ import type { Agent, Message, Person } from "../../api/types";
 import { AttachmentLink } from "../../components/AttachmentLink";
 import { Avatar } from "../../components/Avatar";
 import { Lightbox } from "../../components/Lightbox";
+import { VideoThumb } from "../../components/VideoThumb";
+import { isMediaFile, isVideoFile } from "../../lib/media";
 import { Markdown, TicketText } from "../../components/Markdown";
 import { chatTime, formatDateTime, formatTokens } from "../../lib/format";
 import { CodeLine, useShowCode } from "./ToolCode";
@@ -241,13 +243,19 @@ function Note({
 
 function MessageFiles({ files }: { files: { id: number; filename: string; content_type: string }[] }) {
   const [viewing, setViewing] = useState<number | null>(null);
-  const images = files.filter((f) => f.content_type.startsWith("image/"));
-  const others = files.filter((f) => !f.content_type.startsWith("image/"));
+  const images = files.filter(isMediaFile);
+  const others = files.filter((f) => !isMediaFile(f));
   return (
     <div className="my-1 flex flex-wrap items-start gap-1.5">
       {images.map((f, i) => (
         <button key={f.id} type="button" onClick={() => setViewing(i)} className="overflow-hidden rounded-sm ring-1 ring-line">
-          <img src={`/api/attachments/${f.id}`} alt={f.filename} loading="lazy" className="h-40 max-w-full object-cover" />
+          {isVideoFile(f) ? (
+            <span className="block h-40 w-60 max-w-full">
+              <VideoThumb src={`/api/attachments/${f.id}`} />
+            </span>
+          ) : (
+            <img src={`/api/attachments/${f.id}`} alt={f.filename} loading="lazy" className="h-40 max-w-full object-cover" />
+          )}
         </button>
       ))}
       {others.map((f) => (
@@ -256,7 +264,7 @@ function MessageFiles({ files }: { files: { id: number; filename: string; conten
           <span className="truncate">{f.filename}</span>
         </AttachmentLink>
       ))}
-      {viewing !== null && <Lightbox images={images.map((f) => ({ src: `/api/attachments/${f.id}`, alt: f.filename }))} start={viewing} onClose={() => setViewing(null)} />}
+      {viewing !== null && <Lightbox images={images.map((f) => ({ src: `/api/attachments/${f.id}`, alt: f.filename, video: isVideoFile(f) }))} start={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

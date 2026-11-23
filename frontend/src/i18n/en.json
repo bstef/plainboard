@@ -366,8 +366,8 @@
   },
   "lightbox": {
     "position": "{{current}} of {{total}}",
-    "previous": "Previous image",
-    "next": "Next image",
+    "previous": "Previous",
+    "next": "Next",
     "openOriginal": "Open original",
     "zoomIn": "Zoom in (+, or the mouse wheel)",
     "zoomOut": "Zoom out (-)",

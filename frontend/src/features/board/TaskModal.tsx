@@ -8,13 +8,15 @@ import { qk, useTask } from "../../api/queries";
 import type { Assignment, Attachment, Comment, Priority, TaskDetail, TaskStatus } from "../../api/types";
 import { AttachmentLink } from "../../components/AttachmentLink";
 import { Lightbox } from "../../components/Lightbox";
+import { VideoThumb } from "../../components/VideoThumb";
+import { isVideoFile } from "../../lib/media";
 import { Markdown, TicketText } from "../../components/Markdown";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, AgentDot, Badge, Button, ErrorText, IconButton, Input, Modal, Select, Spinner, Textarea } from "../../components/ui";
 import { chatTime, formatBytes, formatDateTime, timeAgo } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
 import { STATUSES } from "./Board";
-import { Decisions, isImage, reviewAttachmentIds } from "./Decisions";
+import { Decisions, isMedia, reviewAttachmentIds } from "./Decisions";
 import { Label } from "./TaskCard";
 
 const PRIORITIES: Priority[] = ["low", "medium", "high", "urgent"];
@@ -66,7 +68,7 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
     );
   }
   const data = task.data;
-  const images = data.attachments.filter(isImage);
+  const images = data.attachments.filter(isMedia);
 
   const handToManager = async () => {
     setError(null);
@@ -180,7 +182,7 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
       </div>
       {viewing !== null && (
         <Lightbox
-          images={images.map((a) => ({ src: `/api/attachments/${a.id}`, alt: a.filename }))}
+          images={images.map((a) => ({ src: `/api/attachments/${a.id}`, alt: a.filename, video: isVideoFile(a) }))}
           start={Math.max(
             images.findIndex((a) => a.id === viewing),
             0,
@@ -454,9 +456,9 @@ function Attachments({
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {attachments.map((a) => (
               <div key={a.id} className="group relative overflow-hidden rounded-sm ring-1 ring-line">
-                {isImage(a) ? (
-                  <button type="button" onClick={() => onView(a.id)} className="block w-full cursor-zoom-in">
-                    <img src={`/api/attachments/${a.id}`} alt={a.filename} className="h-24 w-full object-cover" />
+                {isMedia(a) ? (
+                  <button type="button" onClick={() => onView(a.id)} className="block h-24 w-full cursor-zoom-in">
+                    {isVideoFile(a) ? <VideoThumb src={`/api/attachments/${a.id}`} /> : <img src={`/api/attachments/${a.id}`} alt={a.filename} className="h-24 w-full object-cover" />}
                   </button>
                 ) : (
                   <AttachmentLink file={a} className="flex h-24 w-full items-center justify-center bg-sunk">

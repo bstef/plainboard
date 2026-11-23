@@ -615,6 +615,13 @@ def inline_type(path: Path, filename: str) -> str | None:
             return kind
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "image/webp"
+    # Videos play through a <video> element, which runs no script: told by the container's first bytes.
+    if head[:4] == b"\x1a\x45\xdf\xa3":  # Matroska / WebM
+        return "video/webm"
+    if head[4:8] == b"ftyp":  # ISO base media: mp4, m4v, mov
+        return "video/quicktime" if head[8:12] == b"qt  " else "video/mp4"
+    if head[:4] == b"OggS" and Path(filename).suffix.lower() in {".ogv", ".ogg"}:
+        return "video/ogg"
     if Path(filename).suffix.lower() in _TEXT_SUFFIXES:
         return "text/plain; charset=utf-8"
     return None
