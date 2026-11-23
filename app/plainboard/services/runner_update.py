@@ -19,7 +19,9 @@ from pathlib import Path
 
 from . import runners as runner_service
 
-DRAIN_JOBS_SECONDS = 30 * 60  # running jobs and check runs are waited for this long, then the update goes ahead
+# Running turns, jobs, servers and check runs are waited for this long at most, then the runner restarts
+# anyway (setting runner_update_drain_seconds): cut turns go on in the same session, cut check runs again.
+DRAIN_SECONDS = 5 * 60
 RETRY_SECONDS = 6 * 3600  # after a failed or refused update: no new try for the same version before this
 MANUAL = "docker compose pull && docker compose up -d"
 
@@ -31,11 +33,13 @@ RESTART = "restart"  # idle (or waited long enough): it restarts into the new co
 FAILED = "failed"  # it put its old version back: the managers hear it once
 
 
-def step(own: str, version: str, failed: bool, blocked: bool, draining_since: float | None, turns: int, jobs: int, now: float) -> str:
+def step(
+    own: str, version: str, failed: bool, blocked: bool, draining_since: float | None, turns: int, jobs: int, now: float, limit: float = DRAIN_SECONDS
+) -> str:
     """``own``/``version``: the app's and the runner's commit; ``failed``: the runner put its old version back
     after trying ``own`` a short while ago; ``blocked``: ``own`` was refused or could not be sent a short while
     ago; ``draining_since``: staged then (monotonic, like ``now``); ``turns``/``jobs``: what still runs of its
-    projects (jobs: background jobs, servers and check runs)."""
+    projects (jobs: background jobs, servers and check runs), waited for ``limit`` seconds at most."""
     if not own or not version or runner_service.short(version) == runner_service.short(own):
         return IDLE
     if blocked:
@@ -44,7 +48,7 @@ def step(own: str, version: str, failed: bool, blocked: bool, draining_since: fl
         return FAILED
     if draining_since is None:
         return STAGE
-    if turns or (jobs and now - draining_since < DRAIN_JOBS_SECONDS):
+    if (turns or jobs) and now - draining_since < limit:
         return WAIT
     return RESTART
 
@@ -114,8 +118,9 @@ def failed_note(name: str, own: str, reason: str) -> str:
     )
 
 
-def cut_note(name: str, jobs: int) -> str:
+def cut_note(name: str, jobs: int, limit: float) -> str:
     return (
         f'The runner "{name}" restarts now to update itself to PlainBoard\'s version. {jobs} job(s), server(s) or check run(s) of this project still ran '
-        f"after {DRAIN_JOBS_SECONDS // 60} minutes and end with it (previews too): start again what is still needed once it is back (a minute or two)."
+        f"after {max(1, round(limit / 60))} minute(s) and end with it (previews too; a train's check run runs again by itself): start again what is still needed "
+        "once it is back (a minute or two). Cut agent turns go on by themselves."
     )

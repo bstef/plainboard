@@ -790,6 +790,7 @@ export interface RunnerInfo {
   version: string;
   version_ok: boolean;
   updating: boolean;
+  restart_by?: string | null;
   last_seen_at: string | null;
   created_at: string;
   projects: string[];

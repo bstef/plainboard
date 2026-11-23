@@ -1547,7 +1547,11 @@ class RunManager:
             async for event in self.runners.of(project_id).stream_run(spec):
                 yield event
         except RunnerStreamBroken as exc:
-            outcome.error, outcome.broken = str(exc), True
+            # A turn an external runner no longer has (it restarted, e.g. for its self-update) is lost, not failed:
+            # its assignment goes on in the same session (_assignment_turn_ended), like after a restart of the app.
+            if exc.lost:
+                log.warning("Run %s lost on its runner: %s", spec.run_id, exc)
+            outcome.error, outcome.broken = (LOST if exc.lost else str(exc)), True
 
     async def _stream(self, spec: RunSpec, ctx: RunContext) -> Outcome:
         outcome = Outcome(resumed=spec.resume_session_id is not None)
@@ -1725,6 +1729,9 @@ class RunManager:
             assignment = await s.get(Assignment, run.assignment_id)
             if assignment and assignment.status in (AssignmentStatus.QUEUED, AssignmentStatus.RUNNING):
                 await self._assignment_turn_ended(s, run, assignment, agent, project, outcome_text)
+
+        elif run.error == LOST and agent.is_manager and not run.assignment_id:
+            await self._report_interrupted(s, run)  # the manager's own turn: it hears it and goes on, as after a restart
 
         elif run.trigger == RunTrigger.TICKET and not ok and run.task_id:
             ticket = await s.get(Task, run.task_id)

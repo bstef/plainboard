@@ -63,6 +63,8 @@ SETTINGS: dict[str, SettingDef] = {
     "scratchpad_retention_days": SettingDef(14),  # an ended assignment's scratchpad stays archived this long
     # Tool messages keep their full input and result this many days, then a preview (services/tool_details.py); 0: forever.
     "tool_details_days": SettingDef(30),
+    # An external runner updating itself waits this long at most for running turns, jobs and check runs, then restarts (services/runner_update.py).
+    "runner_update_drain_seconds": SettingDef(300),
     "tool_details_floor": SettingDef(0, managed=True),  # message id up to which tool messages were looked at
     "checks_growth_percent": SettingDef(30),  # check runs this much slower than their baseline: the manager has them made faster
     "checks_cooldown_days": SettingDef(7),  # not again within this after it was told or its ticket was done, unless clearly slower

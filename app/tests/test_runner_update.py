@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import tarfile
@@ -12,7 +13,7 @@ from conftest import FakeRunner, agents_by_slug, runs_of, wait_for
 
 from plainboard.orchestration.runner_client import UpdateRefused
 from plainboard.services import runner_update
-from plainboard.services.runner_update import DRAIN_JOBS_SECONDS, FAILED, IDLE, RESTART, STAGE, WAIT, step
+from plainboard.services.runner_update import DRAIN_SECONDS, FAILED, IDLE, RESTART, STAGE, WAIT, step
 
 OWN, OLD = "a" * 40, "b" * 40
 
@@ -22,9 +23,10 @@ def test_a_runner_updates_only_when_its_version_differs_and_only_once_it_is_free
     assert step("", OLD, False, False, None, 0, 0, 100) == IDLE  # the app does not know its own version
     assert step(OWN, "", False, False, None, 0, 0, 100) == IDLE
     assert step(OWN, OLD, False, False, None, 3, 2, 100) == STAGE  # staging touches nothing that runs
-    assert step(OWN, OLD, False, False, 100, 1, 0, 100 + 10 * DRAIN_JOBS_SECONDS) == WAIT  # running turns end first
-    assert step(OWN, OLD, False, False, 100, 0, 2, 100 + DRAIN_JOBS_SECONDS - 1) == WAIT  # jobs get their time
-    assert step(OWN, OLD, False, False, 100, 0, 2, 100 + DRAIN_JOBS_SECONDS) == RESTART  # then it goes ahead
+    assert step(OWN, OLD, False, False, 100, 1, 0, 100 + DRAIN_SECONDS - 1) == WAIT  # running turns get their time
+    assert step(OWN, OLD, False, False, 100, 0, 2, 100 + DRAIN_SECONDS - 1) == WAIT  # jobs too
+    assert step(OWN, OLD, False, False, 100, 1, 2, 100 + DRAIN_SECONDS) == RESTART  # then it goes ahead, whatever runs
+    assert step(OWN, OLD, False, False, 100, 1, 0, 160, limit=60) == RESTART  # the limit is a setting
     assert step(OWN, OLD, False, False, 100, 0, 0, 101) == RESTART
     assert step(OWN, OLD, True, False, None, 0, 0, 100) == FAILED
     assert step(OWN, OLD, True, True, None, 0, 0, 100) == IDLE  # no loop: told, then left alone
@@ -48,6 +50,24 @@ class Updatee(FakeRunner):
         self.refuse = refuse
         self.staged: list[str] = []
         self.restarted: list[str] = []
+        self.cut: list[int] = []  # turns the restart ended
+
+    async def _events(self, spec):
+        """CUT: the turn works until the runner restarts, then the runner no longer has it."""
+        if "CUT" not in spec.prompt.splitlines() or self.cut:
+            async for event in super()._events(spec):
+                yield event
+            return
+        from plainboard.orchestration.runner_client import RunnerStreamBroken
+        from plainboard_protocol import AssistantTextEvent, SessionEvent
+
+        self.specs.append(spec)
+        yield SessionEvent(session_id=f"session-{spec.run_id}")
+        yield AssistantTextEvent(text="working on it")
+        while not self.restarted:
+            await asyncio.sleep(0.01)
+        self.cut.append(int(spec.run_id))
+        raise RunnerStreamBroken("The runner no longer has this turn (404): it was started anew", 2, lost=True)
 
     async def active_runs(self) -> set[int]:
         return set()
@@ -110,6 +130,50 @@ def test_a_runner_with_another_version_takes_the_update_runs_idle_and_restarts_o
 
         client.portal.call(runs.updates.look)  # nothing runs: it restarts
         assert runner.restarted == [OWN] and _notes(client, manager["id"]) == []
+
+
+def test_a_turn_still_running_after_the_drain_limit_is_cut_and_its_assignment_goes_on_once_the_runner_is_back(client, project, monkeypatch):
+    import test_orchestration as orch
+
+    runner = Updatee()
+    created, rid, runs = _setup(client, project, monkeypatch, runner)
+    pid = project["id"]
+    dev = orch.make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    auth = {"authorization": f"Bearer {created['token']}"}
+    with client.websocket_connect("/api/runners/connect", headers=auth) as ws:
+        ws.send_text(json.dumps({"t": "hello", "version": OLD, "protocol": 1, "instance": "i1"}))
+        wait_for(lambda: runs.runners.connected(rid))
+        orch.chat(client, manager["id"], "TOOL delegate " + json.dumps({"agent": "dev", "title": "Work", "instructions": "CUT"}))
+        turn = wait_for(lambda: next((r for r in runs_of(client, pid, agent_id=dev["id"]) if r["status"] == "running"), None))
+        wait_for(lambda: idle_manager(client, pid, manager["id"]))
+
+        client.portal.call(runs.updates.look)  # staged, drained
+        client.portal.call(runs.updates.look)  # the turn runs: it waits
+        assert runner.staged == [OWN] and runner.restarted == []
+        shown = next(r for r in client.get("/api/runners").json() if r["id"] == rid)
+        assert shown["updating"] and shown["restart_by"]
+
+        runs.updates._draining[rid] -= runner_update.DRAIN_SECONDS  # 5 minutes later
+        client.portal.call(runs.updates.look)
+        assert runner.restarted == [OWN]
+        wait_for(lambda: runner.cut == [turn["id"]])
+        lost = wait_for(lambda: next((r for r in runs_of(client, pid, agent_id=dev["id"]) if r["id"] == turn["id"] and r["status"] != "running"), None))
+        assert lost["status"] == "failed" and lost["error"] == "The turn broke off: the runner no longer had it"
+        assert client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "running"  # not failed: it goes on
+        time.sleep(0.2)
+        assert [int(s.run_id) for s in runner.specs][-1] == turn["id"]  # the runner is not back yet: its next turn waits
+
+        # Back with the new version: the assignment goes on in the same session.
+        with client.websocket_connect("/api/runners/connect", headers=auth) as ws2:
+            ws2.send_text(json.dumps({"t": "hello", "version": OWN, "protocol": 1, "instance": "i2"}))
+            wait_for(lambda: client.get(f"/api/projects/{pid}/assignments").json()[0]["status"] == "done")
+    again = runner.specs[-1]
+    assert int(again.run_id) != turn["id"] and "Your last turn broke off" in again.prompt and again.resume_session_id == f"session-{turn['id']}"
+
+
+def idle_manager(client, pid: int, manager_id: int) -> bool:
+    return all(r["status"] not in ("queued", "running") for r in runs_of(client, pid, agent_id=manager_id))
 
 
 def test_a_runner_that_cant_take_the_update_is_left_alone_and_the_manager_hears_it_once(client, project, monkeypatch):

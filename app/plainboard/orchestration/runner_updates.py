@@ -4,9 +4,11 @@ watcher's look (``RunManager.check_runners``).
 
 A runner with another version is sent the app's code first (it checks and unpacks it; nothing that
 runs is touched), then drained: no new turn or job starts there (they wait in the queue, as while a
-runner is away; turns asked of an agent by a running turn still start), running turns end, running
-jobs, servers and check runs get ``DRAIN_JOBS_SECONDS``. What still runs then ends with the restart:
-the managers of those projects hear it, the job watcher reports the jobs lost. Then the runner restarts
+runner is away; turns asked of an agent by a running turn still start, no train leaves), and running
+turns, jobs, servers and check runs get the setting ``runner_update_drain_seconds`` (5 minutes) to end.
+What still runs then ends with the restart: a cut turn is lost (RunManager._events), its assignment goes
+on in the same session once the runner is back; the managers hear of cut jobs, the job watcher reports
+them lost; a train's check run is given up without a result and runs again. Then the runner restarts
 into the new code; its launcher puts the old one back when the new one does not come up. A runner that
 can't take the update, or one whose update failed, is left as it is: the managers hear it once
 (``Runner.update_told``), and the same version is not tried again for ``RETRY_SECONDS``."""
@@ -22,6 +24,7 @@ from sqlalchemy import func, select
 
 from ..models import Job, JobStatus, Run, RunStatus, Runner, Train, TrainStatus
 from ..services import runner_update
+from ..services import settings as settings_service
 from ..services import version as version_service
 from ..services.runners import short
 from . import inbox
@@ -51,6 +54,7 @@ class RunnerUpdates:
         """A runner connected: a drain ends (a restart is a new runner; it is looked at again)."""
         self._draining.pop(runner_id, None)
         self._runs.runners.updating.discard(runner_id)
+        self._runs.runners.restart_by.pop(runner_id, None)
 
     async def look(self) -> None:
         own = version_service.running_commit()
@@ -63,8 +67,13 @@ class RunnerUpdates:
             except Exception:
                 log.exception("Update of runner %s not looked at", runner_id)
 
+    async def _limit(self) -> float:
+        async with self._runs._sm() as s:
+            value = await settings_service.get(s, "runner_update_drain_seconds")
+        return max(float(runner_update.DRAIN_SECONDS if value is None else value), 0.0)
+
     async def _busy(self, runner_id: int) -> tuple[int, dict[int, int]]:
-        """Running turns of the runner's projects, and per project its running jobs and check runs."""
+        """Running turns of the runner's projects, and per project its running jobs and the check runs it runs."""
         projects = self._runs.runners.projects_of(runner_id) or set()
         if not projects:
             return 0, {}
@@ -73,7 +82,7 @@ class RunnerUpdates:
             jobs: dict[int, int] = {}
             for pid, n in (await s.execute(select(Job.project_id, func.count(Job.id)).where(Job.project_id.in_(projects), Job.status == JobStatus.RUNNING).group_by(Job.project_id))).all():
                 jobs[pid] = jobs.get(pid, 0) + n
-            for pid, n in (await s.execute(select(Train.project_id, func.count(Train.id)).where(Train.project_id.in_(projects), Train.status == TrainStatus.CHECKING).group_by(Train.project_id))).all():
+            for pid, n in (await s.execute(select(Train.project_id, func.count(Train.id)).where(Train.project_id.in_(projects), Train.status == TrainStatus.CHECKING, func.coalesce(Train.job_id, "") != "").group_by(Train.project_id))).all():
                 jobs[pid] = jobs.get(pid, 0) + n
         return turns, jobs
 
@@ -90,8 +99,9 @@ class RunnerUpdates:
             reason = "it came back with its old version"
         draining = self._draining.get(runner_id)
         turns, jobs = await self._busy(runner_id) if draining is not None else (0, {})
+        limit = await self._limit() if draining is not None else runner_update.DRAIN_SECONDS
         blocked = self._blocked.get(runner_id, 0) > now
-        what = runner_update.step(own, version, bool(reason), blocked, draining, turns, sum(jobs.values()), now)
+        what = runner_update.step(own, version, bool(reason), blocked, draining, turns, sum(jobs.values()), now, limit)
         if what == runner_update.FAILED:
             self._restarted.pop(runner_id, None)
             self._blocked[runner_id] = now + runner_update.RETRY_SECONDS
@@ -99,7 +109,7 @@ class RunnerUpdates:
         elif what == runner_update.STAGE:
             await self._stage(runner_id, own, version)
         elif what == runner_update.RESTART:
-            await self._restart(runner_id, own, jobs)
+            await self._restart(runner_id, own, jobs, limit)
 
     async def _stage(self, runner_id: int, own: str, version: str) -> None:
         bundle = await asyncio.to_thread(runner_update.bundle, own)
@@ -123,8 +133,9 @@ class RunnerUpdates:
         log.info("Runner %s took the update to %s: it runs idle now", runner_id, own[:10])
         self._draining[runner_id] = now
         self._runs.runners.updating.add(runner_id)
+        self._runs.runners.restart_by[runner_id] = time.time() + await self._limit()  # shown: it restarts at the latest then
 
-    async def _restart(self, runner_id: int, own: str, jobs: dict[int, int]) -> None:
+    async def _restart(self, runner_id: int, own: str, jobs: dict[int, int], limit: float) -> None:
         try:
             await self._runs.runners.client(runner_id).restart_update(own)
         except Exception as exc:  # e.g. it restarted since and has nothing staged: sent again
@@ -138,7 +149,7 @@ class RunnerUpdates:
                 runner = await s.get(Runner, runner_id)
                 for manager in await self._runs._managers_on(s, runner_id):
                     if n := jobs.get(manager.project_id):
-                        await inbox.push(s, manager.id, runner_update.cut_note(runner.name if runner else "?", n))
+                        await inbox.push(s, manager.id, runner_update.cut_note(runner.name if runner else "?", n, limit))
                 await s.commit()
         log.warning("Runner %s restarts into %s", runner_id, own[:10])
 
