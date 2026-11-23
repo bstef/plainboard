@@ -4,6 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type K
 import { useTranslation } from "react-i18next";
 import { useMe } from "../../api/queries";
 import { Input } from "../../components/ui";
+import { useDismiss } from "../../lib/hooks";
 import type { Project } from "../../api/types";
 
 /** From this many projects the menu gets a search field and lists the recently used ones first. */
@@ -70,17 +71,7 @@ export function ProjectSwitcher({
 
   const { list, recentCount } = useMemo(() => arrange(projects, many ? recentIds : [], query), [projects, many, recentIds, query]);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   // The menu never leaves the screen: the project list takes what room is below the button and scrolls.
   useLayoutEffect(() => {

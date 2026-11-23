@@ -12,7 +12,7 @@ import { Markdown } from "../../components/Markdown";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, ChatPanelToggle, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
-import { useStored } from "../../lib/hooks";
+import { useDismiss, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useShell } from "../layout/shell-context";
 import { AskDialog } from "./AskDialog";
@@ -323,6 +323,8 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
 
   const action = async (name: "compress" | "reset-session") => {
     setBusy(name);
@@ -340,8 +342,8 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
   };
 
   return (
-    <div className="relative">
-      <IconButton label={t("chat.menu")} onClick={() => setOpen(!open)}>
+    <div ref={ref} className="relative">
+      <IconButton label={t("chat.menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <MoreHorizontal className="size-4" />
       </IconButton>
       {open && (

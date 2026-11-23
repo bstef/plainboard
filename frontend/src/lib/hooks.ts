@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 
 /** State persisted in localStorage (JSON). */
 export function useStored<T>(key: string, initial: T) {
@@ -59,3 +59,21 @@ export function useMediaQuery(query: string): boolean {
 
 /** Desktop layout (sidebar + side chat panel) from Tailwind's `lg` breakpoint. */
 export const useIsDesktop = () => useMediaQuery("(min-width: 1024px)");
+
+/** Closes an open menu or popover on a click or tap outside `ref` and on Escape. Capture phase, so it
+ * also works inside modals that stop events from bubbling. */
+export function useDismiss(ref: RefObject<HTMLElement | null>, open: boolean, close: () => void) {
+  const onClose = useRef(close);
+  onClose.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && onClose.current();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose.current();
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [ref, open]);
+}

@@ -1,9 +1,10 @@
 import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLimits } from "../../api/queries";
 import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types";
 import { timeAgo } from "../../lib/format";
+import { useDismiss } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { useUsableAccounts } from "../projects/ProjectAccounts";
 
@@ -64,12 +65,7 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   const windows = account?.windows ?? [];
   const forecasts = account?.forecasts ?? [];

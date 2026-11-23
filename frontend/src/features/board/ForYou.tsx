@@ -1,8 +1,9 @@
 import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Lightbulb } from "lucide-react";
 import { useIdeaQuestions, useTasks } from "../../api/queries";
+import { useDismiss } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 
 /** The one vermilion element of a screen: how many tickets and questions about ideas wait for the user,
@@ -17,17 +18,7 @@ export function ForYou({ variant = "plate" }: { variant?: "plate" | "side" | "ra
   const questions = useIdeaQuestions(project.id, canWrite).data ?? [];
   const count = tasks.length + (canWrite ? questions.length : 0);
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
 
   if (!count) return null;
   return (

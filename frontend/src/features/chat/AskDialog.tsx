@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { Markdown } from "../../components/Markdown";
 import { Modal, Spinner } from "../../components/ui";
+import { useDismiss } from "../../lib/hooks";
 
 interface Entry {
   question: string;
@@ -27,12 +28,7 @@ function InfoTip({ text, label }: { text: string; label: string }) {
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [open]);
+  useDismiss(box, open, () => setOpen(false));
   const shown = open || hover;
   return (
     <span ref={box} className="relative inline-flex shrink-0" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>

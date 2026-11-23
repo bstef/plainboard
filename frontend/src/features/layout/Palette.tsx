@@ -24,6 +24,7 @@ import { useTasks } from "../../api/queries";
 import type { Project, ProjectSearch, SearchHit } from "../../api/types";
 import { IconButton, Spinner } from "../../components/ui";
 import { timeAgo } from "../../lib/format";
+import { useDismiss } from "../../lib/hooks";
 
 export interface NavEntry {
   id: string;
@@ -86,12 +87,7 @@ export function ProjectMenu({
     const [edge, width] = [8, document.documentElement.clientWidth];
     setShift(r.right > width - edge ? width - edge - r.right : r.left < edge ? edge - r.left : 0);
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismiss(ref, open, () => setOpen(false));
   useEffect(() => {
     if (open) ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]')[active]?.focus();
   }, [open, active]);
