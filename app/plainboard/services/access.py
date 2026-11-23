@@ -29,6 +29,7 @@ from ..models import Agent, AgentNote, Assignment, Attachment, Decision, Project
 from ..security import read_session_cookie
 from . import access_keys as access_key_service
 from . import permissions
+from . import personal_tokens as token_service
 from . import sessions as session_service
 from . import users as user_service
 from .errors import NotFound, ServiceError
@@ -48,7 +49,9 @@ PROJECT_RANK = {Need.VIEWER: 1, Need.MEMBER: 2, Need.OWNER: 3}
 READS = ("GET", "HEAD", "OPTIONS")
 # What a read key never gets, although it is a GET: the keys themselves, the provider accounts and
 # their sign-in, and what is fetched with the installation's GitHub token.
-READ_KEY_HIDDEN = ("/api/access-keys", "/api/accounts", "/api/github", "/api/projects/{project_id}/github")
+READ_KEY_HIDDEN = ("/api/access-keys", "/api/accounts", "/api/github", "/api/projects/{project_id}/github", "/api/tokens")
+# What a personal token never reaches: tokens and keys are made in the browser, by the person signed in.
+TOKEN_HIDDEN = ("/api/tokens", "/api/access-keys", "/api/auth/me")
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,8 @@ class Principal:
     user: User | None = None
     read_key: bool = False
     session_id: str = ""  # the browser session of a user (services/sessions.py)
+    token_id: int | None = None  # a user's personal token (services/personal_tokens.py) instead of the login
+    read_only: bool = False  # ... that only reads
 
     @property
     def is_admin(self) -> bool:
@@ -116,6 +121,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/users/directory", Need.USER),  # names only: whom a project can be shared with
     Rule("/api/avatars", Need.USER),  # the profile pictures of those names
     Rule("/api/mentions", Need.USER, Need.USER),  # each person's own
+    Rule("/api/tokens", Need.USER, Need.USER),  # each person's own personal tokens (MCP, API)
     Rule("/api/projects", Need.USER, Need.CREATOR),  # the list holds the user's own projects only
     # --- a project. Everything in it can be read by its viewers; what is not listed is changed by owners only.
     _project(""),
@@ -160,7 +166,12 @@ async def principal(session: AsyncSession, cookie: str | None, authorization: st
         if user is not None:
             return Principal(user=user, session_id=signed[2])
     scheme, _, secret = (authorization or "").partition(" ")
-    if scheme.lower() == "bearer" and secret.strip() and await access_key_service.valid(session, secret.strip()):
+    secret = secret.strip()
+    if scheme.lower() != "bearer" or not secret:
+        return None
+    if found := await token_service.authenticate(session, secret):
+        return Principal(user=found[0], token_id=found[1].id, read_only=found[1].read_only)
+    if await access_key_service.valid(session, secret):
         return Principal(read_key=True)
     return None
 
@@ -191,6 +202,11 @@ async def check(session: AsyncSession, who: Principal | None, method: str, path:
         if not reading or path.startswith(READ_KEY_HIDDEN):
             raise ServiceError("This key can only read", 403)
         return
+    if who.token_id is not None:
+        if path.startswith(TOKEN_HIDDEN):
+            raise ServiceError("Not with a personal token: sign in.", 403)
+        if who.read_only and not reading:
+            raise ServiceError("This token can only read", 403)
     user = who.user
     assert user is not None
     if user.is_admin or need == Need.USER:

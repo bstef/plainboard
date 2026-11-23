@@ -100,6 +100,7 @@ whole installation. Everyone finds their own account here; the rest is for admin
 | Section | What is in it |
 |---|---|
 | Your account | Your name, your password, signing out |
+| MCP / API access | Your personal tokens for MCP clients and the API, with ready configurations; for admins the switch for everyone |
 | People | Who may sign in, who is an admin, who may create projects |
 | Subscriptions | Claude and Codex subscriptions and API keys; model servers of your own and other model hosts |
 | Models | The models new agents start with, each with its thinking effort (managers, members, summaries); when long chats are summarised |
@@ -574,6 +575,46 @@ curl -H "Authorization: Bearer pb_..." https://your-plainboard/api/public/tasks
 `status` is `backlog`, `todo`, `in_progress`, `review` or `done`. The endpoint allows calls from any
 website, and responses may be cached for 60 seconds. The server must be reachable from where you call
 it (see [On a server](#on-a-server)).
+
+## MCP server: PlainBoard in your own AI client
+
+PlainBoard is an MCP server itself, so you can work with it from Claude Desktop, Claude Code, Cursor or
+any other client that speaks MCP over Streamable HTTP: read and change the board, answer decisions,
+talk to the manager and follow what the team does.
+
+1. **PlainBoard settings → MCP / API access**: create a token (a label per client, optionally *read
+   only* and with an expiry). It is shown once; the page fills it into ready configurations.
+2. Add the server to your client, at `https://your-plainboard/mcp`:
+
+```bash
+claude mcp add --transport http plainboard https://your-plainboard/mcp --header "Authorization: Bearer pbp_..."
+```
+
+Claude Desktop (`claude_desktop_config.json`, through `mcp-remote`):
+
+```json
+{"mcpServers": {"plainboard": {"command": "npx", "args": ["-y", "mcp-remote", "https://your-plainboard/mcp", "--header", "Authorization: Bearer pbp_..."]}}}
+```
+
+The client then works **as you**: in your projects, with your role (a viewer reads only, a member
+works on tickets, chats and notes), with the same limits as in the browser. A read-only
+token changes nothing. Ask your client e.g. "What is open on the Kiosk board?" or "Tell the manager
+of Kiosk to look at #12, then show me its answer". Its tools: `list_projects`, `board_summary`,
+`list_tickets`, `get_ticket`, `get_comments`, `create_ticket`, `update_ticket` (move, labels,
+priority, customer texts, archive), `start_ticket`, `add_comment`, `user_action_done`,
+`list_decisions`, `answer_decision`, `list_agents`, `chat` and `wait_for_reply` (a message to the
+manager, then its answer, waiting up to 50 seconds per call), `read_chat`, `list_assignments`,
+`list_runs`, `in_flight` (work, branches on their way, trains), `list_notes`, `get_note`,
+`create_note`, `update_note`, `list_schedules`, `search_history` (where semantic search is on),
+`mentions`, `get_attachment`, `upload_attachment`, `usage_limits`.
+
+The token also works for the REST API (`Authorization: Bearer pbp_...`), except for making tokens and
+changing your account. The MCP server never accepts the browser login, so no other website can use
+it. Each token may send 120 requests a minute; every tool call is recorded (who, which tool, which
+project, when; table `mcp_calls`, kept 90 days). Revoke a token and it stops at once; a person who is
+switched off has no working token. An admin can switch MCP and all personal tokens off in the same
+section. Clients that only sign in with OAuth (e.g. Claude's custom connectors in the browser) are not
+supported yet: use a client that can send a header, or `mcp-remote` as above.
 
 ## How work flows
 

@@ -17,6 +17,7 @@ import { GithubTokenField } from "./GithubTokenField";
 import { AccountEditor } from "./AccountEditor";
 import { AccountsEditor } from "./AccountsEditor";
 import { EndpointAccounts } from "./EndpointAccounts";
+import { McpAccessEditor } from "./McpAccessEditor";
 import { PauseEditor } from "./PauseEditor";
 import { RunnersEditor } from "./RunnersEditor";
 import { SearchEditor } from "./SearchEditor";
@@ -97,6 +98,21 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   const CLEANUP = ["storage_notify_percent", "storage_emergency_percent", "cleanup", "cleanup_memory_free_percent", "tool_details_days"];
 
   const account: SettingsSection = { id: "account", label: t("account.title"), description: t("account.hint"), content: <AccountEditor /> };
+  const mcp: SettingsSection = {
+    id: "mcp",
+    label: t("mcp.title"),
+    description: t("mcp.description"),
+    content: (
+      <McpAccessEditor
+        enabled={stored.mcp_enabled ?? true}
+        admin={me.is_admin}
+        onToggle={async (on) => {
+          await api.put("/settings", { values: { mcp_enabled: on } });
+          await qc.invalidateQueries({ queryKey: qk.settings });
+        }}
+      />
+    ),
+  };
   const ownAccounts = (
     <>
       <div className="space-y-2">
@@ -361,7 +377,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
             <X className="size-4" />
           </IconButton>
         </PageHead>
-        <SettingsLayout label={t("settings.title")} sections={[account, ...own, ...admin]} current={current} onChange={setCurrent} />
+        <SettingsLayout label={t("settings.title")} sections={[account, mcp, ...own, ...admin]} current={current} onChange={setCurrent} />
       </div>
     </div>
   );

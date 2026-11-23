@@ -725,15 +725,15 @@ async def agent_names(session: AsyncSession, project_id: int) -> dict[int, str]:
     return {a.id: a.name for a in (await session.scalars(select(Agent).where(Agent.project_id == project_id))).all()}
 
 
-async def ticket_text(session: AsyncSession, task: Task, comment_limit: int = COMMENT_PAGE) -> str:
-    """Compact ticket description for prompts and tools."""
+async def ticket_text(session: AsyncSession, task: Task, comment_limit: int = COMMENT_PAGE, path=None) -> str:  # noqa: ANN001
+    """Compact ticket description for prompts and tools. ``path``: where an attachment is (default: in the runner)."""
     from ..orchestration.prompts import ticket_brief
 
     names = await agent_names(session, task.project_id)
     decisions = await list_decisions(session, task.id)
     comments = await recent_comments(session, task.id, comment_limit)
     total = await count_comments(session, task.id)
-    brief = ticket_brief(task, await list_attachments(session, task.id), comments, names, runner_path, decisions, comment_total=total)
+    brief = ticket_brief(task, await list_attachments(session, task.id), comments, names, path or runner_path, decisions, comment_total=total)
     stands = ticket_state.lines(await ticket_state.get(session, task.id))
     work = await work_lines(session, task, names)
     return "\n\n".join(part for part in (brief, "\n".join(stands), "\n".join(work)) if part)
