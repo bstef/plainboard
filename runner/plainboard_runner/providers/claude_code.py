@@ -129,8 +129,10 @@ LIMIT_RESET = re.compile(r"resets (?:at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2})
 
 # Claude's plans by rate limit tier, with their size as a multiple of Pro's usage. A plan Claude Code
 # names without a tier gets its name only (Max comes in two sizes); the user can give its size.
-PLAN_TIERS = {"default_claude_max_5x": ("Max 5x", 5.0), "default_claude_max_20x": ("Max 20x", 20.0)}
-PLAN_TYPES = {"pro": ("Pro", 1.0), "max": ("Max", None)}
+# Ultra (10x Pro a week, no 5-hour window) has no tier name Claude Code knows yet: a tier or plan
+# type that names it counts as Ultra.
+PLAN_TIERS = {"default_claude_max_5x": ("Max 5x", 5.0), "default_claude_max_20x": ("Max 20x", 20.0), "default_claude_ultra": ("Ultra", 10.0)}
+PLAN_TYPES = {"pro": ("Pro", 1.0), "max": ("Max", None), "ultra": ("Ultra", 10.0)}
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
 PLAN_KEEP_SECONDS = 6 * 3600  # a plan rarely changes; asking for it costs a request, no tokens
 
@@ -162,6 +164,8 @@ def plan_of(subscription: str | None, tier: str | None) -> tuple[str | None, flo
     """Name and size of a plan from what Claude Code knows about the account."""
     if tier in PLAN_TIERS:
         return PLAN_TIERS[tier]
+    if "ultra" in (tier or "").lower():
+        return PLAN_TIERS["default_claude_ultra"]
     kind = (subscription or "").lower().removeprefix("claude_")
     if not kind:
         return None, None

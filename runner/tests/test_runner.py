@@ -643,7 +643,11 @@ async def test_the_plan_of_a_claude_subscription(tmp_path, monkeypatch):
     assert plan_of("claude_max", "default_claude_max_5x") == ("Max 5x", 5.0)
     assert plan_of("pro", None) == ("Pro", 1.0)
     assert plan_of("max", None) == ("Max", None)  # two sizes: the user says which
-    assert plan_of("claude_ultra", None) == ("Ultra", None)
+    # Ultra: 10x Pro a week. Claude Code knows no tier name for it yet, so a tier or plan type that names it counts.
+    assert plan_of("claude_ultra", None) == ("Ultra", 10.0)
+    assert plan_of("max", "default_claude_ultra") == ("Ultra", 10.0)
+    assert plan_of("claude_max", "claude_ultra_10x") == ("Ultra", 10.0)
+    assert plan_of("claude_team", None) == ("Team", None)
     assert plan_of(None, None) == (None, None)
 
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)

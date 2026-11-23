@@ -717,7 +717,7 @@
     "confirmDelete": "Delete account \"{{name}}\"? A ChatGPT sign-in on the runner is signed out.",
     "rotationHint": "A conversation stays on its subscription while its prompt cache is warm, until that reaches 95 % or hits a limit. New conversations, and those idle for an hour or starting a fresh context, go to the subscription with the most usage left, counted by the size of its plan. The last 5 % of every subscription are used once all are that full, API keys only after that. A project or an agent can be given one of its own: Project settings → Team, or the agent in Team.",
     "planSize": "Plan size",
-    "planSizeHint": "How much usage the plan allows, as a multiple of the smallest plan (Claude Pro = 1, Max 5x = 5, Max 20x = 20). Empty: as detected, otherwise like the other subscriptions.",
+    "planSizeHint": "How much usage the plan allows, as a multiple of the smallest plan (Claude Pro = 1, Max 5x = 5, Ultra = 10, Max 20x = 20). Empty: as detected, otherwise like the other subscriptions.",
     "planDetected": "Detected: {{plan}}",
     "noneOwn": "Nobody has added a subscription of their own.",
     "ownedBy": "Added by {{name}}",
