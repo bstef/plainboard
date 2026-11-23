@@ -67,6 +67,7 @@ log = logging.getLogger(__name__)
 
 MCP_SERVER_NAME = "plainboard"
 BOARD_TOOLSET_BUILTINS = ["Read", "Glob", "Grep", "Bash", "Edit", "Write"]
+READ_TOOLSET_BUILTINS = ["Read", "Glob", "Grep"]  # a question about the project (app questions.py): nothing that changes anything
 # Interactive tools make no sense for headless agents; they talk back via chat or the board. Plan mode
 # waits for an approval nobody gives. The CLI's own todo list would compete with the PlainBoard task
 # list, which is the one the user and the manager see. Monitor waits for a process of its own: a turn
@@ -608,7 +609,7 @@ class ClaudeCodeProvider(Provider):
                 **common,
             )
         return ClaudeAgentOptions(
-            tools=BOARD_TOOLSET_BUILTINS,
+            tools=READ_TOOLSET_BUILTINS if spec.toolset == "read" else BOARD_TOOLSET_BUILTINS,
             system_prompt=spec.system_prompt,
             setting_sources=[],
             **common,

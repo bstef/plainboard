@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowUp, ChevronDown, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, ChevronDown, CircleHelp, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -15,6 +15,7 @@ import { formatCost, formatTokens } from "../../lib/format";
 import { useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useShell } from "../layout/shell-context";
+import { AskDialog } from "./AskDialog";
 import { LimitsRing } from "./LimitsRing";
 import { CHAT_ROW, Head, MessageItem, usePeople, writtenParts } from "./MessageItem";
 import { StoppingAgents } from "./StoppingAgents";
@@ -441,6 +442,10 @@ function Composer({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // A question instead of a message (Ctrl+Enter, or this switch on a phone): answered in a window of its own.
+  const [askMode, setAskMode] = useState(false);
+  const [asking, setAsking] = useState<string | null>(null);
+  const shortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘+Enter" : "Ctrl+Enter";
   const area = useRef<HTMLTextAreaElement>(null);
   const mention = useMentionPicker(project.id, text, setText, area);
   useReadMentionsOf({ agentId });
@@ -484,6 +489,14 @@ function Composer({
     }
   };
 
+  const askQuestion = () => {
+    const value = text.trim();
+    if (!value || asking !== null) return;
+    setText("");
+    setAskMode(false);
+    setAsking(value);
+  };
+
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     // Office apps also put a picture of copied text on the clipboard: text wins.
     const pasted = Array.from(e.clipboardData.files);
@@ -497,9 +510,13 @@ function Composer({
     if (mention.onKeyDown(e)) return;
     // Touch keyboards: Enter inserts a newline, the send button sends.
     const touch = window.matchMedia("(pointer: coarse)").matches;
-    if (e.key === "Enter" && !e.shiftKey && !touch && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      void send();
+      askQuestion();
+    } else if (e.key === "Enter" && !e.shiftKey && !touch && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      if (askMode) askQuestion();
+      else void send();
     }
   };
 
@@ -549,7 +566,7 @@ function Composer({
           onSelect={mention.track}
           onKeyDown={onKey}
           onPaste={onPaste}
-          placeholder={disabled ? t("chat.agentDisabled") : t("chat.placeholder", { name: agentName })}
+          placeholder={disabled ? t("chat.agentDisabled") : askMode ? t("ask.placeholder") : t("chat.placeholder", { name: agentName })}
           aria-label={t("chat.placeholder", { name: agentName })}
           className="scroll-thin max-h-[200px] min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1.5 outline-none touch:min-h-11 touch:py-2.5"
         />
@@ -558,10 +575,24 @@ function Composer({
             <Square className="size-3.5 fill-current" />
           </IconButton>
         ) : null}
+        <IconButton
+          label={t("ask.toggle", { shortcut })}
+          aria-pressed={askMode}
+          data-part="ask-toggle"
+          disabled={disabled}
+          onClick={() => {
+            setAskMode((on) => !on);
+            area.current?.focus();
+          }}
+          className={clsx("size-8 touch:size-11", askMode && "text-fg ring-2 ring-fg ring-inset")}
+        >
+          <CircleHelp className="size-4" />
+        </IconButton>
         <button
-          onClick={send}
-          disabled={(!text.trim() && !files.length) || disabled || sending}
-          aria-label={t("chat.send")}
+          onClick={askMode ? askQuestion : send}
+          disabled={askMode ? !text.trim() || disabled || asking !== null : (!text.trim() && !files.length) || disabled || sending}
+          aria-label={askMode ? t("ask.send") : t("chat.send")}
+          title={askMode ? t("ask.send") : undefined}
           data-part="send"
           className="plate flex size-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-fg-2 disabled:bg-line disabled:text-fg-3 touch:size-11"
         >
@@ -575,6 +606,7 @@ function Composer({
         </div>
       </div>
       </div>
+      {asking !== null && <AskDialog projectId={project.id} question={asking} onClose={() => setAsking(null)} />}
     </div>
   );
 }

@@ -31,6 +31,10 @@ export interface Project {
   role: ProjectRole | null;
   auto_archive_days: number;
   review_days: number;
+  /** What answers quick questions (Ctrl+Enter in the chat); "" : the default, Claude Haiku with effort high. */
+  ask_provider: string;
+  ask_model: string;
+  ask_effort: string;
   label_colors: Record<string, string>;
   created_at: string;
 }

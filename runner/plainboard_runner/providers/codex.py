@@ -164,7 +164,7 @@ def run_config(spec: RunSpec, bridge_file: Path) -> dict[str, Any]:
         # Codex drops variables named like *KEY*/*TOKEN* from commands by default; agents need GH_TOKEN and the user's secrets.
         "shell_environment_policy": {"inherit": "all", "ignore_default_excludes": True},
     }
-    if spec.toolset == "board":  # smaller prompt: no web search, no project instructions
+    if spec.toolset in ("board", "read"):  # smaller prompt: no web search, no project instructions
         config["web_search"] = "disabled"
         config["project_doc_max_bytes"] = 0
     return config
@@ -622,7 +622,8 @@ class CodexProvider(Provider):
                 thread = {
                     "cwd": str(bridge.workspace),
                     "model": spec.model,
-                    "sandbox": "danger-full-access",  # the runner container is the sandbox
+                    # The runner container is the sandbox; a question (toolset "read") only reads.
+                    "sandbox": "read-only" if spec.toolset == "read" else "danger-full-access",
                     "approvalPolicy": "never",
                     "developerInstructions": spec.system_prompt,
                 }

@@ -246,7 +246,12 @@
     "newGithubCreate": "Create and add",
     "newGithubHint": "Created with the GitHub token, with a first commit, and added to this project. A classic token needs the scope repo, a fine-grained one the permission \"Administration: write\".",
     "newGithubFailed": "GitHub did not create the repository.",
-    "githubMissingHint": "The list shows what your GitHub token can reach: your own repositories, those you collaborate on and those of your organisations. A classic token needs the repo scope, and where an organisation uses single sign-on it must be authorised for that organisation. A fine-grained token only reaches the one account or organisation it was created for, so an organisation needs a token of its own (as the project's GitHub token: Project settings, Advanced). Any repository can also be added by its address."
+    "githubMissingHint": "The list shows what your GitHub token can reach: your own repositories, those you collaborate on and those of your organisations. A classic token needs the repo scope, and where an organisation uses single sign-on it must be authorised for that organisation. A fine-grained token only reaches the one account or organisation it was created for, so an organisation needs a token of its own (as the project's GitHub token: Project settings, Advanced). Any repository can also be added by its address.",
+    "askModel": "Quick questions",
+    "askModelHint": "What answers questions asked with Ctrl+Enter in the chat. It only reads, so a small model is usually enough. Empty: Claude Haiku with effort high.",
+    "askProvider": "Runs on",
+    "askEffortDefault": "Effort: high (default)",
+    "askModelSmall": "{{model}} (default)"
   },
   "board": {
     "filter": "Filter tickets…",
@@ -504,6 +509,18 @@
         "text": "Please change: \n\nTell me when it is done and how I can check it."
       }
     }
+  },
+  "ask": {
+    "title": "Quick question",
+    "toggle": "Ask a quick question instead ({{shortcut}}): answered at once in a window, without the manager",
+    "placeholder": "Ask a quick question…",
+    "send": "Ask",
+    "followUp": "Ask a follow-up…",
+    "private": "Only you see this. A fast agent looks it up in the code, tickets and history; it changes nothing, and the manager neither waits for it nor learns of it.",
+    "thinking": "Looking it up…",
+    "steps_one": "{{count}} look-up",
+    "steps_other": "{{count}} look-ups",
+    "broken": "The answer broke off. Ask again."
   },
   "todos": {
     "button": "Tasks",

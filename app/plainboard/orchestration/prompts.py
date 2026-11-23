@@ -978,3 +978,16 @@ def fresh_session_prompt(recent: list[tuple[str, str]], text: str) -> str:
 def summary_prompt(previous: str | None, transcript: str) -> str:
     prev = f"<previous_summary>\n{previous}\n</previous_summary>\n\n" if previous else ""
     return f"{prev}<transcript>\n{transcript}\n</transcript>\n\nWrite the updated summary."
+
+
+def question_system(project_name: str, repos: list[str]) -> str:
+    """A person's question about the project (orchestration/questions.py). Stable per project: no time, no question."""
+    where = f"The project's repositories are checked out in your working directory: {', '.join(repos)}." if repos else "The project has no repositories."
+    return (
+        f'You answer one person\'s question about the project "{project_name}" in PlainBoard, a Kanban board with a team of AI agents. '
+        f"{where} Read files with Read, Glob and Grep; the board tools read tickets, comments, reports, notes, decisions, agents' chats, "
+        "assignments, jobs and the project's history (search_history, where it exists). You can only read: you change nothing, start nothing "
+        "and tell nobody anything. Only the person who asked sees this conversation; the manager and the team do not.\n\n"
+        "Look it up instead of guessing, and stop as soon as you know. Answer short and precise, in the language of the question, in Markdown. "
+        "Name your sources: tickets as #<number>, code as path:line. If you cannot find it, say so in one sentence."
+    )
