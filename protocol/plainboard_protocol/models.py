@@ -660,6 +660,9 @@ class LimitsEvent(BaseModel):
     # absolute terms. None: not known.
     plan: str | None = None
     plan_size: float | None = None
+    # The models this account may use, where the provider lists them per account (only in the answer to a
+    # read of the limits). None: not known.
+    models: list[ModelInfo] | None = None
 
 
 class CompactionEvent(BaseModel):

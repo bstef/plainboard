@@ -90,7 +90,8 @@ export function SetupWizard() {
       onNext: async () => {
         const failures: string[] = [];
         for (const account of (accounts.data ?? []).filter(usable)) {
-          const model = account.models[0] ?? smallModel(providers.find((p) => p.name === account.provider));
+          const provider = providers.find((p) => p.name === account.provider);
+          const model = (provider?.endpoint ? account.models[0] : undefined) ?? smallModel(provider);
           const result = model ? await checks.account(account.id, model) : { ok: false, detail: t("status.runnerDown") };
           if (result.ok) return;
           failures.push(`${account.label}: ${result.detail}`);

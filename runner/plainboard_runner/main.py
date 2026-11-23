@@ -484,7 +484,7 @@ async def limits(name: str, credentials: Credentials) -> LimitsEvent:
     except Exception as exc:
         log.info("No plan from %s: %s", provider.name, str(exc)[:200])
         plan, size = None, None
-    return LimitsEvent(windows=windows, complete=provider.limits_complete, plan=plan, plan_size=size)
+    return LimitsEvent(windows=windows, complete=provider.limits_complete, plan=plan, plan_size=size, models=await provider.offered(credentials))
 
 
 @app.post("/providers/{name}/models", response_model=list[str])

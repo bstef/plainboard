@@ -528,7 +528,8 @@ export interface Account {
   enabled: boolean;
   secret_set: boolean;
   secret_from_env: boolean;
-  /** Of a provider that is an endpoint: its address (empty: the usual one) and the models it offers. */
+  /** Of a provider that is an endpoint: its address (empty: the usual one) and the models it offers. Of a Codex
+   * subscription: the models it may use, as its last read of the limits found them. */
   endpoint_url: string;
   models: string[];
   /** How many tokens its models take at once; 0: not said. */

@@ -80,6 +80,7 @@ NOTICE_GRACE_SECONDS = 60
 NOTICE_CHECK_SECONDS = 2
 LOGIN_TIMEOUT_SECONDS = 15 * 60
 MODELS_TTL_SECONDS = 3600
+MODEL_PAGES = 10
 
 MODELS = [
     ModelInfo(id="gpt-6.1-sol", label="GPT-6.1 Sol", tier="large"),
@@ -95,6 +96,38 @@ LIMIT_NAMES = {300: "codex_five_hour", 10080: "codex_seven_day"}
 
 class CodexError(RuntimeError):
     pass
+
+
+def model_infos(listed: list[dict[str, Any]]) -> list[ModelInfo]:
+    """The models of a ``model/list`` answer an agent can be given. Hidden ones are left out (Codex's own helpers such as
+    its auto review), except models for a special field (Daybreak, ``modelSpecialty`` "cyber"), unless the account's
+    access programs, where the answer names them, leave them out."""
+    known = {m.id: m for m in MODELS}
+    out: dict[str, ModelInfo] = {}
+    for m in listed:
+        if not isinstance(m, dict) or not m.get("id"):
+            continue
+        if m.get("hidden"):
+            programs = (m.get("availableAccessPrograms") or {}).get("cyber") if isinstance(m.get("availableAccessPrograms"), dict) else None
+            if not m.get("modelSpecialty") or (programs is not None and not any(str(p).startswith("daybreak") for p in programs)):
+                continue
+        out.setdefault(m["id"], known.get(m["id"]) or ModelInfo(id=m["id"], label=m.get("displayName") or m["id"], tier=guess_tier(m["id"])))
+    return list(out.values())
+
+
+async def list_models(server: AppServer) -> list[ModelInfo]:
+    """Every page of ``model/list``, hidden models included (model_infos picks)."""
+    listed: list[dict[str, Any]] = []
+    cursor = None
+    for _ in range(MODEL_PAGES):
+        params: dict[str, Any] = {"includeHidden": True}
+        if cursor:
+            params["cursor"] = cursor
+        answer = await server.request("model/list", params, timeout=20) or {}
+        listed += answer.get("data") or []
+        if not (cursor := answer.get("nextCursor")):
+            break
+    return model_infos(listed)
 
 
 def toml_value(value: Any) -> str:
@@ -597,12 +630,16 @@ class CodexProvider(Provider):
 
     def __init__(self) -> None:
         self._models: tuple[float, list[ModelInfo]] | None = None
+        self._offered: dict[str, list[ModelInfo]] = {}  # each account's own list from its last read of the limits
+        self._seen: dict[str, ModelInfo] = {}  # every model an account's list named, for the catalog's labels
         self._logins: dict[str, DeviceLogin] = {}
         self._own_logins: dict[str, DeviceLogin] = {}  # people's own sign-ins in progress, each in a private home
         self._api_key_lock = asyncio.Lock()
 
     def info(self) -> ProviderInfo:
-        models = self._models[1] if self._models else MODELS
+        models = list(self._models[1] if self._models else MODELS)
+        ids = {m.id for m in models}
+        models += [m for m in self._seen.values() if m.id not in ids]  # what accounts' own lists added (offered)
         return ProviderInfo(name=self.name, label="Codex", models=models, efforts=EFFORTS)
 
     async def catalog(self) -> ProviderInfo:
@@ -610,13 +647,11 @@ class CodexProvider(Provider):
             try:
                 if signins.taken(self.name, DEFAULT_ACCOUNT):  # never the home's copy of a sign-in the app keeps
                     async with AppServer(CATALOG_HOME) as server:
-                        listed = (await server.request("model/list", {}, timeout=20)).get("data") or []
+                        models = await list_models(server)
                 else:
                     with SIGN_INS.in_home(self.name, DEFAULT_ACCOUNT, "This ChatGPT sign-in"):
                         async with AppServer(SUBSCRIPTION_HOME) as server:
-                            listed = (await server.request("model/list", {}, timeout=20)).get("data") or []
-                known = {m.id: m for m in MODELS}
-                models = [known.get(m["id"]) or ModelInfo(id=m["id"], label=m.get("displayName") or m["id"], tier=guess_tier(m["id"])) for m in listed if not m.get("hidden")]
+                            models = await list_models(server)
                 self._models = (time.monotonic(), models or MODELS)
             except Exception as exc:
                 log.warning("Could not list Codex models: %s", exc)
@@ -751,7 +786,17 @@ class CodexProvider(Provider):
             if not (await server.request("account/read", {"refreshToken": False})).get("account"):
                 return []
             answer = await server.request("account/rateLimits/read", None, timeout=30)
+            try:  # what this subscription may use, asked with its sign-in in the same server (offered)
+                listed = await list_models(server)
+            except (CodexError, TimeoutError) as exc:
+                log.info("Could not list the models of Codex account %s: %s", credentials.codex_account, str(exc)[:200])
+            else:
+                self._offered[credentials.codex_account] = listed
+                self._seen.update({m.id: m for m in listed})
         return limit_windows((answer or {}).get("rateLimits"))
+
+    async def offered(self, credentials: Credentials) -> list[ModelInfo] | None:
+        return self._offered.pop(credentials.codex_account, None)
 
     async def account(self, key: str, own: bool = False) -> ProviderAccount:
         if own:
