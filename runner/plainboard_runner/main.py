@@ -11,6 +11,7 @@ import re
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import Response, StreamingResponse
@@ -28,6 +29,7 @@ from . import notices
 from . import ports
 from . import selfupdate
 from . import skills
+from . import snapshots
 from . import trains
 from . import translate
 from . import usage
@@ -186,6 +188,7 @@ async def _execute(spec: RunSpec, queue: asyncio.Queue[str | None]) -> None:
         provider = get_provider(spec.provider)
         workspace, problems = await prepare_workspace(spec.workspace, spec.credentials)
         bridge = ToolBridge(spec.bridge, workspace)
+        await _snapshot(spec, workspace)
         if (folder := provider.skills_folder(spec, workspace)) is not None:
             problems += await skills.sync(folder, spec.skills, bridge.skill_archive)
         if problems:  # tell the agent instead of failing the whole run
@@ -204,7 +207,21 @@ async def _execute(spec: RunSpec, queue: asyncio.Queue[str | None]) -> None:
     finally:
         if bridge:
             await bridge.aclose()
+            await _snapshot(spec, bridge.workspace)
         await queue.put(None)
+
+
+SNAPSHOT_SECONDS = 120
+
+
+async def _snapshot(spec: RunSpec, workspace: Path) -> None:
+    """Keep the workspace's uncommitted work (snapshots.py); never in a folder also used by others."""
+    if spec.workspace.shared:
+        return
+    try:
+        await asyncio.wait_for(asyncio.to_thread(snapshots.snapshot_workspace, workspace), SNAPSHOT_SECONDS)
+    except Exception as exc:
+        errors.record(f"Snapshot of {workspace}", exc)
 
 
 @app.post("/runs")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from sqlalchemy import func, select
 from pydantic import BaseModel, Field
 
@@ -235,6 +237,20 @@ class SendFilesArgs(BaseModel):
 
 local_tool("send_files", "Show files to the user in your chat; images appear inline.", SendFilesArgs)
 local_tool("attach_file", "Attach a file from your workspace to a ticket (e.g. screenshot, report).", AttachFileArgs)
+
+
+class WorkspaceSnapshotsArgs(BaseModel):
+    repo: str = Field(default="", description="Repository folder; empty = all")
+    restore: str = Field(default="", description="Snapshot id to restore; empty = list")
+    mode: Literal["branch", "stash"] = Field(default="branch", description="Restore into a new branch or as a stash entry")
+    branch: str = Field(default="", description="Name of the new branch")
+
+
+local_tool(
+    "workspace_snapshots",
+    "Automatic snapshots of uncommitted work in your repositories (each turn, 7 days): list, or restore one into a new branch or a stash. Never touches the working tree.",
+    WorkspaceSnapshotsArgs,
+)
 
 
 @tool("request_decision", "Ask the user to decide on a ticket; this marks the ticket on the board. Their answer arrives as an update.", RequestDecisionArgs, roles=(MANAGER,))

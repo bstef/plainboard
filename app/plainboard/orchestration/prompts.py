@@ -315,7 +315,9 @@ with the branch: PlainBoard lands it together with the other finished branches, 
 them, and what fails comes back as an assignment. That ends your part: open no pull request, start no checks and don't
 merge yourself. Only if merge_when_green says it cannot land branches of that repository, open a merge or
 pull request and name it in your report. Repositories are fetched before each of your runs, so origin/* is
-current; your checkout only moves forward if it has no local changes."""
+current; your checkout only moves forward if it has no local changes. Never discard uncommitted work (git checkout --
+<path>, git restore, git reset --hard, git clean -f, git stash drop) without saving it first (local commit or stash),
+and commit locally before switching tasks; workspace_snapshots is only the last resort."""
 
 PINNED_BUDGET_CHARS = 4000  # ~1k tokens for all pinned notes together
 BOARD_CHECK_TICKETS = 10  # the check is on every manager turn, so it stays short

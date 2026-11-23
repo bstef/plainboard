@@ -7,6 +7,7 @@ agent's filesystem. Providers only see :meth:`ToolBridge.call` - they stay tool-
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import mimetypes
@@ -16,6 +17,8 @@ from typing import Any
 
 import httpx
 from plainboard_protocol import TOOL_PENDING_HEADER, ToolBridgeSpec, ToolCallResult, ToolDef
+
+from . import snapshots
 
 log = logging.getLogger(__name__)
 
@@ -136,3 +139,15 @@ async def _install_skill(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallRe
             return ToolCallResult(text=f"A skill may be at most {SKILL_FILE_BYTES // (1024 * 1024)} MB", is_error=True)
         args["content_b64"] = base64.b64encode(file.read_bytes()).decode()
     return await bridge.remote("install_skill", args)
+
+
+@local_tool("workspace_snapshots")
+async def _workspace_snapshots(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallResult:
+    repo = str(args.get("repo") or "")
+    if not args.get("restore"):
+        return ToolCallResult(text=await asyncio.to_thread(snapshots.describe, bridge.workspace, repo or None))
+    try:
+        text = await asyncio.to_thread(snapshots.restore, bridge.workspace, repo, str(args["restore"]), args.get("mode") == "stash", args.get("branch") or None)
+    except snapshots.SnapshotError as exc:
+        return ToolCallResult(text=str(exc), is_error=True)
+    return ToolCallResult(text=text)
