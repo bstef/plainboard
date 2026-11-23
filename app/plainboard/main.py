@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import accounts, auth, browser, chat, internal, knowledge, preview, projects, public, repositories, runners, secrets, system, tasks, todos, users, ws
+from .api import accounts, auth, browser, chat, internal, knowledge, mcp_server, preview, projects, public, repositories, runners, secrets, system, tasks, todos, tokens, users, ws
 from .api.deps import authorize
 from .api.guard import Guard
 from .config import get_config
@@ -71,7 +71,8 @@ async def lifespan(app: FastAPI):
     search_index.start()
     log.info("PlainBoard ready")
     try:
-        yield
+        async with app.state.mcp.run():
+            yield
     finally:
         await search_index.stop()
         await cleanup.stop()
@@ -90,7 +91,7 @@ async def lifespan(app: FastAPI):
 
 
 # Every route of these is checked against its rule in services/access.py before it runs.
-API_MODULES = (auth, system, accounts, users, projects, public, repositories, runners, secrets, tasks, todos, chat, knowledge, internal)
+API_MODULES = (auth, system, accounts, users, tokens, projects, public, repositories, runners, secrets, tasks, todos, chat, knowledge, internal)
 
 
 def create_app() -> FastAPI:
@@ -114,6 +115,9 @@ def create_app() -> FastAPI:
     for module in (ws, browser, preview):  # sockets and the preview proxy check by themselves
         app.include_router(module.router)
 
+    # PlainBoard as an MCP server for a person's own AI client: a personal token, never the login cookie.
+    app.state.mcp = mcp_server.Endpoint(app)
+    app.add_route(mcp_server.PATH, app.state.mcp, methods=["GET", "POST", "DELETE"], include_in_schema=False)
     _mount_spa(app, get_config().static_dir)
     app.add_middleware(Guard)  # outermost: before anything else sees the request
     return app

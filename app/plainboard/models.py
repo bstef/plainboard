@@ -249,6 +249,37 @@ class User(Timestamps, Base):
     show_mentions: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # the @ list and browser notifications; mentions are recorded either way
 
 
+class PersonalToken(Base):
+    """A person's own token for MCP clients and the API (services/personal_tokens.py): it acts as that
+    person, with their roles, optionally reading only. Only the hash is stored. Not project data."""
+
+    __tablename__ = "personal_tokens"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    hint: Mapped[str] = mapped_column(String(8), default="")  # last characters, to recognise the token
+    read_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class McpCall(Base):
+    """One tool call through PlainBoard's MCP server (api/mcp_server.py), for the audit. Plain numbers,
+    no foreign keys: the log outlives the token. Not project data."""
+
+    __tablename__ = "mcp_calls"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    token_id: Mapped[int] = mapped_column(Integer)
+    tool: Mapped[str] = mapped_column(String(60))
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    error: Mapped[str] = mapped_column(String(300), default="")
+
+
 class UserSession(Base):
     """A signed-in browser. The login cookie names one; signing out deletes it, so a copied cookie is
     of no use afterwards. Not project data: moving a project takes none along."""

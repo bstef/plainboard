@@ -789,6 +789,23 @@ class AccessKeyOut(ORM):
     key: str | None = None  # only in the answer that creates the key
 
 
+class PersonalTokenIn(BaseModel):
+    label: str = Field(default="", max_length=200)
+    read_only: bool = False
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)  # None: until revoked
+
+
+class PersonalTokenOut(ORM):
+    id: int
+    label: str
+    hint: str  # last characters of the token
+    read_only: bool
+    expires_at: UTCDateTime | None
+    created_at: UTCDateTime
+    last_used_at: UTCDateTime | None
+    token: str | None = None  # only in the answer that creates the token
+
+
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1)
 

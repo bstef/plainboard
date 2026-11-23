@@ -53,6 +53,8 @@ SETTINGS: dict[str, SettingDef] = {
     # The model search uses (services/search/embedding.MODELS), and the one the index is being made anew for (search.choose_model).
     "semantic_search_model": SettingDef("multilingual-e5-base", managed=True),
     "semantic_search_next": SettingDef(None, managed=True),
+    # People may make tokens of their own for MCP clients and the API (services/personal_tokens.py, api/mcp_server.py).
+    "mcp_enabled": SettingDef(True),
     "update_check": SettingDef(True),  # ask now and then whether a newer PlainBoard exists
     # The admin has gone through the basic settings once (the set-up in the browser). Until then the UI asks for them.
     "setup_done": SettingDef(False),

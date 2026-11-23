@@ -45,6 +45,17 @@ export interface Secret {
 
 /** A key for a project's read-only public API. `key` is only set right after creating it. */
 /** A key that is shown once, when it is created (`key`), and by its last characters afterwards. */
+export interface PersonalToken {
+  id: number;
+  label: string;
+  hint: string;
+  read_only: boolean;
+  expires_at: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  token: string | null;
+}
+
 export interface ApiKey {
   id: number;
   label: string;

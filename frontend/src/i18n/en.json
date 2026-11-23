@@ -881,6 +881,28 @@
     "saved": "Saved.",
     "signOut": "Sign out"
   },
+  "mcp": {
+    "title": "MCP / API access",
+    "description": "Use PlainBoard from your own AI client: Claude Desktop, Claude Code, Cursor and others.",
+    "intro": "A personal token lets an MCP client (or a script against the API) work as you: it reads and changes exactly what you may in the browser, in your projects with your role. Create one per client, copy it now (it is shown once), and revoke it when the client no longer needs it.",
+    "enabled": "Allow MCP and personal tokens",
+    "enabledHint": "For everyone on this PlainBoard. Off: the MCP server answers nothing and no personal token is accepted.",
+    "off": "MCP and personal tokens are switched off on this PlainBoard.",
+    "tokens": "Your tokens",
+    "unnamed": "Unnamed token",
+    "label": "Label, e.g. which client uses it",
+    "readOnly": "Read only",
+    "expiry": "Expires",
+    "noExpiry": "No expiry",
+    "days": "{{count}} days",
+    "expires": "expires {{date}}",
+    "create": "Create token",
+    "copy": "Copy the token now: it is shown only this once. It is filled into the configurations below.",
+    "confirmRevoke": "Revoke the token \"{{name}}\"? Clients that use it stop working at once.",
+    "clients": "Set up a client",
+    "generic": "Other clients (Streamable HTTP)",
+    "clientsHint": "The address of the MCP server is {{url}}. It takes the token as \"Authorization: Bearer …\"; the browser login does not count there."
+  },
   "users": {
     "title": "People",
     "hint": "Who can sign in. Admins run the installation and see every project; everyone else sees the projects they were added to (project settings, Members). Changes apply at once.",
