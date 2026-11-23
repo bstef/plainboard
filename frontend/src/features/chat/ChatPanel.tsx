@@ -442,8 +442,7 @@ function Composer({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  // A question instead of a message (Ctrl+Enter, or this switch on a phone): answered in a window of its own.
-  const [askMode, setAskMode] = useState(false);
+  // A question instead of a message (Ctrl+Enter or the ? button): answered in a window of its own.
   const [asking, setAsking] = useState<string | null>(null);
   const shortcut = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘+Enter" : "Ctrl+Enter";
   const area = useRef<HTMLTextAreaElement>(null);
@@ -493,7 +492,6 @@ function Composer({
     const value = text.trim();
     if (!value || asking !== null) return;
     setText("");
-    setAskMode(false);
     setAsking(value);
   };
 
@@ -515,8 +513,7 @@ function Composer({
       askQuestion();
     } else if (e.key === "Enter" && !e.shiftKey && !touch && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (askMode) askQuestion();
-      else void send();
+      void send();
     }
   };
 
@@ -566,7 +563,7 @@ function Composer({
           onSelect={mention.track}
           onKeyDown={onKey}
           onPaste={onPaste}
-          placeholder={disabled ? t("chat.agentDisabled") : askMode ? t("ask.placeholder") : t("chat.placeholder", { name: agentName })}
+          placeholder={disabled ? t("chat.agentDisabled") : t("chat.placeholder", { name: agentName })}
           aria-label={t("chat.placeholder", { name: agentName })}
           className="scroll-thin max-h-[200px] min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1.5 outline-none touch:min-h-11 touch:py-2.5"
         />
@@ -576,23 +573,18 @@ function Composer({
           </IconButton>
         ) : null}
         <IconButton
-          label={t("ask.toggle", { shortcut })}
-          aria-pressed={askMode}
-          data-part="ask-toggle"
-          disabled={disabled}
-          onClick={() => {
-            setAskMode((on) => !on);
-            area.current?.focus();
-          }}
-          className={clsx("size-8 touch:size-11", askMode && "text-fg ring-2 ring-fg ring-inset")}
+          label={t("ask.button", { shortcut })}
+          data-part="ask"
+          disabled={!text.trim() || disabled || asking !== null}
+          onClick={askQuestion}
+          className="size-8 touch:size-11"
         >
           <CircleHelp className="size-4" />
         </IconButton>
         <button
-          onClick={askMode ? askQuestion : send}
-          disabled={askMode ? !text.trim() || disabled || asking !== null : (!text.trim() && !files.length) || disabled || sending}
-          aria-label={askMode ? t("ask.send") : t("chat.send")}
-          title={askMode ? t("ask.send") : undefined}
+          onClick={send}
+          disabled={(!text.trim() && !files.length) || disabled || sending}
+          aria-label={t("chat.send")}
           data-part="send"
           className="plate flex size-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-fg-2 disabled:bg-line disabled:text-fg-3 touch:size-11"
         >

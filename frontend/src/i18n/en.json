@@ -516,8 +516,7 @@
   },
   "ask": {
     "title": "Quick question",
-    "toggle": "Ask a quick question instead ({{shortcut}}): answered at once in a window, without the manager",
-    "placeholder": "Ask a quick question…",
+    "button": "Send as a quick question ({{shortcut}}): a fast agent answers only you",
     "send": "Ask",
     "followUp": "Ask a follow-up…",
     "about": "About this window",
