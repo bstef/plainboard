@@ -737,7 +737,7 @@ class ClaudeCodeProvider(Provider):
     def __init__(self) -> None:
         self._plans: dict[str, tuple[float, str | None, str | None]] = {}  # sign-in -> (when, subscription, tier)
         self._logins: dict[str, ClaudeLogin] = {}  # people's own sign-ins, by account key
-        self._listed: tuple[float, list[ModelInfo], list[str]] = (0.0, [], [])  # Claude Code's own list (cli_models)
+        self._listed: tuple[float, list[ModelInfo], list[str]] = (float("-inf"), [], [])  # Claude Code's own list (cli_models); never read yet
         self._listing: asyncio.Task[None] | None = None
 
     def info(self) -> ProviderInfo:
