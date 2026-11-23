@@ -261,15 +261,17 @@ tasks, higher is better):
 
 | Model | Dim. | Tokens | Download | Memory | Chunks/s | Quality | Licence | Hint from |
 |---|---|---|---|---|---|---|---|---|
-| multilingual-e5-small (lean) | 384 | 512 | 135 MB | ~550 MB | 30 | 55.5 / 49.3 | MIT | 0.90 |
-| **multilingual-e5-base** (balanced, default) | 768 | 512 | 296 MB | ~750 MB | 12.4 | 57.0 / 52.7 | MIT | 0.86 |
-| gte-multilingual-base (balanced) | 768 | 8192 | 357 MB | ~950 MB | 5.4 | 58.2 / 56.5 | Apache-2.0 | 0.79 |
-| bge-m3 (best quality) | 1024 | 8192 | 587 MB | ~1.2 GB | 3.5 | – / 55.6 | MIT | 0.71 |
-| multilingual-e5-large (best quality) | 1024 | 512 | 579 MB | ~1.2 GB | 4.2 | 58.6 / 54.1 | MIT | 0.88 |
+| multilingual-e5-small (lean) | 384 | 512 | 135 MB | ~550 MB | 30 | 55.5 / 49.3 | MIT | 0.93 |
+| **multilingual-e5-base** (balanced, default) | 768 | 512 | 296 MB | ~750 MB | 12.4 | 57.0 / 52.7 | MIT | 0.90 |
+| gte-multilingual-base (balanced) | 768 | 8192 | 357 MB | ~950 MB | 5.4 | 58.2 / 56.5 | Apache-2.0 | 0.85 |
+| bge-m3 (best quality) | 1024 | 8192 | 587 MB | ~1.2 GB | 3.5 | – / 55.6 | MIT | 0.79 |
+| multilingual-e5-large (best quality) | 1024 | 512 | 579 MB | ~1.2 GB | 4.2 | 58.6 / 54.1 | MIT | 0.91 |
 
-Memory is the app process's growth with the model loaded and embedding. "Hint from" is the cosine above
-which about one ticket in five had its nearest other ticket (for e5-small: 0.90; there the pairs were
-about the same thing, below mostly loosely related): models spread their cosines differently. e5-base is
+Memory is the app process's growth with the model loaded and embedding. "Hint from" was first the cosine
+above which about one ticket in five had its nearest other ticket (e5-small 0.90, e5-base 0.86, e5-large
+0.88, gte 0.79, bge-m3 0.71; models spread their cosines differently). In production most of those hints
+were not followed (#108), so each was raised to close 30% of its distance to 1.0 (e5-base 0.86 → 0.90):
+only very close items are named. e5-base is
 the default (the user's choice): clearly better than small at finding, at less than half its speed (e5-base
 on 4 / 8 / 16 threads: 8.8 / 12.4 / 13.2 chunks/s); gte finds a little better still but runs at less than
 half of e5-base's speed here. Left out: paraphrase-multilingual-MiniLM/mpnet (trained for paraphrases,
