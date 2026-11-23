@@ -17,6 +17,7 @@ import { chatTime, formatBytes, formatDateTime, timeAgo } from "../../lib/format
 import { useShell } from "../layout/shell-context";
 import { STATUSES } from "./Board";
 import { Decisions, isMedia, reviewAttachmentIds } from "./Decisions";
+import { FlowTicket } from "../flow/Integrations";
 import { Label } from "./TaskCard";
 
 const PRIORITIES: Priority[] = ["low", "medium", "high", "urgent"];
@@ -116,6 +117,7 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
       </div>
       <div className="grid gap-6 md:grid-cols-[1fr_220px]" onPaste={canWrite ? onPaste : undefined}>
         <div className="min-w-0 space-y-6">
+          <FlowTicket taskId={taskId} />
           <DescriptionEditor value={data.description} onSave={(description) => patch({ description })} canWrite={canWrite} />
           <CustomerTexts title={data.customer_title} description={data.customer_description} onSave={patch} canWrite={canWrite} />
           <Attachments attachments={data.attachments} reviewIds={reviewAttachmentIds(data.decisions)} onUpload={upload} onView={setViewing} canWrite={canWrite} />

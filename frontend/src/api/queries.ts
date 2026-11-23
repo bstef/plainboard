@@ -24,6 +24,9 @@ import type {
   Secret,
   SettingsResponse,
   FlowFinding,
+  FlowHistory,
+  FlowLive,
+  FlowTicketBranch,
   Stats,
   Task,
   TaskDetail,
@@ -52,6 +55,7 @@ export const qk = {
   ownNotes: (agentId: number) => ["ownNotes", agentId] as const,
   conversation: (agentId: number) => ["conversation", agentId] as const,
   runs: (pid: number) => ["runs", pid] as const,
+  flow: (pid: number) => ["flow", pid] as const,
   assignments: (pid: number) => ["assignments", pid] as const,
   notes: (pid: number) => ["notes", pid] as const,
   schedules: (pid: number) => ["schedules", pid] as const,
@@ -187,3 +191,22 @@ export function useUsage(enabled = true) {
 export function useLimits() {
   return useQuery({ queryKey: qk.limits, queryFn: () => api.get<Limits>("/limits"), refetchInterval: 30_000 });
 }
+
+/** What works where, is checked and lands right now. Pushed as `flow.changed`; the poll only covers a missed event and the clock of a running train. */
+export const useFlow = (pid: number) => useQuery({ queryKey: qk.flow(pid), queryFn: () => api.get<FlowLive>(`/projects/${pid}/flow`), refetchInterval: 60_000 });
+/** The history of trains, sweeps and stuck branches, newest first, a page at a time. */
+export const FLOW_PAGE = 20;
+export const useFlowHistory = (pid: number, repositoryId: number | null) =>
+  useInfiniteQuery({
+    queryKey: [...qk.flow(pid), "history", repositoryId],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const q = new URLSearchParams({ limit: String(FLOW_PAGE) });
+      if (repositoryId !== null) q.set("repository_id", String(repositoryId));
+      if (pageParam) q.set("before", pageParam);
+      return api.get<FlowHistory>(`/projects/${pid}/flow/history?${q}`);
+    },
+    getNextPageParam: (last) => last.next_before,
+  });
+/** The way a ticket's branches take to the base branch. */
+export const useTaskFlow = (taskId: number) => useQuery({ queryKey: ["taskflow", taskId], queryFn: () => api.get<FlowTicketBranch[]>(`/tasks/${taskId}/flow`) });

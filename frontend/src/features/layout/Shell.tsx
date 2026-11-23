@@ -6,6 +6,7 @@ import {
   BarChart3,
   CalendarClock,
   FolderKanban,
+  GitMerge,
   Menu,
   MessageSquare,
   NotebookPen,
@@ -49,6 +50,7 @@ import {
 import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
 import { ChatView } from "../chat/ChatView";
+import { FlowSide } from "../flow/Integrations";
 import { LookDialog } from "./LookDialog";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
 import { ProjectPauseBanner } from "../projects/ProjectPause";
@@ -63,6 +65,7 @@ const ProjectWizard = lazy(() => import("../onboarding/ProjectWizard").then((m) 
 const ProjectSettings = lazy(() => import("../projects/ProjectSettings").then((m) => ({ default: m.ProjectSettings })));
 const SchedulesView = lazy(() => import("../schedules/SchedulesView").then((m) => ({ default: m.SchedulesView })));
 const SettingsDialog = lazy(() => import("../settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const FlowView = lazy(() => import("../flow/FlowView").then((m) => ({ default: m.FlowView })));
 const StatsView = lazy(() => import("../stats/StatsView").then((m) => ({ default: m.StatsView })));
 const TeamView = lazy(() => import("../team/TeamView").then((m) => ({ default: m.TeamView })));
 const ToolsView = lazy(() => import("../tools/ToolsView").then((m) => ({ default: m.ToolsView })));
@@ -76,10 +79,12 @@ export type View =
   | "browser"
   | "tools"
   | "stats"
+  | "flow"
   | "project";
 
 const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "board", icon: (c) => <FolderKanban className={c} /> },
+  { id: "flow", icon: (c) => <GitMerge className={c} /> },
   { id: "chat", icon: (c) => <MessageSquare className={c} /> },
   { id: "team", icon: (c) => <Users className={c} /> },
   // The project's own settings: for its owners. Fixed entry after the core views; on the phone the 4th tab.
@@ -525,6 +530,7 @@ function ProjectWorkspace({
             {wide ? (
               <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5">
                 <PreviewsSide />
+                <FlowSide variant="table" onOpen={() => setView("flow")} />
                 <RunningNow variant="table" />
               </div>
             ) : (
@@ -566,6 +572,7 @@ function ProjectWorkspace({
             isOwner={project.role === "owner"}
           />
           {!isDesktop && view === "board" && <RunningNow variant="strip" />}
+          {!isDesktop && view === "board" && <FlowSide variant="strip" onOpen={() => setView("flow")} />}
           {project.role === "viewer" && (
             <p
               role="status"
@@ -597,6 +604,7 @@ function ProjectWorkspace({
                 {view === "browser" && <BrowserView request={browserRequest} />}
                 {view === "tools" && <ToolsView />}
                 {view === "stats" && <StatsView />}
+                {view === "flow" && <FlowView />}
                 {view === "project" && (
                   <ProjectSettings
                     onOpenTeam={() => setView("team")}
