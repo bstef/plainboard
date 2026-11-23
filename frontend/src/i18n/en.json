@@ -334,7 +334,7 @@
     "stateHint": "Kept by PlainBoard from the reports of the assignments: what is done, open, decided, and what was tried and dropped. Agents get it with every assignment on this ticket, so nothing is done twice.",
     "instructions": "Instructions",
     "result": "Report",
-    "workNotes": "Working notes ({{chars}} chars)",
+    "scratchpad": "Scratchpad ({{chars}} chars)",
     "openAgentChat": "Open agent chat",
     "comments": "Comments",
     "commentPlaceholder": "Write a comment… (Ctrl+Enter to send)",

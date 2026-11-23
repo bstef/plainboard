@@ -527,11 +527,11 @@ function Assignments({ assignments, canWrite }: { assignments: Assignment[]; can
                       <Markdown>{a.result}</Markdown>
                     </div>
                   )}
-                  {a.work_notes && (
+                  {a.scratchpad && (
                     <details>
-                      <summary className="cursor-pointer text-xs text-fg-3">{t("ticket.workNotes", { chars: a.work_notes.length })}</summary>
+                      <summary className="cursor-pointer text-xs text-fg-3">{t("ticket.scratchpad", { chars: a.scratchpad.length })}</summary>
                       <div className="mt-1 text-xs">
-                        <Markdown>{a.work_notes}</Markdown>
+                        <Markdown>{a.scratchpad}</Markdown>
                       </div>
                     </details>
                   )}
