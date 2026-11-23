@@ -103,7 +103,8 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/limits", Need.USER),
     Rule("/api/pause", Need.USER, Need.ADMIN),  # everyone sees that everything is paused; an admin does it
     Rule("/api/settings", Need.USER, Need.ADMIN),  # reading shows no secret, and the UI needs the defaults
-    Rule("/api/settings/check/github", Need.CREATOR),  # a token typed for a new project; the installation's: admins
+    Rule("/api/settings/check/github", Need.CREATOR),
+    Rule("/api/settings/attachment-retention", Need.ADMIN),  # what the default retention would delete in the projects that follow it  # a token typed for a new project; the installation's: admins
     # Everyone adds their own subscriptions; who may change one is its owner or an admin (accounts.managed),
     # the list holds what the user may use (accounts.visible), secrets are never read back. That holds for the
     # sign-in in the browser too: an own one is kept per subscription, the installation's is an admin's.

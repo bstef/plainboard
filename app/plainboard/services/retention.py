@@ -1,6 +1,7 @@
 """Files of done tickets are deleted after a project's retention (#97); by default never.
 
-``Project.attachment_retention_days`` (0: never, the default) counts from the time a ticket was last moved
+``Project.attachment_retention_days`` (0: never; None: the PlainBoard default, setting ``attachment_retention_days``,
+#113, which starts at never) counts from the time a ticket was last moved
 to done (``TaskTransition``; for older tickets the time it last changed): reopened, it starts over when done again.
 Only the status counts: a ticket in any other status, archived or not, is never touched. ``attachment_retention_min_mb``: only files from this size.
 Only the file goes: the attachment keeps its name and size and says when and why (``purged_at``,
@@ -23,6 +24,7 @@ from ..config import get_config
 from ..models import Agent, AgentNote, Attachment, Comment, Conversation, Decision, DecisionStatus, Idea, Message, Note, Project, Task, TaskStatus, TaskTransition
 from ..schemas import RetentionCount, RetentionPreviewOut
 from . import flow_log
+from . import settings as settings_service
 from .util import format_bytes
 
 log = logging.getLogger(__name__)
@@ -104,32 +106,62 @@ async def _in_use(session: AsyncSession, project_id: int, attachments: list[Atta
     return used
 
 
-async def preview(session: AsyncSession, project: Project, days: int, min_mb: int, now: datetime) -> RetentionPreviewOut:
-    """What this setting would delete: at the next run, and within ``SOON_DAYS`` after it."""
-    due = await _due(session, project.id, days, min_mb, now + timedelta(days=SOON_DAYS))
+async def defaults(session: AsyncSession) -> tuple[int, int]:
+    """The PlainBoard default: days (0: never) and from which size, for projects without their own."""
+    values = await settings_service.get_all(session)
+    return int(values.get("attachment_retention_days") or 0), int(values.get("attachment_retention_min_mb") or 0)
+
+
+def effective(project: Project, default: tuple[int, int]) -> tuple[int, int]:
+    """The project's own days and size (None: the default's)."""
+    if project.attachment_retention_days is None:
+        return default
+    return project.attachment_retention_days, project.attachment_retention_min_mb or 0
+
+
+def _counts(due: list[Due], now: datetime, **more) -> RetentionPreviewOut:
     at_once = [d for d in due if d.at <= now]
     later = [d for d in due if d.at > now]
     return RetentionPreviewOut(
         now=RetentionCount(count=len(at_once), bytes=sum(d.attachment.size for d in at_once)),
         soon=RetentionCount(count=len(later), bytes=sum(d.attachment.size for d in later)),
         soon_days=SOON_DAYS,
+        **more,
     )
 
 
-def notice(count: int, size: int, days: int) -> str:
+async def preview_default(session: AsyncSession, days: int, min_mb: int, now: datetime) -> RetentionPreviewOut:
+    """What this PlainBoard default would delete in all projects that follow it."""
+    ids = list(await session.scalars(select(Project.id).where(Project.attachment_retention_days.is_(None))))
+    due: list[Due] = []
+    for project_id in ids:
+        due += await _due(session, project_id, days, min_mb, now + timedelta(days=SOON_DAYS))
+    return _counts(due, now, projects=len(ids))
+
+
+async def preview(session: AsyncSession, project: Project, days: int, min_mb: int, now: datetime) -> RetentionPreviewOut:
+    """What this setting would delete: at the next run, and within ``SOON_DAYS`` after it."""
+    return _counts(await _due(session, project.id, days, min_mb, now + timedelta(days=SOON_DAYS)), now)
+
+
+def notice(count: int, size: int, days: int, default: bool = False) -> str:
     return (
         f"Attachment retention: the files of {count} attachment{'s' if count != 1 else ''} ({format_bytes(size)}) of tickets done more than "
-        f"{days} days ago were deleted (project setting). Their entries stay on the tickets with name and size."
+        f"{days} days ago were deleted ({'PlainBoard default' if default else 'project setting'}). Their entries stay on the tickets with name and size."
     )
 
 
 async def purge(session: AsyncSession, now: datetime) -> dict[int, list[Due]]:
-    """Delete the files whose retention ended, in every project that has one. Per project what went."""
+    """Delete the files whose retention ended, in every project that has one (its own or the default). Per project what went."""
     out: dict[int, list[Due]] = {}
     uploads = get_config().uploads_dir
-    for project in list(await session.scalars(select(Project).where(Project.attachment_retention_days > 0))):
-        days = project.attachment_retention_days
-        due = await _due(session, project.id, days, project.attachment_retention_min_mb, now)
+    default = await defaults(session)
+    has = Project.attachment_retention_days > 0
+    if default[0] > 0:
+        has = or_(has, Project.attachment_retention_days.is_(None))
+    for project in list(await session.scalars(select(Project).where(has))):
+        days, min_mb = effective(project, default)
+        due = await _due(session, project.id, days, min_mb, now)
         if not due:
             continue
         for d in due:

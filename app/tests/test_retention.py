@@ -2,6 +2,8 @@
 
 from datetime import timedelta
 
+import pytest
+
 
 def _ticket(client, pid: int, title: str, *files: tuple[str, int], status: str = "done", done_days: float = 0) -> tuple[dict, list[dict]]:
     task = client.post(f"/api/projects/{pid}/tasks", json={"title": title}).json()
@@ -51,7 +53,7 @@ def _file(attachment: dict):
 
 def test_default_deletes_nothing(client, project):
     pid = project["id"]
-    assert project["attachment_retention_days"] == 0
+    assert project["attachment_retention_days"] is None  # follows the PlainBoard default: never
     _, files = _ticket(client, pid, "Old", ("a.png", 10), done_days=4000)
     assert _purge(client) == {}
     _file.client = client
@@ -144,3 +146,63 @@ def test_only_the_status_done_counts_and_reopening_starts_the_time_again(client,
     assert _file(kept_archived).is_file() and _file(kept_reopened).is_file()
     _age(client, pid, reopened["number"], 31)
     assert _purge(client) == {pid: [kept_reopened["id"]]}
+
+
+def test_the_plainboard_default_applies_and_an_own_value_wins(client, project):
+    _file.client = client
+    pid = project["id"]
+    other = client.post("/api/projects", json={"name": "Own value"}).json()
+    assert client.patch(f"/api/projects/{other['id']}", json={"attachment_retention_days": 0}).json()["attachment_retention_days"] == 0  # never, whatever the default
+    _, (old,) = _ticket(client, pid, "Old", ("a.png", 100), done_days=40)
+    _, (soon,) = _ticket(client, pid, "Soon", ("s.png", 70), done_days=25)
+    _, (kept,) = _ticket(client, other["id"], "Old elsewhere", ("b.png", 50), done_days=400)
+
+    # The preview for the default covers only the projects that follow it, and saves nothing.
+    preview = client.get("/api/settings/attachment-retention", params={"days": 30}).json()
+    assert preview["now"] == {"count": 1, "bytes": 100} and preview["soon"] == {"count": 1, "bytes": 70}
+    assert preview["projects"] == 1
+    assert _purge(client) == {}
+
+    assert client.put("/api/settings", json={"values": {"attachment_retention_days": 30}}).status_code == 200
+    assert _purge(client) == {pid: [old["id"]]}
+    assert _file(kept).is_file() and _file(soon).is_file()
+    entry = next(a for a in client.get(f"/api/tasks/{old['task_id']}").json()["attachments"] if a["id"] == old["id"])
+    assert entry["purged_after_days"] == 30
+
+    # An own value wins over the default, in both directions; null follows the default again.
+    assert client.patch(f"/api/projects/{other['id']}", json={"attachment_retention_days": 100, "attachment_retention_min_mb": 0}).status_code == 200
+    assert client.patch(f"/api/projects/{pid}", json={"attachment_retention_days": 0}).status_code == 200
+    _age(client, pid, 2, 400)
+    assert _purge(client) == {other["id"]: [kept["id"]]}
+    assert client.patch(f"/api/projects/{pid}", json={"attachment_retention_days": None, "attachment_retention_min_mb": None}).json()["attachment_retention_days"] is None
+    assert _purge(client) == {pid: [soon["id"]]}
+
+
+@pytest.mark.skipif(bool(__import__("os").environ.get("PLAINBOARD_DATABASE")), reason="the path from 0086 exists on SQLite only: PostgreSQL starts at today's tables")
+def test_migration_lets_projects_that_never_delete_follow_the_default(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from alembic import command
+    from plainboard import config, migrate
+    from sqlalchemy import create_engine, text
+
+    monkeypatch.setenv("PLAINBOARD_DATA_DIR", str(tmp_path / "data"))
+    config.get_config.cache_clear()
+    (tmp_path / "data").mkdir()
+    command.upgrade(migrate.alembic_config(), "0086")
+    engine = create_engine(config.get_config().sync_database_url)
+    with engine.begin() as conn:
+        for pid, days, mb in ((1, 0, 0), (2, 30, 5), (3, 0, 7)):
+            conn.execute(
+                text(
+                    "INSERT INTO projects (id, name, slug, description, language, auto_wake_manager, task_counter, attachment_retention_days, attachment_retention_min_mb, created_at, updated_at) "
+                    "VALUES (:id, :name, :name, '', '', true, 1, :days, :mb, :now, :now)"
+                ),
+                {"id": pid, "name": f"p{pid}", "days": days, "mb": mb, "now": datetime(2026, 11, 1)},
+            )
+    command.upgrade(migrate.alembic_config(), "head")
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT id, attachment_retention_days, attachment_retention_min_mb FROM projects ORDER BY id")).all()
+    engine.dispose()
+    config.get_config.cache_clear()
+    assert [tuple(r) for r in rows] == [(1, None, None), (2, 30, 5), (3, 0, 7)]

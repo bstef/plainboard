@@ -7,7 +7,6 @@ import type { CheckResult, Project, RetentionPreview } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
 import { Button, ErrorText, Field, Input, Modal, PageHead, Select, Textarea, Toggle } from "../../components/ui";
-import { formatBytes } from "../../lib/format";
 import { useStored } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { GithubTokenField } from "../settings/GithubTokenField";
@@ -16,6 +15,7 @@ import { CheckBadge } from "../settings/SettingsDialog";
 import { MembersEditor } from "./MembersEditor";
 import { ProjectAccounts, allowedAccounts, sameAccounts, useUsableAccounts } from "./ProjectAccounts";
 import { ProjectPauseSwitch } from "./ProjectPause";
+import { RetentionConfirm, retentionText } from "./RetentionConfirm";
 import { ProjectRunnerEditor } from "./ProjectRunner";
 import { ExportProject } from "./MoveProject";
 import { GivenAccounts } from "./GivenAccounts";
@@ -52,8 +52,8 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
     account_ids: project.account_ids ?? [],
     auto_archive_days: project.auto_archive_days,
     review_days: project.review_days,
-    attachment_retention_days: project.attachment_retention_days ?? 0,
-    attachment_retention_min_mb: project.attachment_retention_min_mb ?? 0,
+    attachment_retention_days: project.attachment_retention_days ?? null,
+    attachment_retention_min_mb: project.attachment_retention_min_mb ?? null,
     ask_provider: project.ask_provider ?? "",
     ask_model: project.ask_model ?? "",
     ask_effort: project.ask_effort ?? "",
@@ -64,7 +64,11 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [error, setError] = useState<unknown>(null);
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
-  const stored: Record<string, unknown> = { ...project, workspace_path: project.workspace_path ?? "", github_token: "" };
+  const stored: Record<string, unknown> = {
+    ...project,
+    attachment_retention_days: project.attachment_retention_days ?? null,
+    attachment_retention_min_mb: project.attachment_retention_min_mb ?? null,
+    workspace_path: project.workspace_path ?? "", github_token: "" };
   const dirty = (...keys: (keyof typeof form)[]) => keys.some((k) => form[k] !== stored[k]);
   const save = async (...keys: (keyof typeof form)[]) => {
     const body: Record<string, unknown> = Object.fromEntries(keys.map((k) => [k, form[k]]));
@@ -96,9 +100,15 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
   const [retention, setRetention] = useState<RetentionPreview | null>(null);
   const [retentionBusy, setRetentionBusy] = useState(false);
   const [retentionError, setRetentionError] = useState<unknown>(null);
+  // null: the PlainBoard default, which the preview then shows for this project.
+  const defaultDays = Number(settings.data?.values.attachment_retention_days ?? 0);
+  const defaultMinMb = Number(settings.data?.values.attachment_retention_min_mb ?? 0);
+  const useDefault = form.attachment_retention_days === null;
+  const ownDays = form.attachment_retention_days ?? 0;
   const saveRetention = async () => {
-    if (form.attachment_retention_days > 0) {
-      const q = `days=${form.attachment_retention_days}&min_mb=${form.attachment_retention_min_mb}`;
+    const [effDays, effMinMb] = useDefault ? [defaultDays, defaultMinMb] : [ownDays, form.attachment_retention_min_mb ?? 0];
+    if (effDays > 0) {
+      const q = `days=${effDays}&min_mb=${effMinMb}`;
       setRetention(await api.get<RetentionPreview>(`/projects/${project.id}/attachment-retention?${q}`));
       return; // saved when confirmed
     }
@@ -406,12 +416,20 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
           <SaveRow dirty={dirty("review_days", "auto_archive_days")} onSave={() => save("review_days", "auto_archive_days")} />
           <div className="space-y-3 pt-2">
             <Toggle
-              checked={form.attachment_retention_days > 0}
-              onChange={(v) => set({ attachment_retention_days: v ? project.attachment_retention_days || 90 : 0 })}
-              label={<span className="font-semibold">{t("projects.retention")}</span>}
+              checked={useDefault}
+              onChange={(v) => set(v ? { attachment_retention_days: null, attachment_retention_min_mb: null } : { attachment_retention_days: defaultDays, attachment_retention_min_mb: defaultMinMb })}
+              label={<span className="font-semibold">{t("projects.retentionUseDefault", { current: retentionText(t, defaultDays, defaultMinMb) })}</span>}
             />
-            <p className="text-fg-3">{t("projects.retentionHint")}</p>
-            {form.attachment_retention_days > 0 && (
+            <p className="text-fg-3">{t("projects.retentionUseDefaultHint")}</p>
+            {!useDefault && (
+              <Toggle
+                checked={ownDays > 0}
+                onChange={(v) => set({ attachment_retention_days: v ? project.attachment_retention_days || defaultDays || 90 : 0, attachment_retention_min_mb: form.attachment_retention_min_mb ?? 0 })}
+                label={<span className="font-semibold">{t("projects.retention")}</span>}
+              />
+            )}
+            {!useDefault && <p className="text-fg-3">{t("projects.retentionHint")}</p>}
+            {!useDefault && ownDays > 0 && (
               <div className="flex flex-wrap gap-4">
                 <Field label={t("projects.retentionDays")}>
                   <Input
@@ -419,7 +437,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
                     min={1}
                     max={3650}
                     className="w-28"
-                    value={form.attachment_retention_days}
+                    value={ownDays}
                     onChange={(e) => set({ attachment_retention_days: Math.max(1, days(e.target.value, 3650)) })}
                   />
                 </Field>
@@ -429,7 +447,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
                     min={0}
                     max={100000}
                     className="w-28"
-                    value={form.attachment_retention_min_mb}
+                    value={form.attachment_retention_min_mb ?? 0}
                     onChange={(e) => set({ attachment_retention_min_mb: days(e.target.value, 100000) })}
                   />
                 </Field>
@@ -437,31 +455,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
             )}
             <SaveRow dirty={dirty("attachment_retention_days", "attachment_retention_min_mb")} onSave={saveRetention} />
           </div>
-          <Modal
-            open={retention !== null}
-            onClose={() => !retentionBusy && setRetention(null)}
-            width="max-w-lg"
-            title={t("projects.retentionConfirmTitle")}
-            footer={
-              <>
-                <Button variant="ghost" disabled={retentionBusy} onClick={() => setRetention(null)}>
-                  {t("common.cancel")}
-                </Button>
-                <Button variant="danger" loading={retentionBusy} onClick={confirmRetention}>
-                  {t("projects.retentionConfirm")}
-                </Button>
-              </>
-            }
-          >
-            {retention && (
-              <div className="space-y-2">
-                <p>{t("projects.retentionNow", { count: retention.now.count, size: formatBytes(retention.now.bytes) })}</p>
-                <p>{t("projects.retentionSoon", { days: retention.soon_days, count: retention.soon.count, size: formatBytes(retention.soon.bytes) })}</p>
-                <p className="text-fg-3">{t("projects.retentionKept")}</p>
-                <ErrorText error={retentionError} />
-              </div>
-            )}
-          </Modal>
+          <RetentionConfirm preview={retention} busy={retentionBusy} error={retentionError} onCancel={() => setRetention(null)} onConfirm={confirmRetention} />
         </div>
       ),
     },

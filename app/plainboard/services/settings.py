@@ -63,6 +63,9 @@ SETTINGS: dict[str, SettingDef] = {
     "scratchpad_retention_days": SettingDef(14),  # an ended assignment's scratchpad stays archived this long
     # Tool messages keep their full input and result this many days, then a preview (services/tool_details.py); 0: forever.
     "tool_details_days": SettingDef(30),
+    # Files of done tickets are deleted after this many days in every project without its own value (services/retention.py); 0: never.
+    "attachment_retention_days": SettingDef(0),
+    "attachment_retention_min_mb": SettingDef(0),  # only files from this size; 0: all
     # An external runner updating itself waits this long at most for running turns, jobs and check runs, then restarts (services/runner_update.py).
     "runner_update_drain_seconds": SettingDef(300),
     "tool_details_floor": SettingDef(0, managed=True),  # message id up to which tool messages were looked at
