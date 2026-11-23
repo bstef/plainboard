@@ -180,7 +180,7 @@
     "autoArchive": "Archive done tickets after (days)",
     "autoArchiveHint": "Archived tickets leave the board and keep their history and links. 0: never.",
     "retention": "Delete the files of done tickets",
-    "retentionHint": "Off by default: no file is ever deleted. When on, a daily run deletes the files of tickets that have been done for this many days, counted from when they were done. Open tickets are never touched, nor files still used in an open question, a chat, a note, an idea or an open ticket. The entry stays on the ticket with name and size, and the manager is told what went.",
+    "retentionHint": "Off by default: no file is ever deleted. When on, a daily run deletes the files of tickets in the status done for this many days, counted from when they were set to done; a ticket opened again starts over when it is done again. Only the status counts: tickets in any other status are never touched, archived or not, nor files still used in an open question, a chat, a note, an idea or an open ticket. The entry stays on the ticket with name and size, and the manager is told what went.",
     "retentionDays": "Delete after (days in done)",
     "retentionMinMb": "Only files from (MB, 0: all)",
     "retentionConfirmTitle": "Delete files of done tickets?",

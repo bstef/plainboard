@@ -127,3 +127,20 @@ def test_only_old_done_tickets_lose_their_files_and_keep_the_entry(client, proje
             return [i.text for i in await s.scalars(select(InboxItem).where(InboxItem.agent_id == manager["id"]))]
 
     assert any("1 attachment (70 B)" in t for t in client.portal.call(told))
+
+
+def test_only_the_status_done_counts_and_reopening_starts_the_time_again(client, project):
+    _file.client = client
+    pid = project["id"]
+    assert client.patch(f"/api/projects/{pid}", json={"attachment_retention_days": 30}).status_code == 200
+    archived, (kept_archived,) = _ticket(client, pid, "Archived in review", ("a.png", 10), status="review", done_days=400)
+    assert client.patch(f"/api/tasks/{archived['id']}", json={"archived": True}).status_code == 200
+    reopened, (kept_reopened,) = _ticket(client, pid, "Reopened", ("b.png", 20), done_days=400)
+    assert client.patch(f"/api/tasks/{reopened['id']}", json={"status": "todo"}).status_code == 200
+    assert _purge(client) == {}  # not done now: untouched, however long it was done before
+    assert client.patch(f"/api/tasks/{reopened['id']}", json={"status": "done"}).status_code == 200
+    assert _purge(client) == {}  # done again just now: the 30 days start again
+    assert client.get(f"/api/projects/{pid}/attachment-retention", params={"days": 30}).json()["soon"] == {"count": 1, "bytes": 20}
+    assert _file(kept_archived).is_file() and _file(kept_reopened).is_file()
+    _age(client, pid, reopened["number"], 31)
+    assert _purge(client) == {pid: [kept_reopened["id"]]}

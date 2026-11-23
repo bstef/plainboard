@@ -1,8 +1,8 @@
 """Files of done tickets are deleted after a project's retention (#97); by default never.
 
 ``Project.attachment_retention_days`` (0: never, the default) counts from the time a ticket was last moved
-to done (``TaskTransition``; for older tickets the time it last changed). Only tickets in done count, archived or
-not: an open ticket's files are never touched. ``attachment_retention_min_mb``: only files from this size.
+to done (``TaskTransition``; for older tickets the time it last changed): reopened, it starts over when done again.
+Only the status counts: a ticket in any other status, archived or not, is never touched. ``attachment_retention_min_mb``: only files from this size.
 Only the file goes: the attachment keeps its name and size and says when and why (``purged_at``,
 ``purged_after_days``). A file still in use stays: named by an open decision, shown in a chat (send_files),
 or named by its file name in a note, an own note, an idea, or the text or comments of an open ticket.
