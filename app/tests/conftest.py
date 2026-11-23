@@ -103,6 +103,7 @@ class FakeRunner:
 
     def __init__(self, base_url: str):
         self.specs: list[RunSpec] = []
+        self.sign_in_outbox = {}
         self.completions: list[CompletionSpec] = []
         self.notices: list[tuple[int, str]] = []
         self.limit_windows: list[LimitWindow] = []
@@ -348,6 +349,39 @@ class FakeRunner:
             ProviderInfo(name="ollama", label="Ollama", models=[], endpoint=EndpointInfo(url="http://host.docker.internal:11434", key=False, hint="A model server of your own.")),
             ProviderInfo(name="gemini", label="Gemini (Google)", models=[], endpoint=EndpointInfo(url="https://generativelanguage.googleapis.com/v1beta/openai")),
         ]
+
+    # People's own sign-ins (runner signins.py): one in progress per account key, and what waits for the app.
+    sign_in_outbox: dict  # account key -> SignInFiles
+    sign_in_files = {".credentials.json": '{"claudeAiOauth": {"accessToken": "sk-ant-oat-olga", "refreshToken": "sk-ant-ort-olga"}}'}
+
+    async def provider_account(self, provider, key, action=None, own=False):
+        from plainboard_protocol import ProviderAccount, SignInFiles, files_digest
+
+        assert own, "the installation's sign-in is not faked here"
+        if action == "login":
+            self.signing_in = key
+            return ProviderAccount(login_url="https://claude.example/oauth", needs_code=True)
+        if action == "logout":
+            self.sign_in_outbox.pop(key, None)
+            return ProviderAccount()
+        return ProviderAccount(login_url="https://claude.example/oauth", needs_code=True) if getattr(self, "signing_in", None) == key else ProviderAccount()
+
+    async def provider_login_code(self, provider, key, code):
+        from plainboard_protocol import ProviderAccount, SignInFiles, files_digest
+
+        if code != "good#code":
+            return ProviderAccount(login_url="https://claude.example/oauth", needs_code=True, login_error="That doesn't look like the full code.")
+        self.signing_in = None
+        self.sign_in_outbox[key] = SignInFiles(provider=provider, account=key, files=self.sign_in_files, digest=files_digest(self.sign_in_files))
+        return ProviderAccount(signed_in=True)
+
+    async def sign_ins(self):
+        return list(self.sign_in_outbox.values())
+
+    async def ack_sign_ins(self, acks):
+        for ack in acks:
+            if (entry := self.sign_in_outbox.get(ack.account)) is not None and entry.digest == ack.digest:
+                del self.sign_in_outbox[ack.account]
 
     async def provider_models(self, provider, credentials):
         self.models_asked = (provider, credentials)

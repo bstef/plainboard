@@ -482,6 +482,7 @@ export interface ProviderAccount {
   login_url: string | null;
   login_code: string | null;
   login_error: string | null;
+  needs_code: boolean;
 }
 
 export interface LimitWindow {
