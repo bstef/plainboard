@@ -154,7 +154,7 @@ check** (format, lint) runs at once, the full **check command** once per train. 
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/flow-dark.webp">
-  <img src="docs/screenshots/flow-light.webp" alt="The flow view: agents at work, a handed-over branch, a train of two branches being checked, and the branches that landed" width="100%">
+  <img src="docs/screenshots/flow-light.webp" alt="The flow view: agents at work in two repositories, a handed-over and a held branch, a train of two branches being checked, what landed, and the history with a failed train and its repair" width="100%">
 </picture>
 
 ### Decide in one click
@@ -164,7 +164,7 @@ check** (format, lint) runs at once, the full **check command** once per train. 
     <td width="60%">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/ticket-dark.webp">
-  <img src="docs/screenshots/ticket-light.webp" alt="A ticket on which an agent asks for a decision between two layouts">
+  <img src="docs/screenshots/ticket-light.webp" alt="A ticket on which an agent asks for a decision between two layouts, each with a picture">
 </picture>
     </td>
     <td width="40%" valign="top">
@@ -193,8 +193,8 @@ check** (format, lint) runs at once, the full **check command** once per train. 
 </picture>
   &nbsp;
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-ideas-dark.webp">
-  <img src="docs/screenshots/phone-ideas-light.webp" alt="The ideas on a phone" width="30%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/phone-ticket-dark.webp">
+  <img src="docs/screenshots/phone-ticket-light.webp" alt="A decision between two layouts on a phone" width="30%">
 </picture>
 </p>
 

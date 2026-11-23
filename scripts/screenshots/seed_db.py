@@ -18,16 +18,19 @@ agents = {a.name: a.id for a in s.scalars(select(m.Agent).where(m.Agent.project_
 MGR, BE, FE, TE = agents["Manager"], agents["Backend"], agents["Frontend"], agents["Tester"]
 tasks = {t.number: t for t in s.scalars(select(m.Task).where(m.Task.project_id == P))}
 s.execute(update(m.Project).where(m.Project.id == P).values(label_colors={"backend": "blue", "frontend": "teal", "content": "amber", "bug": "red", "infra": "gray"}))
-status = {5: "todo", 6: "todo", 7: "todo", 8: "in_progress", 9: "in_progress", 10: "in_progress", 11: "review", 12: "review", 13: "done", 14: "done", 15: "done"}
+status = {5: "todo", 6: "todo", 7: "todo", 8: "in_progress", 9: "in_progress", 10: "in_progress", 16: "in_progress", 11: "review", 12: "review", 13: "done", 14: "done", 15: "done"}
 for n, st in status.items():
     tasks[n].status = st; tasks[n].position = n * 1024
 tasks[11].user_action = "Add the pizzeria API key under Project settings, Secrets, then tell the manager."
 tasks[12].customer_title = "Leaderboard"; tasks[14].customer_title = "Results page"
+tasks[10].customer_title = "Plan pizza night in one place"
+tasks[10].customer_description = "Who comes, which pizzeria and when to order, on one page."
 tasks[10].description = "## Goal\n\nOne page to plan Friday: who comes, which pizzeria, when to order.\n\n- Works on phones\n- Pineapple is its own vote"
+shots = list(s.scalars(select(m.Attachment.id).where(m.Attachment.task_id == tasks[10].id).order_by(m.Attachment.id)))
 s.add(m.Decision(project_id=P, task_id=tasks[10].id, requested_by_agent_id=FE, question="Which layout for the planner?",
                  details="Both are built and running on the preview. Pick one, the other goes.",
-                 options=[{"label": "A: One list", "description": "Everything on one page: guests, pizzeria, time. Quick on phones.", "attachment_ids": []},
-                          {"label": "B: Steps", "description": "Three short steps with a summary at the end. Fewer mistakes, one more tap.", "attachment_ids": []}],
+                 options=[{"label": "A: One list", "description": "Everything on one page: guests, pizzeria, time. Quick on phones.", "attachment_ids": [shots[0]]},
+                          {"label": "B: Steps", "description": "Three short steps with a summary at the end. Fewer mistakes, one more tap.", "attachment_ids": [shots[1]]}],
                  attachment_ids=[], status="open", created_at=ago(14), updated_at=ago(14)))
 for task, who, body, mins in [(10, "Jonas", "@mia you have the casting vote, I am biased towards anything with a checkbox.", 11), (10, "Lena", "B looks nicer, but A is what I would use at 7 p.m. on a Friday.", 9),
                               (9, "Theo", "Can confirm, I voted once and it says 2.", 30)]:
@@ -36,7 +39,8 @@ s.add(m.Comment(task_id=tasks[10].id, author_kind="agent", author_agent_id=FE, b
 
 # Running turns and assignments.
 runs = {}
-for agent, task, mins, trig in [(BE, 9, 12, "assignment"), (FE, 8, 4, "assignment"), (MGR, 5, 1, "ticket")]:
+DOCS = agents["Docs"]
+for agent, task, mins, trig in [(BE, 9, 12, "assignment"), (FE, 8, 4, "assignment"), (DOCS, 16, 2, "assignment"), (MGR, 5, 1, "ticket")]:
     r = m.Run(project_id=P, agent_id=agent, trigger=trig, status="running", task_id=tasks[task].id, context_tokens=48000 if agent == MGR else 12000, created_at=ago(mins), started_at=ago(mins))
     s.add(r); s.flush(); runs[agent] = r
 def assignment(task, agent, title, st, mins, finished=None):
@@ -48,6 +52,7 @@ def assignment(task, agent, title, st, mins, finished=None):
     return a
 assignment(9, BE, "Count every vote once, also after a reload", "running", 12)
 assignment(8, FE, "Topping picker on phones", "running", 4)
+assignment(16, DOCS, "Garlic bread FAQ on the site", "running", 2)
 assignment(7, FE, "Show toppings and allergens", "queued", 3)
 assignment(13, BE, "Login with magic link", "done", 95, 41)
 assignment(14, FE, "Results page with confetti", "done", 120, 66)
@@ -75,7 +80,8 @@ users = {u.name: u.id for u in s.scalars(select(m.User))}
 s.add(m.Mention(user_id=users["Mia"], project_id=P, kind="chat", agent_id=MGR, author="Manager", excerpt="@mia, you have the casting vote.", created_at=ago(14)))
 s.add(m.Mention(user_id=users["Mia"], project_id=P, kind="comment", task_id=tasks[10].id, author="Jonas", excerpt="@mia you have the casting vote, I am biased towards anything with a checkbox.", created_at=ago(11)))
 
-# Subscriptions and their limits.
+# Subscriptions and their limits; Tester runs on Codex, so both rings show.
+s.execute(update(m.Agent).where(m.Agent.id == TE).values(provider="codex"))
 s.execute(delete(m.Account))
 s.add(m.Account(provider="claude_code", label="Claude Max", key="demo-claude", auth_mode="oauth_token", enabled=True))
 s.add(m.Account(provider="codex", label="ChatGPT Pro", key="demo-codex", auth_mode="chatgpt", enabled=True))
@@ -104,17 +110,30 @@ for rid, branch, title, agent, task, st, mins, tr, merged in [
     (app.id, "fe/results-confetti", "Results page with confetti", FE, 14, "train", 7, train.id, None),
     (app.id, "be/magic-link", "Login with magic link", BE, 13, "merged", 45, 11, 41),
     (app.id, "te/ci-check", "Set up the CI check command", TE, 15, "merged", 160, 10, 150),
+    (app.id, "fe/leaderboard", "Leaderboard: most outvoted roommate", FE, 12, "open", 25, None, None),
     (site.id, "docs/imprint", "Imprint and privacy page", agents["Docs"], 4, "merged", 70, None, 68),
 ]:
     s.add(m.Landing(project_id=P, repository_id=rid, branch=branch, title=title, agent_id=agent, task_id=tasks[task].id, status=st, train_id=tr,
                     merged_at=ago(merged) if merged else None, created_at=ago(mins), updated_at=ago(merged or mins)))
-for tid, mins, secs, size in [(10, 150, 262, 3), (11, 41, 241, 2), (9, 300, 288, 4)]:
-    s.add(m.Train(id=tid, project_id=P, repository_id=app.id, mode="command", status="landed", branch=f"plainboard/train-{tid}", base="main", size=size, check_seconds=secs,
-                  created_at=ago(mins + secs / 60), updated_at=ago(mins), finished_at=ago(mins)))
+s.flush()
+s.execute(update(m.Landing).where(m.Landing.branch == "fe/leaderboard").values(hold="message", held_at=ago(24), updated_at=ago(24), hold_reason="Lena asked for a vote on the colours first"))
+history = [
+    (7, "landed", 300, 288, ["be/schema", "fe/app-shell", "te/lint", "docs/readme"], ""),
+    (8, "failed", 240, 198, ["fe/vote-page", "be/pizzeria-stub"], "test: vote page shows the winner"),
+    (9, "landed", 215, 233, ["fe/vote-page", "be/pizzeria-stub"], ""),
+    (10, "landed", 150, 262, ["te/ci-check", "be/vote-api", "fe/share-link"], ""),
+    (11, "landed", 41, 241, ["be/magic-link", "fe/results-page"], ""),
+]
+for tid, st, mins, secs, branches, failed in history:
+    s.add(m.Train(id=tid, project_id=P, repository_id=app.id, mode="command", status=st, branch=f"plainboard/train-{tid}", base="main", size=len(branches), check_seconds=secs,
+                  failed_checks=failed, group_no=1 if tid == 9 else None, created_at=ago(mins + secs / 60), updated_at=ago(mins), finished_at=ago(mins)))
+    s.add(m.FlowEvent(project_id=P, at=ago(mins), kind=f"train.{st}", train_id=tid, data={"branches": branches}))
+    if st == "failed":
+        s.add(m.FlowEvent(project_id=P, at=ago(mins - 1), kind="train.repair_ordered", train_id=tid, agent_id=FE))
 
 # Ideas: topics, cards, a question.
 topics = {}
-for i, (name, hint) in enumerate([("Voting", "4 ideas about who decides"), ("Ordering", "Getting the pizza here"), ("Money", "Who pays what")]):
+for i, (name, hint) in enumerate([("Voting", "4 ideas about who decides"), ("Ordering", "Getting the pizza here"), ("Money", "Who pays what"), ("Toppings", "What goes on it")]):
     tp = m.IdeaTopic(project_id=P, name=name, hint=hint, color=i * 3); s.add(tp); s.flush(); topics[name] = tp.id
 for topic, title, text, author, votes, q in [
     ("Voting", "Ranked choice", "Rank your top three instead of one vote, so nobody ends up with their last choice.", "Lena", 3, None),
@@ -125,6 +144,9 @@ for topic, title, text, author, votes, q in [
     ("Ordering", "Order with one tap", "Once the vote is closed, one button sends the order to the pizzeria.", "Jonas", 2, None),
     ("Ordering", "Delivery tracker", "Show where the pizza is, like a parcel.", "Lena", 0, None),
     ("Money", "Split by slices", "Count slices per person and split the bill by that.", "Mia", 2, None),
+    ("Toppings", "Half-and-half pizzas", "Two toppings on one pizza, so the vote can end in a draw.", "Lena", 0, None),
+    ("Toppings", "Allergy filter", "Hide every pizza someone in the group cannot eat.", "Theo", 0, None),
+    ("Toppings", "Topping of the month", "One new topping each month that everyone has to try once.", "Jonas", 0, None),
     ("Money", "Tip jar", "Round up for the driver, shared evenly.", "Jonas", 1, None),
 ]:
     idea = m.Idea(project_id=P, title=title, text=text, author=author, status="open", topic_id=topics[topic], sort_state=idea_service.SORTED, votes=votes,

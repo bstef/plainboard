@@ -15,6 +15,7 @@ with Playwright. Nothing here starts an agent or touches a real installation.
 Desktop 1600x1000, phone 390x844, both at 2x, in the slop2gether design, dark and light.
 usage: seed_api.py <base url>"""
 import sys
+from pathlib import Path
 
 import httpx
 B = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:8080"
@@ -59,5 +60,8 @@ tickets = [
 for title, labels, prio in tickets:
     t = ok(c.post(f"/api/projects/{pid}/tasks", json={"title": title, "status": "backlog"}))
     ok(c.patch(f"/api/tasks/{t['id']}", json={"labels": labels, "priority": prio, "description": f"## Goal\n\n{title}.\n\n- Works on phones\n- Covered by a test\n\n```bash\nnpm run check\n```"}))
+# The two layouts Frontend built for #10, to compare on its decision.
+here = Path(__file__).parent
+ok(c.post("/api/tasks/10/attachments", files=[("files", (f"planner-{v}.png", (here / f"planner-{v}.png").read_bytes(), "image/png")) for v in "ab"]))
 ok(c.post(f"/api/projects/{pid}/notes", json={"title": "House rules", "content": "1. One vote per person per Friday\n2. Pineapple is always its own vote\n3. Whoever loses orders", "pinned": True}))
 print("project", pid, users)
