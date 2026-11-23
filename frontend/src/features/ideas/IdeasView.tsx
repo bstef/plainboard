@@ -31,7 +31,8 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const [text, setText] = useState("");
   const [reading, setReading] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [multiline, setMultiline] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
 
   const byId = useMemo(() => new Map((data?.ideas ?? []).map((i) => [i.id, i])), [data]);
@@ -90,6 +91,15 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
       setError(errorMessage(err));
     }
   };
+  // The field is one line until the text no longer fits; then it grows with it up to a cap and scrolls.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
+    el.style.height = `${Math.min(el.scrollHeight, line * 8)}px`;
+    setMultiline(el.scrollHeight > line * 1.5);
+  }, [text]);
   const submit = async () => {
     const value = text.trim();
     if (!value || reading !== null) return;
@@ -210,19 +220,33 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   e.preventDefault();
                   void submit();
                 }}
-                className="pointer-events-auto flex w-full max-w-2xl items-center gap-2 rounded-full bg-[var(--card,var(--bg))] py-1.5 pr-1.5 pl-4 shadow-lg ring-1 ring-line-2"
+                className={clsx(
+                  "pointer-events-auto flex w-full max-w-2xl gap-2 bg-[var(--card,var(--bg))] py-1.5 pr-1.5 pl-4 shadow-lg ring-1 ring-line-2",
+                  multiline ? "items-end rounded-2xl" : "items-center rounded-full",
+                )}
               >
-                <Lightbulb className="size-4 shrink-0 text-fg-3" />
-                <input
+                <Lightbulb
+                  className={clsx("size-4 shrink-0 text-fg-3", multiline && "mt-[calc(0.25rem_+_(1lh_-_1rem)_/_2)] self-start")}
+                />
+                <textarea
                   ref={inputRef}
+                  rows={1}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                    e.preventDefault();
+                    void submit();
+                  }}
                   maxLength={10000}
                   aria-label={t("ideas.placeholder")}
                   placeholder={empty ? t("ideas.placeholderFirst") : t("ideas.placeholder")}
-                  className="min-w-0 flex-1 bg-transparent text-fg placeholder:text-fg-3 focus:outline-none"
+                  className={clsx(
+                    "min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-fg placeholder:text-fg-3 focus:outline-none",
+                    multiline && "my-1",
+                  )}
                 />
-                <span className="inline-flex items-center gap-1 text-fg-3 max-sm:hidden">
+                <span className={clsx("inline-flex items-center gap-1 text-fg-3 max-sm:hidden", multiline && "h-8 touch:h-11")}>
                   <CornerDownLeft className="size-3.5" />
                 </span>
                 <Button type="submit" variant="primary" className="rounded-full!" disabled={!text.trim() || reading !== null}>
