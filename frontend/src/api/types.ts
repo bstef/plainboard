@@ -1012,3 +1012,25 @@ export interface FlowTicketBranch {
   train: FlowTrain | null;
   steps: FlowStep[];
 }
+
+/** A hit of the project's search by meaning (the command palette). */
+export interface SearchHit {
+  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit";
+  ref: string;
+  title: string;
+  snippet: string;
+  at: string;
+  changed_at: string;
+  ticket_number: number | null;
+  task_id: number | null;
+  note_id: number | null;
+  repo: string | null;
+  sha: string | null;
+  url: string | null;
+}
+
+export interface ProjectSearch {
+  /** ok: by meaning and words; preparing: by words until the model is ready; off / unavailable: no hits. */
+  state: "ok" | "preparing" | "off" | "unavailable";
+  hits: SearchHit[];
+}

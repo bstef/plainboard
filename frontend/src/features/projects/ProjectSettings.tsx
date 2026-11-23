@@ -21,6 +21,7 @@ import { GivenAccounts } from "./GivenAccounts";
 import { CustomerLanguages } from "./CustomerLanguages";
 import { RepositoriesEditor, toBody, toDraft } from "./RepositoriesEditor";
 import { SkillsEditor } from "./SkillsEditor";
+import { ToolsView } from "../tools/ToolsView";
 
 const days = (value: string, max: number) => Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
 
@@ -119,6 +120,13 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
               <GivenAccounts projectId={project.id} isOwner={false} />
             </section>
           )}
+          <section className="max-w-2xl space-y-3">
+            <div>
+              <h2 className="font-semibold">{t("tools.title")}</h2>
+              <p className="text-fg-3">{t("tools.subtitle")}</p>
+            </div>
+            <ToolsView embedded />
+          </section>
         </div>
       </div>
     );
@@ -380,6 +388,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
         </div>
       ),
     },
+    { id: "tools", label: t("tools.title"), description: t("tools.subtitle"), content: <ToolsView embedded /> },
     { id: "runner", label: t("projectRunner.title"), description: t("projectRunner.description"), content: <ProjectRunnerEditor projectId={project.id} isOwner={isOwner} /> },
     { id: "move", label: t("move.label"), description: t("move.description"), content: <ExportProject project={project} /> },
     {
