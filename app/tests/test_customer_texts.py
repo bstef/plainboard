@@ -1,6 +1,9 @@
 """Customer texts in several languages (#79)."""
 
+import pytest
 
+
+@pytest.mark.skipif(bool(__import__("os").environ.get("PLAINBOARD_DATABASE")), reason="the path from 0076 exists on SQLite only: PostgreSQL starts at today's tables")
 def test_migration_puts_existing_texts_into_the_projects_language(tmp_path, monkeypatch):
     from datetime import datetime
 
