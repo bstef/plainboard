@@ -563,9 +563,9 @@ function Composer({
           onSelect={mention.track}
           onKeyDown={onKey}
           onPaste={onPaste}
-          placeholder={disabled ? t("chat.agentDisabled") : t("chat.placeholder", { name: agentName })}
+          placeholder={disabled ? t("chat.agentDisabled") : runningId ? t("chat.queued") : t("chat.placeholder", { name: agentName })}
           aria-label={t("chat.placeholder", { name: agentName })}
-          className="scroll-thin max-h-[200px] min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1.5 outline-none touch:min-h-11 touch:py-2.5"
+          className="scroll-thin max-h-[200px] min-h-8 min-w-0 flex-1 resize-none bg-transparent placeholder:truncate px-1.5 py-1.5 outline-none touch:min-h-11 touch:py-2.5"
         />
         {runningId ? (
           <IconButton label={t("chat.stop")} onClick={() => api.post(`/runs/${runningId}/cancel`)} className="size-8 text-fg-2 ring-1 ring-line-2 ring-inset touch:size-11">
@@ -587,7 +587,8 @@ function Composer({
         <button
           onClick={send}
           disabled={(!text.trim() && !files.length) || disabled || sending}
-          aria-label={t("chat.send")}
+          aria-label={runningId ? t("chat.queued") : t("chat.send")}
+          title={runningId ? t("chat.queued") : undefined}
           data-part="send"
           className="plate flex size-8 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-fg-2 disabled:bg-line disabled:text-fg-3 touch:size-11"
         >
@@ -595,7 +596,6 @@ function Composer({
         </button>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        {runningId && <p className="min-w-0 flex-1 basis-48 text-fg-3">{t("chat.queueHint")}</p>}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-x-2">
           <LimitsRing />
         </div>
