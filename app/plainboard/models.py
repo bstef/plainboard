@@ -53,6 +53,7 @@ class RunTrigger(StrEnum):
     SCHEDULE = "schedule"
     WAKE = "wake"  # inbox updates (e.g. finished assignments) for the agent
     QUESTION = "question"  # a person's question (orchestration/questions.py): stored when it ends, for the statistics only
+    IDEAS = "ideas"  # sorting ideas or planning tickets from them (orchestration/ideas.py): for the statistics only
 
 
 class AssignmentStatus(StrEnum):
@@ -206,6 +207,10 @@ class Project(Timestamps, Base):
     ask_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
     ask_model: Mapped[str] = mapped_column(String(100), default="", server_default="")
     ask_effort: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    # What sorts its ideas into topics (orchestration/ideas.py). Empty: the same as its questions.
+    idea_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
+    idea_model: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    idea_effort: Mapped[str] = mapped_column(String(20), default="", server_default="")
 
     agents: Mapped[list[Agent]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
 
@@ -446,6 +451,59 @@ class Task(Timestamps, Base):
     # Archived tickets are off the board but keep their history and links.
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, index=True)
     created_by_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
+
+
+class IdeaStatus(StrEnum):
+    OPEN = "open"
+    TAKEN = "taken"  # became (part of) a ticket: task_id
+    DISMISSED = "dismissed"  # left out on purpose when tickets were planned from it (closed_reason)
+
+
+class IdeaTopic(Timestamps, Base):
+    """A topic of a project's ideas: an island on the board of ideas, made by the model that sorts them
+    (services/ideas.py) or by a person."""
+
+    __tablename__ = "idea_topics"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    color: Mapped[int] = mapped_column(Integer, default=0)  # index into the design's --chart-1..10 (0-9)
+    hint: Mapped[str] = mapped_column(String(300), default="")  # the model's short note, e.g. "3 ideas about payment"
+    x: Mapped[float | None] = mapped_column(Float)  # where the island lies; None: the UI places it
+    y: Mapped[float | None] = mapped_column(Float)
+
+
+class Idea(Timestamps, Base):
+    """An idea of a project. Collecting and sorting ideas starts nothing: only a person turns them into tickets."""
+
+    __tablename__ = "ideas"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200), default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(100), default="")
+    status: Mapped[str] = mapped_column(String(20), default=IdeaStatus.OPEN, index=True)
+    topic_id: Mapped[int | None] = mapped_column(ForeignKey("idea_topics.id", ondelete="SET NULL"), index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))  # the ticket it went into
+    hint: Mapped[str] = mapped_column(String(300), default="")  # the model's short note, e.g. "similar to ..."
+    # Sorting by the model: pending (waiting for it), sorted, failed (left unsorted; "sort again" retries).
+    sort_state: Mapped[str] = mapped_column(String(10), default="pending")
+    x: Mapped[float | None] = mapped_column(Float)  # where the card lies; None: the UI places it
+    y: Mapped[float | None] = mapped_column(Float)
+    votes: Mapped[int] = mapped_column(Integer, default=0)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)  # taken or dismissed
+    closed_reason: Mapped[str] = mapped_column(String(300), default="")
+
+
+class IdeaLink(Base):
+    """The model's finding that an idea is similar to, or a duplicate of, another one."""
+
+    __tablename__ = "idea_links"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
+    other_id: Mapped[int] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(10), default="similar")  # similar | duplicate
 
 
 class TicketState(Base):

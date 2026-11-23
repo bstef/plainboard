@@ -520,6 +520,9 @@ class ProjectUpdate(BaseModel):
     ask_provider: str | None = Field(default=None, max_length=50)  # questions: "" the default again
     ask_model: str | None = Field(default=None, max_length=100)
     ask_effort: str | None = Field(default=None, max_length=20)
+    idea_provider: str | None = Field(default=None, max_length=50)  # sorting ideas: "" the same as questions again
+    idea_model: str | None = Field(default=None, max_length=100)
+    idea_effort: str | None = Field(default=None, max_length=20)
 
 
 class ProjectAccountsIn(BaseModel):
@@ -551,6 +554,9 @@ class ProjectOut(ORM):
     ask_provider: str = ""
     ask_model: str = ""
     ask_effort: str = ""
+    idea_provider: str = ""
+    idea_model: str = ""
+    idea_effort: str = ""
     label_colors: dict[str, str] = Field(default_factory=dict)
     created_at: UTCDateTime
 
@@ -1449,3 +1455,130 @@ class FlowTicketBranch(BaseModel):
     repository: str
     train: FlowTrain | None
     steps: list[FlowStep]
+
+
+# --- ideas (services/ideas.py, orchestration/ideas.py) -----------------------------------------
+
+IDEA_TEXT_MAX = 10000
+
+
+class IdeaCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=IDEA_TEXT_MAX)
+    title: str = Field(default="", max_length=200)
+    topic_id: int | None = None  # placed by a person: the model does not sort it
+    x: float | None = None
+    y: float | None = None
+
+
+class IdeaUpdate(BaseModel):
+    text: str | None = Field(default=None, min_length=1, max_length=IDEA_TEXT_MAX)
+    title: str | None = Field(default=None, max_length=200)
+    topic_id: int | None = None  # sent as null: out of its topic (unsorted)
+    x: float | None = None
+    y: float | None = None
+    votes: int | None = Field(default=None, ge=0, le=1000000)
+
+
+class IdeaOut(ORM):
+    id: int
+    project_id: int
+    title: str
+    text: str
+    author: str
+    status: str  # open | taken | dismissed
+    topic_id: int | None
+    task_id: int | None
+    task_number: int | None = None
+    hint: str
+    sort_state: str  # pending | sorted | failed
+    x: float | None
+    y: float | None
+    votes: int
+    similar: list[int] = Field(default_factory=list)  # open ideas the model found similar (either way round)
+    duplicate_of: int | None = None
+    closed_at: UTCDateTime | None
+    closed_reason: str
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+
+
+class IdeaTopicIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    color: int | None = Field(default=None, ge=0, le=9)
+    x: float | None = None
+    y: float | None = None
+
+
+class IdeaTopicOut(ORM):
+    id: int
+    project_id: int
+    name: str
+    color: int
+    hint: str
+    x: float | None
+    y: float | None
+
+
+class IdeasOut(BaseModel):
+    topics: list[IdeaTopicOut]
+    ideas: list[IdeaOut]
+    sorting: bool = False  # the model is sorting ideas right now
+
+
+class IdeaTicketIn(BaseModel):
+    """One idea straight into a ticket; what is not sent comes from the idea."""
+
+    status: Literal["backlog", "todo"] = "backlog"
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    description: str | None = None
+    priority: Priority = "medium"
+    labels: list[str] = Field(default_factory=list)
+
+
+class IdeaPlanIn(BaseModel):
+    """Which ideas to plan tickets from: these ids, or a topic's, or (neither) all open ones."""
+
+    idea_ids: list[int] | None = Field(default=None, max_length=500)
+    topic_id: int | None = None
+
+
+class PlannedTicket(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    description: str = ""
+    priority: Priority = "medium"
+    labels: list[str] = Field(default_factory=list)
+    customer_title: str = Field(default="", max_length=CUSTOMER_TITLE_MAX)
+    customer_description: str = Field(default="", max_length=CUSTOMER_DESCRIPTION_MAX)
+    customer_texts: dict[LanguageCode, CustomerTextIn] = Field(default_factory=dict)
+    idea_ids: list[int] = Field(default_factory=list)  # the ideas that went into it
+
+
+class LeftOutIdea(BaseModel):
+    idea_id: int
+    reason: str = Field(default="", max_length=300)
+
+
+class IdeaPlanOut(BaseModel):
+    id: str
+    project_id: int
+    status: Literal["running", "ready", "failed"]
+    idea_ids: list[int]
+    tickets: list[PlannedTicket] = Field(default_factory=list)
+    left_out: list[LeftOutIdea] = Field(default_factory=list)
+    error: str = ""
+    created_at: UTCDateTime
+
+
+class IdeaPlanApply(BaseModel):
+    """The proposal as the person left it: these tickets are created; ``dismiss``: ideas left out on purpose
+    (they leave the board of ideas, kept with their reason). Ideas in neither stay open."""
+
+    status: Literal["backlog", "todo"] = "backlog"
+    tickets: list[PlannedTicket] = Field(min_length=1, max_length=100)
+    dismiss: list[LeftOutIdea] = Field(default_factory=list)
+    plan_id: str | None = None  # the proposal it came from: forgotten once applied
+
+
+class IdeaPlanApplied(BaseModel):
+    tickets: list[TaskOut]
+    ideas: list[IdeaOut]
