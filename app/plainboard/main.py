@@ -24,6 +24,7 @@ from .orchestration.cleanup import CleanupWatcher
 from .orchestration.limits_watcher import LimitsWatcher
 from .orchestration.update_watcher import UpdateWatcher
 from .orchestration.scheduler import Scheduler
+from .orchestration.search_indexer import SearchIndexer
 from .orchestration.standstill import StandstillWatcher
 from .models import utcnow
 from .security import init_security
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     limits_watcher = LimitsWatcher(runs, config.limits_interval_seconds)
     updates = app.state.updates = UpdateWatcher(sessionmaker(), runner, config.update_interval_seconds)
     cleanup = app.state.cleanup = CleanupWatcher(sessionmaker(), runs, config.cleanup_interval_seconds)
+    search_index = app.state.search = SearchIndexer(sessionmaker(), runs, config.search_interval_seconds)
     app.state.preview_client = preview.new_client()
     await runs.start()
     scheduler.start()
@@ -66,10 +68,12 @@ async def lifespan(app: FastAPI):
     limits_watcher.start()
     updates.start()
     cleanup.start()
+    search_index.start()
     log.info("PlainBoard ready")
     try:
         yield
     finally:
+        await search_index.stop()
         await cleanup.stop()
         await updates.stop()
         await limits_watcher.stop()

@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useAccounts, useRepositories, useSettings } from "../../api/queries";
+import { checks, qk, useAccounts, useMeta, useRepositories, useSettings } from "../../api/queries";
 import type { CheckResult, Project } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
@@ -33,6 +33,7 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
   const accounts = useAccounts();
   const usableIds = useUsableAccounts(project.id);
   const repos = useRepositories(project.id);
+  const meta = useMeta();
   const defaultParallel = Number(settings.data?.values.max_parallel_runs ?? 3);
   const [form, setForm] = useState({
     name: project.name,
@@ -223,6 +224,21 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
               {t("projectSettings.team.open")}
             </Button>
           </SaveRow>
+          <div className="space-y-1">
+            {meta.data?.semantic_search ? (
+              <Toggle
+                checked={project.semantic_search}
+                onChange={async (v) => {
+                  await api.patch<Project>(`/projects/${project.id}`, { semantic_search: v });
+                  await qc.invalidateQueries({ queryKey: qk.projects });
+                }}
+                label={t("projects.semanticSearch")}
+              />
+            ) : (
+              <h3 className="font-semibold">{t("projects.semanticSearch")}</h3>
+            )}
+            <p className="text-fg-3">{t(meta.data?.semantic_search ? "projects.semanticSearchHint" : "search.unavailable")}</p>
+          </div>
         </div>
       ),
     },

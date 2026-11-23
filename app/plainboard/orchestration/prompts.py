@@ -638,6 +638,13 @@ def assignment_opening(facts: str, earlier: list[Assignment], fresh: bool) -> st
     return "\n".join(parts)
 
 
+def related_hint(label, hits: list) -> str:
+    """One line on what the project's history has that is very close to new work (services/search.related)."""
+    if not hits:
+        return ""
+    return "Possibly related in this project's history (search_history finds more): " + "; ".join(truncate(label(h), 120) for h in hits) + "."
+
+
 def continue_prompt(assignment: Assignment, ledger: str) -> str:
     return (
         f'Go on with assignment #{assignment.id} "{truncate(assignment.title, 100)}": what it waited for has ended (see the updates above).\n'

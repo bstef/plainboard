@@ -9,7 +9,7 @@ import asyncio
 import time
 from pathlib import Path
 
-from plainboard_protocol import CheckResult, Credentials, JobSpec, JobState, RepoSpec, TidyBranch, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
+from plainboard_protocol import CheckResult, Credentials, GitCommit, GitLogResult, GitLogSpec, GitPresentResult, GitPresentSpec, JobSpec, JobState, RepoSpec, TidyBranch, TidyResult, TidySpec, TrainCheckSpec, TrainLandSpec, TrainResult, TrainSpec
 
 from . import jobs
 from .workspace import WorkspaceError, config_args, git_env, run_cmd
@@ -87,13 +87,7 @@ async def assemble(spec: TrainSpec) -> TrainResult:
     where = folder(spec.key)
     url = spec.remote.url
     async with _lock(spec.key):
-        where.mkdir(parents=True, exist_ok=True)
-        git = Git(spec.credentials, spec.remote, where)
-        if not (where / ".git").exists():
-            await git("init", "-q")
-            await git("remote", "add", "origin", url)
-        else:
-            await git("remote", "set-url", "origin", url)
+        git = await _clone(spec.credentials, spec.remote, where)
         heads = await remote_heads(git, url)
         base = spec.base or await default_branch(git, url)
         if base not in heads:
@@ -245,6 +239,76 @@ async def merged_how(git: Git, sha: str, tip: str) -> str:
         if merged == tree.strip():
             return "merged" if index == 0 else f"landed at {commit[:12]}"
     return ""
+
+
+async def _clone(credentials: Credentials, remote: RepoSpec, where: Path) -> Git:
+    """git in the runner's own clone of a repository, made on first use (empty: only what is fetched)."""
+    where.mkdir(parents=True, exist_ok=True)
+    git = Git(credentials, remote, where)
+    if not (where / ".git").exists():
+        await git("init", "-q")
+        await git("remote", "add", "origin", remote.url)
+    else:
+        await git("remote", "set-url", "origin", remote.url)
+    return git
+
+
+LOG_FILES = 30  # changed paths named per commit; the rest is counted
+
+
+async def commit_log(spec: GitLogSpec) -> GitLogResult:
+    """The newest commits of the base branch (no merges), after ``spec.since`` when that is still on it
+    (after a force push: the newest ones again), each with its message, changed paths and line counts."""
+    async with _lock(spec.key):
+        git = await _clone(spec.credentials, spec.remote, folder(spec.key))
+        base = spec.base or await default_branch(git, spec.remote.url)
+        await git("fetch", "-q", "--no-tags", "origin", f"+refs/heads/{base}:refs/remotes/origin/{base}")
+        head = (await git("rev-parse", f"refs/remotes/origin/{base}")).strip()
+        result = GitLogResult(branch=base, head=head)
+        if spec.since and spec.since == head:
+            return result
+        span = head
+        if spec.since and await git.ok("merge-base", "--is-ancestor", spec.since, head):
+            span = f"{spec.since}..{head}"
+        out = await git("log", "--no-merges", f"-n{spec.limit}", "--format=%x1e%H%x1f%an%x1f%cI%x1f%B%x1f", "--numstat", span, timeout=300)
+        for record in (r for r in out.split("\x1e") if r.strip()):  # the output comes stripped, and \x1e counts as a space
+            sha, author, date, message, stats = (record.split("\x1f", 4) + [""] * 5)[:5]
+            commit = GitCommit(sha=sha.strip(), author=author, date=date, message=message.strip())
+            for line in stats.strip().splitlines():
+                added, _, rest = line.partition("\t")
+                deleted, _, path = rest.partition("\t")
+                if not path:
+                    continue
+                commit.file_count += 1
+                commit.insertions += int(added) if added.isdigit() else 0
+                commit.deletions += int(deleted) if deleted.isdigit() else 0
+                if len(commit.files) < LOG_FILES:
+                    commit.files.append(path)
+            result.commits.append(commit)
+        return result
+
+
+async def present(spec: GitPresentSpec) -> GitPresentResult:
+    """Which commits are on the base branch and which paths are gone at its tip, as last fetched (``commit_log``)."""
+    where = folder(spec.key)
+    if not (where / ".git").exists():
+        raise WorkspaceError("The repository was not read here yet")
+    tip = f"refs/remotes/origin/{spec.base}"
+
+    async def git(*args: str) -> str:
+        return await run_cmd(["git", *args], cwd=where, env={}, timeout=60)
+
+    result = GitPresentResult()
+    for sha in spec.shas:
+        try:
+            await git("merge-base", "--is-ancestor", sha, tip)
+            result.on_base.append(sha)
+        except WorkspaceError:
+            pass
+    if spec.paths:
+        there = set((await git("ls-tree", "-r", "--name-only", tip, "--", *spec.paths)).splitlines())
+        result.missing = [p for p in spec.paths if p not in there]
+    return result
 
 
 async def tidy(spec: TidySpec) -> TidyResult:

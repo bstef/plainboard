@@ -428,6 +428,49 @@ class TidyResult(BaseModel):
     unmerged: list[TidyBranch] = Field(default_factory=list)  # work of their own, older than stale_days: they stay
 
 
+class GitLogSpec(BaseModel):
+    """The commits of a repository's base branch, for the project's searchable history (app ``services/search``)."""
+
+    credentials: Credentials
+    key: str = Field(pattern=TRAIN_KEY)  # names the runner's clone for this repository
+    remote: RepoSpec
+    base: str | None = None  # None: the repository's default branch
+    since: str | None = Field(default=None, pattern=r"^[0-9a-f]{7,64}$")  # only commits after this one, when it is on the branch
+    limit: int = Field(default=1000, ge=1, le=5000)  # the newest ones
+
+
+class GitCommit(BaseModel):
+    sha: str
+    author: str = ""
+    date: str = ""  # ISO 8601 with offset, the commit date
+    message: str = ""
+    files: list[str] = Field(default_factory=list)  # the first ones changed
+    file_count: int = 0
+    insertions: int = 0
+    deletions: int = 0
+
+
+class GitLogResult(BaseModel):
+    branch: str = ""
+    head: str = ""  # the branch's commit now: where the next call starts
+    commits: list[GitCommit] = Field(default_factory=list)  # newest first
+
+
+class GitPresentSpec(BaseModel):
+    """Whether commits are still on the base branch and paths still exist at its tip, in the runner's clone
+    as last fetched (no network): what a search hit says about a commit now."""
+
+    key: str = Field(pattern=TRAIN_KEY)
+    base: str = Field(min_length=1, max_length=200)
+    shas: list[Annotated[str, Field(pattern=r"^[0-9a-f]{7,64}$")]] = Field(default_factory=list, max_length=50)
+    paths: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(default_factory=list, max_length=300)
+
+
+class GitPresentResult(BaseModel):
+    on_base: list[str] = Field(default_factory=list)  # of the shas asked
+    missing: list[str] = Field(default_factory=list)  # of the paths asked
+
+
 class ProjectFiles(BaseModel):
     """What a deleted project leaves on the runner."""
 

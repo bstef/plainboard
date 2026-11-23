@@ -1,0 +1,280 @@
+"""Semantic search over a project's history (tickets, reports, decisions, comments, notes, commits).
+
+Only with PostgreSQL and pgvector (``schema``), and while the setting ``semantic_search`` and the
+project's own switch are on. ``indexers`` read the sources, ``documents`` prepares their texts, the
+watcher ``orchestration/search_indexer.py`` keeps the index current and embeds in the background,
+``store`` finds by meaning and by words together. Agents search with one tool (``tools/search.py``);
+nothing searches on every turn. Every hit says how old it is and where its item stands now: history may
+be outdated. ARCHITECTURE.md, "Semantic search", has the whole picture.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from datetime import datetime
+
+from plainboard_protocol import GitPresentSpec
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ...models import Decision, Project, Repository, SearchCursor, Task, utcnow
+from .. import settings as settings_service
+from ..errors import ServiceError
+from . import embedding, store
+from .indexers import KINDS
+from .schema import available
+from .store import Hit
+
+__all__ = ["KINDS", "Hit", "active_projects", "available", "choose_model", "embedder", "enabled", "find", "format_hits", "related", "states", "status"]
+
+log = logging.getLogger(__name__)
+
+HINT_COUNT = 3
+PRESENT_TIMEOUT = 5.0  # seconds for the runner to say whether commits and files are still there; else it is left out
+
+
+async def _on(s: AsyncSession) -> bool:
+    return await available(s) and bool(await settings_service.get(s, "semantic_search"))
+
+
+async def enabled(s: AsyncSession, project: Project) -> bool:
+    return bool(project.semantic_search) and await _on(s)
+
+
+async def active_projects(s: AsyncSession) -> list[Project]:
+    if not await _on(s):
+        return []
+    return list(await s.scalars(select(Project).where(Project.semantic_search.is_(True)).order_by(Project.id)))
+
+
+# --- models: the current one, and the next one while the index is made anew for it -----------------------
+
+
+async def embedder(s: AsyncSession) -> embedding.Embedder:
+    """The model search uses."""
+    return embedding.get(await settings_service.get(s, "semantic_search_model"))
+
+
+async def next_embedder(s: AsyncSession) -> embedding.Embedder | None:
+    """The model the index is being made anew for, if a switch is under way."""
+    name = await settings_service.get(s, "semantic_search_next")
+    return embedding.get(name) if name and name in embedding.CARDS else None
+
+
+async def choose_model(s: AsyncSession, name: str) -> None:
+    """Another model: the index is made anew for it in the background while search keeps the current one;
+    when every chunk has its vector, search switches at once and the old vectors go. The current model
+    again: a switch under way is called off."""
+    if name not in embedding.CARDS:
+        raise ServiceError(f"Unknown model: {name}")
+    current = await settings_service.get(s, "semantic_search_model")
+    under_way = await settings_service.get(s, "semantic_search_next")
+    if name == under_way:
+        return
+    if under_way and await available(s):
+        await store.drop_model(s, embedding.get(under_way).name)
+    if under_way:
+        embedding.drop(under_way)
+    await settings_service.update(s, {"semantic_search_next": None if name == current else name}, managed=True)
+
+
+async def switch_when_complete(s: AsyncSession, project_ids: list[int]) -> bool:
+    """The next model has a vector for every chunk: search uses it from now on, the old vectors go."""
+    nxt = await next_embedder(s)
+    if nxt is None or await store.waiting(s, nxt.name, project_ids):
+        return False
+    old = await settings_service.get(s, "semantic_search_model")
+    await store.keep_only(s, nxt.name)
+    await settings_service.update(s, {"semantic_search_model": await settings_service.get(s, "semantic_search_next"), "semantic_search_next": None}, managed=True)
+    embedding.drop(old)
+    log.info("Semantic search switched to the model %s", nxt.name)
+    return True
+
+
+# --- finding --------------------------------------------------------------------------------------------
+
+
+async def _vector(s: AsyncSession, text: str) -> tuple[list[float] | None, str]:
+    model = await embedder(s)
+    if model.state != "ready":
+        model.prepare()
+        return None, model.name
+    return await model.query(text), model.name
+
+
+async def find(
+    s: AsyncSession, project: Project, query: str, *, kinds: list[str] | None = None, since: datetime | None = None, until: datetime | None = None, repo: str | None = None, limit: int = 8
+) -> list[Hit]:
+    vector, model = await _vector(s, query)
+    return await store.search(s, project.id, query, vector, model, kinds=kinds, since=since, until=until, repo=repo, limit=limit)
+
+
+async def related(s: AsyncSession, project: Project, text: str, ticket_number: int | None) -> list[Hit]:
+    """What is very close in meaning to a new piece of work, apart from its own ticket: above the model's
+    own threshold (``ModelCard.hint_similarity``, calibrated on real tickets). Nothing while the model is not ready."""
+    if not text.strip() or not await enabled(s, project):
+        return []
+    model = await embedder(s)
+    if model.state != "ready":
+        return []
+    hits = await store.nearest(s, project.id, await model.query(text), model.name, exclude_ticket=ticket_number, limit=HINT_COUNT)
+    return [h for h in hits if (h.similarity or 0) >= model.card.hint_similarity]
+
+
+# --- where a hit's item stands now ---------------------------------------------------------------------
+
+
+async def states(s: AsyncSession, project: Project, hits: list[Hit], runner=None) -> list[str]:
+    """For each hit, what is true of its item now, where that is cheap to know: the ticket's status, a newer
+    decision, whether a commit is still on its branch and its files still exist ("" if nothing to say)."""
+    numbers = {h.ticket_number for h in hits if h.ticket_number}
+    tickets = {t.number: t for t in await s.scalars(select(Task).where(Task.project_id == project.id, Task.number.in_(numbers)))} if numbers else {}
+    newest = {}
+    if any(h.kind == "decision" for h in hits) and tickets:
+        rows = await s.execute(select(Decision.task_id, func.max(Decision.id)).where(Decision.task_id.in_([t.id for t in tickets.values()])).group_by(Decision.task_id))
+        newest = dict(rows.all())
+    commits = await _commits_now(s, project, [h for h in hits if h.kind == "commit"], runner)
+    out = []
+    for h in hits:
+        if h.kind == "commit":
+            out.append(commits.get(h.source_id, ""))
+            continue
+        task = tickets.get(h.ticket_number) if h.ticket_number else None
+        if h.ticket_number and task is None:
+            out.append(f"ticket #{h.ticket_number} was deleted")
+            continue
+        parts = []
+        if h.kind == "decision":
+            decision = await s.get(Decision, int(h.source_id))
+            if decision is not None:
+                parts.append(f"decision {decision.status}")
+                if task is not None and newest.get(task.id, 0) > decision.id:
+                    parts.append(f"a newer decision on #{task.number} exists")
+        if task is not None:
+            parts.append(f"ticket now {task.status}" + (", archived" if task.archived_at else ""))
+        out.append("; ".join(parts))
+    return out
+
+
+async def _commits_now(s: AsyncSession, project: Project, hits: list[Hit], runner) -> dict[str, str]:
+    """Through the runner's clone as last fetched, per repository: one call, a short wait at most."""
+    if not hits or runner is None:
+        return {}
+    from ..landings import train_key
+
+    out: dict[str, str] = {}
+    by_repo: dict[int, list[Hit]] = {}
+    for h in hits:
+        repo_id, _, _ = h.source_id.partition(":")  # a commit's source id: <repository id>:<sha>
+        if repo_id.isdigit():
+            by_repo.setdefault(int(repo_id), []).append(h)
+    for repo_id, group in by_repo.items():
+        repo = await s.get(Repository, repo_id)
+        cursor = await s.get(SearchCursor, (project.id, f"commit:{repo_id}"))
+        branch = (cursor.value.split(" ", 1)[1] if cursor and " " in cursor.value else "") or (repo.default_branch if repo else "")
+        if repo is None or repo.project_id != project.id or not branch:
+            continue
+        paths = sorted({p for h in group for p in (h.paths or [])})[:300]
+        spec = GitPresentSpec(key=train_key(repo), base=branch, shas=[h.source_id.partition(":")[2] for h in group][:50], paths=paths)
+        try:
+            present = await asyncio.wait_for(runner.git_present(spec), PRESENT_TIMEOUT)
+        except Exception as exc:  # an older runner, one that is away, or slow: the hit goes without it
+            log.info("Whether commits of %s are still there could not be read: %s", repo.name, exc)
+            continue
+        missing = set(present.missing)
+        for h in group:
+            sha = h.source_id.partition(":")[2]
+            words = [f"still on {branch}" if sha in present.on_base else f"no longer on {branch}"]
+            gone = [p for p in (h.paths or []) if p in missing]
+            if gone:
+                words.append(f"{len(gone)} of its files no longer exist" + (f" ({', '.join(gone[:3])}{', …' if len(gone) > 3 else ''})" if gone else ""))
+            out[h.source_id] = "; ".join(words)
+    return out
+
+
+# --- what an agent reads ------------------------------------------------------------------------------
+
+
+def ago(then: datetime, now: datetime) -> str:
+    days = (now - then).total_seconds() / 86400
+    if days < 1 and now.date() == then.date():
+        return "today"
+    if days < 2:
+        return "yesterday"
+    if days < 14:
+        return f"{int(days)} days ago"
+    if days < 60:
+        return f"{int(days // 7)} weeks ago"
+    if days < 730:
+        return f"{int(days // 30)} months ago"
+    return f"{int(days // 365)} years ago"
+
+
+def snippet(body: str, query: str, size: int = 240) -> str:
+    """The part of a chunk around the first word of the search it has, else its start."""
+    flat = re.sub(r"\s+", " ", body).strip()
+    if len(flat) <= size:
+        return flat
+    start = 0
+    lowered = flat.lower()
+    for word in store.keyword_query(query).replace(":*", "").split(" | "):
+        at = lowered.find(word) if word else -1
+        if at >= 0:
+            start = max(0, at - size // 3)
+            break
+    if start:
+        space = flat.find(" ", start)
+        start = space + 1 if 0 <= space < start + 20 else start
+    text = flat[start : start + size].rstrip()
+    return ("…" if start else "") + text + ("…" if start + size < len(flat) else "")
+
+
+def label(hit: Hit, now: datetime | None = None, state: str = "") -> str:
+    """A hit in one line: its reference and kind, when it was made and last changed (with its age), where it stands now, its title."""
+    now = now or utcnow()
+    where = f" on #{hit.ticket_number}" if hit.ticket_number and hit.kind == "report" else ""
+    repo = f" in {hit.repo}" if hit.repo else ""
+    kind = "" if hit.kind in ("decision", "comment") else f" {hit.kind}"  # their reference names it
+    when = f"{hit.at:%Y-%m-%d} ({ago(hit.at, now)})"
+    if hit.changed_at and hit.changed_at.date() > hit.at.date():
+        when += f", changed {hit.changed_at:%Y-%m-%d} ({ago(hit.changed_at, now)})"
+    return f"{hit.ref}{kind}{where}{repo}, {when}" + (f"; now: {state}" if state else "") + f": {hit.title}"
+
+
+def format_hits(hits: list[Hit], query: str, now_states: list[str] | None = None, now: datetime | None = None) -> str:
+    if not hits:
+        return "Nothing found."
+    now_states = now_states or [""] * len(hits)
+    return "\n".join(f"- {label(h, now, st)}\n  {snippet(h.body, query)}" for h, st in zip(hits, now_states, strict=True))
+
+
+# --- the settings page ---------------------------------------------------------------------------------
+
+
+def _model_view(model: embedding.Embedder | None) -> dict | None:
+    if model is None:
+        return None
+    return {"name": model.name, "label": model.card.label, "state": model.state, "progress": model.progress, "error": model.error}
+
+
+async def status(s: AsyncSession) -> dict:
+    model, nxt = await embedder(s), await next_embedder(s)
+    out: dict = {"available": await available(s), "enabled": bool(await settings_service.get(s, "semantic_search")), "model": _model_view(model), "next": _model_view(nxt)}
+    names = [model.name] + ([nxt.name] if nxt else [])
+    counts = await store.counts(s, names) if out["available"] else {"documents": 0, "by_kind": {}, "vectors": dict.fromkeys(names, 0)}
+    documents = counts["documents"]
+    out |= {"documents": documents, "by_kind": counts["by_kind"], "embedded": counts["vectors"][model.name], "next_embedded": counts["vectors"][nxt.name] if nxt else 0}
+    # How long a full index takes with each model, here: its measured speed, scaled by how fast this server
+    # ran the current model compared with the reference machine.
+    scale = (model.rate / model.card.speed) if model.rate and model.card.speed else 1.0
+    out["models"] = [
+        {
+            "name": c.name, "label": c.label, "tier": c.tier, "description": c.description, "dim": c.dim, "max_tokens": c.max_tokens,
+            "licence": c.licence, "download_mb": c.download_mb, "ram_mb": c.ram_mb, "mmteb": c.mmteb, "mmteb_retrieval": c.mmteb_retrieval,
+            "recommended": c.recommended, "estimate_seconds": int(documents / (c.speed * scale)) if c.speed else None,
+        }
+        for c in embedding.MODELS
+    ]  # fmt: skip
+    return out

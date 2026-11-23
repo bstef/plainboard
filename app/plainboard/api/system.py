@@ -15,12 +15,13 @@ from .. import db_move
 from ..config import get_config
 from ..models import TaskStatus
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
-from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SettingsOut, SettingsUpdate, UsageOut
+from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SearchModelIn, SearchStatusOut, SettingsOut, SettingsUpdate, UsageOut
 from ..services import access_keys as access_key_service
 from ..services import accounts as account_service
 from ..services import db_read as db_read_service
 from ..services import limits as limits_service
 from ..services import pause as pause_service
+from ..services import search as search_service
 from ..services import settings as settings_service
 from ..services import usage as usage_service
 from ..services import version as version_service
@@ -58,6 +59,8 @@ async def meta(runner: Runner, session: Session) -> dict[str, Any]:
         "runner_ok": runner_ok,
         "statuses": [s.value for s in TaskStatus],
         "pinned_note_budget_chars": PINNED_BUDGET_CHARS,
+        # Semantic search can exist here (PostgreSQL with pgvector): the project settings show its switch.
+        "semantic_search": await search_service.available(session),
         # The running commit and how far it is behind the newest PlainBoard; None: not known or not wanted.
         "version": version_service.current() if await settings_service.get(session, "update_check") else None,
         "database": "postgresql" if get_config().postgres else "sqlite",
@@ -174,6 +177,21 @@ async def usage(session: Session, runs: Runs) -> UsageOut:
 async def measure_usage(session: Session, runs: Runs) -> UsageOut:
     """Measure the folders again, in the background."""
     return await usage_service.overview(session, runs, measure=True)
+
+
+@router.get("/search/status", response_model=SearchStatusOut)
+async def search_status(session: Session) -> SearchStatusOut:
+    """Semantic search: whether it exists here and is on, its model, and how much is indexed."""
+    return SearchStatusOut(**await search_service.status(session))
+
+
+@router.post("/search/model", response_model=SearchStatusOut)
+async def choose_search_model(body: SearchModelIn, session: Session) -> SearchStatusOut:
+    """Another embedding model: the index is made anew for it in the background, search switches when it is
+    complete. The current one again: a switch under way is called off."""
+    await search_service.choose_model(session, body.model)
+    await session.commit()
+    return await search_status(session)
 
 
 @router.get("/settings", response_model=SettingsOut)

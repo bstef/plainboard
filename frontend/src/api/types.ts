@@ -17,6 +17,7 @@ export interface Project {
   /** When nothing in To do can start, the team goes on with the Backlog. */
   continue_with_backlog: boolean;
   fast_checks: boolean;
+  semantic_search: boolean;
   /** Paused for good by a person, since then; null: not paused. */
   paused_at: string | null;
   paused_by: string;
@@ -428,6 +429,8 @@ export interface Meta {
   runner_ok: boolean;
   statuses: TaskStatus[];
   pinned_note_budget_chars: number;
+  /** Semantic search can exist here: PostgreSQL with pgvector. */
+  semantic_search: boolean;
   /** The running commit and how many newer ones exist; null: the build does not know, or the check is off. */
   version: { commit: string; behind: number | null; url: string } | null;
   database: "sqlite" | "postgresql";
@@ -802,4 +805,44 @@ export interface ProjectRunner {
   runner_id: number | null;
   runners: { id: number | null; name: string; connected: boolean }[];
   busy: string;
+}
+
+export interface SearchModelState {
+  name: string;
+  label: string;
+  state: "absent" | "downloading" | "loading" | "ready" | "failed";
+  /** While downloading: the share done. */
+  progress: number | null;
+  error: string;
+}
+
+export interface SearchModelOption {
+  name: string;
+  label: string;
+  tier: "small" | "balanced" | "large";
+  description: string;
+  dim: number;
+  max_tokens: number;
+  licence: string;
+  download_mb: number;
+  ram_mb: number;
+  mmteb: number | null;
+  mmteb_retrieval: number | null;
+  recommended: boolean;
+  /** A full index of what is indexed now, with this model, on this server. */
+  estimate_seconds: number | null;
+}
+
+export interface SearchStatus {
+  available: boolean;
+  enabled: boolean;
+  /** What search uses. */
+  model: SearchModelState;
+  /** The model the index is being made anew for; search switches to it when it is complete. */
+  next: SearchModelState | null;
+  documents: number;
+  embedded: number;
+  next_embedded: number;
+  by_kind: Record<string, number>;
+  models: SearchModelOption[];
 }

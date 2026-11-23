@@ -152,6 +152,8 @@
     "autoWake": "Tell the manager when work is finished",
     "fastChecks": "Keep checks fast",
     "fastChecksHint": "PlainBoard measures every check run. Once for each repository, and again when its checks get clearly slower than they were (or than a target you set), the manager has them made faster: caching, parallel jobs, no double work. Nothing is checked less. Switched off, PlainBoard leaves the checks as they are.",
+    "semanticSearch": "Semantic search",
+    "semanticSearchHint": "The agents can search this project's history by meaning, in any language: earlier tickets, reports, decisions, comments, notes and commits. They search when work may have history, not on every turn. Switched off, nothing of this project is indexed and the agents have no search.",
     "autoWakeHint": "The manager gets the reports of finished work by itself and goes on from there. Switched off, it looks at them only when you write to it.",
     "backlogNext": "Go on with the Backlog when To Do cannot start",
     "backlogNextHint": "When nothing in To Do can start, the team takes the next Backlog tickets, the most urgent first, and leaves only what needs you. Switched off, the Backlog waits until you move a ticket to To Do, and the team rests when To Do is empty.",
@@ -1353,6 +1355,60 @@
       "home": "Folder in the shared home",
       "logs": "Job logs",
       "server": "Server"
+    }
+  },
+  "search": {
+    "title": "Semantic search",
+    "description": "Agents find the projects' history by meaning: earlier tickets, reports, decisions, notes and commits.",
+    "toggle": "Semantic search",
+    "hint": "Indexes tickets, reports, decisions, comments, notes and commits in the background and gives the agents a search tool. The embedding model runs on this server (no key, no cost) and is downloaded once. Each project can switch it off for itself.",
+    "unavailable": "Semantic search needs PostgreSQL with the extension pgvector (e.g. the image pgvector/pgvector). With SQLite, or a server without it, it is not available.",
+    "model": "Model",
+    "modelState": {
+      "absent": "not downloaded yet (when there is something to index)",
+      "downloading": "downloading",
+      "loading": "loading",
+      "ready": "ready",
+      "failed": "failed, tried again later"
+    },
+    "indexed": "Indexed",
+    "documents_one": "{{count}} chunk",
+    "documents_other": "{{count}} chunks",
+    "waiting_one": "{{count}} waits for its vector",
+    "waiting_other": "{{count}} wait for their vector",
+    "sources": "Sources",
+    "kinds": {
+      "ticket": "tickets",
+      "report": "reports",
+      "decision": "decisions",
+      "comment": "comments",
+      "note": "notes",
+      "commit": "commits"
+    },
+    "switching": "Switching to",
+    "rebuilt": "{{done}} of {{total}} chunks embedded; search uses the current model until all are",
+    "models": "Embedding model",
+    "modelsHint": "All run on this server's CPU, need no key and understand German and English in one space. A larger model finds better, but indexes more slowly and needs more memory. Quality: MMTEB multilingual retrieval score (higher is better).",
+    "recommended": "recommended",
+    "inUse": "in use",
+    "building": "index being built",
+    "facts": "{{tier}} · {{dim}} dimensions · up to {{tokens}} tokens · {{download}} MB download · about {{ram}} MB memory · {{licence}}",
+    "quality": "quality {{score}}",
+    "tier": {
+      "small": "small, fast",
+      "balanced": "balanced",
+      "large": "large, slow"
+    },
+    "confirmTitle": "Switch to {{model}}?",
+    "confirmText": "Every chunk is embedded again with the new model: {{count}} chunks, which takes {{duration}} on this server (plus a download of {{download}} MB). Meanwhile search keeps using {{current}}; when the new index is complete it switches at once and the old vectors are deleted.",
+    "confirmBack": "Stay with the current model: the new index for {{model}} is called off and what it has so far is deleted.",
+    "confirm": "Switch and rebuild",
+    "callOff": "Call off the switch",
+    "cancel": "Cancel",
+    "duration": {
+      "minute": "about a minute",
+      "minutes": "about {{count}} minutes",
+      "hours": "about {{count}} hours"
     }
   }
 }

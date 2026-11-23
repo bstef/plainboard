@@ -30,6 +30,26 @@ def alembic_config() -> AlembicConfig:
 
 
 def upgrade() -> None:
+    _upgrade()
+    config = get_config()  # after a move that failed: SQLite again
+    if config.postgres:
+        _search_tables(config.sync_database_url)
+
+
+def _search_tables(url: str) -> None:
+    """Semantic search's tables, where the server offers pgvector: also after a move from SQLite, and on a
+    server that offers it only since this start (services/search/schema.py)."""
+    from .services.search.schema import ensure
+
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            ensure(conn)
+    finally:
+        engine.dispose()
+
+
+def _upgrade() -> None:
     config = get_config()
     config.data_dir.mkdir(parents=True, exist_ok=True)
     sqlite_file = config.data_dir / "plainboard.db"
@@ -74,7 +94,7 @@ def upgrade() -> None:
 
             engine = create_engine(config.sync_database_url)
             try:
-                Base.metadata.create_all(engine)
+                Base.metadata.create_all(engine, tables=[t for t in Base.metadata.sorted_tables if t.info.get("needs") != "vector"])
                 _first_rows(engine)
             finally:
                 engine.dispose()

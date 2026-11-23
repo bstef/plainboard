@@ -12,6 +12,11 @@ from .models import (
     BranchRef,
     CheckResult,
     CommitRef,
+    GitCommit,
+    GitLogResult,
+    GitLogSpec,
+    GitPresentResult,
+    GitPresentSpec,
     JobTiming,
     RerunRef,
     ProviderAccount,
@@ -78,6 +83,11 @@ from .models import (
 )
 
 __all__ = [
+    "GitCommit",
+    "GitLogResult",
+    "GitLogSpec",
+    "GitPresentResult",
+    "GitPresentSpec",
     "ACCOUNT_KEY_PATTERN",
     "DEFAULT_ACCOUNT",
     "AssistantTextEvent",

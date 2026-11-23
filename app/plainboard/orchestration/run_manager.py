@@ -77,6 +77,7 @@ from ..services import secrets as secret_service
 from ..services import timing as timing_service
 from ..services import todos as todo_service
 from ..services import scratchpad as scratchpad_service
+from ..services import search as search_service
 from ..services import accounts as account_service
 from ..services import limits as limits_service
 from ..services import settings as settings_service
@@ -1481,6 +1482,8 @@ class RunManager:
                     earlier = list(await s.scalars(done.order_by(Assignment.id.desc()).limit(3)))
                 facts = timing_service.facts_text(await timing_service.cached_overview(s, project.id, timing_service.FACTS_DAYS * 24))
                 board = prompts.assignment_opening(facts, earlier, fresh)
+                if fresh and assignment.task_id and (hint := await _related_hint(s, project, assignment)):
+                    board = f"{board}\n\n{hint}" if board else hint
                 if archived := await scratchpad_service.archived_block(s, assignment):
                     board = f"{board}\n\n{archived}" if board else archived
             subscriptions = prompts.subscriptions_line(values["timezone"], await account_service.used_up_until(s, agent), await _limit_since_answer(s, conv.id))
@@ -1531,7 +1534,7 @@ class RunManager:
                 ),
                 credentials=credentials,
                 bridge=ToolBridgeSpec(
-                    base_url=get_config().internal_url, run_id=str(run.id), run_token=ctx.token, tools=registry.tool_defs_for(agent)
+                    base_url=get_config().internal_url, run_id=str(run.id), run_token=ctx.token, tools=registry.tool_defs_for(agent, await _features(s, project))
                 ),
                 mcp_servers=await mcp_service.specs_for_agent(s, agent),
                 skills=await skill_service.specs_for_agent(s, agent),
@@ -1951,3 +1954,23 @@ class RunManager:
 def _session_lost(error: str | None) -> bool:
     text = (error or "").lower()
     return "no conversation found" in text or ("session" in text and "not found" in text)
+
+
+async def _features(s: AsyncSession, project: Project) -> frozenset[str]:
+    """What the project has of the tools that depend on something (``registry.tool(feature=...)``)."""
+    return frozenset({registry.SEARCH}) if await search_service.enabled(s, project) else frozenset()
+
+
+async def _related_hint(s: AsyncSession, project: Project, assignment: Assignment) -> str:
+    """At most one line, at the start of new work on a ticket: what the project's history has that is
+    very close to it. Never more than a short wait, never a failed turn."""
+    try:
+        task = await s.get(Task, assignment.task_id)
+        if task is None:
+            return ""
+        text = f"{task.title}. {assignment.title}. {truncate(assignment.instructions, 800)}"
+        return prompts.related_hint(search_service.label, await asyncio.wait_for(search_service.related(s, project, text, task.number), 5))
+    except Exception:
+        log.exception("The hint of related history failed")
+        return ""
+
