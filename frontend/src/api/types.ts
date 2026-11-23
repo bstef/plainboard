@@ -33,6 +33,8 @@ export interface Project {
   role: ProjectRole | null;
   auto_archive_days: number;
   review_days: number;
+  attachment_retention_days: number;
+  attachment_retention_min_mb: number;
   /** What answers quick questions (Ctrl+Enter in the chat); "" : the default, Claude Haiku with effort high. */
   ask_provider: string;
   ask_model: string;
@@ -197,7 +199,7 @@ export interface Task {
   manager_active: boolean;
   open_decisions: number;
   /** Work is finished and only waits to land: its branch waits for a train, is checked, or is repaired. */
-  landing: "waiting" | "checking" | "repairing" | null;
+  landing: "waiting" | "checking" | "repairing" | "held" | null;
 }
 
 export interface Comment {
@@ -247,6 +249,14 @@ export interface Attachment {
   size: number;
   uploaded_by_agent_id: number | null;
   created_at: string;
+  purged_at?: string | null;
+  purged_after_days?: number | null;
+}
+
+export interface RetentionPreview {
+  now: { count: number; bytes: number };
+  soon: { count: number; bytes: number };
+  soon_days: number;
 }
 
 export interface Assignment {
@@ -958,6 +968,9 @@ export interface FlowBranch {
   since: string;
   merged_at: string | null;
   conflict_files: string[];
+  /** It does not land until its author hands it over again ("message") or the manager releases it ("manager"). */
+  held: "message" | "manager" | null;
+  held_reason: string;
 }
 export interface FlowTrain {
   id: number;
@@ -1033,4 +1046,83 @@ export interface ProjectSearch {
   /** ok: by meaning and words; preparing: by words until the model is ready; off / unavailable: no hits. */
   state: "ok" | "preparing" | "off" | "unavailable";
   hits: SearchHit[];
+}
+
+/** The project's ideas (#91): a planning space, nothing in it starts work. */
+export interface IdeaOption {
+  label: string;
+  description: string;
+}
+
+export interface Idea {
+  id: number;
+  project_id: number;
+  title: string;
+  text: string;
+  author: string;
+  status: "open" | "taken" | "dismissed" | "merged";
+  topic_id: number | null;
+  /** Placed by a person: the AI leaves its topic alone. */
+  topic_manual: boolean;
+  task_id: number | null;
+  task_number: number | null;
+  merged_into_id: number | null;
+  hint: string;
+  sort_state: "pending" | "sorted" | "failed";
+  x: number | null;
+  y: number | null;
+  votes: number;
+  similar: number[];
+  duplicate_of: number | null;
+  question: string;
+  /** The first is recommended; a free answer is possible too. */
+  question_options: IdeaOption[];
+  question_status: "" | "open" | "answered" | "withdrawn";
+  question_answer: string;
+  question_at: string | null;
+  closed_at: string | null;
+  closed_reason: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IdeaTopic {
+  id: number;
+  project_id: number;
+  name: string;
+  /** 0–9: the design's --chart-1 … --chart-10. */
+  color: number;
+  hint: string;
+  manual: boolean;
+  x: number | null;
+  y: number | null;
+}
+
+export interface IdeaChange {
+  id: number;
+  project_id: number;
+  kind: "new" | "several" | "amend" | "merge" | "question" | "edit" | "reorder";
+  source: "input" | "answer" | "user" | "auto" | "button";
+  author: string;
+  summary: Record<string, any>;
+  created_at: string;
+  undone_at: string | null;
+  /** The ideas it touched, as they are now (only in the answer to an action). */
+  ideas: Idea[];
+}
+
+export interface IdeaVersion {
+  id: number;
+  idea_id: number;
+  title: string;
+  text: string;
+  source: "user" | "ai" | "undo";
+  created_at: string;
+}
+
+export interface IdeasData {
+  topics: IdeaTopic[];
+  ideas: Idea[];
+  /** The AI is sorting ideas right now. */
+  sorting: boolean;
 }
