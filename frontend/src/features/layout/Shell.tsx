@@ -528,10 +528,13 @@ function ProjectWorkspace({
               ))}
             </nav>
             {wide ? (
-              <div className="mt-5 flex min-h-0 flex-1 flex-col gap-5">
+              <div data-part="side-stack" className="mt-5 flex min-h-0 flex-1 flex-col gap-5 overflow-hidden">
                 <PreviewsSide />
-                <FlowSide variant="table" onOpen={() => setView("flow")} />
-                <RunningNow variant="table" />
+                {/* Landing and Running now sit at the bottom, apart from the nav above. */}
+                <div data-stack-end className="mt-auto flex shrink-0 flex-col gap-5">
+                  <FlowSide variant="table" onOpen={() => setView("flow")} />
+                  <RunningNow variant="table" />
+                </div>
               </div>
             ) : (
               <div className="flex-1" />

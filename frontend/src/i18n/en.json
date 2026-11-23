@@ -860,6 +860,9 @@
   },
   "shell": {
     "runningNow": "Running now",
+    "nobodyWorking": "Nobody is working",
+    "idleMore_one": "+{{count}} idle",
+    "idleMore_other": "+{{count}} idle",
     "openChat": "Open chat with {{name}}",
     "forYou": "{{n}} for you",
     "planning": "planning"
