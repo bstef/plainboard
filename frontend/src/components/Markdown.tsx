@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useArchivedTasks, useTasks } from "../api/queries";
@@ -231,7 +231,8 @@ const MD_COMPONENTS: Components = {
   ),
 };
 
-export function Markdown({ children, className }: { children: string; className?: string }) {
+/** Memoized: a streaming delta or a new message re-renders the list, but not the Markdown of the unchanged messages. */
+export const Markdown = memo(function Markdown({ children, className }: { children: string; className?: string }) {
   const people = usePeopleMap();
   const mentions = useMemo(() => linkMentions(people), [people]);
   const plugins = useMemo(() => [remarkGfm, linkTickets, mentions], [mentions]);
@@ -242,4 +243,4 @@ export function Markdown({ children, className }: { children: string; className?
       </ReactMarkdown>
     </div>
   );
-}
+});

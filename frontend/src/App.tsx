@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { qk, useAuth, useSettings } from "./api/queries";
 import { Spinner } from "./components/ui";
 import { CreateAdmin, Login } from "./features/auth/Login";
 import { Shell } from "./features/layout/Shell";
-import { SetupWizard } from "./features/onboarding/SetupWizard";
+
+const SetupWizard = lazy(() => import("./features/onboarding/SetupWizard").then((m) => ({ default: m.SetupWizard })));
 
 export default function App() {
   const auth = useAuth();
@@ -31,6 +32,10 @@ export default function App() {
 /** A new installation's admin goes through the basic settings once, before anything else. */
 function SignedIn({ admin }: { admin: boolean }) {
   const settings = useSettings();
-  if (admin && settings.data && !settings.data.values.setup_done) return <SetupWizard />;
+  if (admin && settings.data && !settings.data.values.setup_done) return (
+      <Suspense fallback={null}>
+        <SetupWizard />
+      </Suspense>
+    );
   return <Shell />;
 }

@@ -16,6 +16,8 @@ import {
   Users,
 } from "lucide-react";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -37,7 +39,7 @@ import { Button, EmptyState, IconButton, Spinner } from "../../components/ui";
 import { useIsDesktop, useMediaQuery, useStored } from "../../lib/hooks";
 import { Logo } from "../auth/Login";
 import { Board } from "../board/Board";
-import { BrowserView, type BrowserRequest } from "../browser/BrowserView";
+import type { BrowserRequest } from "../browser/BrowserView";
 import { PreviewsSide, useActivePreviews } from "../browser/Previews";
 import { ForYou } from "../board/ForYou";
 import {
@@ -48,19 +50,22 @@ import { TaskModal } from "../board/TaskModal";
 import { ChatPanel } from "../chat/ChatPanel";
 import { ChatView } from "../chat/ChatView";
 import { LookDialog } from "./LookDialog";
-import { NotesView } from "../notes/NotesView";
-import { ProjectWizard } from "../onboarding/ProjectWizard";
-import { ProjectSettings } from "../projects/ProjectSettings";
 import { ProjectSwitcher } from "../projects/ProjectSwitcher";
-import { SchedulesView } from "../schedules/SchedulesView";
 import { ProjectPauseBanner } from "../projects/ProjectPause";
 import { PauseBanner } from "../settings/PauseEditor";
-import { SettingsDialog } from "../settings/SettingsDialog";
-import { StatsView } from "../stats/StatsView";
-import { TeamView } from "../team/TeamView";
-import { ToolsView } from "../tools/ToolsView";
 import { RunningNow } from "./RunningNow";
 import { ShellContext, type ShellApi } from "./shell-context";
+
+// Rarely used views and dialogs load on first use (own chunks), keeping the first load small.
+const BrowserView = lazy(() => import("../browser/BrowserView").then((m) => ({ default: m.BrowserView })));
+const NotesView = lazy(() => import("../notes/NotesView").then((m) => ({ default: m.NotesView })));
+const ProjectWizard = lazy(() => import("../onboarding/ProjectWizard").then((m) => ({ default: m.ProjectWizard })));
+const ProjectSettings = lazy(() => import("../projects/ProjectSettings").then((m) => ({ default: m.ProjectSettings })));
+const SchedulesView = lazy(() => import("../schedules/SchedulesView").then((m) => ({ default: m.SchedulesView })));
+const SettingsDialog = lazy(() => import("../settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const StatsView = lazy(() => import("../stats/StatsView").then((m) => ({ default: m.StatsView })));
+const TeamView = lazy(() => import("../team/TeamView").then((m) => ({ default: m.TeamView })));
+const ToolsView = lazy(() => import("../tools/ToolsView").then((m) => ({ default: m.ToolsView })));
 
 export type View =
   | "board"
@@ -97,6 +102,8 @@ export function Shell() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string>();
+  const [settingsSeen, setSettingsSeen] = useState(false);
+  if (settingsOpen && !settingsSeen) setSettingsSeen(true);
   /** The PlainBoard settings, at the section that was open last or at a named one. */
   const openSettings = (section?: string) => {
     setSettingsSection(section);
@@ -171,16 +178,22 @@ export function Shell() {
           </EmptyState>
         </div>
       )}
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        section={settingsSection}
-      />
+      {settingsSeen && (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            section={settingsSection}
+          />
+        </Suspense>
+      )}
       {newProject && (
-        <ProjectWizard
-          onClose={() => setNewProject(false)}
-          onCreated={(p) => setProjectId(p.id)}
-        />
+        <Suspense fallback={null}>
+          <ProjectWizard
+            onClose={() => setNewProject(false)}
+            onCreated={(p) => setProjectId(p.id)}
+          />
+        </Suspense>
       )}
     </>
   );
@@ -571,18 +584,26 @@ function ProjectWorkspace({
                   onSelectAgent={setChatAgentId}
                 />
               )}
-              {view === "team" && <TeamView />}
-              {view === "notes" && <NotesView />}
-              {view === "schedules" && <SchedulesView />}
-              {view === "browser" && <BrowserView request={browserRequest} />}
-              {view === "tools" && <ToolsView />}
-              {view === "stats" && <StatsView />}
-              {view === "project" && (
-                <ProjectSettings
-                  onOpenTeam={() => setView("team")}
-                  onDeleted={onProjectDeleted}
-                />
-              )}
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center">
+                    <Spinner className="size-6" />
+                  </div>
+                }
+              >
+                {view === "team" && <TeamView />}
+                {view === "notes" && <NotesView />}
+                {view === "schedules" && <SchedulesView />}
+                {view === "browser" && <BrowserView request={browserRequest} />}
+                {view === "tools" && <ToolsView />}
+                {view === "stats" && <StatsView />}
+                {view === "project" && (
+                  <ProjectSettings
+                    onOpenTeam={() => setView("team")}
+                    onDeleted={onProjectDeleted}
+                  />
+                )}
+              </Suspense>
             </main>
             {showPanel && (
               <>

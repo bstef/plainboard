@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { AlertCircle, Archive, Bell, CalendarClock, ChevronRight, ClipboardList, HelpCircle, Mail, Paperclip, RefreshCw, Ticket, Wrench } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useDirectory, useMe } from "../../api/queries";
 import type { Agent, Message, Person } from "../../api/types";
@@ -19,7 +19,7 @@ const LINK = "shrink-0 underline decoration-line-2 underline-offset-[3px] hover:
 /** `details` shows tool activity, compression markers and full event cards; otherwise the chat
  * stays clean (messages only, events as one-line notes). `follows`: the agent wrote the message
  * before it too, a moment ago, so a design may leave the name out. */
-export function MessageItem({ message, agent, details, follows = false }: { message: Message; agent: Agent; details: boolean; follows?: boolean }) {
+export const MessageItem = memo(function MessageItem({ message, agent, details, follows = false }: { message: Message; agent: Agent; details: boolean; follows?: boolean }) {
   switch (message.kind) {
     case "tool":
       return details ? <ToolStep message={message} /> : null;
@@ -49,7 +49,7 @@ export function MessageItem({ message, agent, details, follows = false }: { mess
       <Markdown>{message.content}</Markdown>
     </div>
   );
-}
+});
 
 /** Who wrote the row, and when: a person's picture and the name at the left, time in a fixed place at the right. */
 export function Head({ name, at, avatar, children }: { name: string; at?: string; avatar?: ReactNode; children?: ReactNode }) {

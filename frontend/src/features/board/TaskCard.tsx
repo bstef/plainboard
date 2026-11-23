@@ -2,7 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import clsx from "clsx";
 import { Globe, MessageSquare, Paperclip } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { memo, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { Priority, Task } from "../../api/types";
 import { AgentSquare } from "../../components/ui";
@@ -41,7 +41,7 @@ export function Label({ colors, label, className, tag }: { colors: Record<string
  * the facts at the right as one group in a fixed order: comments, files, public, who works on it,
  * for how long. The facts move to a line of their own, still at the right, when the tags fill
  * theirs. */
-export function TaskCard({ task, overlay, done }: { task: Task; overlay?: boolean; done?: boolean }) {
+export const TaskCard = memo(function TaskCard({ task, overlay, done }: { task: Task; overlay?: boolean; done?: boolean }) {
   const { t } = useTranslation();
   const { project, openTask, agentById, canWrite } = useShell();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `t-${task.id}`, disabled: overlay || !canWrite });
@@ -131,7 +131,7 @@ export function TaskCard({ task, overlay, done }: { task: Task; overlay?: boolea
       </div>
     </article>
   );
-}
+});
 
 /** Reversed vermilion plate that names what waits for the user. */
 export function ForYouPlate({ children }: { children: ReactNode }) {
