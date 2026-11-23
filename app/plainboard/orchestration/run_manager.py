@@ -76,6 +76,7 @@ from ..services import runners as runner_service
 from ..services import secrets as secret_service
 from ..services import timing as timing_service
 from ..services import todos as todo_service
+from ..services import work_notes as work_notes_service
 from ..services import accounts as account_service
 from ..services import limits as limits_service
 from ..services import settings as settings_service
@@ -411,7 +412,8 @@ class RunManager:
                         trigger=str(run.trigger), resumed=run.id in resumed,
                     )  # fmt: skip
                     if run.id in resumed:
-                        await inbox.push(s, run.agent_id, prompts.RESTART_NOTE)
+                        held = await work_notes_service.current(s, run.agent_id, run.assignment_id)
+                        await inbox.push(s, run.agent_id, " ".join(filter(None, (prompts.RESTART_NOTE, work_notes_service.hint(held and held.work_notes)))))
                         await self._settle(s, run.agent_id)
                     else:
                         await self._report_interrupted(s, run)
@@ -1483,7 +1485,10 @@ class RunManager:
             full_text = prompts.with_preface(
                 prompts.with_attachments(text, meta.get("attachments")), now=prompts.now_line(values["timezone"]), inbox=updates, board=board, subscriptions=subscriptions
             )
-            turn = await self.context.build_turn(s, project=project, agent=agent, conv=conv, text=full_text, message_id=message.id)
+            notes = None if agent.is_manager else await work_notes_service.current(s, agent.id, run.assignment_id)
+            turn = await self.context.build_turn(
+                s, project=project, agent=agent, conv=conv, text=full_text, message_id=message.id, work_notes=notes.work_notes if notes else None
+            )
             if turn.briefing_changes:
                 message.meta = {**message.meta, "briefing_update": turn.briefing_changes}
                 await s.commit()
@@ -1590,6 +1595,10 @@ class RunManager:
                     s.add(marker)
                     await s.commit()
                     bus.publish(ctx.project_id, "message.created", MessageOut.model_validate(marker))
+                    # What the agent noted for the work is not part of the compacted conversation: tell it so.
+                    held = await work_notes_service.current(s, ctx.agent_id, ctx.assignment_id)
+                    if held and held.work_notes:
+                        await self.runners.of(ctx.project_id).notify_run(ctx.run_id, work_notes_service.hint(held.work_notes))
                 elif event.type == "result":
                     outcome.result = event
                 elif event.type == "error":
@@ -1745,7 +1754,7 @@ class RunManager:
             # turn (_settle), or when it is enabled again. Only one that keeps breaking off goes to the manager.
             earlier = await s.scalar(select(func.count(Run.id)).where(Run.assignment_id == assignment.id, Run.error == LOST))
             if earlier <= MAX_RESTART_RESUMES:
-                await inbox.push(s, agent.id, prompts.LOST_NOTE)
+                await inbox.push(s, agent.id, " ".join(filter(None, (prompts.LOST_NOTE, work_notes_service.hint(assignment.work_notes)))))
                 bus.publish(project.id, "assignment.upserted", AssignmentOut.model_validate(assignment))
                 return
         assignment.status = {
