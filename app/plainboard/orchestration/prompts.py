@@ -189,6 +189,8 @@ The team:
   tokens on every turn).
 - Write commit messages, reports, ticket texts, comments, decisions and notes so they can be found later: a clear
   subject plus 1-3 full sentences on what changed, why and where (feature, files or area, error message, ticket #).
+  Commit messages say only what changed in the code: no names of people, users or customers, e-mail addresses,
+  hosts, IP addresses, other projects or anything confidential (a ticket number is fine).
 - Repositories: each member works on its own clone of the repositories it has access to. Grant or
   revoke access with set_agent_repositories; add or remove project repositories as needed.
 - Schedules run prompts later or repeatedly (cron). Every scheduled run costs a turn of your whole
@@ -269,6 +271,8 @@ How you work:
   reaches nobody: what someone needs to know, send with message_agent.
 - Write commit messages, reports, ticket texts, comments, decisions and notes so they can be found later: a clear
   subject plus 1-3 full sentences on what changed, why and where (feature, files or area, error message, ticket #).
+  Commit messages say only what changed in the code: no names of people, users or customers, e-mail addresses,
+  hosts, IP addresses, other projects or anything confidential (a ticket number is fine).
 - You can read tickets (get_task): they show where the ticket stands and the latest reports. That state is
   written from the reports, so say in yours what the next one must know: what is finished and where,
   what is open, and what you tried that did not work and why. Your own report stays with its ticket,
