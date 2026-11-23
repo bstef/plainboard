@@ -33,6 +33,6 @@ export function Progress({ elapsed, typical, className }: { elapsed: number; typ
 }
 
 /** The state mark of DESIGN.md's fixed cell: filled = working, hollow = waits or in the background, diamond = needs someone, check = done. */
-export function Mark({ kind }: { kind: "run" | "plan" | "done" | "you" }) {
-  return <span className={clsx("mk", kind === "run" && "mk-run", kind === "plan" && "mk-plan", kind === "done" && "mk-done", kind === "you" && "mk-you")} />;
+export function Mark({ kind, className }: { kind: "run" | "plan" | "done" | "you"; className?: string }) {
+  return <span className={clsx("mk", className, kind === "run" && "mk-run", kind === "plan" && "mk-plan", kind === "done" && "mk-done", kind === "you" && "mk-you")} />;
 }
