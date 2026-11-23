@@ -13,7 +13,7 @@ from test_users import new_user, sign_in
 from plainboard.orchestration import ideas as idea_orchestration
 from plainboard.services import ideas as idea_service
 
-KINDS = {idea_service.SORT_SYSTEM: "sort", idea_service.REORDER_SYSTEM: "reorder", idea_service.INTENT_SYSTEM: "intent"}
+KINDS = {idea_service.SORT_SYSTEM: "sort", idea_service.REORDER_SYSTEM: "reorder", idea_service.INTENT_SYSTEM: "intent", idea_service.MERGE_SYSTEM: "merge"}
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ def answer(client, fail: bool = False, **queues) -> dict[str, list]:
     """The model's answers per kind of call (sort, reorder, intent), in turn: a text, or a function of the
     spec. An empty queue answers "". Returns the specs asked, per kind."""
     runner = client.app_ref.state.runner
-    asked: dict[str, list] = {"sort": [], "reorder": [], "intent": [], "other": []}
+    asked: dict[str, list] = {"sort": [], "reorder": [], "intent": [], "merge": [], "other": []}
     queues = {k: list(v) for k, v in queues.items()}
 
     async def complete(spec):
@@ -489,3 +489,88 @@ def test_files_of_an_idea_are_shown_read_by_the_manager_kept_by_the_retention_an
     path = _file(sketch)
     assert client.delete(f"/api/projects/{pid}/ideas/{idea['id']}").status_code == 204
     assert not path.exists() and client.get(f"/api/attachments/{sketch['id']}").status_code == 404
+
+
+def sort_all(spec) -> str:
+    return json.dumps({"ideas": [{"id": i, "topic": "App"} for i in ids_in(spec, "Sort these:")]})
+
+
+def test_duplicates_are_merged_into_one_with_their_files_and_links_and_the_merge_is_undone_as_one(client, project):
+    pid = project["id"]
+    answer(client, sort=[sort_all] * 3)
+    fast = add(client, pid, "The app should start in under a second", title="Optimized start")
+    fonts = add(client, pid, "Bigger fonts")
+    settled(client, pid)
+
+    def duplicate(spec) -> str:
+        (idea_id,) = ids_in(spec, "Sort these:")
+        return json.dumps({"ideas": [{"id": idea_id, "topic": "Start", "duplicate_of": fast["id"], "similar": [fonts["id"]]}]})
+
+    asked = answer(client, sort=[duplicate], merge=["no idea"])  # the first merge fails: the marker stays
+    quick = add(client, pid, "Extremely fast startup, also on old phones", title="Fast startup")
+    data = by_id(settled(client, pid))
+    assert len(asked["merge"]) == 1 and data[quick["id"]]["duplicate_of"] == fast["id"]
+    resp = client.post(f"/api/projects/{pid}/ideas/{quick['id']}/attachments", files=[("files", ("trace.txt", b"slow", "text/plain"))])
+    assert resp.status_code == 201, resp.text
+    (trace,) = resp.json()
+
+    merged_text = "The app should start in under a second, also on old phones."
+    asked = answer(client, sort=[sort_all] * 3, merge=[json.dumps({"title": "Fast start", "text": merged_text})])
+    assert client.post(f"/api/projects/{pid}/ideas/sort").status_code == 202  # the next rearrangement merges what was marked
+    wait_for(lambda: len(asked["merge"]) == 1 and not ideas_of(client, pid)["sorting"])
+    data = settled(client, pid)
+    (prompt,) = [spec.prompt for spec in asked["merge"]]
+    assert "under a second" in prompt and "also on old phones" in prompt and "ask first" not in prompt
+    ideas = by_id(data)
+    assert sorted(ideas) == sorted([fast["id"], fonts["id"]])
+    assert (ideas[fast["id"]]["title"], ideas[fast["id"]]["text"]) == ("Fast start", merged_text)
+    assert [a["id"] for a in ideas[fast["id"]]["attachments"]] == [trace["id"]] and ideas[fonts["id"]]["similar"] == [fast["id"]]
+    gone = by_id(ideas_of(client, pid, closed=True))[quick["id"]]
+    assert (gone["status"], gone["merged_into_id"], gone["text"]) == ("merged", fast["id"], quick["text"])
+    versions = client.get(f"/api/projects/{pid}/ideas/{fast['id']}/versions").json()
+    assert [(v["text"], v["source"]) for v in versions] == [(fast["text"], "ai")]
+    change = next(c for c in client.get(f"/api/projects/{pid}/ideas/changes").json() if c["kind"] == "merge")
+    assert change["source"] == "auto" and change["summary"]["merged"] == [quick["id"]] and change["summary"]["duplicates"] is True
+
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], "Look at the ideas\nTOOL list_ideas {}")
+    wait_for(lambda: idle(client, pid))
+    listed = tool_results(client, manager["id"])[-1]
+    assert listed.startswith("Ideas 1-2 of 2:") and f"i{quick['id']} " not in listed and "file: " in listed
+
+    assert client.post(f"/api/projects/{pid}/ideas/changes/{change['id']}/undo").status_code == 200
+    ideas = by_id(ideas_of(client, pid))
+    assert sorted(ideas) == sorted([fast["id"], fonts["id"], quick["id"]])
+    assert (ideas[fast["id"]]["title"], ideas[fast["id"]]["text"]) == (fast["title"], fast["text"])
+    assert ideas[quick["id"]]["merged_into_id"] is None and [a["id"] for a in ideas[quick["id"]]["attachments"]] == [trace["id"]]
+    assert ideas[fast["id"]]["attachments"] == [] and fast["id"] not in ideas[fonts["id"]]["similar"]
+    assert ideas[quick["id"]]["duplicate_of"] is None and fast["id"] in ideas[quick["id"]]["similar"]  # kept apart from now on
+
+    asked = answer(client)
+    assert client.post(f"/api/projects/{pid}/ideas/sort").status_code == 202
+    wait_for(lambda: len(asked["reorder"]) == 1 and not ideas_of(client, pid)["sorting"])
+    assert asked["merge"] == [] and len(ideas_of(client, pid)["ideas"]) == 3  # an undone merge is not made again
+
+
+def test_a_duplicate_of_an_idea_a_person_placed_is_asked_about_instead_of_merged(client, project):
+    pid = project["id"]
+    answer(client)
+    topic = client.post(f"/api/projects/{pid}/ideas/topics", json={"name": "Mine"}).json()
+    mine = add(client, pid, "Dark mode", topic_id=topic["id"])
+    settled(client, pid)
+
+    def reorder(spec) -> str:
+        ids = ids_in(spec, "Ideas [topic id]:")
+        return json.dumps({"topics": [{"id": topic["id"], "name": "Mine", "ideas": ids}], "duplicates": [ids]})
+
+    question = {"question": "Merge with “Dark mode”?", "options": [{"label": "Merge"}, {"label": "Keep both"}]}
+    asked = answer(client, sort=[sort_all], reorder=[reorder], merge=[json.dumps(question)])
+    night = add(client, pid, "A dark theme for the night")
+    assert client.post(f"/api/projects/{pid}/ideas/sort").status_code == 202
+    wait_for(lambda: len(asked["merge"]) == 1 and not ideas_of(client, pid)["sorting"])
+    assert "ask first" in asked["merge"][0].prompt
+    ideas = by_id(ideas_of(client, pid))
+    assert ideas[mine["id"]]["text"] == "Dark mode" and ideas[night["id"]]["status"] == "open"  # not rewritten unasked
+    assert (ideas[night["id"]]["question"], ideas[night["id"]]["question_status"]) == (question["question"], "open")
+    assert ideas[night["id"]]["duplicate_of"] is None and ideas[night["id"]]["similar"] == [mine["id"]]
+    assert all(c["kind"] != "merge" for c in client.get(f"/api/projects/{pid}/ideas/changes").json())

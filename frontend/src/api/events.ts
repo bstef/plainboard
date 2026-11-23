@@ -109,7 +109,7 @@ function handleIdeas(qc: QueryClient, pid: number, type: string, data: any) {
       const change = data as IdeaChange;
       if (change.undone_at) {
         if (ideaChange?.id === change.id) showIdeaChange(null);
-      } else if (change.kind === "reorder" && ideaChange?.id !== change.id) showIdeaChange(change);
+      } else if ((change.kind === "reorder" || change.source === "auto") && ideaChange?.id !== change.id) showIdeaChange(change);
       break;
     }
     case "ideas.sorting":
