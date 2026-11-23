@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useAccounts, useMe, useMeta, useSettings } from "../../api/queries";
-import type { CheckResult } from "../../api/types";
+import type { CheckResult, RetentionPreview } from "../../api/types";
 import { ApiKeyEditor } from "../../components/ApiKeyEditor";
 import { SaveRow, SavedAtOnce, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
 import { Button, ErrorText, Field, FieldRow, IconButton, Input, PageHead, Select, Textarea, Toggle } from "../../components/ui";
@@ -19,6 +19,7 @@ import { AccountsEditor } from "./AccountsEditor";
 import { EndpointAccounts } from "./EndpointAccounts";
 import { McpAccessEditor } from "./McpAccessEditor";
 import { PauseEditor } from "./PauseEditor";
+import { RetentionConfirm } from "../projects/RetentionConfirm";
 import { RunnersEditor } from "./RunnersEditor";
 import { SearchEditor } from "./SearchEditor";
 import { SecretsEditor } from "./SecretsEditor";
@@ -56,6 +57,9 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   }, [open, section, setCurrent]);
   const [values, setValues] = useState<Values>({});
   const [githubToken, setGithubToken] = useState<string | null>(null); // null: untouched, "": clear it
+  const [retention, setRetention] = useState<RetentionPreview | null>(null);
+  const [retentionBusy, setRetentionBusy] = useState(false);
+  const [retentionError, setRetentionError] = useState<unknown>(null);
 
   useEffect(() => {
     if (open && settings.data) {
@@ -96,6 +100,28 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   const MODELS = ["default_provider", "default_manager_model", "default_worker_model", "default_summary_model", "default_manager_effort", "default_worker_effort", "default_summary_effort", "default_context_limit", "default_keep_recent"];
   const PACE = ["max_parallel_runs", "manager_parallel_limit"];
   const GENERAL = ["timezone", "member_chat", "update_check"];
+  const RETENTION = ["attachment_retention_days", "attachment_retention_min_mb"];
+  // The default's preview covers every project that follows it; saved only after that.
+  const saveRetention = async () => {
+    const days = Number(values.attachment_retention_days ?? 0);
+    if (days > 0) {
+      setRetention(await api.get<RetentionPreview>(`/settings/attachment-retention?days=${days}&min_mb=${Number(values.attachment_retention_min_mb ?? 0)}`));
+      return;
+    }
+    await save(RETENTION);
+  };
+  const confirmRetention = async () => {
+    setRetentionBusy(true);
+    setRetentionError(null);
+    try {
+      await save(RETENTION);
+      setRetention(null);
+    } catch (err) {
+      setRetentionError(err);
+    } finally {
+      setRetentionBusy(false);
+    }
+  };
   const CLEANUP = ["storage_notify_percent", "storage_emergency_percent", "cleanup", "cleanup_memory_free_percent", "tool_details_days"];
 
   const account: SettingsSection = { id: "account", label: t("account.title"), description: t("account.hint"), content: <AccountEditor /> };
@@ -352,6 +378,38 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   </Field>
                 </FieldRow>
                 <SaveRow dirty={dirty(...CLEANUP)} onSave={() => save(CLEANUP)} />
+              </section>
+              <section className="space-y-3">
+                <Toggle
+                  checked={Number(values.attachment_retention_days ?? 0) > 0}
+                  onChange={(v) => set({ attachment_retention_days: v ? Number(stored.attachment_retention_days) || 90 : 0 })}
+                  label={<span className="font-semibold">{t("projects.retentionDefault")}</span>}
+                />
+                <p className="text-fg-3">{t("projects.retentionDefaultHint")}</p>
+                {Number(values.attachment_retention_days ?? 0) > 0 && (
+                  <FieldRow>
+                    <Field label={t("projects.retentionDays")}>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={3650}
+                        value={values.attachment_retention_days}
+                        onChange={(e) => set({ attachment_retention_days: Math.max(1, Math.min(3650, Math.round(Number(e.target.value) || 0))) })}
+                      />
+                    </Field>
+                    <Field label={t("projects.retentionMinMb")}>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100000}
+                        value={values.attachment_retention_min_mb ?? 0}
+                        onChange={(e) => set({ attachment_retention_min_mb: Math.max(0, Math.min(100000, Math.round(Number(e.target.value) || 0))) })}
+                      />
+                    </Field>
+                  </FieldRow>
+                )}
+                <SaveRow dirty={dirty(...RETENTION)} onSave={saveRetention} />
+                <RetentionConfirm preview={retention} busy={retentionBusy} error={retentionError} onCancel={() => setRetention(null)} onConfirm={confirmRetention} />
               </section>
             </div>
           ),

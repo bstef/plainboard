@@ -33,8 +33,9 @@ export interface Project {
   role: ProjectRole | null;
   auto_archive_days: number;
   review_days: number;
-  attachment_retention_days: number;
-  attachment_retention_min_mb: number;
+  /** null: follows the PlainBoard default (settings attachment_retention_days / _min_mb); 0: never. */
+  attachment_retention_days: number | null;
+  attachment_retention_min_mb: number | null;
   /** What answers quick questions (Ctrl+Enter in the chat); "" : the default, Claude Haiku with effort high. */
   ask_provider: string;
   ask_model: string;
@@ -258,6 +259,8 @@ export interface RetentionPreview {
   now: { count: number; bytes: number };
   soon: { count: number; bytes: number };
   soon_days: number;
+  /** The PlainBoard default's preview: how many projects follow it. */
+  projects?: number | null;
 }
 
 export interface Assignment {

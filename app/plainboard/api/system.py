@@ -13,14 +13,15 @@ from pydantic import BaseModel
 
 from .. import db_move
 from ..config import get_config
-from ..models import TaskStatus
+from ..models import TaskStatus, utcnow
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
-from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SearchModelIn, SearchStatusOut, SettingsOut, SettingsUpdate, UsageOut
+from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SearchModelIn, RetentionPreviewOut, SearchStatusOut, SettingsOut, SettingsUpdate, UsageOut
 from ..services import access_keys as access_key_service
 from ..services import accounts as account_service
 from ..services import db_read as db_read_service
 from ..services import limits as limits_service
 from ..services import pause as pause_service
+from ..services import retention as retention_service
 from ..services import search as search_service
 from ..services import settings as settings_service
 from ..services import usage as usage_service
@@ -217,6 +218,12 @@ async def put_settings(body: SettingsUpdate, session: Session, runs: Runs, reque
 
 class SshKeyIn(BaseModel):
     private_key: str | None = None  # empty: PlainBoard creates a key pair
+
+
+@router.get("/settings/attachment-retention", response_model=RetentionPreviewOut)
+async def default_retention_preview(session: Session, days: int = Query(ge=0, le=3650), min_mb: int = Query(default=0, ge=0, le=100000)) -> RetentionPreviewOut:
+    """What a default retention would delete in all projects that follow it, before it is saved."""
+    return await retention_service.preview_default(session, days, min_mb, utcnow())
 
 
 @router.post("/settings/git-ssh-key", response_model=SettingsOut)

@@ -204,8 +204,9 @@ class Project(Timestamps, Base):
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never
     review_days: Mapped[int] = mapped_column(Integer, default=3)  # tickets left in review go to the manager after this; 0 = never
     # Files of tickets done this long ago are deleted, their entries stay (services/retention.py); 0 = never.
-    attachment_retention_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    attachment_retention_min_mb: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # only files from this size; 0: all
+    # Files of done tickets (services/retention.py); None: the PlainBoard default (settings), 0: never.
+    attachment_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attachment_retention_min_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)  # only files from this size; 0: all; None with the days: the default
     # What answers people's questions (orchestration/questions.py). Empty: the default (questions.DEFAULT_*).
     ask_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
     ask_model: Mapped[str] = mapped_column(String(100), default="", server_default="")

@@ -118,7 +118,8 @@ class CleanupWatcher:
                     manager = await s.scalar(select(Agent).where(Agent.project_id == project_id, Agent.is_manager))
                     if manager is not None:
                         project = await s.get(Project, project_id)
-                        await inbox.push(s, manager.id, retention.notice(len(due), sum(d.attachment.size for d in due), project.attachment_retention_days))
+                        days, default = due[0].attachment.purged_after_days, project.attachment_retention_days is None
+                        await inbox.push(s, manager.id, retention.notice(len(due), sum(d.attachment.size for d in due), days, default))
                     for task_id in {d.attachment.task_id for d in due}:
                         await board_service.publish_task_id(s, task_id)
         except Exception:
