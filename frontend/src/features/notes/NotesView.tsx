@@ -11,15 +11,16 @@ import { Button, ChatPanelToggle, EmptyState, ErrorText, Input, Textarea, Toggle
 import { timeAgo } from "../../lib/format";
 import { useShell } from "../layout/shell-context";
 
-export function NotesView() {
+/** `initial`: the note to show first (one found in the command palette). */
+export function NotesView({ initial }: { initial?: number } = {}) {
   const { t } = useTranslation();
   const { project, agentById, canWrite } = useShell();
   const qc = useQueryClient();
   const notes = useNotes(project.id);
-  const [selected, setSelected] = useState<number | "new" | null>(null);
+  const [selected, setSelected] = useState<number | "new" | null>(initial ?? null);
   const [query, setQuery] = useState("");
   // Phones show either the list or one note.
-  const [detail, setDetail] = useState(false);
+  const [detail, setDetail] = useState(initial !== undefined);
   const open = (id: number | "new") => {
     setSelected(id);
     setDetail(true);

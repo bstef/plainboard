@@ -374,6 +374,28 @@ class SearchStatusOut(BaseModel):
     models: list[SearchModelOption] = Field(default_factory=list)
 
 
+class SearchHitOut(BaseModel):
+    kind: str  # ticket, report, decision, comment, note, commit
+    ref: str
+    title: str
+    snippet: str  # the part of its text around the words searched for
+    at: UTCDateTime
+    changed_at: UTCDateTime
+    ticket_number: int | None = None
+    task_id: int | None = None  # the ticket it belongs to, to open it
+    note_id: int | None = None
+    repo: str | None = None
+    sha: str | None = None  # a commit's whole hash
+    url: str | None = None  # a commit's page, where its repository has one
+
+
+class ProjectSearchOut(BaseModel):
+    # ok: by meaning and words; preparing: the model is not ready, by words only; off: the project's or the
+    # installation's switch is off; unavailable: no PostgreSQL with pgvector here
+    state: Literal["ok", "preparing", "off", "unavailable"]
+    hits: list[SearchHitOut] = Field(default_factory=list)
+
+
 class SearchModelIn(BaseModel):
     model: str = Field(min_length=1, max_length=100)
 
