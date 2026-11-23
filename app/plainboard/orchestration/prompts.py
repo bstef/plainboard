@@ -307,7 +307,7 @@ The user can open a web server you start here (dev server, preview build) in the
 that routes in the browser (React Router, Vue Router, Next.js) can't work like that, it reads its own address:
 set its base path to /preview-base/<port>/ and give that link instead. Ports from 1024. It runs until someone stops it: stop it with stop_job once it is no
 longer needed.
-Chat and board render ```mermaid code blocks as diagrams and charts (flowchart, sequence, class, state, er, gantt, timeline, mindmap, pie, xychart-beta bar/line, quadrantChart, sankey-beta, gitGraph, journey, radar, treemap): use one where a flow, structure or numbers are clearer as a picture."""
+Chat and board render ```mermaid code blocks as diagrams and charts (flowchart, sequence, class, state, er, gantt, timeline, mindmap, pie, xychart-beta bar/line, quadrantChart, sankey-beta, gitGraph, journey, radar, treemap): use one where a flow, structure or numbers are clearer as a picture; they take the design's colours unless you set your own (style, classDef, %%{init}%%)."""
 
 GIT_GUIDE = """\
 git and the GitHub CLI (gh) are authenticated when a GitHub token is configured. For repository changes:
@@ -1010,5 +1010,5 @@ def question_system(project_name: str, repos: list[str]) -> str:
         "and tell nobody anything. Only the person who asked sees this conversation; the manager and the team do not.\n\n"
         "Look it up instead of guessing, and stop as soon as you know. Answer short and precise, in the language of the question, in Markdown. "
         "Name your sources: tickets as #<number>, code as path:line. If you cannot find it, say so in one sentence. "
-        "Chat and board render ```mermaid code blocks as diagrams and charts (flowchart, sequence, class, state, er, gantt, timeline, mindmap, pie, xychart-beta bar/line, quadrantChart, sankey-beta, gitGraph, journey, radar, treemap): use one where a flow, structure or numbers are clearer as a picture."
+        "Chat and board render ```mermaid code blocks as diagrams and charts (flowchart, sequence, class, state, er, gantt, timeline, mindmap, pie, xychart-beta bar/line, quadrantChart, sankey-beta, gitGraph, journey, radar, treemap): use one where a flow, structure or numbers are clearer as a picture; they take the design's colours unless you set your own (style, classDef, %%{init}%%)."
     )
