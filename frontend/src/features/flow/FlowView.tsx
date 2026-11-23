@@ -132,8 +132,9 @@ export function FlowView() {
                 {repo.land_first && <Badge>{t("flow.landFirst")}</Badge>}
                 <span className="flex-1" />
                 {typical && <span className="text-fg-3">{t("flow.typical", { time: clock(typical) })}</span>}
-                <span className={clsx("flex items-center gap-1", repo.red ? "text-you-fg" : "text-fg-2")}>
-                  {repo.red ? <Mark kind="you" /> : <Mark kind="done" />} {t(repo.red ? "flow.baseRed" : "flow.baseGreen")}
+                <span className={clsx("flex items-baseline gap-1", repo.red ? "text-you-fg" : "text-fg-2")}>
+                  <Mark kind={repo.red ? "you" : "done"} className="self-center" />
+                  <span>{t(repo.red ? "flow.baseRed" : "flow.baseGreen")}</span>
                 </span>
               </div>
               <div className="grid gap-y-5 px-2 @3xl:grid-cols-4 @3xl:gap-x-3">
