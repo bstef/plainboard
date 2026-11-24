@@ -167,6 +167,7 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
     case "decision":
       invalidateSoon(qc, qk.tasks(pid));
       invalidateSoon(qc, ["task"]);
+      if (entity === "attachment") invalidateSoon(qc, ["docs", pid, "files"]);
       break;
     case "todo":
       invalidateSoon(qc, ["todos"]);
@@ -229,6 +230,10 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
       break;
     case "mention":
       invalidateSoon(qc, qk.mentions);
+      break;
+    case "doc_site":
+    case "doc_page":
+      invalidateSoon(qc, ["docs", pid]);
       break;
     case "idea":
     case "idea_topic":

@@ -146,6 +146,8 @@ export interface Agent {
   slug: string;
   role: string;
   is_manager: boolean;
+  /** The hidden doc agent of this doc site (#118): not in the team, the board or the agent choices. */
+  doc_site_id?: number | null;
   description: string;
   instructions: string;
   provider: string;
@@ -246,6 +248,7 @@ export interface Attachment {
   id: number;
   task_id: number | null;
   idea_id?: number | null;
+  doc_site_id?: number | null;
   filename: string;
   content_type: string;
   size: number;
@@ -1032,7 +1035,7 @@ export interface FlowTicketBranch {
 
 /** A hit of the project's search by meaning (the command palette). */
 export interface SearchHit {
-  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit" | "idea";
+  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit" | "idea" | "doc";
   ref: string;
   title: string;
   snippet: string;
@@ -1042,6 +1045,7 @@ export interface SearchHit {
   task_id: number | null;
   note_id: number | null;
   idea_id: number | null;
+  doc_page_id?: number | null;
   repo: string | null;
   sha: string | null;
   url: string | null;
@@ -1136,4 +1140,117 @@ export interface IdeasData {
   ideas: Idea[];
   /** The AI is sorting ideas right now. */
   sorting: boolean;
+}
+
+// --- doc sites (#118) ---------------------------------------------------------------------------
+
+export type DocTranslator = "" | "llm" | "deepl" | "google";
+
+export interface DocAgent {
+  id: number;
+  slug: string;
+  name: string;
+  provider: string;
+  model: string;
+  effort: string | null;
+  enabled: boolean;
+}
+
+export interface DocSite {
+  id: number;
+  project_id: number;
+  name: string;
+  slug: string;
+  description: string;
+  /** The doc rules: what goes in, what not, how it is written. The doc agent's standing instructions. */
+  spec: string;
+  published: boolean;
+  /** Published and public: everyone; published and private: people with a role in the project. */
+  public: boolean;
+  language: string;
+  /** Further languages, translated. */
+  languages: string[];
+  translator: DocTranslator;
+  translate_provider: string;
+  translate_model: string;
+  deepl_key_set: boolean;
+  google_key_set: boolean;
+  domain: string | null;
+  domain_verified_at: string | null;
+  cloudflare_token_set: boolean;
+  agent: DocAgent | null;
+  /** Its address under this PlainBoard: /docs/<slug>/ */
+  url: string;
+  pages: number;
+  stale_pages: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocPageItem {
+  id: number;
+  site_id: number;
+  parent_id: number | null;
+  position: number;
+  title: string;
+  slug: string;
+  path: string;
+  depth: number;
+  children: number;
+  /** Code paths the page describes: a landed change there may make it outdated. */
+  paths: string[];
+  edited_by: string;
+  edited_at: string;
+  drift: number;
+  flagged_at: string | null;
+  flag_reason: string;
+  updated_at: string;
+}
+
+export type DocTranslationState = "current" | "outdated" | "missing" | "failed";
+
+export interface DocTranslationItem {
+  lang: string;
+  title: string;
+  state: DocTranslationState;
+  translated_by: string;
+  translated_at: string | null;
+  error: string;
+}
+
+export interface DocTranslation extends DocTranslationItem {
+  body: string;
+}
+
+export interface DocPage extends DocPageItem {
+  body: string;
+  versions: number;
+  ancestors: { id: number; title: string; path: string }[];
+  translations: DocTranslationItem[];
+}
+
+export interface DocPages {
+  items: DocPageItem[];
+  total: number;
+  offset: number;
+}
+
+export interface DocVersion {
+  id: number;
+  page_id: number;
+  title: string;
+  body: string | null;
+  author: string;
+  agent_id: number | null;
+  reason: string;
+  created_at: string;
+}
+
+export interface DocDomain {
+  domain: string;
+  target: string;
+  verify_url: string;
+  token: string;
+  verified_at: string | null;
+  cloudflare_token_set: boolean;
 }
