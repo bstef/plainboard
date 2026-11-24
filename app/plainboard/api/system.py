@@ -214,6 +214,8 @@ async def put_settings(body: SettingsUpdate, session: Session, runs: Runs, reque
     except ValueError as exc:
         raise ServiceError(str(exc)) from exc
     runs.recheck()  # more parallel agents: waiting turns may start now
+    if {"own_accounts", "own_accounts_off"} & body.values.keys():
+        await account_service.switch_off_own(session)
     if "update_check" in body.values:
         background.add_task(request.app.state.updates.tick)  # switched on: don't wait hours for the first answer
     return await get_settings(session)

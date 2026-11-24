@@ -1157,7 +1157,14 @@
       "description": "Your own subscriptions and API keys, for your projects and whom you share them with.",
       "hint": "Your projects run on these, besides what an admin allows you. Only you and admins can change or delete them; a token or key is never shown again. A sign-in in the browser (Claude login, ChatGPT) is kept for that subscription only and goes to the runner only while one of its turns runs, never into the runner's shared home.",
       "peoples": "People's own subscriptions",
-      "peoplesHint": "Added by people for their projects. You can change, share and delete them; their tokens and keys are not shown to you either."
+      "peoplesHint": "Added by people for their projects. You can change, share and delete them; their tokens and keys are not shown to you either.",
+      "allow": "People may add subscriptions of their own",
+      "allowHint": "Off: only admins add subscriptions. Those people already have keep working unless you switch them off below.",
+      "switchOff_one": "Also switch off the {{count}} subscription people already have",
+      "switchOff_other": "Also switch off the {{count}} subscriptions people already have",
+      "switchOffHint": "Nothing runs on them while this is on; they are not deleted. Agents and projects that chose one choose automatically again, and their manager is told. Turn it off again, or allow own subscriptions again, and they work as before.",
+      "off": "Your admin has turned this off: you can't add subscriptions of your own. Those you have keep working.",
+      "offAll": "Your admin has turned this off: you can't add subscriptions of your own, and those you have are switched off for now. They are kept."
     },
     "subscriptions": {
       "label": "Subscriptions",

@@ -4,7 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useAccounts, useDirectory, useLimits, useMe, useMeta, useProjects } from "../../api/queries";
+import { checks, qk, useAccounts, useDirectory, useLimits, useMe, useMeta, useProjects, useSettings } from "../../api/queries";
 import type { Account, CheckResult } from "../../api/types";
 import { Button, ErrorText, IconButton, Input, Toggle } from "../../components/ui";
 import { smallModel } from "../../lib/models";
@@ -34,7 +34,8 @@ export function AccountsEditor({ provider, own = false }: { provider: string; ow
   const me = useMe();
   const accounts = useAccounts();
   const [error, setError] = useState<unknown>(null);
-  const adds = !own || !me?.is_admin;
+  const allowed = useSettings().data?.values.own_accounts ?? true; // #138: an admin may turn adding one's own off
+  const adds = !own || (!me?.is_admin && allowed);
   const mine = (accounts.data ?? []).filter((a) => a.provider === provider && (own ? a.owner_id != null && a.can_manage : a.owner_id == null));
 
   const run = async (action: () => Promise<unknown>) => {
@@ -60,7 +61,7 @@ export function AccountsEditor({ provider, own = false }: { provider: string; ow
           {t("accounts.add")}
         </Button>
       )}
-      {!adds && !mine.length && <p className="text-fg-3">{t("accounts.noneOwn")}</p>}
+      {own && me?.is_admin && !mine.length && <p className="text-fg-3">{t("accounts.noneOwn")}</p>}
       <ErrorText error={error} />
     </div>
   );

@@ -61,6 +61,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   const [retention, setRetention] = useState<RetentionPreview | null>(null);
   const [retentionBusy, setRetentionBusy] = useState(false);
   const [retentionError, setRetentionError] = useState<unknown>(null);
+  const [ownError, setOwnError] = useState<unknown>(null);
 
   useEffect(() => {
     if (open && settings.data) {
@@ -76,7 +77,8 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
   }, [open, onClose]);
 
   if (!open || !me) return null;
-  const others = (accounts.data ?? []).some((a) => a.owner_id != null);
+  const peoples = (accounts.data ?? []).filter((a) => a.owner_id != null).length;
+  const others = peoples > 0;
   const ownEndpoints = (accounts.data ?? []).some((a) => a.owner_id != null && meta.data?.endpoints?.some((p) => p.name === a.provider));
   const stored = settings.data?.values ?? {};
   const set = (patch: Values) => setValues((v) => ({ ...v, ...patch }));
@@ -141,6 +143,33 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
       />
     ),
   };
+  // #138: whether people other than admins add subscriptions of their own, and whether those they have are used.
+  const ownAllowed = stored.own_accounts ?? true;
+  const ownOff = !ownAllowed && (stored.own_accounts_off ?? false);
+  const setOwn = async (patch: Values) => {
+    setOwnError(null);
+    try {
+      await save([], patch);
+      await Promise.all([qc.invalidateQueries({ queryKey: qk.accounts }), qc.invalidateQueries({ queryKey: qk.limits })]);
+    } catch (err) {
+      setOwnError(err);
+    }
+  };
+  const ownSwitch = (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Toggle checked={ownAllowed} onChange={(on) => setOwn({ own_accounts: on })} label={t("settingsPage.own.allow")} />
+        <p className="text-fg-3">{t("settingsPage.own.allowHint")}</p>
+      </div>
+      {!ownAllowed && (
+        <div className="space-y-1">
+          <Toggle checked={ownOff} onChange={(on) => setOwn({ own_accounts_off: on })} label={t("settingsPage.own.switchOff", { count: peoples })} />
+          <p className="text-fg-3">{t("settingsPage.own.switchOffHint")}</p>
+        </div>
+      )}
+      <ErrorText error={ownError} />
+    </div>
+  );
   const ownAccounts = (
     <>
       <div className="space-y-2">
@@ -172,6 +201,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
           content: (
             <div className="space-y-6">
               <p className="text-fg-3">{t("settingsPage.own.hint")}</p>
+              {!ownAllowed && <p className="rounded-lg border border-line bg-sunk px-3 py-2 text-fg-2">{t(ownOff ? "settingsPage.own.offAll" : "settingsPage.own.off")}</p>}
               {ownAccounts}
               <SavedAtOnce />
             </div>
@@ -207,15 +237,14 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   <EndpointAccounts />
                 </div>
               )}
-              {others && (
-                <div className="space-y-4 border-t border-line pt-4">
-                  <div className="space-y-1">
-                    <h3 className="font-semibold">{t("settingsPage.own.peoples")}</h3>
-                    <p className="text-fg-3">{t("settingsPage.own.peoplesHint")}</p>
-                  </div>
-                  {ownAccounts}
+              <div className="space-y-4 border-t border-line pt-4">
+                <div className="space-y-1">
+                  <h3 className="font-semibold">{t("settingsPage.own.peoples")}</h3>
+                  <p className="text-fg-3">{t("settingsPage.own.peoplesHint")}</p>
                 </div>
-              )}
+                {ownSwitch}
+                {others && ownAccounts}
+              </div>
               <SavedAtOnce />
             </div>
           ),

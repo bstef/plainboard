@@ -55,6 +55,10 @@ SETTINGS: dict[str, SettingDef] = {
     "semantic_search_next": SettingDef(None, managed=True),
     # People may make tokens of their own for MCP clients and the API (services/personal_tokens.py, api/mcp_server.py).
     "mcp_enabled": SettingDef(True),
+    # People other than admins may add subscriptions of their own (#138). Off: no new ones; those they have keep
+    # working unless the admin also switches them off (``own_accounts_off``, permissions.switched_off), reversibly.
+    "own_accounts": SettingDef(True),
+    "own_accounts_off": SettingDef(False),
     "update_check": SettingDef(True),  # ask now and then whether a newer PlainBoard exists
     # The admin has gone through the basic settings once (the set-up in the browser). Until then the UI asks for them.
     "setup_done": SettingDef(False),
