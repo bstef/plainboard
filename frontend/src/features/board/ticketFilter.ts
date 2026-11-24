@@ -5,7 +5,7 @@ import type { ProjectSearch, Task } from "../../api/types";
 import { useDebounced } from "../../lib/hooks";
 import { DEBOUNCE_MS, MIN_SEMANTIC } from "../layout/Palette";
 
-/** The board's and the archive's "Filter tickets…" (#133): at once by title, label and number, and a moment
+/** The board's and the archive's "Search tickets…" (#133): at once by title, label and number, and a moment
  * after the last key also like the search (Ctrl+K), by meaning and words, tickets only. Semantic search off or
  * not there: the words alone. Ranked: the ticket with that number first, then the search's order. */
 export function useTicketFilter(projectId: number, filter: string, tasks: Task[] | undefined): { matches: Task[] } {
