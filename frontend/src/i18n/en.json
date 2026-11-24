@@ -1379,7 +1379,7 @@
   },
   "usage": {
     "title": "Usage",
-    "description": "How much disk, memory and CPU PlainBoard uses: per volume, per project and agent, and what all agents share. Folder sizes are measured in the background every few hours, the CPU every half minute.",
+    "description": "How much disk, memory, CPU and tokens PlainBoard uses: the key figures at a glance, storage per project and folder, what cleans up by itself, and which projects use how many tokens. Folder sizes are measured in the background every few hours, the CPU every half minute.",
     "cpu": "CPU load",
     "cpuNow": "Now",
     "cpuWindow": "{{hours}} h",
@@ -1424,7 +1424,14 @@
     "measuring": "Measuring folders…",
     "measuredAt": "Folders measured {{when}}.",
     "notMeasured": "Folders not measured yet.",
-    "agentFigures": "Disk of its workspace · memory of what runs in it now"
+    "agentFigures": "Disk of its workspace · memory of what runs in it now",
+    "tab": {
+      "overview": "Overview",
+      "storage": "Storage",
+      "cleanup": "Cleanup & retention",
+      "tokens": "Tokens"
+    },
+    "cpuDetails": "CPU per project and agent"
   },
   "cleanup": {
     "title": "Disk space",
@@ -1467,7 +1474,9 @@
       "home": "Folder in the shared home",
       "logs": "Job logs",
       "server": "Server"
-    }
+    },
+    "retention": "Attachments",
+    "history": "What happened"
   },
   "search": {
     "title": "Semantic search",
@@ -2360,5 +2369,26 @@
       "correctionsOnly": "Make corrections only here. New content belongs in {{working}}.",
       "notInVersion": "This page is not in version {{name}}."
     }
+  },
+  "tokens": {
+    "title": "Tokens",
+    "description": "Which of your projects used how many tokens and what that cost, day by day and in total.",
+    "hint": "Tokens are input and output of the agents' turns; the cost is what the providers report, an estimate for subscriptions. Only projects with turns in the period are shown.",
+    "none": "No turns in this period.",
+    "range": "Period",
+    "metric": "Show",
+    "costPerDay": "Cost per day by project",
+    "tokensPerDay": "Tokens per day by project",
+    "rest_one": "{{count}} more project",
+    "rest_other": "{{count}} more projects",
+    "ranking": "Projects compared",
+    "details": "Per project",
+    "project": "Project",
+    "input": "Input",
+    "output": "Output",
+    "cacheRead": "Cache read",
+    "cacheWrite": "Cache write",
+   
+    "detailsHint": "Cache tokens are read again from the provider's prompt cache or written to it; they are cheaper and not counted in the tokens above."
   }
 }

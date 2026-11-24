@@ -37,6 +37,7 @@ import type {
   TaskDetail,
   TodoPage,
   TodoState,
+  TokenUsage,
   Usage,
 } from "./types";
 
@@ -169,6 +170,9 @@ export const useRepositories = (pid: number) =>
 
 export const useStats = (pid: number, days: number) =>
   useQuery({ queryKey: qk.stats(pid, days), queryFn: () => api.get<Stats>(`/projects/${pid}/stats?days=${days}`), refetchInterval: 60_000 });
+
+export const useTokenUsage = (days: number) =>
+  useQuery({ queryKey: ["token-usage", days], queryFn: () => api.get<TokenUsage>(`/usage/tokens?days=${days}`), refetchInterval: 120_000 });
 
 export const useFlowCheck = (pid: number, hours: number) =>
   useQuery({ queryKey: ["flow-check", pid, hours], queryFn: () => api.get<FlowFinding[]>(`/projects/${pid}/flow-check?hours=${hours}`), refetchInterval: 120_000 });

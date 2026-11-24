@@ -800,6 +800,26 @@ export interface Usage extends MachineUsage {
   servers_stopped: UsageCleanup | null;
 }
 
+/** Tokens and cost of a project in the period: in total, and per day (tokens: input + output) as TokenUsage.days. */
+export interface TokenProject {
+  id: number;
+  name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  cost_usd: number;
+  runs: number;
+  tokens: number[];
+  costs: number[];
+}
+
+/** The projects the user sees, most expensive first (only those with runs in the period). */
+export interface TokenUsage {
+  days: string[];
+  projects: TokenProject[];
+}
+
 /** A notice to managers that the disk is above its target, or will be soon. */
 export interface StorageNotice {
   at: string;
