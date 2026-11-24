@@ -240,7 +240,7 @@ async def page_view(session: AsyncSession, site: DocSite, path: str, base: str, 
     """A page by its address ("" : the home page) in a version (``base``: its address). ``sidebar``: the top level and
     the children of every page on the way down to it (each with ``children`` counts), what a navigation shows opened
     at this page."""
-    page = await docs_service.by_path(session, site.id, path, rel)
+    page = await docs_service.by_path(session, site.id, path, rel) or await docs_service.moved(session, site.id, path, rel)
     if page is None:
         raise NotFound("Not found")
     title, body, fallback, translated = page.title, page.body, False, None

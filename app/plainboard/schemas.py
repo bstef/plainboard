@@ -1823,6 +1823,7 @@ class DocSiteUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=300)
     spec: str | None = Field(default=None, max_length=20000)
     versioned: bool | None = None  # versions (#126): off again, they stay but are not served
+    restructure_check: bool | None = None  # its doc agent proposes larger restructurings now and then (#156)
     published: bool | None = None
     public: bool | None = None
     languages: list[str] | None = Field(default=None, max_length=30)  # further languages, translated
@@ -1965,6 +1966,7 @@ class DocSiteOut(ORM):
     theme: DocTheme = Field(default_factory=DocTheme)
     agent: DocAgentOut | None = None  # its doc agent, the only agent that writes it
     versioned: bool = False  # uses versions (#126): off, it always shows the current state and visitors see no versions
+    restructure_check: bool = True  # its doc agent proposes larger restructurings now and then (#156)
     releases: list[DocReleaseOut] = []  # its versions (#126): the working one first, then the released ones, newest first
     url: str  # its address under this PlainBoard: /docs/<slug>/
     pages: int = 0

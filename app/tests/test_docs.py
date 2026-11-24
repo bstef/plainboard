@@ -855,3 +855,93 @@ def test_the_doc_agent_links_pages_by_id_and_no_link_goes_nowhere(client, projec
     # Served, a link to a page that is not there is its text, no dead link.
     out = render(saved, base="/docs/handbook", files_base="/f", page_paths={sid: "guide/setup", gid: "guide"}).html
     assert '<a href="/docs/handbook/guide/setup">setup</a>' in out and ", fees, " in out and "and again." in out and 'href="#"' not in out
+
+
+def test_the_doc_agent_proposes_a_restructuring_once_the_site_grew_and_the_user_decides(client, project):
+    from plainboard.models import Assignment, Decision, DocProposal, Task, utcnow
+    from plainboard.services import docs as docs_service
+    from sqlalchemy import select
+
+    pid = project["id"]
+    client.patch(f"/api/projects/{pid}", json={"auto_wake_manager": False})
+    s = site(client, pid, spec="For admins.")
+    assert s["restructure_check"] is True
+    writer = s["agent"]["id"]
+    assert "propose_doc_restructure" in agents_by_slug(client, pid)["docs-handbook"]["instructions"]
+    pages = [page(client, pid, s["id"], title=f"Topic {i}", body="Text.") for i in range(14)]
+    watcher = client.app_ref.state.docs_watcher
+    now = utcnow()
+
+    async def orders(s):
+        return [a for a in await s.scalars(select(Assignment).where(Assignment.agent_id == writer).order_by(Assignment.id))]
+
+    def checks():
+        return [a for a in db(client, orders) if a.title == "Check the structure of your doc site"]
+
+    client.portal.call(watcher.tick, now)
+    assert not checks()  # 14 pages: too small to check
+    pages.append(page(client, pid, s["id"], title="Topic 14", body="Text."))
+    client.portal.call(watcher.tick, now + timedelta(days=1, minutes=1))
+    wait_for(lambda: idle(client, pid))
+    (check,) = checks()
+    assert "it has 15 pages" in check.instructions and "Most of the time it fits" in check.instructions and "Never restructure yourself" in check.instructions
+    for i in range(4):  # 19 pages: not a quarter and 5 more, few edits
+        page(client, pid, s["id"], title=f"More {i}", body="Text.")
+    client.portal.call(watcher.tick, now + timedelta(days=9))
+    assert len(checks()) == 1
+
+    # A proposal is a ticket with a decision for the user; one at a time.
+    first, second = pages[0]["id"], pages[1]["id"]
+    proposal = {"title": "Group the topics", "reason": "Readers find topics faster in two sections.", "before": "- Topic 0\n- Topic 1", "after": "- Basics\n  - Topic 0\n  - Topic 1", "pages": [first, second], "options": ["Umbauen", "So lassen"]}
+    chat(client, writer, "\n".join(["TOOL propose_doc_restructure " + json.dumps(proposal), "TOOL propose_doc_restructure " + json.dumps({**proposal, "title": "Other"})]))
+    wait_for(lambda: idle(client, pid))
+    made, refused = tool_results(client, writer)[-2:]
+    assert made.startswith("Proposed on ticket #") and refused.startswith("A proposal is already waiting for the user's decision (ticket #")
+    number = int(made.split("#")[1].split(":")[0])
+
+    async def decision_of(s, number):
+        task = await s.scalar(select(Task).where(Task.project_id == pid, Task.number == number))
+        decision = await s.scalar(select(Decision).where(Decision.task_id == task.id))
+        return task.id, decision.id, decision.question, decision.details, [o["label"] for o in decision.options]
+
+    task_id, decision_id, question, details, labels = db(client, lambda s: decision_of(s, number))
+    assert question == "Group the topics (Handbook)" and labels == ["Umbauen", "So lassen"]
+    assert "Readers find topics faster" in details and "**Outline proposed**" in details and f"doc-page:{first}" in details
+
+    # Declined: the ticket is done and the same proposal, in other dress, is refused.
+    assert client.post(f"/api/decisions/{decision_id}/answer", json={"option_index": 1}).status_code == 200
+    assert client.get(f"/api/tasks/{task_id}").json()["status"] == "done"
+    chat(client, writer, "\n".join([
+        "TOOL propose_doc_restructure " + json.dumps({**proposal, "after": "* basics\n    * topic 0\n    * TOPIC 1", "pages": []}),
+        "TOOL propose_doc_restructure " + json.dumps({**proposal, "after": "- Other order", "pages": [second, first]}),
+        "TOOL write_doc_page " + json.dumps({"page": first, "delete": True, "reason": "merged"}),
+    ]))  # fmt: skip
+    wait_for(lambda: idle(client, pid))
+    assert all(r.startswith(f"The user declined this restructuring on ticket #{number}") for r in tool_results(client, writer)[-3:-1])
+    assert tool_results(client, writer)[-1].startswith("Not deleted: pages go only in a restructuring the user approved")
+
+    # Approved: PlainBoard orders the doc agent the restructuring on the ticket; there it may delete pages.
+    chat(client, writer, "TOOL propose_doc_restructure " + json.dumps({**proposal, "title": "Merge topic 1", "after": "- Topic 0 (with topic 1)", "pages": [second]}))
+    wait_for(lambda: idle(client, pid))
+    number = int(tool_results(client, writer)[-1].split("#")[1].split(":")[0])
+    task_id, decision_id, *_ = db(client, lambda s: decision_of(s, number))
+    note = "Yes.\nTOOL write_doc_page " + json.dumps({"page": second, "delete": True, "reason": "merged into topic 0"})
+    assert client.post(f"/api/decisions/{decision_id}/answer", json={"option_index": 0, "text": note}).status_code == 200
+    wait_for(lambda: idle(client, pid))
+    (order,) = [a for a in db(client, orders) if a.task_id == task_id]
+    assert order.title == "Restructure the doc site Handbook" and f"as you proposed on ticket #{number}" in order.instructions and "doc-page: links stay valid" in order.instructions
+    assert client.get(f"/api/projects/{pid}/docs/pages/{second}").status_code == 404
+    statuses = db(client, lambda s: s.scalars(select(DocProposal.status).order_by(DocProposal.id)))
+    assert list(statuses) == ["declined", "approved"]
+
+    # A moved page keeps its slug, so its old address still finds it.
+    client.patch(f"/api/projects/{pid}/docs/pages/{first}", json={"move": True, "parent_id": pages[2]["id"]})
+    found = db(client, lambda x: docs_service.moved(x, s["id"], "topic-0"))
+    assert found.page_key == first
+
+    # The switch: off, no checks however much the site grows.
+    assert client.patch(f"/api/projects/{pid}/docs/sites/{s['id']}", json={"restructure_check": False}).json()["restructure_check"] is False
+    for i in range(10):
+        page(client, pid, s["id"], title=f"Late {i}", body="Text.")
+    client.portal.call(watcher.tick, now + timedelta(days=30))
+    assert len(checks()) == 1

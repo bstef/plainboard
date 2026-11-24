@@ -1273,6 +1273,8 @@ export interface DocSite {
   theme: DocTheme;
   /** It uses versions (#126); off: it always shows the current state, visitors see no versions. */
   versioned: boolean;
+  /** Its doc agent proposes larger restructurings now and then, the user decides (#156). */
+  restructure_check: boolean;
   /** Its versions: the working one first, then the released ones, the newest first. */
   releases: DocRelease[];
   created_at: string;

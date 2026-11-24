@@ -22,13 +22,14 @@ is orchestration/docs_watcher.py.
 from __future__ import annotations
 
 import hashlib
+import json
 import posixpath
 import re
 import secrets
 from dataclasses import dataclass
 from typing import BinaryIO
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import String, and_, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
@@ -83,7 +84,7 @@ def clean_languages(values: list[str], language: str) -> list[str]:
 
 def site_out(site: DocSite, pages: int = 0, stale: int = 0, agent: Agent | None = None, releases: list | None = None) -> DocSiteOut:
     return DocSiteOut(
-        releases=releases or [], versioned=site.versioned,
+        releases=releases or [], versioned=site.versioned, restructure_check=site.restructure_check,
         id=site.id, project_id=site.project_id, name=site.name, slug=site.slug, description=site.description, spec=site.spec,
         published=site.published, public=site.public, language=site.language, languages=list(site.languages or []),
         translator=site.translator, translate_provider=site.translate_provider, translate_model=site.translate_model,
@@ -177,6 +178,8 @@ AGENT_GUIDE = """You are the doc agent of the doc site "{name}" (slug {slug}, /d
   touch, check that its paths still point at that code.
 - Change little: first check whether a page is really wrong or missing something. Only then change it, and only the
   sentences or sections concerned: no rewording or restructuring without a reason. Otherwise confirm it (still_current).
+- A larger restructuring (new outline, merging or splitting pages, new sections) only with the user's approval: propose
+  it (propose_doc_restructure) when its benefit is clear; PlainBoard orders it once approved.
 - Pages PlainBoard names as possibly outdated: fix what the change made wrong, or confirm them (still_current).
 - In every update job also look yourself, a few searches (list_docs query, by meaning and words): search the change's
   meaning and its concrete terms (settings, commands, endpoints, UI labels) for other pages that describe what changed,
@@ -232,7 +235,7 @@ ASSISTANT_FIELDS = (
     "assistant_enabled", "assistant_provider", "assistant_model", "assistant_effort", "assistant_code", "assistant_daily_messages",
     "assistant_daily_cost", "assistant_max_tokens",
 )  # fmt: skip
-SITE_FIELDS = ("name", "description", "spec", "published", "public", "versioned", "translator", "translate_provider", "translate_model", *ASSISTANT_FIELDS)
+SITE_FIELDS = ("name", "description", "spec", "published", "public", "versioned", "restructure_check", "translator", "translate_provider", "translate_model", *ASSISTANT_FIELDS)
 ASSISTANT_PROVIDERS = ("", "claude_code")  # a provider whose runs can go without any built-in tool (toolset "none")
 ASSISTANT_WARNING = (
     "With this on, the assistant reads the project's code and the public texts of its tickets to answer visitors. "
@@ -346,7 +349,7 @@ async def span_of(session: AsyncSession, site_id: int, rel: DocRelease | None) -
 
 
 _COPIED = (
-    "project_id", "site_id", "parent_id", "position", "page_key", "title", "slug", "path", "depth", "body", "source_hash", "paths", "edited_by",
+    "project_id", "site_id", "parent_id", "position", "page_key", "title", "slug", "path", "depth", "body", "source_hash", "paths", "moved_from", "edited_by",
     "edited_at", "drift", "flagged_at", "flag_reason", "reminded_at", "created_at",
 )  # fmt: skip
 
@@ -354,7 +357,7 @@ _COPIED = (
 async def _copy(session: AsyncSession, row: DocPage, since: int, until: int | None) -> DocPage:
     """The row's page, with its translations, for these versions."""
     twin = DocPage(**{k: getattr(row, k) for k in _COPIED}, since_seq=since, until_seq=until)
-    twin.paths = list(row.paths or [])
+    twin.paths, twin.moved_from = list(row.paths or []), list(row.moved_from or [])
     session.add(twin)
     await session.flush()
     for t in list(await session.scalars(select(DocTranslation).where(DocTranslation.page_id == row.id))):
@@ -483,6 +486,23 @@ async def by_path(session: AsyncSession, site_id: int, path: str, rel: DocReleas
     if not path:
         return await home(session, site_id, rel)
     return await session.scalar(select(DocPage).where(DocPage.site_id == site_id, DocPage.path == path, visible(rel)).limit(1))
+
+
+MOVED_FROM = 20  # earlier addresses kept per page
+
+
+def _moved(page: DocPage, old: str) -> None:
+    page.moved_from = [old, *(p for p in page.moved_from or [] if p not in (old, page.path))][:MOVED_FROM]
+
+
+async def moved(session: AsyncSession, site_id: int, path: str, rel: DocRelease | None = None) -> DocPage | None:
+    """The page that had this address before it moved (a restructuring, #156): old links still find it."""
+    path = path.strip("/")
+    if not path:
+        return None
+    q = select(DocPage).where(DocPage.site_id == site_id, cast(DocPage.moved_from, String).contains(json.dumps(path)), visible(rel))
+    rows = [p for p in await session.scalars(q.limit(20)) if path in (p.moved_from or [])]
+    return min(rows, key=lambda p: p.moved_from.index(path)) if rows else None
 
 
 def prefixes(path: str) -> list[str]:
@@ -623,6 +643,7 @@ async def _repath(session: AsyncSession, page: DocPage, parent: DocPage | None, 
     page.depth = parent.depth + 1 if parent else 0
     if not old or old == page.path or page.page_key is None:
         return
+    _moved(page, old)
     level = [page]
     for _ in range(MAX_DEPTH):
         keys = {p.page_key: p for p in level}
@@ -633,7 +654,9 @@ async def _repath(session: AsyncSession, page: DocPage, parent: DocPage | None, 
         for child in below:
             child = await isolate(session, child, span)
             up = keys[child.parent_id]
+            was = child.path
             child.path, child.depth = f"{up.path}/{child.slug}", up.depth + 1
+            _moved(child, was)
             moved.append(child)
         level = moved
 

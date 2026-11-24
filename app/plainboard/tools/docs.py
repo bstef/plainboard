@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from ..models import Assignment, DocPage, DocSite, utcnow
 from ..services import board as board_service
 from ..services import docs as docs_service
-from ..services import docs_api, docs_public, docs_releases
+from ..services import docs_api, docs_proposals, docs_public, docs_releases
 from ..services.util import truncate
 from .registry import ALL, DOC_AGENT, DOCS, MANAGER, ToolContext, ToolError, local_tool, tool
 
@@ -181,6 +181,7 @@ class WriteDocPageArgs(BaseModel):
     paths: list[str] | None = Field(default=None, max_length=50, description="Code paths it describes (prefix or glob): changes there mark it for update")
     still_current: bool = Field(default=False, description="Checked after a change: still right, clear its outdated mark")
     version: str | None = Field(default=None, max_length=80, description="A released version to correct (name); empty = the working version")
+    delete: bool = Field(default=False, description="Delete the page and those below it: only in a restructuring the user approved")
 
 
 async def _links(ctx: ToolContext, site: DocSite, body: str, folder: str, rel) -> tuple[str, str]:  # noqa: ANN001
@@ -222,6 +223,11 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         site = await ctx.session.get(DocSite, page.site_id)
         assert site is not None
         _own(ctx, site)
+        if args.delete:
+            if not await docs_proposals.may_delete(ctx.session, site.id, ctx.run.assignment_id):
+                raise ToolError("Not deleted: pages go only in a restructuring the user approved (propose_doc_restructure).")
+            await docs_service.delete_page(ctx.session, page, rel)
+            return f"Doc page {args.page}{_in(rel)} deleted with the pages below it; pages that linked to it are marked."
         if args.still_current and args.body is None and args.title is None:
             await docs_service.confirm_page(ctx.session, page, author, args.reason, rel)
             return f"Doc page {page.page_key}{_in(rel)} confirmed as current."
@@ -238,6 +244,34 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         changed = await docs_service.count_versions(ctx.session, page.page_key) > versions
         done = f"Doc page {page.page_key} /{page.path}{_in(rel)} {'saved as a new version' if changed else 'updated (text unchanged)'}.{fixed}"
     return done
+
+
+class ProposeRestructureArgs(BaseModel):
+    title: str = Field(min_length=3, max_length=150, description="The proposal in a few words, in the user's language")
+    reason: str = Field(min_length=10, max_length=3000, description="Its clear benefit for readers, briefly")
+    before: str = Field(min_length=1, max_length=8000, description="The outline now: indented list of page titles")
+    after: str = Field(min_length=1, max_length=8000, description="The proposed outline, the same way")
+    pages: list[int] = Field(default_factory=list, max_length=200, description="Ids of the pages it moves, merges, splits or renames")
+    options: list[str] = Field(
+        default_factory=lambda: ["Restructure", "Keep as it is"], min_length=2, max_length=2, description="The user's two answers, in their language: do it, keep it"
+    )
+
+
+@tool(
+    "propose_doc_restructure",
+    "Propose a larger restructuring of your doc site; the user decides on a ticket. Only for a clear benefit; never restructure unapproved.",
+    ProposeRestructureArgs,
+    roles=(DOC_AGENT,),
+)
+async def propose_doc_restructure(ctx: ToolContext, args: ProposeRestructureArgs) -> str:
+    site = await ctx.session.get(DocSite, ctx.agent.doc_site_id) if ctx.agent.doc_site_id else None
+    if site is None:
+        raise ToolError("Only a doc agent proposes restructurings of its site.")
+    _, task = await docs_proposals.propose(
+        ctx.session, site, ctx.agent, title=args.title, reason=args.reason, before=args.before, after=args.after, pages=args.pages,
+        labels=(args.options[0], args.options[1]),
+    )  # fmt: skip
+    return f"Proposed on ticket #{task.number}: the user decides. Change nothing of it until PlainBoard orders it."
 
 
 class ManageDocSiteArgs(BaseModel):

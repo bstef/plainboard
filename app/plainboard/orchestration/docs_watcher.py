@@ -22,6 +22,8 @@ linked code changed a lot since their last edit (``DRIFT_STALE`` commits) or tha
 once of pages that link to a deleted page (``docs.DEAD_LINK``, marked by services/docs.delete_page).
 Each look also translates what is missing or outdated in the sites' further languages (services/docs_translate.py):
 at most ``docs_translate.BATCH`` pages per site and ``TRANSLATE_SECONDS`` per look; ``translate_soon`` looks at once.
+Once a site grew, the daily look asks its doc agent at most weekly to check whether a larger restructuring would help
+(services/docs_proposals.py, #156): it proposes, the user decides.
 Everything is bounded: commits read, texts embedded, pages named and pages translated. Only pages with linked
 code paths are read for the paths; a site's other thousands of pages cost nothing here.
 """
@@ -42,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..models import Assignment, AssignmentStatus, DocPage, DocPageVersion, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
 from ..services import accounts as account_service
 from ..services import docs as docs_service
-from ..services import docs_translate
+from ..services import docs_proposals, docs_translate
 from ..services import settings as settings_service
 from ..services import flow_log
 from ..services import landings as landing_service
@@ -190,6 +192,7 @@ class DocsWatcher:
         if daily:
             self._daily[project.id] = now
             await self._remind(s, project, now, await self._dead_paths(s, project, repos))
+            await self._structure(s, project, now)
         await self.translate(s, project, now)
 
     # --- translations ------------------------------------------------------------------------------------------
@@ -485,6 +488,20 @@ class DocsWatcher:
                 "links to a deleted page: link the page that covers it now (doc-page:ID) or remove the link."
             )
             await self._send(s, site, "Bring stale doc pages up to date", text)
+
+    async def _structure(self, s: AsyncSession, project: Project, now: datetime) -> None:
+        """Asks a doc agent to check its site's structure once the site grew (services/docs_proposals.due, #156)."""
+        for site in list(await s.scalars(select(DocSite).where(DocSite.project_id == project.id, DocSite.restructure_check.is_(True)).order_by(DocSite.id))):
+            if not site.spec.strip() or (due := await docs_proposals.due(s, site, now)) is None:
+                continue
+            pages, why = due
+            agent = await docs_service.ensure_agent(s, site)
+            if not agent.enabled:
+                continue  # paused: checked when it is back
+            site.structure_checked_at, site.structure_pages = now, pages
+            await s.commit()
+            await flow_log.record(s, project.id, "docs.structure_check", site=site.id, why=why)
+            await self._send(s, site, "Check the structure of your doc site", docs_proposals.check_text(why, await docs_proposals.declined(s, site.id)))
 
     async def _send(self, s: AsyncSession, site: DocSite, title: str, text: str) -> None:
         """To the site's doc agent: one assignment, or an update for the one it still works on."""
