@@ -61,6 +61,15 @@ async def clean(session: AsyncSession, site: DocSite, theme: DocTheme) -> dict:
     return {} if data == DocTheme().model_dump() else data
 
 
+def _on(color: str) -> str:
+    """Text on a fill of ``color`` (#rgb, #rrggbb or #rrggbbaa): white or near-black, whichever reads better."""
+    h = color.lstrip("#")
+    h = "".join(c * 2 for c in h) if len(h) == 3 else h[:6]
+    lin = [(v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4) for v in (int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))]
+    lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    return "#fff" if 1.05 / (lum + 0.05) >= (lum + 0.05) / 0.0555 else "#111"
+
+
 def _mode(colors: dict, dark: bool) -> list[str]:
     out = []
     if a := colors.get("accent"):
@@ -71,6 +80,7 @@ def _mode(colors: dict, dark: bool) -> list[str]:
             f"--accent-soft:color-mix(in oklab,{a} {24 if dark else 13}%,var(--bg))",
             f"--grad:linear-gradient(135deg,color-mix(in oklab,{a} 60%,#fff),{a} 55%,color-mix(in oklab,{a} 75%,#000))",
             f"--doc-glow:{a}",
+            f"--on-accent:{_on(a)}",
         ]
     page, surface, text = colors.get("page"), colors.get("surface"), colors.get("text")
     if page:
