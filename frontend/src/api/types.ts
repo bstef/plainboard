@@ -23,6 +23,10 @@ export interface Project {
   /** Paused for good by a person, since then; null: not paused. */
   paused_at: string | null;
   paused_by: string;
+  /** Paused by PlainBoard itself: every subscription it may use is nearly used up; null: not. */
+  limit_paused_at: string | null;
+  /** When it is expected to go on by itself; null: unknown. */
+  limit_resumes_at: string | null;
   parallel_agents: number | null;
   /** The subscription the project's agents run on; null: the one with the most room. */
   account_id: number | null;

@@ -1170,6 +1170,45 @@ class RunManager:
         bus.publish(project.id, "project.updated", project_service.to_out(project))
         self._wake.set()
 
+    async def pause_for_limits(self, s: AsyncSession, project: Project, until: datetime | None) -> None:
+        """Every subscription of the project is nearly used up (services/limit_pause.py): no new turn of
+        it starts but a chat with the user, its running turns wrap up, its jobs go on. Its manager is told."""
+        project.limit_paused_at, project.limit_resumes_at = utcnow(), until
+        await s.commit()
+        await flow_log.record(s, project.id, "project.limit_paused", resumes_at=until.isoformat() if until else None)
+        bus.publish(project.id, "project.updated", project_service.to_out(project))
+        if manager_id := await s.scalar(select(Agent.id).where(Agent.project_id == project.id, Agent.is_manager).limit(1)):
+            await inbox.push(s, manager_id, prompts.limit_paused(until.strftime("%Y-%m-%d %H:%M") if until else ""))
+        turns = select(Run).where(
+            Run.project_id == project.id, Run.status == RunStatus.RUNNING, Run.stop_requested_at.is_(None), Run.trigger != RunTrigger.CHAT, Run.parent_run_id.is_(None)
+        )
+        for run in list(await s.scalars(turns)):
+            try:
+                told = await self.runners.of(run.project_id).notify_run(run.id, prompts.wind_down_notice(prompts.LIMIT_PAUSE_REASON, jobs_keep=True), urgent=True)
+            except Exception:
+                log.exception("Limit pause: turn %s was not told to wrap up", run.id)
+                continue
+            if told:
+                run.stop_requested_at = utcnow()
+                await s.commit()
+                bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
+
+    async def limit_resumes_at(self, s: AsyncSession, project: Project, until: datetime | None) -> None:
+        """A new reading moved the time the project's limit pause is expected to end."""
+        project.limit_resumes_at = until
+        await s.commit()
+        bus.publish(project.id, "project.updated", project_service.to_out(project))
+
+    async def resume_after_limits(self, s: AsyncSession, project: Project) -> None:
+        """A subscription of the project has room again: what waited starts, and its manager is told."""
+        project.limit_paused_at, project.limit_resumes_at = None, None
+        await s.commit()
+        await flow_log.record(s, project.id, "project.limit_resumed")
+        bus.publish(project.id, "project.updated", project_service.to_out(project))
+        if manager_id := await s.scalar(select(Agent.id).where(Agent.project_id == project.id, Agent.is_manager).limit(1)):
+            await inbox.push(s, manager_id, prompts.LIMIT_RESUMED)
+        self._wake.set()
+
     async def _rest_jobs(self, s: AsyncSession, agent_id: int | None = None, project_id: int | None = None) -> int:
         """Everything is paused: stop the background jobs of agents that have no turn (of one agent, or
         of all). A restart would end them anyway, and nobody should have to decide it: no turn is spent.
@@ -1335,6 +1374,8 @@ class RunManager:
             # Projects a person paused for good. Read from the database with every look: whoever queued
             # a turn for one of them (a chat, a schedule, a report), it does not start.
             resting = set(await s.scalars(select(Project.id).where(Project.paused_at.is_not(None)))) if queued else set()
+            # Projects whose subscriptions are all nearly used up (services/limit_pause.py): a chat with the user still starts.
+            limited = set(await s.scalars(select(Project.id).where(Project.limit_paused_at.is_not(None)))) if queued else set()
             # A paused agent keeps its assignments in the queue; only its turn to wrap up still runs.
             paused = set(await s.scalars(select(Agent.id).where(~Agent.enabled))) if queued else set()
             # An agent finishes its open assignment before it starts another one.
@@ -1361,6 +1402,7 @@ class RunManager:
                 if not (r.trigger == RunTrigger.ASSIGNMENT and r.agent_id in occupied and r.assignment_id not in fixes) and not (r.agent_id in paused and r.assignment_id and not r.stop_requested_at)
                 # Everything is paused: only what wraps up still starts, and the answer a turn that wraps up waits for.
                 and not ((self.paused or r.project_id in resting) and not r.stop_requested_at and r.parent_run_id is None)
+                and not (r.project_id in limited and r.trigger != RunTrigger.CHAT and not r.stop_requested_at and r.parent_run_id is None)
                 # An external runner that is away: its turns wait for it in the queue. One that runs idle to
                 # update itself still starts what a running turn waits for (an answer) and what wraps up.
                 and (self.runners.ready(r.project_id) if r.parent_run_id is not None or r.stop_requested_at else self.runners.accepts(r.project_id))

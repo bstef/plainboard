@@ -203,6 +203,8 @@
     "pausedSince": "Paused by {{by}} since {{when}}.",
     "pausedBanner": "This project is paused by {{by}}. Nothing of it starts, and messages wait, until it is resumed.",
     "resume": "Resume",
+    "limitPaused": "Paused by PlainBoard: every subscription of this project is nearly used up. It goes on by itself around {{when}}; open work stays open.",
+    "limitPausedUnknown": "Paused by PlainBoard: every subscription of this project is nearly used up. It goes on by itself as soon as one has room again; open work stays open.",
     "parallelHint": "How many members of this project work at once. Empty: the number from the PlainBoard settings ({{count}}). 0 pauses them; the manager still answers.",
     "reviewDays": "Hand review tickets to the manager after (days)",
     "reviewDaysHint": "A ticket in review that nobody touched for this long goes to the manager, who decides: done, a question to you, or leave it. Tickets with a question or a task for you stay. 0: never.",

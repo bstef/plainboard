@@ -201,6 +201,10 @@ class Project(Timestamps, Base):
     # (RunManager.pause_project). Not ended by a restart, nor when "pause everything" ends.
     paused_at: Mapped[datetime | None] = mapped_column(DateTime)
     paused_by: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    # Paused by PlainBoard itself while every subscription it may use is nearly used up (services/limit_pause.py),
+    # and when that is expected to end (None: unknown). Apart from the pause above: it ends by itself.
+    limit_paused_at: Mapped[datetime | None] = mapped_column(DateTime)
+    limit_resumes_at: Mapped[datetime | None] = mapped_column(DateTime)
     task_counter: Mapped[int] = mapped_column(Integer, default=0)
     label_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)  # label name -> color name
     auto_archive_days: Mapped[int] = mapped_column(Integer, default=14)  # done tickets leave the board after this; 0 = never

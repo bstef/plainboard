@@ -859,12 +859,15 @@ def wake_prompt(is_manager: bool = True) -> str:
     )
 
 
-def wind_down_notice(reason: str = "", jobs_end: bool = False) -> str:
-    """``jobs_end``: everything is paused, and PlainBoard stops what still runs when the turn is over."""
+def wind_down_notice(reason: str = "", jobs_end: bool = False, jobs_keep: bool = False) -> str:
+    """``jobs_end``: everything is paused, and PlainBoard stops what still runs when the turn is over.
+    ``jobs_keep``: the jobs go on, their results wait for the agent's next turn."""
     why = f" Reason: {reason}" if reason else ""
     jobs = (
         "leave your background jobs alone: PlainBoard stops the ones still running when your turn ends and tells you which"
         if jobs_end
+        else "leave your background jobs running: their results wait for your next turn"
+        if jobs_keep
         else "stop background jobs you started unless they must finish"
     )
     return (
@@ -872,6 +875,21 @@ def wind_down_notice(reason: str = "", jobs_end: bool = False) -> str:
         f"safe point, save your work (commit and push it, or write down where it is) and {jobs}. "
         "Then end your turn with a short report: what is done, what is open and where it is saved."
     )
+
+
+LIMIT_PAUSE_REASON = "every subscription this project may use is nearly used up. Your open work goes on by itself when one has room again."
+
+
+def limit_paused(until: str) -> str:
+    """For the manager: the project paused by itself before its subscriptions ran out."""
+    when = f"around {until} UTC" if until else "as soon as one has room again"
+    return (
+        "PlainBoard paused this project by itself: every subscription it may use is nearly used up. No new turn starts "
+        f"(a chat with the user still does), running ones wrap up, open assignments stay open. It goes on by itself {when}."
+    )
+
+
+LIMIT_RESUMED = "A subscription of this project has room again: PlainBoard ended its pause, and open assignments go on by themselves."
 
 
 def jobs_stopped_for_pause(jobs: list[str]) -> str:

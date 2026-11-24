@@ -653,6 +653,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_LANDING_LINGER_SECONDS", "0")
     monkeypatch.setenv("PLAINBOARD_SEARCH_INTERVAL_SECONDS", "3600")  # tests index with app.state.search.tick
     monkeypatch.setenv("PLAINBOARD_DOCS_INTERVAL_SECONDS", "3600")  # tests look with app.state.docs_watcher.tick
+    monkeypatch.setenv("PLAINBOARD_LIMIT_PAUSE_INTERVAL_SECONDS", "3600")  # tests look with app.state.limit_pause.tick
     for var in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "PLAINBOARD_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
     from plainboard import config, main

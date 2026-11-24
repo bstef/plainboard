@@ -49,11 +49,11 @@ class Scheduler:
                 run_id = None
                 agent = await s.get(Agent, schedule.agent_id)
                 project = await s.get(Project, agent.project_id) if agent is not None else None
-                # A paused project: the time passes without a turn, so nothing piles up for the day it goes on.
-                if agent is not None and agent.enabled and project is not None and project.paused_at is None and schedule.skip_quiet and await schedule_service.quiet(s, schedule):
+                # A paused project (by a person, or before its limits): the time passes without a turn, so nothing piles up for the day it goes on.
+                if agent is not None and agent.enabled and project is not None and project.paused_at is None and project.limit_paused_at is None and schedule.skip_quiet and await schedule_service.quiet(s, schedule):
                     await schedule_service.mark_skipped(s, schedule, now)  # nothing happened: nothing to report, no turn
                     continue
-                if agent is not None and agent.enabled and project is not None and project.paused_at is None:
+                if agent is not None and agent.enabled and project is not None and project.paused_at is None and project.limit_paused_at is None:
                     text = f'Scheduled task "{schedule.name}" (schedule {schedule.id}):\n\n{schedule.prompt}'
                     run = await self._runs.enqueue(s, agent, RunTrigger.SCHEDULE, text, schedule_id=schedule.id)
                     run_id = run.id
