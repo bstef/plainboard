@@ -125,12 +125,16 @@ async def search(
     slug: str, request: Request, session: Session, q: str = Query(min_length=1, max_length=200), lang: str | None = Query(default=None, max_length=20),
     limit: int = Query(default=10, ge=1, le=20),
 ) -> JSONResponse:  # fmt: skip
-    """[{title, path, url, snippet}] in that language: by words, and by meaning where semantic search runs."""
+    """[{title, path, url, snippet}] in that language: by words, and by meaning where semantic search runs. Header
+    ``X-Search-Words-Only: 1`` when the site's vector searches of this minute were used up."""
     _limit(SEARCHES, request)
     found = await _site(session, request, slug)
     language = public.lang_of(found, lang)
-    hits = await public.search(session, found, q, _base(request, found), language, limit)
-    return JSONResponse(jsonable_encoder(hits), headers={"Cache-Control": "private, no-cache" if not found.public else "public, max-age=60"})
+    hits, words_only = await public.search_hits(session, found, q, _base(request, found), language, limit)
+    headers = {"Cache-Control": "private, no-cache" if not found.public else "public, max-age=60"}
+    if words_only:
+        headers = {"Cache-Control": "private, no-cache", "X-Search-Words-Only": "1"}  # not cached: meaning comes back within the minute
+    return JSONResponse(jsonable_encoder(hits), headers=headers)
 
 
 @router.get("/{slug}/files/{attachment_id}")

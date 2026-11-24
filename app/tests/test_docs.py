@@ -596,3 +596,45 @@ def test_a_site_of_thousands_of_pages_is_served_and_listed_piece_by_piece(client
     listed, found = tool_results(client, manager["id"])[-2:]
     assert listed.count("\n- ") == 50 and "(more: offset=50)" in listed and len(listed) < 12000
     assert '/s3/p7 "Page p7"' in found
+
+
+def test_a_site_makes_at_most_ten_vector_searches_a_minute_then_searches_by_words(client, project, monkeypatch):
+    from plainboard.services import docs_public as public
+    from plainboard.services import search as search_service
+    from plainboard.services.search import store
+
+    queries = []
+
+    class Model:
+        state, name = "ready", "fake"
+
+        async def query(self, text):
+            queries.append(text)
+            return [0.0]
+
+    async def enabled(session, project):
+        return True
+
+    async def embedder(session):
+        return Model()
+
+    async def nearest(*args):
+        return []
+
+    monkeypatch.setattr(search_service, "enabled", enabled)
+    monkeypatch.setattr(search_service, "embedder", embedder)
+    monkeypatch.setattr(store, "nearest_of_kind", nearest)
+    monkeypatch.setattr(public, "VECTOR_SEARCHES", public.RateLimit(public.VECTOR_SEARCHES_PER_MINUTE))
+    pid = project["id"]
+    s = site(client, pid, published=True, public=True)
+    page(client, pid, s["id"], title="Webhooks", body="Stripe retries webhooks.")
+    for _ in range(10):
+        resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
+        assert "x-search-words-only" not in resp.headers and resp.json()[0]["title"] == "Webhooks"
+    resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
+    assert resp.headers["x-search-words-only"] == "1" and resp.json()[0]["title"] == "Webhooks"  # words still find it
+    assert len(queries) == 10
+    for key, seen in public.VECTOR_SEARCHES._seen.items():  # a minute later the budget is back
+        public.VECTOR_SEARCHES._seen[key] = type(seen)(t - 61 for t in seen)
+    resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
+    assert "x-search-words-only" not in resp.headers and len(queries) == 11

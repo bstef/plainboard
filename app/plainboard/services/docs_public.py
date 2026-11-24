@@ -226,8 +226,13 @@ def _snippet(text: str, terms: list[str], size: int = 200) -> str:
 
 
 async def search(session: AsyncSession, site: DocSite, query: str, base: str, lang: str, limit: int = 10) -> list[dict]:
+    return (await search_hits(session, site, query, base, lang, limit))[0]
+
+
+async def search_hits(session: AsyncSession, site: DocSite, query: str, base: str, lang: str, limit: int = 10) -> tuple[list[dict], bool]:
     """By words in the pages of this language (the database finds at most ``CANDIDATES``, title words count three
-    times) and, where semantic search runs, by meaning over the site's pages; fused by rank. Each hit: title, path, snippet."""
+    times) and, where semantic search runs, by meaning over the site's pages; fused by rank. Each hit: title, path,
+    snippet. Also whether the site's vector searches were used up (``VECTOR_SEARCHES``), so it searched by words only."""
     terms = _terms(query) or [query.lower().strip()[:50]]
     if lang == site.language:
         q = select(DocPage.id, DocPage.title, DocPage.body, DocPage.path).where(DocPage.site_id == site.id)
@@ -244,6 +249,8 @@ async def search(session: AsyncSession, site: DocSite, query: str, base: str, la
         scored.append((sum(3 * t.count(w) + min(b.count(w), 10) for w in terms), pid))
     by_words = [pid for _, pid in sorted(scored, key=lambda x: -x[0])]
     by_meaning = await _by_meaning(session, site, query)
+    words_only = by_meaning is None
+    by_meaning = by_meaning or []
     fused: dict[int, float] = {}
     for ranking in (by_words, by_meaning):
         for rank, pid in enumerate(ranking):
@@ -265,12 +272,13 @@ async def search(session: AsyncSession, site: DocSite, query: str, base: str, la
             continue
         _, title, body, path = found[pid]
         out.append({"title": title, "path": path, "url": _url(here, path), "snippet": _snippet(render(body, base=here, files_base="", page_paths={}).text, terms)})
-    return out
+    return out, words_only
 
 
-async def _by_meaning(session: AsyncSession, site: DocSite, query: str) -> list[int]:
+async def _by_meaning(session: AsyncSession, site: DocSite, query: str) -> list[int] | None:
     """The site's pages nearest in meaning (the index holds the pages in the site's own language; the models are
-    multilingual, so a query in another language finds them too)."""
+    multilingual, so a query in another language finds them too). None when the site's vector searches of this
+    minute are used up (public search and the doc assistant together): then words alone must do."""
     from . import search as search_service
     from .search import store
 
@@ -280,6 +288,8 @@ async def _by_meaning(session: AsyncSession, site: DocSite, query: str) -> list[
     model = await search_service.embedder(session)
     if model.state != "ready":
         return []
+    if not VECTOR_SEARCHES.allow(str(site.id)):
+        return None
     vector = await model.query(query)
     hits = await store.nearest_of_kind(session, project.id, vector, model.name, "doc", 30)
     ids = [int(h.source_id) for h in hits if h.source_id.isdigit()]
@@ -422,3 +432,9 @@ class RateLimit:
             return False
         seen.append(now)
         return True
+
+
+# Embedding a query costs the server real work: per doc site at most this many vector searches a minute, for all its
+# visitors and its assistant together (one process: the app runs a single uvicorn worker).
+VECTOR_SEARCHES_PER_MINUTE = 10
+VECTOR_SEARCHES = RateLimit(VECTOR_SEARCHES_PER_MINUTE)
