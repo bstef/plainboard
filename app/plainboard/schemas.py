@@ -540,6 +540,7 @@ class ProjectUpdate(BaseModel):
     continue_with_backlog: bool | None = None
     fast_checks: bool | None = None
     semantic_search: bool | None = None
+    limit_pause: bool | None = None
     parallel_agents: int | None = Field(default=None, ge=0, le=20)  # null: the number from the settings again
     account_id: int | None = None  # null: the subscription with the most room again
     auto_archive_days: int | None = Field(default=None, ge=0, le=3650)
@@ -569,6 +570,7 @@ class ProjectOut(ORM):
     paused_by: str = ""
     limit_paused_at: UTCDateTime | None = None  # paused by PlainBoard: its subscriptions are nearly used up
     limit_resumes_at: UTCDateTime | None = None  # expected to go on then; None: unknown
+    limit_pause: bool = True  # off: it never pauses before its limits
     workspace_path: str | None
     has_github_token: bool = False
     auto_wake_manager: bool

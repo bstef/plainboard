@@ -90,3 +90,15 @@ def test_the_limit_pause_ends_with_the_reset_and_never_holds_with_an_api_key(cli
     client.post("/api/accounts", json={"provider": "claude_code", "label": "Paid", "auth_mode": "api_key", "secret": "sk-paid"})
     assert tick(client) == (0, 1)  # an API key has no plan limit
     assert tick(client) == (0, 0)
+
+
+def test_a_project_that_switched_it_off_never_pauses_before_its_limits(client, project):
+    pid = project["id"]
+    two_subscriptions(client)
+    assert client.get(f"/api/projects/{pid}").json()["limit_pause"] is True  # on by default
+    record(client, Claude=0.99, Second=0.96)
+    assert tick(client) == (1, 0)
+    assert client.patch(f"/api/projects/{pid}", json={"limit_pause": False}).json()["limit_pause"] is False
+    assert tick(client) == (0, 1)  # as before: it goes on
+    assert tick(client) == (0, 0)
+    assert client.get(f"/api/projects/{pid}").json()["limit_paused_at"] is None

@@ -260,6 +260,17 @@ export function ProjectSettings({ onOpenTeam, onDeleted }: { onOpenTeam: () => v
       content: (
         <div className="space-y-4">
           <ProjectPauseSwitch project={project} />
+          <div className="space-y-1">
+            <Toggle
+              checked={project.limit_pause}
+              onChange={async (v) => {
+                await api.patch<Project>(`/projects/${project.id}`, { limit_pause: v });
+                await qc.invalidateQueries({ queryKey: qk.projects });
+              }}
+              label={t("projects.limitPause")}
+            />
+            <p className="text-fg-3">{t("projects.limitPauseHint")}</p>
+          </div>
           <Field label={t("projects.parallel")} hint={t("projects.parallelHint", { count: defaultParallel })}>
             <Input
               type="number"

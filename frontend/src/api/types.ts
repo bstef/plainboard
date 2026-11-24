@@ -27,6 +27,8 @@ export interface Project {
   limit_paused_at: string | null;
   /** When it is expected to go on by itself; null: unknown. */
   limit_resumes_at: string | null;
+  /** Pause by itself before every subscription is used up; off: never. */
+  limit_pause: boolean;
   parallel_agents: number | null;
   /** The subscription the project's agents run on; null: the one with the most room. */
   account_id: number | null;
