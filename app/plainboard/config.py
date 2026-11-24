@@ -33,6 +33,7 @@ class Config(BaseSettings):
     scheduler_interval_seconds: float = 20.0
     job_watch_interval_seconds: float = 10.0
     limits_interval_seconds: float = 900.0  # how often the plan limits of all subscriptions are read
+    limit_pause_interval_seconds: float = 60.0  # how often projects are paused before their limits, or resumed
     landing_interval_seconds: float = 30.0  # how often trains of finished branches are looked at
     tidy_interval_seconds: float = 600.0  # how often it is looked whether a repository is due for removing merged branches
     cleanup_interval_seconds: float = 3600.0  # how often disk and memory are looked at for an automatic cleanup (statvfs: cheap)

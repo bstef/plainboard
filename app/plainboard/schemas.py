@@ -567,6 +567,8 @@ class ProjectOut(ORM):
     customer_languages: list[str] = Field(default_factory=lambda: ["en"])  # the first is the default
     paused_at: UTCDateTime | None = None  # paused for good by a person, since then
     paused_by: str = ""
+    limit_paused_at: UTCDateTime | None = None  # paused by PlainBoard: its subscriptions are nearly used up
+    limit_resumes_at: UTCDateTime | None = None  # expected to go on then; None: unknown
     workspace_path: str | None
     has_github_token: bool = False
     auto_wake_manager: bool

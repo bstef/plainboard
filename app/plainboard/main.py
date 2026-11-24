@@ -26,6 +26,7 @@ from .orchestration.limits_watcher import LimitsWatcher
 from .orchestration.update_watcher import UpdateWatcher
 from .orchestration.scheduler import Scheduler
 from .orchestration.search_indexer import SearchIndexer
+from .orchestration.limit_pause import LimitPauseWatcher
 from .orchestration.standstill import StandstillWatcher
 from .models import utcnow
 from .security import init_security
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
     tidy = app.state.tidy = BranchTidy(sessionmaker(), runs, config.tidy_interval_seconds)
     standstill = app.state.standstill = StandstillWatcher(sessionmaker(), runs, config.standstill_interval_seconds)
     limits_watcher = LimitsWatcher(runs, config.limits_interval_seconds)
+    limit_pause = app.state.limit_pause = LimitPauseWatcher(sessionmaker(), runs, config.limit_pause_interval_seconds)
     updates = app.state.updates = UpdateWatcher(sessionmaker(), runner, config.update_interval_seconds)
     cleanup = app.state.cleanup = CleanupWatcher(sessionmaker(), runs, config.cleanup_interval_seconds)
     search_index = app.state.search = SearchIndexer(sessionmaker(), runs, config.search_interval_seconds)
@@ -68,6 +70,7 @@ async def lifespan(app: FastAPI):
     tidy.start()
     standstill.start()
     limits_watcher.start()
+    limit_pause.start()
     updates.start()
     cleanup.start()
     search_index.start()
@@ -81,6 +84,7 @@ async def lifespan(app: FastAPI):
         await search_index.stop()
         await cleanup.stop()
         await updates.stop()
+        await limit_pause.stop()
         await limits_watcher.stop()
         await standstill.stop()
         await tidy.stop()

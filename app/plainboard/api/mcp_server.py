@@ -181,7 +181,7 @@ def tool(description: str, read: bool = True):  # noqa: ANN201
 @tool("Your projects: id, slug, name, your role.")
 async def list_projects() -> str:
     rows = await api("GET", "/api/projects")
-    return "\n".join(f"{p['id']} {p['slug']} | {p['name']} | {p.get('role') or 'admin'}" + (" (paused)" if p.get("paused_at") else "") for p in rows) or "No projects."
+    return "\n".join(f"{p['id']} {p['slug']} | {p['name']} | {p.get('role') or 'admin'}" + (" (paused)" if p.get("paused_at") or p.get("limit_paused_at") else "") for p in rows) or "No projects."
 
 
 @tool("Ticket counts per status plus all open tickets.")
