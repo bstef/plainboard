@@ -1,0 +1,575 @@
+import clsx from "clsx";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Globe, ListTree, LogOut, Menu, Moon, Search, Sun, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { useDismiss } from "../lib/hooks";
+import { setAppearance, useLook } from "../lib/theme";
+import { knownPage, langBase, loadNav, loadPage, NotFoundError, pageUrl, parseUrl, prefetch } from "./api";
+import { Content } from "./Content";
+import { SearchDialog } from "./Search";
+import { levelKey, Tree } from "./Sidebar";
+import type { Nav, NavItem, PageView, SiteView } from "./types";
+
+/** The name of a language in that language ("Deutsch", "Français"), as a language switcher shows it. */
+export function languageName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames([code], { type: "language" }).of(code) ?? code;
+    return name.charAt(0).toLocaleUpperCase(code) + name.slice(1);
+  } catch {
+    return code;
+  }
+}
+
+function dateIn(lang: string, iso: string): string {
+  try {
+    return new Intl.DateTimeFormat(lang, { dateStyle: "long" }).format(new Date(iso));
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+/** The levels of the tree a page view brings: the top, the children of each page on the way down, its own. */
+function levelsOf(page: PageView, lang: string): [string, Nav][] {
+  const out: [string, Nav][] = [];
+  page.sidebar.forEach((level, k) => {
+    if (k === 0) out.push([levelKey(lang, null), level]);
+    else {
+      const crumb = page.breadcrumbs[k - 1];
+      const parent = page.sidebar[k - 1].items.find((i) => i.path === crumb?.path);
+      if (parent) out.push([levelKey(lang, parent.id), level]);
+    }
+  });
+  out.push([levelKey(lang, page.id), page.children]);
+  return out;
+}
+
+/** The ids of the pages on the way down to a page (to open them in the tree). */
+function openedFor(page: PageView): number[] {
+  const ids: number[] = [];
+  page.sidebar.forEach((level, k) => {
+    const crumb = page.breadcrumbs[k];
+    const found = crumb && level.items.find((i) => i.path === crumb.path);
+    if (found) ids.push(found.id);
+  });
+  if (page.children.total > 0) ids.push(page.id);
+  return ids;
+}
+
+interface Where {
+  lang: string;
+  path: string;
+}
+
+export function DocsSite({ site, initial }: { site: SiteView; initial: PageView | null }) {
+  const { t } = useTranslation();
+  const start = useMemo(() => parseUrl(site, new URL(location.href)) ?? { lang: site.lang, path: "", hash: "" }, [site]);
+  const [where, setWhere] = useState<Where>({ lang: site.lang, path: start.path });
+  const [page, setPage] = useState<PageView | null>(initial);
+  const [missing, setMissing] = useState(!initial && site.nav.items.length > 0);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [levels, setLevels] = useState<Map<string, Nav>>(() => {
+    const map = new Map<string, Nav>([[levelKey(site.lang, null), site.nav]]);
+    if (initial) for (const [k, v] of levelsOf(initial, site.lang)) map.set(k, v);
+    return map;
+  });
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set(initial ? openedFor(initial) : []));
+  const [levelsLoading, setLevelsLoading] = useState<Set<string>>(new Set());
+  const [drawer, setDrawer] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const counter = useRef(0);
+  const look = useLook();
+
+  useEffect(() => {
+    if (initial) knownPage(initial, start.path);
+    history.scrollRestoration = "manual";
+    if (start.hash) requestAnimationFrame(() => document.getElementById(start.hash)?.scrollIntoView());
+  }, [initial, start]);
+
+  const showPage = useCallback((found: PageView, lang: string) => {
+    setPage(found);
+    setMissing(false);
+    setLevels((old) => {
+      const next = new Map(old);
+      for (const [k, v] of levelsOf(found, lang)) {
+        const had = next.get(k);
+        if (!had || had.items.length <= v.items.length) next.set(k, v);
+      }
+      return next;
+    });
+    setExpanded((old) => new Set([...old, ...openedFor(found)]));
+  }, []);
+
+  /** Opens a page of the site without loading the document again; anything else is left to the browser. */
+  const go = useCallback(
+    (href: string, how: { pop?: boolean; scroll?: number } = {}) => {
+      const url = new URL(href, location.href);
+      const target = parseUrl(site, url);
+      if (!target) {
+        location.href = url.href;
+        return;
+      }
+      setDrawer(false);
+      const same = target.lang === where.lang && target.path === where.path && !missing;
+      if (same && !how.pop) {
+        if (target.hash) {
+          history.pushState({ scroll: 0 }, "", url.pathname + url.hash);
+          document.getElementById(target.hash)?.scrollIntoView({ behavior: "smooth" });
+        } else if (url.href !== location.href) {
+          history.pushState({ scroll: 0 }, "", url.pathname);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        return;
+      }
+      const n = ++counter.current;
+      const slow = window.setTimeout(() => n === counter.current && setLoading(true), 120);
+      if (!how.pop) history.replaceState({ ...history.state, scroll: window.scrollY }, "");
+      loadPage(site, target.lang, target.path)
+        .then((found) => {
+          if (n !== counter.current) return;
+          showPage(found, target.lang);
+          setFailed(false);
+        })
+        .catch((e: unknown) => {
+          if (n !== counter.current) return;
+          if (e instanceof NotFoundError) {
+            setPage(null);
+            setMissing(true);
+          } else setFailed(true);
+        })
+        .finally(() => {
+          window.clearTimeout(slow);
+          if (n !== counter.current) return;
+          setLoading(false);
+          setWhere({ lang: target.lang, path: target.path });
+          if (!how.pop) history.pushState({ scroll: 0 }, "", url.pathname + url.hash);
+          requestAnimationFrame(() => {
+            const anchor = target.hash && document.getElementById(target.hash);
+            if (anchor) anchor.scrollIntoView();
+            else window.scrollTo(0, how.scroll ?? 0);
+          });
+        });
+    },
+    [site, where, missing, showPage],
+  );
+
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => go(location.href, { pop: true, scroll: (e.state as { scroll?: number } | null)?.scroll ?? 0 });
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [go]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const typing = e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName));
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") || (e.key === "/" && !typing)) {
+        e.preventDefault();
+        setSearching((s) => !s);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Title, description and language of the document follow the page, as the server wrote them for the first.
+  useEffect(() => {
+    document.title = page ? `${page.title} – ${site.name}` : missing ? `${t("docsSite.notFound")} – ${site.name}` : site.name;
+    document.documentElement.lang = where.lang;
+    document.querySelector('meta[name="description"]')?.setAttribute("content", page?.description || site.description);
+  }, [page, missing, site, where.lang, t]);
+
+  useEffect(() => {
+    document.body.style.overflow = drawer ? "hidden" : "";
+  }, [drawer]);
+
+  const lang = where.lang;
+  const onPrefetch = useCallback((href: string) => prefetch(site, href), [site]);
+  const onNavigate = useCallback((href: string) => go(href), [go]);
+
+  const fetchLevel = (parent: number | null, offset: number) => {
+    const key = levelKey(lang, parent);
+    setLevelsLoading((s) => new Set(s).add(key));
+    loadNav(site, lang, parent, offset)
+      .then((nav) =>
+        setLevels((old) => {
+          const next = new Map(old);
+          const had = next.get(key);
+          const seen = new Set(offset && had ? had.items.map((i) => i.id) : []);
+          next.set(key, offset && had ? { ...nav, items: [...had.items, ...nav.items.filter((i) => !seen.has(i.id))] } : nav);
+          return next;
+        }),
+      )
+      .catch(() => undefined)
+      .finally(() =>
+        setLevelsLoading((s) => {
+          const next = new Set(s);
+          next.delete(key);
+          return next;
+        }),
+      );
+  };
+  const onToggle = (item: NavItem) => {
+    const open = expanded.has(item.id);
+    setExpanded((old) => {
+      const next = new Set(old);
+      if (open) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+    if (!open && !levels.has(levelKey(lang, item.id))) fetchLevel(item.id, 0);
+  };
+  const onMore = (parent: number | null) => fetchLevel(parent, levels.get(levelKey(lang, parent))?.items.length ?? 0);
+  // Another language: its top level, if no page brought it yet.
+  useEffect(() => {
+    if (!levels.has(levelKey(lang, null)) && !levelsLoading.has(levelKey(lang, null))) fetchLevel(null, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
+
+  const home = `${langBase(site, lang)}/`;
+  const tree = (
+    <Tree
+      site={site}
+      lang={lang}
+      levels={levels}
+      expanded={expanded}
+      loading={levelsLoading}
+      currentId={page?.id ?? null}
+      onToggle={onToggle}
+      onMore={onMore}
+      onNavigate={onNavigate}
+      onPrefetch={onPrefetch}
+    />
+  );
+  const languages = site.languages.length > 1 && (
+    <LanguageMenu
+      languages={site.languages}
+      current={lang}
+      onChoose={(code) => {
+        // An address for every language: the same page there (its own language at the site's base).
+        go(pageUrl(site, code, where.path));
+      }}
+    />
+  );
+
+  return (
+    <div className="doc-shell">
+      <div className={clsx("doc-progress", loading && "is-on")} aria-hidden />
+      <header className="doc-header">
+        <div className="doc-header-in">
+          <button type="button" className="doc-icon-btn lg:hidden" onClick={() => setDrawer(true)} aria-label={t("docsSite.menu")} aria-expanded={drawer}>
+            <Menu className="size-5" />
+          </button>
+          <a
+            href={home}
+            className="doc-brand"
+            onClick={(e) => {
+              if (e.button !== 0 || e.metaKey || e.ctrlKey) return;
+              e.preventDefault();
+              go(home);
+            }}
+          >
+            <span className="doc-mark" aria-hidden>
+              {site.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="doc-brand-name">{site.name}</span>
+          </a>
+          <div className="flex-1" />
+          <button type="button" className="doc-search-btn" onClick={() => setSearching(true)} aria-haspopup="dialog" aria-label={t("docsSite.search")}>
+            <Search className="size-4 shrink-0" />
+            <span className="doc-search-btn-label">{t("docsSite.searchShort")}</span>
+            <kbd className="doc-search-btn-kbd">{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
+          </button>
+          <div className="hidden lg:contents">{languages}</div>
+          <button
+            type="button"
+            className="doc-icon-btn"
+            onClick={() => setAppearance(look.dark ? "light" : "dark")}
+            aria-label={t(look.dark ? "docsSite.light" : "docsSite.dark")}
+            title={t(look.dark ? "docsSite.light" : "docsSite.dark")}
+          >
+            {look.dark ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
+          </button>
+        </div>
+      </header>
+
+      <div className="doc-layout">
+        <aside className="doc-side" data-scroll>
+          {tree}
+        </aside>
+        {drawer && (
+          <div className="doc-drawer-scrim lg:hidden" onMouseDown={() => setDrawer(false)}>
+            <aside className="doc-drawer" onMouseDown={(e) => e.stopPropagation()} aria-label={t("docsSite.pages")}>
+              <div className="doc-drawer-head">
+                <span className="doc-brand-name">{site.name}</span>
+                <button type="button" className="doc-icon-btn" onClick={() => setDrawer(false)} aria-label={t("docsSite.close")}>
+                  <X className="size-5" />
+                </button>
+              </div>
+              {languages && <div className="doc-drawer-langs">{languages}</div>}
+              <div className="doc-drawer-tree" data-scroll>
+                {tree}
+              </div>
+            </aside>
+          </div>
+        )}
+
+        <main className="doc-main">
+          {failed ? (
+            <Message title={t("docsSite.failed")} text={t("docsSite.failedHint")} action={<button type="button" className="doc-btn" onClick={() => go(location.href, { pop: true })}>{t("docsSite.retry")}</button>} />
+          ) : missing ? (
+            <Message
+              title={t("docsSite.notFound")}
+              text={t("docsSite.notFoundHint")}
+              action={
+                <>
+                  <a href={home} className="doc-btn" onClick={(e) => (e.preventDefault(), go(home))}>
+                    {t("docsSite.home")}
+                  </a>
+                  <button type="button" className="doc-btn is-ghost" onClick={() => setSearching(true)}>
+                    {t("docsSite.search")}
+                  </button>
+                </>
+              }
+            />
+          ) : !page ? (
+            <Message title={site.name} text={site.description || t("docsSite.empty")} />
+          ) : (
+            <Article site={site} page={page} lang={lang} home={home} onNavigate={onNavigate} onPrefetch={onPrefetch} />
+          )}
+          <footer className="doc-foot">
+            <span>
+              {site.project ? `${site.project} · ` : ""}
+              {t("docsSite.madeWith")}{" "}
+              <a href="https://github.com/hthoene/plainboard" target="_blank" rel="noreferrer">
+                PlainBoard
+              </a>
+            </span>
+            {!site.public && (
+              <button
+                type="button"
+                className="doc-link-btn"
+                onClick={() => void fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).finally(() => location.reload())}
+              >
+                <LogOut className="size-3.5" /> {t("docsSite.signOut")}
+              </button>
+            )}
+          </footer>
+        </main>
+
+        <aside className="doc-toc">{page && <Toc page={page} />}</aside>
+      </div>
+      {/* The place for the site's assistant (#119): bottom right, kept free by everything else. */}
+      <div id="pb-docs-assistant" data-part="docs-assistant" className="doc-assistant-slot" />
+      <SearchDialog site={site} lang={lang} open={searching} onClose={() => setSearching(false)} onOpen={go} />
+    </div>
+  );
+}
+
+function Article({ site, page, lang, home, onNavigate, onPrefetch }: { site: SiteView; page: PageView; lang: string; home: string; onNavigate: (href: string) => void; onPrefetch: (href: string) => void }) {
+  const { t } = useTranslation();
+  const link = (path: string) => pageUrl(site, lang, path);
+  const go = (href: string) => (e: MouseEvent) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    onNavigate(href);
+  };
+  const sub = page.children.items;
+  return (
+    <article key={`${page.id}-${page.lang}`} className="doc-article">
+      <nav aria-label={t("docsSite.breadcrumbs")} className="doc-crumbs">
+        <a href={home} onClick={go(home)}>
+          {site.name}
+        </a>
+        {page.breadcrumbs.map((c) => (
+          <span key={c.path} className="contents">
+            <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+            <a href={link(c.path)} onClick={go(link(c.path))} onPointerEnter={() => onPrefetch(link(c.path))}>
+              {c.title}
+            </a>
+          </span>
+        ))}
+      </nav>
+      <h1 className="doc-title">{page.title}</h1>
+      {page.fallback && (
+        <p className="doc-fallback" role="note">
+          <Globe className="size-4 shrink-0" />
+          {t("docsSite.fallback", { language: languageName(lang), original: languageName(site.language) })}
+        </p>
+      )}
+      {page.toc.filter((h) => h.level <= 3).length > 2 && <MobileToc page={page} />}
+      <div className="doc-prose">
+        <Content html={page.html} filesBase={`${site.api}/files`} onNavigate={onNavigate} onPrefetch={onPrefetch} />
+      </div>
+      {sub.length > 0 && (
+        <section className="doc-children" aria-label={t("docsSite.inSection")}>
+          <h2>{t("docsSite.inSection")}</h2>
+          <ul>
+            {sub.map((c) => (
+              <li key={c.id}>
+                <a href={link(c.path)} onClick={go(link(c.path))} onPointerEnter={() => onPrefetch(link(c.path))}>
+                  <span>{c.title}</span>
+                  {c.children > 0 && <span className="doc-children-count">{t("docsSite.pagesCount", { count: c.children })}</span>}
+                  <ArrowRight className="size-4 shrink-0" />
+                </a>
+              </li>
+            ))}
+            {page.children.total > sub.length && <li className="doc-children-more">{t("docsSite.more", { count: page.children.total - sub.length })}</li>}
+          </ul>
+        </section>
+      )}
+      <p className="doc-updated">{t("docsSite.updated", { date: dateIn(lang, page.updated_at) })}</p>
+      {(page.prev || page.next) && (
+        <nav className="doc-pager" aria-label={t("docsSite.pager")}>
+          {page.prev ? (
+            <a href={link(page.prev.path)} onClick={go(link(page.prev.path))} onPointerEnter={() => onPrefetch(link(page.prev!.path))} className="is-prev">
+              <span className="doc-pager-label">
+                <ArrowLeft className="size-3.5" /> {t("docsSite.previous")}
+              </span>
+              <span className="doc-pager-title">{page.prev.title}</span>
+            </a>
+          ) : (
+            <span />
+          )}
+          {page.next && (
+            <a href={link(page.next.path)} onClick={go(link(page.next.path))} onPointerEnter={() => onPrefetch(link(page.next!.path))} className="is-next">
+              <span className="doc-pager-label">
+                {t("docsSite.next")} <ArrowRight className="size-3.5" />
+              </span>
+              <span className="doc-pager-title">{page.next.title}</span>
+            </a>
+          )}
+        </nav>
+      )}
+    </article>
+  );
+}
+
+/** "On this page": the headings of the page, the one being read marked. */
+function Toc({ page }: { page: PageView }) {
+  const { t } = useTranslation();
+  const heads = page.toc.filter((h) => h.level >= 2 && h.level <= 3);
+  const active = useActiveHeading(heads.map((h) => h.id));
+  if (heads.length < 2) return null;
+  return (
+    <nav aria-label={t("docsSite.onThisPage")} className="doc-toc-in">
+      <p className="doc-toc-head">
+        <ListTree className="size-4" /> {t("docsSite.onThisPage")}
+      </p>
+      <ul>
+        {heads.map((h) => (
+          <li key={h.id} className={clsx(h.level === 3 && "is-sub")}>
+            <a
+              href={`#${h.id}`}
+              className={clsx(active === h.id && "is-active")}
+              onClick={(e) => {
+                e.preventDefault();
+                history.replaceState(history.state, "", `#${h.id}`);
+                document.getElementById(h.id)?.scrollIntoView({ behavior: "smooth" });
+              }}
+            >
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="doc-link-btn" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+        {t("docsSite.top")}
+      </button>
+    </nav>
+  );
+}
+
+function MobileToc({ page }: { page: PageView }) {
+  const { t } = useTranslation();
+  const heads = page.toc.filter((h) => h.level >= 2 && h.level <= 3);
+  return (
+    <details className="doc-toc-mobile">
+      <summary>
+        <ListTree className="size-4" /> {t("docsSite.onThisPage")}
+        <ChevronDown className="ml-auto size-4 doc-toc-chev" />
+      </summary>
+      <ul>
+        {heads.map((h) => (
+          <li key={h.id} className={clsx(h.level === 3 && "is-sub")}>
+            <a href={`#${h.id}`}>{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function useActiveHeading(ids: string[]): string | null {
+  const [active, setActive] = useState<string | null>(null);
+  const key = ids.join(" ");
+  useEffect(() => {
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      let found: string | null = ids[0] ?? null;
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top < 120) found = id;
+      }
+      // At the very end of the page the last heading counts, however short its part is.
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) found = ids[ids.length - 1] ?? found;
+      setActive(found);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(read);
+    };
+    read();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(frame);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return active;
+}
+
+function LanguageMenu({ languages, current, onChoose }: { languages: string[]; current: string; onChoose: (code: string) => void }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(ref, open, () => setOpen(false));
+  return (
+    <div ref={ref} className="doc-lang">
+      <button type="button" className="doc-lang-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={t("docsSite.language")}>
+        <Globe className="size-4" />
+        <span>{languageName(current)}</span>
+        <ChevronDown className="size-3.5" />
+      </button>
+      {open && (
+        <div role="menu" className="doc-menu">
+          {languages.map((code) => (
+            <button
+              key={code}
+              type="button"
+              role="menuitemradio"
+              aria-checked={code === current}
+              onClick={() => {
+                setOpen(false);
+                if (code !== current) onChoose(code);
+              }}
+            >
+              <span>{languageName(code)}</span>
+              <span className="doc-menu-code">{code}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Message({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
+  return (
+    <div className="doc-message">
+      <h1 className="doc-title">{title}</h1>
+      <p>{text}</p>
+      {action && <div className="doc-message-actions">{action}</div>}
+    </div>
+  );
+}

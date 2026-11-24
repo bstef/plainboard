@@ -32,7 +32,8 @@ const listeners = new Set<() => void>();
 const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)");
 
 function storedDesign(): DesignId {
-  const value = localStorage.getItem(DESIGN_KEY);
+  // A page with a design of its own (a doc site: slop2gether) keeps it, whatever was picked in the app.
+  const value = document.documentElement.dataset.fixedDesign ?? localStorage.getItem(DESIGN_KEY);
   return DESIGNS.some((d) => d.id === value) ? (value as DesignId) : DESIGNS[0].id;
 }
 

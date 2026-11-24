@@ -9,6 +9,7 @@ import {
   FolderKanban,
   GitCommitHorizontal,
   HelpCircle,
+  BookOpen,
   Lightbulb,
   MessageSquareText,
   MoreHorizontal,
@@ -185,6 +186,7 @@ const KIND_ICON: Record<string, (cls: string) => ReactNode> = {
   note: (c) => <NotebookPen className={c} />,
   commit: (c) => <GitCommitHorizontal className={c} />,
   idea: (c) => <Lightbulb className={c} />,
+  doc: (c) => <BookOpen className={c} />,
 };
 
 interface Item {
@@ -227,6 +229,7 @@ export function CommandPalette({
   onOpenTask,
   onOpenNote,
   onOpenIdea,
+  onOpenDocPage,
 }: {
   open: boolean;
   onClose: () => void;
@@ -237,6 +240,7 @@ export function CommandPalette({
   onOpenTask: (id: number) => void;
   onOpenNote: (id: number) => void;
   onOpenIdea: (id: number) => void;
+  onOpenDocPage: (id: number) => void;
 }) {
   const { t } = useTranslation();
   const tasks = useTasks(current.id);
@@ -268,6 +272,8 @@ export function CommandPalette({
           ? () => onOpenNote(h.note_id!)
           : h.idea_id != null
             ? () => onOpenIdea(h.idea_id!)
+            : h.doc_page_id != null
+            ? () => onOpenDocPage(h.doc_page_id!)
             : h.url
             ? () => window.open(h.url!, "_blank", "noopener")
             : undefined;

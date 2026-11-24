@@ -4,6 +4,7 @@ import {
   AppWindow,
   ArrowUpCircle,
   BarChart3,
+  BookOpen,
   CalendarClock,
   FolderKanban,
   GitMerge,
@@ -69,6 +70,7 @@ const SettingsDialog = lazy(() => import("../settings/SettingsDialog").then((m) 
 const FlowView = lazy(() => import("../flow/FlowView").then((m) => ({ default: m.FlowView })));
 const StatsView = lazy(() => import("../stats/StatsView").then((m) => ({ default: m.StatsView })));
 const IdeasView = lazy(() => import("../ideas/IdeasView").then((m) => ({ default: m.IdeasView })));
+const DocsView = lazy(() => import("../docs/DocsView").then((m) => ({ default: m.DocsView })));
 const TeamView = lazy(() => import("../team/TeamView").then((m) => ({ default: m.TeamView })));
 
 export type View =
@@ -77,6 +79,7 @@ export type View =
   | "chat"
   | "team"
   | "notes"
+  | "docs"
   | "schedules"
   | "browser"
   | "stats"
@@ -90,6 +93,7 @@ const VIEWS: { id: View; icon: (cls: string) => ReactNode }[] = [
   { id: "flow", icon: (c) => <GitMerge className={c} /> },
   { id: "team", icon: (c) => <Users className={c} /> },
   { id: "notes", icon: (c) => <NotebookPen className={c} /> },
+  { id: "docs", icon: (c) => <BookOpen className={c} /> },
   { id: "schedules", icon: (c) => <CalendarClock className={c} /> },
   { id: "browser", icon: (c) => <AppWindow className={c} /> },
   { id: "stats", icon: (c) => <BarChart3 className={c} /> },
@@ -101,7 +105,7 @@ const MAIN: View[] = ["board", "chat", "ideas", "flow", "team"];
 /** On phones the tabs have room for four views and the search: the team moves to the "…" menu. */
 const PHONE_MAIN: View[] = ["board", "chat", "ideas", "flow"];
 /** The rest: in the "…" menu at the project name and in the palette (Ctrl+K). */
-const RARE: View[] = ["notes", "schedules", "browser", "stats", "project"];
+const RARE: View[] = ["notes", "docs", "schedules", "browser", "stats", "project"];
 
 export function Shell() {
   const { t } = useTranslation();
@@ -352,6 +356,7 @@ function ProjectWorkspace({
   const [lookOpen, setLookOpen] = useState(false);
   const [noteRequest, setNoteRequest] = useState<{ id?: number; n: number }>({ n: 0 });
   const [ideaRequest, setIdeaRequest] = useState<{ id: number; n: number }>();
+  const [docRequest, setDocRequest] = useState<{ pageId: number; n: number }>();
   const [panelOpen, setPanelOpen] = useStored<boolean>(
     "plainboard.chatOpen",
     true,
@@ -372,6 +377,8 @@ function ProjectWorkspace({
   });
   useProjectEvents(project.id);
 
+  // A doc site's own agent (#118) is set up in the site's settings: not in the team, the board or the agent choices.
+  const visibleAgents = useMemo(() => agents.data?.filter((a) => !a.doc_site_id) ?? NO_AGENTS, [agents.data]);
   const manager = agents.data?.find((a) => a.is_manager);
   const chatAgent = agents.data?.find((a) => a.id === chatAgentId) ?? manager;
   const activeChatId = chatAgent?.id ?? null;
@@ -386,7 +393,7 @@ function ProjectWorkspace({
       project,
       canWrite: project.role !== "viewer",
       isOwner: project.role === "owner",
-      agents: agents.data ?? NO_AGENTS,
+      agents: visibleAgents,
       agentById,
       previews,
       openChat: (id) => {
@@ -412,7 +419,7 @@ function ProjectWorkspace({
     }),
     [
       project,
-      agents.data,
+      visibleAgents,
       agentById,
       previews,
       openSettings,
@@ -633,6 +640,7 @@ function ProjectWorkspace({
                 {view === "team" && <TeamView />}
                 {view === "ideas" && <IdeasView focus={ideaRequest} />}
                 {view === "notes" && <NotesView key={noteRequest.n} initial={noteRequest.id} />}
+                {view === "docs" && <DocsView focus={docRequest} />}
                 {view === "schedules" && <SchedulesView />}
                 {view === "browser" && <BrowserView request={browserRequest} />}
                 {view === "stats" && <StatsView />}
@@ -695,6 +703,10 @@ function ProjectWorkspace({
           setView("notes");
         }}
         onOpenIdea={api.openIdea}
+        onOpenDocPage={(pageId) => {
+          setDocRequest((last) => ({ pageId, n: (last?.n ?? 0) + 1 }));
+          setView("docs");
+        }}
       />
       <LookDialog open={lookOpen} onClose={() => setLookOpen(false)} />
       {openTaskId !== null && (
