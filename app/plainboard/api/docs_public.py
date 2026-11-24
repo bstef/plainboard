@@ -8,6 +8,9 @@ in their project.
   (``sign_in``: true in the state). ``/docs/<slug>/sitemap.xml`` and ``robots.txt``.
 - JSON under ``/api/public/docs/<slug>``: the site with its top level (``?lang=``), ``/nav?parent=&offset=&limit=``
   (children, page by page), ``/page?path=&lang=``, ``/search?q=&lang=``, ``/files/<id>``. ETag on every view.
+- ``POST /api/public/docs/<slug>/assistant`` {text, conversation?, lang?}: the site's assistant (#119, where
+  ``assistant`` is true in the site's view), the answer streamed as NDJSON (``DocsAssistant.stream``); refused with
+  {detail} (404 off, 413 too long, 429 a limit, 503 cannot run). ``DELETE .../assistant/<conversation>``: closed.
 - At a site's own verified domain (``DocHost``) the same at the root, plus ``/api/auth/login`` and ``logout`` for a
   private site (the session cookie is that domain's). Nothing else of PlainBoard answers there.
 Drafts and everything else are 404. Each client address has a request budget per minute.
@@ -20,7 +23,8 @@ import logging
 
 from fastapi import APIRouter, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -32,8 +36,8 @@ from ..services import docs as docs_service
 from ..services import docs_domains
 from ..services import docs_public as public
 from ..services.errors import NotFound, ServiceError
-from .deps import Session
-from .guard import _hosts, is_https
+from .deps import Runs, Session
+from .guard import _hosts, _netloc, is_https
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +47,7 @@ pages = APIRouter(tags=["docs"])  # the HTML pages: no rule, they check by thems
 PAGES = public.RateLimit(240)
 SEARCHES = public.RateLimit(30)
 FILES = public.RateLimit(600)
+ASSISTANT = public.RateLimit(30)  # requests to the assistant, also refused ones (its own limits: services/docs_assistant.py)
 DOMAIN_SLUG = "docs_domain_slug"  # in the request's state: it came to the site's own domain
 DOMAIN_PATHS = ("/api/auth/login", "/api/auth/logout")  # what a site's own domain passes on besides the site
 
@@ -143,6 +148,38 @@ async def file(slug: str, attachment_id: int, request: Request, session: Session
     if shown:
         return FileResponse(path, media_type=shown, filename=attachment.filename, content_disposition_type="inline", headers=headers)
     return FileResponse(path, media_type=attachment.content_type, filename=attachment.filename, content_disposition_type="attachment", headers=headers)
+
+
+class AssistantIn(BaseModel):
+    text: str = Field(min_length=1, max_length=10000)  # the assistant's own, friendlier limit is lower
+    conversation: str | None = Field(default=None, max_length=100)  # a follow-up: the conversation it goes on
+    lang: str | None = Field(default=None, max_length=20)  # the visitor's language: one of the site's
+
+
+def _same_site(request: Request, site: DocSite) -> None:
+    """A private site's assistant answers with the reader's cookie: only to a page of this host."""
+    origin = request.headers.get("origin")
+    if not site.public and origin and _netloc(origin) not in _hosts(request.headers):
+        raise ServiceError("Not allowed", 403)
+
+
+@router.post("/{slug}/assistant")
+async def ask_assistant(slug: str, body: AssistantIn, request: Request, session: Session, runs: Runs) -> StreamingResponse:
+    _limit(ASSISTANT, request)
+    found = await _site(session, request, slug)
+    _same_site(request, found)
+    language = public.lang_of(found, body.lang)
+    chat, spec, ctx = await runs.docs_assistant.start(session, found, _client(request), body.text, body.conversation, language, _base(request, found))
+    max_tokens = found.assistant_max_tokens
+    await session.close()  # the answer takes a while: no database connection is held for it
+    headers = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+    return StreamingResponse(runs.docs_assistant.stream(chat, spec, ctx, max_tokens), media_type="application/x-ndjson", headers=headers)
+
+
+@router.delete("/{slug}/assistant/{conversation}", status_code=204)
+async def close_assistant(slug: str, conversation: str, request: Request, session: Session, runs: Runs) -> None:
+    found = await _site(session, request, slug)
+    runs.docs_assistant.close(conversation, found.id, _client(request))
 
 
 # --- HTML ------------------------------------------------------------------------------------------------------

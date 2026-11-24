@@ -1675,6 +1675,15 @@ class DocSiteUpdate(BaseModel):
     agent_provider: str | None = Field(default=None, max_length=50)  # its doc agent
     agent_model: str | None = Field(default=None, max_length=100)
     agent_effort: str | None = Field(default=None, max_length=20)  # "": the installation's default
+    # Its assistant for visitors (#119): provider "" = Claude (the only one so far), model "" = its small one.
+    assistant_enabled: bool | None = None
+    assistant_provider: str | None = Field(default=None, max_length=50)
+    assistant_model: str | None = Field(default=None, max_length=100)
+    assistant_effort: str | None = Field(default=None, max_length=20)
+    assistant_code: bool | None = None  # may read the code and the board's public texts: see assistant_warning
+    assistant_daily_messages: int | None = Field(default=None, ge=1, le=100000)
+    assistant_daily_cost: float | None = Field(default=None, ge=0, le=100000)  # USD per day; 0: no cap
+    assistant_max_tokens: int | None = Field(default=None, ge=128, le=8192)
 
 
 class DocKeysIn(BaseModel):
@@ -1749,6 +1758,15 @@ class DocSiteOut(ORM):
     domain: str | None = None
     domain_verified_at: UTCDateTime | None = None
     cloudflare_token_set: bool = False
+    assistant_enabled: bool = False
+    assistant_provider: str = ""
+    assistant_model: str = ""
+    assistant_effort: str = ""
+    assistant_code: bool = False
+    assistant_daily_messages: int = 300
+    assistant_daily_cost: float = 0.0
+    assistant_max_tokens: int = 1024
+    assistant_warning: str = ""  # what reading the code and the board risks: shown beside assistant_code
     agent: DocAgentOut | None = None  # its doc agent, the only agent that writes it
     url: str  # its address under this PlainBoard: /docs/<slug>/
     pages: int = 0

@@ -167,6 +167,7 @@ async def site_view(session: AsyncSession, site: DocSite, base: str, lang: str) 
         "name": site.name, "slug": site.slug, "description": site.description, "public": site.public, "base": base, "api": api_base(site),
         "language": site.language, "languages": [site.language, *(site.languages or [])], "lang": lang, "lang_base": lang_base(site, base, lang),
         "project": project.name if project else "", "updated_at": site.updated_at, "home": first, "nav": top,
+        "assistant": site.assistant_enabled,
     }  # fmt: skip
 
 

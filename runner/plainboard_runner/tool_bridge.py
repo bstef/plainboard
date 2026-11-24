@@ -165,3 +165,6 @@ async def _workspace_snapshots(bridge: ToolBridge, args: dict[str, Any]) -> Tool
     except snapshots.SnapshotError as exc:
         return ToolCallResult(text=str(exc), is_error=True)
     return ToolCallResult(text=text)
+
+
+from . import code_read  # noqa: E402,F401  (registers the code tools of a doc site's assistant)

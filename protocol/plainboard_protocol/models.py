@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field, TypeAdapter
 # "full": all built-in coding tools (shell, edit, web ...) + PlainBoard tools.
 # "board": PlainBoard tools + shell and file editing. Much smaller prompt -> fewer tokens.
 # "read": reading only (files, search, the PlainBoard tools the app sends): no shell, no editing, no sub-agents.
-Toolset = Literal["full", "board", "read"]
+# "none": only the PlainBoard tools the app sends (a doc site's assistant for visitors): no built-in tool at all.
+Toolset = Literal["full", "board", "read", "none"]
 
 # A provider account's key on the runner. The default account keeps the sign-in from before accounts existed.
 DEFAULT_ACCOUNT = "default"
