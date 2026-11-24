@@ -7,6 +7,9 @@ import type { Agent, Conversation, Idea, IdeaChange, IdeasData, IdeaTopic, Messa
 
 type StreamState = Record<number, string>;
 let streams: StreamState = {};
+// Whose conversation a stream belongs to: a stored message names only its conversation, and the
+// conversation of an agent whose chat is not open is not in the cache.
+const streamAgent: Record<number, number> = {};
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
@@ -19,6 +22,10 @@ const streamStore = {
     if (!(agentId in streams)) return;
     const { [agentId]: _, ...rest } = streams;
     streams = rest;
+    emit();
+  },
+  clearAll() {
+    streams = {};
     emit();
   },
   subscribe(listener: () => void) {
@@ -126,6 +133,7 @@ interface ServerEvent {
 }
 
 function upsertMessage(qc: QueryClient, agentId: number | undefined, conversationId: number, msg: Message) {
+  agentId = agentId ?? streamAgent[conversationId];
   const caches = qc.getQueriesData<Conversation>({ queryKey: ["conversation"] });
   for (const [key, conv] of caches) {
     if (!conv || conv.id !== conversationId) continue;
@@ -197,7 +205,10 @@ function handle(qc: QueryClient, pid: number, event: ServerEvent) {
       if (type === "run.upserted" && data.status !== "running" && data.status !== "queued") streamStore.clear(data.agent_id);
       break;
     case "message":
-      if (type === "message.delta") streamStore.append(data.agent_id, data.text);
+      if (type === "message.delta") {
+        streamAgent[data.conversation_id] = data.agent_id;
+        streamStore.append(data.agent_id, data.text);
+      }
       else upsertMessage(qc, undefined, data.conversation_id, data as Message);
       break;
     case "conversation":
@@ -259,7 +270,11 @@ export function useProjectEvents(pid: number | null) {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       socket = new WebSocket(`${proto}://${location.host}/api/projects/${pid}/ws`);
       socket.onopen = () => {
-        if (retry > 0) qc.invalidateQueries(); // resync everything after a reconnect
+        if (retry > 0) {
+          // Resync everything after a reconnect. A stream that missed events is incomplete or already stored.
+          streamStore.clearAll();
+          qc.invalidateQueries();
+        }
         retry = 0;
         ping = window.setInterval(() => socket?.readyState === WebSocket.OPEN && socket.send("ping"), 25_000);
       };
