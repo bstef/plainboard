@@ -421,7 +421,6 @@
   "chat": {
     "selectAgent": "Select agent",
     "toolTrimmed": "Details removed after {{days}} days.",
-    "loadOlder": "Load older messages",
     "working": "{{name}} is working…",
     "copying": "{{name}} is working… Copying attachments to the runner: {{done}} of {{total}}",
     "waiting": "{{name}} is waiting to start…",
