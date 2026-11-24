@@ -25,15 +25,15 @@ function useProjectLimits() {
 }
 
 /** Plan limits (5-hour, weekly) as one small ring per account, filled to the fullest window; click
- * for the windows, resets and forecast. Sits under every composer, so usage is always in view. */
+ * for the windows, resets and forecast. Sits under every composer, so usage is always in view. An API
+ * access (no plan limits) or a subscription not read yet gets an empty, dashed ring that says so. */
 export function LimitsRing() {
   const data = useProjectLimits();
   if (!data) return null;
-  const known = data.accounts.filter((a) => a.windows.length);
-  if (!known.length) return <Ring available={data.accounts.some((a) => a.available)} />;
+  if (!data.accounts.length) return <Ring available={false} />;
   return (
     <>
-      {known.map((account) => (
+      {data.accounts.map((account) => (
         <Ring key={account.account_id} account={account} />
       ))}
     </>
@@ -47,19 +47,30 @@ export function LimitsList() {
   const { t } = useTranslation();
   const data = useProjectLimits();
   if (!data) return null;
-  const known = data.accounts.filter((a) => a.windows.length);
-  if (!known.length) return <p className="px-2.5 py-2 text-fg-3">{t(data.accounts.some((a) => a.available) ? "chat.limits.unknown" : "chat.limits.noPlan")}</p>;
+  if (!data.accounts.length) return <p className="px-2.5 py-2 text-fg-3">{t("chat.limits.noPlan")}</p>;
   return (
     <>
-      {known.map((account) => (
+      {data.accounts.map((account) => (
         <LimitLine key={account.account_id} account={account} />
       ))}
     </>
   );
 }
 
+/** What stands in place of the values when there are none: an API access has no plan limits, a
+ * subscription's are not read yet. */
+const noValues = (t: TFunction, account: AccountLimits, short = false) =>
+  account.available ? t("chat.limits.pending") : t(short ? "chat.limits.api" : "chat.limits.apiLine");
+
 function LimitLine({ account }: { account: AccountLimits }) {
   const { t } = useTranslation();
+  if (!account.windows.length)
+    return (
+      <div className="grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-line px-2.5" title={t(account.available ? "chat.limits.unknown" : "chat.limits.apiExplain")}>
+        <span className="truncate font-medium">{account.label}</span>
+        <span className="text-fg-3">{noValues(t, account)}</span>
+      </div>
+    );
   const five = account.windows.find((w) => w.name.endsWith("five_hour"));
   const weeks = account.windows.filter((w) => w !== five);
   const week = weeks.length ? weeks.reduce((a, b) => (b.utilization > a.utilization ? b : a)) : undefined;
@@ -102,7 +113,8 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
   const highest = Math.max(0, ...windows.map((w) => w.utilization));
   const slowDown = forecasts.some((f) => f.status === "over");
   const ringTone = tone(highest) === "indigo" && slowDown ? "amber" : tone(highest);
-  const ringLabel = t("chat.limits.ring", { percent: percent(highest) });
+  const empty = !!account && !windows.length;
+  const ringLabel = empty ? noValues(t, account) : t("chat.limits.ring", { percent: percent(highest) });
   // The limits are read every 15 minutes. A value much older than that could not be read: say so
   // instead of showing it like a current one.
   const stale = !!account?.updated_at && Date.now() / 1000 - account.updated_at > STALE_AFTER;
@@ -115,10 +127,11 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
     <div ref={ref} className="relative shrink-0">
       <button type="button" onClick={() => setOpen(!open)} aria-label={label} aria-expanded={open} title={label} className="flex h-6 items-center gap-1.5 rounded-sm px-1 text-fg-3 hover:bg-sunk hover:text-fg touch:h-9">
         <svg viewBox="0 0 20 20" className={clsx("size-4 shrink-0 -rotate-90", stale && "opacity-40")} aria-hidden>
-          <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" className="text-line-2" />
-          <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" pathLength={100} strokeDasharray={`${Math.min(percent(highest), 100)} 100`} className={stroke[ringTone]} />
+          <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth={empty ? 2 : 3} strokeDasharray={empty ? "3 2.6" : undefined} className="text-line-2" />
+          {!empty && <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="3" pathLength={100} strokeDasharray={`${Math.min(percent(highest), 100)} 100`} className={stroke[ringTone]} />}
         </svg>
         {account && <span className="max-w-24 truncate">{account.label}</span>}
+        {empty && <span className="text-[0.6875rem] text-fg-3">{noValues(t, account, true)}</span>}
       </button>
       {open && (
         <div ref={popRef} style={inView} data-part="menu" className="absolute right-0 bottom-full z-20 mb-2 w-64 max-w-[calc(100vw-1rem)] space-y-3 rounded-sm bg-bg p-3 shadow-lg ring-1 ring-line-2">
@@ -126,7 +139,7 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
           {windows.map((window) => (
             <LimitRow key={window.name} window={window} forecast={forecasts.find((f) => f.name === window.name)} />
           ))}
-          {!windows.length && <p className="text-fg-3">{t(available ? "chat.limits.unknown" : "chat.limits.noPlan")}</p>}
+          {!windows.length && <p className="text-fg-3">{t(!account ? (available ? "chat.limits.unknown" : "chat.limits.noPlan") : account.available ? "chat.limits.unknown" : "chat.limits.apiExplain")}</p>}
           {account?.updated_at && <p className="text-fg-3">{t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at)) })}</p>}
         </div>
       )}

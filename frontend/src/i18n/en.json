@@ -479,7 +479,11 @@
       },
       "unknown": "No usage known yet. It appears after the next agent turn at the latest.",
       "noPlan": "You are signed in with an API key, which has no plan limits. Add a subscription under PlainBoard settings → Subscriptions to see them here.",
-      "fiveHourShort": "5h {{percent}}%"
+      "fiveHourShort": "5h {{percent}}%",
+      "api": "API",
+      "apiLine": "API · no limits known",
+      "apiExplain": "This is an API access: it is billed per use and has no plan limits PlainBoard could read, so there are no values to show.",
+      "pending": "not known yet"
     },
     "menu": "Conversation options",
     "compressNow": "Compress context now",
