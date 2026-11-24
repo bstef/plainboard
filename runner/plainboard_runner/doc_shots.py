@@ -18,12 +18,13 @@ import ipaddress
 import json
 import logging
 import shutil
+import socket
 import tempfile
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from plainboard_protocol import ToolCallResult, ToolImage
 from plainboard_protocol.netguard import NotPublic, check_url, public_ip, resolve
@@ -196,13 +197,35 @@ async def _attach(bridge: ToolBridge, task_number: int, shots: list[tuple[str, s
     return f"Attached to #{task_number}: {', '.join(done)}."
 
 
+async def browser_base(url: str) -> str:
+    """The app's address as the browser can open it: a plain-http address by name goes by its IP address. Chromium
+    forces names on its HSTS preload list to https, among them the TLD "app" (the app's service name in Docker
+    Compose: http://app:8080 failed with ERR_SSL_PROTOCOL_ERROR), and the app answers plain http there."""
+    parts = urlsplit(url)
+    host = parts.hostname
+    if parts.scheme != "http" or not host or host == "localhost":
+        return url
+    with contextlib.suppress(ValueError):
+        ipaddress.ip_address(host)
+        return url
+    try:
+        found = await asyncio.to_thread(socket.getaddrinfo, host, parts.port or 80, type=socket.SOCK_STREAM)
+    except OSError:
+        return url
+    if not found:
+        return url
+    ip = str(min(found, key=lambda f: f[0] != socket.AF_INET)[4][0])  # IPv4 first
+    netloc = (f"[{ip}]" if ":" in ip else ip) + (f":{parts.port}" if parts.port else "")
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
 @local_tool("preview_doc_site")
 async def _preview_doc_site(bridge: ToolBridge, args: dict[str, Any]) -> ToolCallResult:
     plan = await bridge.remote("preview_doc_site", args)
     if plan.is_error:
         return plan
     order = json.loads(plan.text)
-    base = bridge.spec.base_url.rstrip("/")
+    base = (await browser_base(bridge.spec.base_url)).rstrip("/")
     shots: list[tuple[str, str]] = []  # (file name, base64 JPEG)
     lines: list[str] = []
     try:
