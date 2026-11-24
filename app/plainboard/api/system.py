@@ -15,7 +15,7 @@ from .. import db_move
 from ..config import get_config
 from ..models import TaskStatus, utcnow
 from ..orchestration.prompts import PINNED_BUDGET_CHARS
-from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SearchModelIn, RetentionPreviewOut, SearchStatusOut, SettingsOut, SettingsUpdate, UsageOut
+from ..schemas import AccessKeyOut, CheckOut, LimitsOut, PauseOut, PublicApiKeyIn, SearchModelIn, RetentionPreviewOut, SearchStatusOut, SettingsOut, SettingsUpdate, TokenUsageOut, UsageOut
 from ..services import access_keys as access_key_service
 from ..services import accounts as account_service
 from ..services import db_read as db_read_service
@@ -25,6 +25,8 @@ from ..services import retention as retention_service
 from ..services import runners as runner_service
 from ..services import search as search_service
 from ..services import settings as settings_service
+from ..services import stats as stats_service
+from ..services import users as user_service
 from ..services import usage as usage_service
 from ..services import version as version_service
 from ..services.errors import ServiceError
@@ -175,6 +177,13 @@ async def limits(session: Session, runs: Runs, who: Who) -> LimitsOut:
 async def usage(session: Session, runs: Runs) -> UsageOut:
     """Disk and memory, in total, per project and agent; folder sizes as last measured."""
     return await usage_service.overview(session, runs)
+
+
+@router.get("/usage/tokens", response_model=TokenUsageOut)
+async def token_usage(session: Session, who: Who, days: int = Query(default=30, ge=1, le=90)) -> TokenUsageOut:
+    """Tokens and cost per project and day, to compare the projects: an admin's all, everyone else's those they see."""
+    ids = None if who.user is None or who.user.is_admin else set(await user_service.roles(session, who.user))
+    return await stats_service.tokens(session, ids, days)
 
 
 @router.post("/usage/measure", response_model=UsageOut)
