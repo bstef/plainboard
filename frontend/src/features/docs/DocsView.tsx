@@ -588,7 +588,7 @@ function RulesTab({ site }: { site: DocSite }) {
         </header>
         {editing ? (
           <div className="space-y-3">
-            <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={20} className="font-mono [field-sizing:content] min-h-80" placeholder={t("docs.rules.placeholder")} aria-label={t("docs.rules.title")} />
+            <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={20} className="font-mono min-h-80 max-h-none" placeholder={t("docs.rules.placeholder")} aria-label={t("docs.rules.title")} />
             <p className="text-fg-3">{t("docs.rules.length", { count: text.length, max: 20000 })}</p>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="primary" loading={busy} onClick={save} disabled={text === site.spec}>
