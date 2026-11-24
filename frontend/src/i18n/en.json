@@ -2359,8 +2359,40 @@
       "revoke": "Revoke key",
       "confirmRevoke": "Revoke the key \"{{name}}\"? Whatever uses it can no longer read the site.",
       "endpoints": "Endpoints",
-      "endpointsHint": "Send the key as Authorization: Bearer <key>. Answers are JSON; a page comes as Markdown with its files (download addresses) and links; the export streams a whole version as JSON lines or as a zip of Markdown files with the files.",
-      "params": "Parameters: version (a version's slug, only with versions; default: the site's default version), lang (one of the site's languages; untranslated pages come in the original with fallback: true), since (ISO time: only pages changed since then). The page list goes on with next_cursor. 300 requests a minute per key."
+      "endpointsHint": "Read-only GET requests below the base address. Answers are JSON.",
+      "base": "Base address",
+      "endpoint": {
+        "site": "The site: name, languages, versions and pages.",
+        "pages": "The page list, without content; it goes on with next_cursor.",
+        "page": "One page as Markdown, with its files (download addresses) and links.",
+        "pageByPath": "One page by its path, as above.",
+        "footer": "The footer pages, such as the imprint.",
+        "file": "One file, for download.",
+        "exportJsonl": "The whole version, streamed as JSON lines.",
+        "exportZip": "The whole version as a zip of Markdown files with the files."
+      },
+      "params": "Parameters",
+      "paramsHint": "300 requests a minute per key.",
+      "param": {
+        "version": {
+          "name": "version",
+          "text": "A version's slug, only with versions; default: the site's default version."
+        },
+        "lang": {
+          "name": "lang",
+          "text": "One of the site's languages; untranslated pages come in the original with fallback: true."
+        },
+        "since": {
+          "name": "since",
+          "text": "ISO time: only pages changed since then."
+        },
+        "cursor": {
+          "name": "cursor, limit",
+          "text": "Paging of the page list; the next page starts at next_cursor."
+        }
+      },
+      "example": "Example",
+      "exampleHint": "Send the key as Authorization: Bearer <key>. This one downloads the default version as a zip."
     },
     "custom": {
       "section": "Footer pages",

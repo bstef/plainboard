@@ -4,12 +4,25 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import type { DocApiKey, DocSite } from "../../api/types";
+import { CodeBlock, CopyButton } from "../../components/Markdown";
 import { Button, ErrorText, Field, IconButton, Input, Select } from "../../components/ui";
 import { formatDateTime, timeAgo } from "../../lib/format";
 import { base } from "./queries";
 
 const EXPIRY = [0, 30, 90, 365];
-const ENDPOINTS = ["", "/pages?cursor=0&limit=500", "/pages/{id}", "/page?path=…", "/footer", "/files/{id}", "/export?format=jsonl", "/export?format=zip&since=…"];
+/** The API's endpoints below the site's base address, each with the i18n key of its description. */
+const ENDPOINTS: [string, string][] = [
+  ["", "site"],
+  ["/pages?cursor=0&limit=500", "pages"],
+  ["/pages/{id}", "page"],
+  ["/page?path=…", "pageByPath"],
+  ["/footer", "footer"],
+  ["/files/{id}", "file"],
+  ["/export?format=jsonl", "exportJsonl"],
+  ["/export?format=zip&since=…", "exportZip"],
+];
+const PARAMS = ["version", "lang", "since", "cursor"];
+const LIST = "divide-y divide-line rounded-sm ring-1 ring-line ring-inset";
 
 /** A doc site's read-only API (#131): its keys (shown once, with an optional expiry) and what the API offers. */
 export function DocApi({ pid, site }: { pid: number; site: DocSite }) {
@@ -25,6 +38,7 @@ export function DocApi({ pid, site }: { pid: number; site: DocSite }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const url = `${window.location.origin}/api/v1/docs/${site.slug}`;
+  const curl = `curl -H "Authorization: Bearer pbd_…" \\\n  "${url}/export?format=zip" -o ${site.slug}.zip`;
 
   const change = async (action: () => Promise<void>) => {
     setError(null);
@@ -57,7 +71,7 @@ export function DocApi({ pid, site }: { pid: number; site: DocSite }) {
     <div className="space-y-5">
       <Field label={t("docs.api.keys")} hint={t("docs.api.keysHint")} group>
         {(keys.data?.length ?? 0) > 0 && (
-          <ul data-part="doc-api-keys" className="divide-y divide-line rounded-sm ring-1 ring-line ring-inset">
+          <ul data-part="doc-api-keys" className={LIST}>
             {keys.data!.map((key) => (
               <li key={key.id} className="flex items-center gap-2 px-3 py-2">
                 <KeyRound className="size-3.5 shrink-0 text-fg-3" />
@@ -112,16 +126,42 @@ export function DocApi({ pid, site }: { pid: number; site: DocSite }) {
         <ErrorText error={error} />
       </Field>
       <Field label={t("docs.api.endpoints")} hint={t("docs.api.endpointsHint")} group>
-        <ul className="space-y-1 font-mono text-[13px]">
-          {ENDPOINTS.map((e) => (
-            <li key={e} className="truncate">
-              <span className="text-fg-3">GET</span> {url}
-              {e}
+        <div data-part="doc-api-base" className="flex items-center gap-2 rounded-sm bg-sunk py-1 pr-1 pl-3">
+          <span className="shrink-0 text-fg-3">{t("docs.api.base")}</span>
+          <code className="min-w-0 flex-1 truncate font-mono" title={url}>
+            {url}
+          </code>
+          <CopyButton text={url} />
+        </div>
+        <ul data-part="doc-api-endpoints" className={LIST}>
+          {ENDPOINTS.map(([path, key]) => (
+            <li key={key} className="flex items-start gap-2 py-1.5 pr-1 pl-3">
+              <span className="mt-0.5 shrink-0 rounded-sm px-1 font-mono text-[11px] leading-4 font-semibold text-fg-3 ring-1 ring-line-2 ring-inset">GET</span>
+              <div className="min-w-0 flex-1">
+                <code className="block font-mono break-words text-fg">{path || "/"}</code>
+                <div className="text-fg-3">{t(`docs.api.endpoint.${key}`)}</div>
+              </div>
+              <CopyButton text={url + path} />
             </li>
           ))}
         </ul>
-        <p className="text-fg-3">{t("docs.api.params")}</p>
-        <pre className="overflow-auto rounded-sm whitespace-pre-wrap break-all bg-sunk p-3 font-mono text-[13px]">{`curl -H "Authorization: Bearer pbd_…" \\\n  "${url}/export?format=zip" -o ${site.slug}.zip`}</pre>
+      </Field>
+      <Field label={t("docs.api.params")} hint={t("docs.api.paramsHint")} group>
+        <dl data-part="doc-api-params" className={LIST}>
+          {PARAMS.map((p) => (
+            <div key={p} className="grid gap-x-3 px-3 py-1.5 sm:grid-cols-[7rem_1fr]">
+              <dt className="font-mono text-fg">{t(`docs.api.param.${p}.name`)}</dt>
+              <dd className="text-fg-3">{t(`docs.api.param.${p}.text`)}</dd>
+            </div>
+          ))}
+        </dl>
+      </Field>
+      <Field label={t("docs.api.example")} hint={t("docs.api.exampleHint")} group>
+        <div className="prose-chat">
+          <CodeBlock alwaysCopy text={curl}>
+            <code>{curl}</code>
+          </CodeBlock>
+        </div>
       </Field>
     </div>
   );
