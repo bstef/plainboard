@@ -599,7 +599,7 @@ def test_a_site_of_thousands_of_pages_is_served_and_listed_piece_by_piece(client
     assert '/s3/p7 "Page p7"' in found
 
 
-def test_a_site_makes_at_most_ten_vector_searches_a_minute_then_searches_by_words(client, project, monkeypatch):
+def test_a_site_makes_at_most_its_limit_of_vector_searches_a_minute_then_searches_by_words(client, project, monkeypatch):
     from plainboard.services import docs_public as public
     from plainboard.services import search as search_service
     from plainboard.services.search import store
@@ -629,16 +629,16 @@ def test_a_site_makes_at_most_ten_vector_searches_a_minute_then_searches_by_word
     pid = project["id"]
     s = site(client, pid, published=True, public=True)
     page(client, pid, s["id"], title="Webhooks", body="Stripe retries webhooks.")
-    for _ in range(10):
+    for _ in range(public.VECTOR_SEARCHES_PER_MINUTE):
         resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
         assert "x-search-words-only" not in resp.headers and resp.json()[0]["title"] == "Webhooks"
     resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
     assert resp.headers["x-search-words-only"] == "1" and resp.json()[0]["title"] == "Webhooks"  # words still find it
-    assert len(queries) == 10
+    assert len(queries) == public.VECTOR_SEARCHES_PER_MINUTE
     for key, seen in public.VECTOR_SEARCHES._seen.items():  # a minute later the budget is back
         public.VECTOR_SEARCHES._seen[key] = type(seen)(t - 61 for t in seen)
     resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
-    assert "x-search-words-only" not in resp.headers and len(queries) == 11
+    assert "x-search-words-only" not in resp.headers and len(queries) == public.VECTOR_SEARCHES_PER_MINUTE + 1
 
 
 def test_the_doc_agent_searches_its_own_site_by_meaning_and_words_outside_the_visitors_budget(client, project, monkeypatch):
