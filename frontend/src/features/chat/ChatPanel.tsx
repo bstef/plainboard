@@ -179,6 +179,7 @@ export function ChatPanel({
   // On the full page, keep a comfortable reading width.
   const membersOff = !!agent && !agent.is_manager && !!settings.data && !settings.data.values.member_chat;
   const column = variant === "page" ? "mx-auto w-full max-w-3xl" : "";
+  const contextText = `${formatTokens(conversation.data?.context_tokens ?? agent.context_tokens)} / ${formatTokens(agent.context_limit_tokens)}`;
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
   const onDragOver = (e: DragEvent) => {
     if (hasFiles(e)) e.preventDefault();
@@ -198,11 +199,10 @@ export function ChatPanel({
             onChange={(e) => onSelectAgent(Number(e.target.value))}
             aria-label={t("chat.selectAgent")}
             trigger={
-              <span className="flex h-8 items-center gap-2" title={`${agent.role} · ${agent.model}`}>
+              <span className="flex h-8 min-w-0 items-center gap-2" title={`${agent.role} · ${agent.model}`}>
                 <AgentSquare agent={agent} />
                 <span className="truncate font-extrabold">{agent.name}</span>
                 <ChevronDown className="size-3.5 shrink-0 text-fg-3" />
-                <span className="min-w-0 flex-1 truncate text-fg-3">{agent.role}</span>
               </span>
             }
           >
@@ -214,15 +214,7 @@ export function ChatPanel({
           </Select>
         </div>
         {details && <ContextGauge used={conversation.data?.context_tokens ?? agent.context_tokens} limit={agent.context_limit_tokens} base={agent.base_context_tokens} />}
-        <IconButton label={details ? t("chat.hideDetails") : t("chat.showDetails")} onClick={() => setDetails(!details)} className={clsx(details && "bg-sunk text-fg")}>
-          {details ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-        </IconButton>
-        <ChatMenu
-          agentId={agentId}
-          cost={agent.total_cost_usd}
-          context={`${formatTokens(conversation.data?.context_tokens ?? agent.context_tokens)} / ${formatTokens(agent.context_limit_tokens)}`}
-          disabled={!!running || !canWrite}
-        />
+        <ChatMenu agentId={agentId} cost={agent.total_cost_usd} context={contextText} disabled={!!running || !canWrite} details={details} onDetails={setDetails} />
         {onExpand && (
           <IconButton label={t("chat.expand")} onClick={onExpand}>
             <Maximize2 className="size-4" />
@@ -350,7 +342,22 @@ function ContextGauge({ used, limit, base }: { used: number; limit: number; base
   );
 }
 
-function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost: number; context: string; disabled: boolean }) {
+/** What one rarely needs for a conversation: details on/off, compress, fresh session, context and cost. */
+function ChatMenu({
+  agentId,
+  cost,
+  context,
+  disabled,
+  details,
+  onDetails,
+}: {
+  agentId: number;
+  cost: number;
+  context: string;
+  disabled: boolean;
+  details: boolean;
+  onDetails: (on: boolean) => void;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -377,11 +384,25 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
 
   return (
     <div ref={ref} className="relative">
-      <IconButton label={t("chat.menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <IconButton label={t("chat.menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} className={clsx(open && "bg-sunk text-fg")}>
         <MoreHorizontal className="size-4" />
       </IconButton>
       {open && (
         <div ref={menuRef} style={inView} data-part="menu" className="absolute top-full right-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={details}
+            onClick={() => onDetails(!details)}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left font-semibold hover:bg-sunk touch:py-2.5"
+          >
+            {details ? <Eye className="size-4 shrink-0" /> : <EyeOff className="size-4 shrink-0 text-fg-3" />}
+            <span className="flex-1">{t("chat.details")}</span>
+            <span className={clsx("relative h-5 w-9 shrink-0 rounded-sm ring-1 ring-inset", details ? "bg-fg ring-fg" : "ring-line-2")}>
+              <span className={clsx("absolute top-1 size-3 rounded-[1px]", details ? "left-5 bg-bg" : "left-1 bg-fg-3")} />
+            </span>
+          </button>
+          <div className="my-1 border-t border-line" />
           <MenuItem label={t("chat.compressNow")} hint={t("chat.compressHint")} busy={busy === "compress"} disabled={disabled} onClick={() => action("compress")} />
           <MenuItem label={t("chat.resetSession")} hint={t("chat.resetHint")} busy={busy === "reset-session"} disabled={disabled} onClick={() => action("reset-session")} />
           <div className="border-t border-line px-2 py-1.5 text-fg-3">{t("chat.context", { context })} · {t("chat.totalCost", { cost: formatCost(cost) })}</div>
