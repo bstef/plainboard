@@ -166,6 +166,10 @@ export function ChatPanel({
     const el = scroller.current;
     if (!el) return;
     stickToBottom.current = -el.scrollTop < 80;
+    // Back at the bottom, what was loaded far above is let go again: it comes back the same way.
+    const conv = conversation.data;
+    if (stickToBottom.current && conv && conv.messages.length > 400 && !fetchingOlder.current)
+      qc.setQueryData<Conversation>(qk.conversation(agentId), { ...conv, messages: conv.messages.slice(-100), has_more: true });
     fromTop.current = el.scrollHeight - el.clientHeight + el.scrollTop;
     loadOlder();
   };
