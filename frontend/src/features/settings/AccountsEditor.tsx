@@ -1,13 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { checks, qk, useAccounts, useDirectory, useLimits, useMe, useMeta, useProjects, useSettings } from "../../api/queries";
 import type { Account, CheckResult } from "../../api/types";
 import { Button, ErrorText, IconButton, Input, Toggle } from "../../components/ui";
 import { smallModel } from "../../lib/models";
+import { doneCount, StatusMark, useAccountStatus, type StatusItem } from "./AccountStatus";
 import { CheckBadge } from "./SettingsDialog";
 import { SignIn } from "./SignIn";
 
@@ -80,6 +81,8 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
   const [check, setCheck] = useState<CheckResult | null>(null);
   useEffect(() => setLabel(account.label), [account.label]);
   useEffect(() => setSize(account.plan_size?.toString() ?? ""), [account.plan_size]);
+  const status = useAccountStatus(account);
+
 
   const patch = (body: Record<string, unknown>) => onChange(() => api.patch(`/accounts/${account.id}`, body));
   const secretLabel = SECRET_LABELS[`${account.provider}:${account.auth_mode}`];
@@ -97,24 +100,26 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
     }
   };
 
-  return (
-    <div className={clsx("space-y-3 rounded-sm p-3 ring-1 ring-line", !account.enabled && "opacity-60")}>
-      <div className="flex items-center gap-2">
-        <Input
-          aria-label={t("accounts.label")}
-          className="min-w-0 flex-1 font-medium"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          onBlur={() => label.trim() && label !== account.label && patch({ label })}
-        />
-        <Toggle checked={account.enabled} onChange={(enabled) => patch({ enabled })} label={<span>{t("accounts.enabled")}</span>} />
-        <IconButton label={t("accounts.delete")} onClick={remove}>
-          <Trash2 className="size-3.5" />
-        </IconButton>
-      </div>
-      {account.owner_id != null && account.owner_id !== me?.id && <p className="text-fg-3">{t("accounts.ownedBy", { name: account.owner_name })}</p>}
-      {account.owner_id != null && <Sharing account={account} patch={patch} />}
-      {account.owner_id != null && account.owner_id === me?.id && <GiveToProjects account={account} onChange={onChange} />}
+  const head = (
+    <div className="flex items-center gap-2">
+      <Input
+        aria-label={t("accounts.label")}
+        className="min-w-0 flex-1 font-medium"
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        onBlur={() => label.trim() && label !== account.label && patch({ label })}
+      />
+      <Toggle checked={account.enabled} onChange={(enabled) => patch({ enabled })} label={<span>{t("accounts.enabled")}</span>} />
+      <IconButton label={t("accounts.delete")} onClick={remove}>
+        <Trash2 className="size-3.5" />
+      </IconButton>
+    </div>
+  );
+  const ownedBy = account.owner_id != null && account.owner_id !== me?.id && <p className="text-fg-3">{t("accounts.ownedBy", { name: account.owner_name })}</p>;
+  const sharing = account.owner_id != null && <Sharing account={account} patch={patch} />;
+  const give = account.owner_id != null && account.owner_id === me?.id && <GiveToProjects account={account} onChange={onChange} />;
+  const signIn = (
+    <div className="space-y-3" data-part="account-signin">
       <div className={clsx("grid gap-2", modes.length === 3 ? "sm:grid-cols-3" : modes.length === 2 ? "grid-cols-2" : "grid-cols-1")}>
         {modes.map((mode) => (
           <button
@@ -186,6 +191,57 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
         <CheckBadge result={check} />
       </div>
     </div>
+  );
+  return (
+    <div className={clsx("space-y-3 rounded-sm p-3 ring-1 ring-line", !account.enabled && "opacity-60")}>
+      {head}
+      {ownedBy}
+      <p className="text-fg-3">{t("accountStatus.progress", doneCount(status))}</p>
+      <ol data-part="account-steps">
+        <Step n={1} item={status[0]} title={t("accountStatus.step.login")}>
+          {signIn}
+        </Step>
+        <Step n={2} item={status[1]} title={t("accountStatus.step.share")}>
+          {sharing || <p className="text-fg-3">{t("accountStatus.share.installationHint")}</p>}
+        </Step>
+        <Step n={3} item={status[2]} title={t("accountStatus.step.projects")}>
+          {give}
+          <p className="text-fg-3">{t(account.owner_id == null ? "accountStatus.projects.installationHint" : "accountStatus.projects.ownHint")}</p>
+        </Step>
+        <Step n={4} item={status[3]} title={status[3].label ?? t("accountStatus.step.limits")} last>
+          <p className="text-fg-3">{t(account.auth_mode === "api_key" ? "accountStatus.use.hint" : "accountStatus.limits.hint")}</p>
+        </Step>
+      </ol>
+    </div>
+  );
+}
+
+/** One numbered step of setting a subscription up, checked once it is in order (#140). */
+export function Step({ n, item, title, last, children }: { n: number; item: StatusItem; title: string; last?: boolean; children: ReactNode }) {
+  return (
+    <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3" data-step={item.key}>
+      <div className="flex flex-col items-center">
+        <span
+          className={clsx(
+            "flex size-6 flex-none items-center justify-center rounded-full font-medium ring-1",
+            item.tone === "done" ? "text-ok ring-ok" : item.tone === "todo" ? "bg-you-bg text-you-fg ring-you" : "text-fg-3 ring-line-2",
+          )}
+        >
+          {item.tone === "done" ? <Check className="size-3.5" /> : n}
+        </span>
+        {!last && <span className="my-1 w-px flex-1 bg-line" />}
+      </div>
+      <div className={clsx("min-w-0 space-y-2", !last && "pb-5")}>
+        <div className="flex min-h-6 flex-wrap items-center gap-x-2">
+          <span className="font-semibold">{title}</span>
+          <span className={clsx("flex min-w-0 items-center gap-1.5", item.tone === "todo" ? "text-you-fg" : "text-fg-3")}>
+            <StatusMark tone={item.tone} />
+            <span className="min-w-0">{item.text}</span>
+          </span>
+        </div>
+        {children}
+      </div>
+    </li>
   );
 }
 
