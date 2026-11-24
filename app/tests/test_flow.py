@@ -151,6 +151,8 @@ def test_an_assignment_turn_ended_for_a_question_stays_open_and_goes_on_after_th
     assert triggers == ["assignment", by, "wake"]  # the answer first, then the assignment goes on
     going_on = next(s.prompt for s in runner(client).specs if "Go on with assignment #1" in s.prompt)
     assert "to answer in between, and it is still open" in going_on
+    wait_for(lambda: any('Assignment #1 "Fix it"' in s.prompt for s in runner(client).specs))
+    wait_for(lambda: idle(client, pid))
     reports = [s.prompt for s in runner(client).specs if 'Assignment #1 "Fix it"' in s.prompt]
     assert len(reports) == 1 and "done after" in reports[0] and "first the question" not in reports[0]
 
