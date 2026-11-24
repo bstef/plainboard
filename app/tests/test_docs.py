@@ -520,6 +520,60 @@ def test_an_llm_translates_on_the_projects_subscription(client, project, monkeyp
     assert list(runs) == [s["agent"]["id"]] * 2  # title and text, each counted, on the doc agent
 
 
+def test_an_llm_translation_must_keep_the_markdown_skeleton(client, project, monkeypatch):
+    """#155: a paragraph that comes back as a heading is asked again; twice wrong fails and the original is shown."""
+    from plainboard_protocol import CompletionResult
+
+    from plainboard.models import DocTranslation, Project, utcnow
+    from plainboard.services import docs_translate as t
+    from sqlalchemy import select, update
+
+    body = "Vanillite generates new worlds.\n\n## Seeds\n\n- one\n- two\n\n![map](doc-file:3#dark) [more](doc-page:4)\n\n```\nx\n```"
+    assert t.differs(body, body.replace("Vanillite generates", "Vanillite erzeugt")) is None
+    assert t.differs(body, "# " + body) == "block 1 is h1 instead of text"
+    assert t.differs(body, body.replace("## Seeds", "### Seeds")) is not None
+    assert t.differs(body, body.replace("#dark", "")) is not None and t.differs(body, body.replace("[more](doc-page:4)", "more")) is not None
+
+    pid = project["id"]
+    monkeypatch.setattr(client.app_ref.state.docs_watcher, "translate_soon", lambda: None)  # the test looks itself
+    s = site(client, pid, published=True, public=True, languages=["de"])
+    client.patch(f"/api/projects/{pid}/docs/sites/{s['id']}", json={"translator": "llm"})
+    p = page(client, pid, s["id"], title="World", body="Worlds are generated.\n\n## Seeds\n\nA seed.")
+    answers = ["Welt", "# Welten werden erzeugt.\n\n## Seeds\n\nEin Seed.", "Welten werden erzeugt.\n\n## Seeds\n\nEin Seed."]
+    fake = runner(client)
+
+    async def complete(spec):
+        return CompletionResult(text=answers.pop(0), input_tokens=10, output_tokens=5, cost_usd=0.001)
+
+    fake.complete = complete
+
+    async def look(session):
+        return await client.app_ref.state.docs_watcher.translate(session, await session.get(Project, pid), utcnow())
+
+    assert db(client, look) == 1 and not answers  # asked again after the heading
+    assert client.get("/api/public/docs/handbook/page", params={"path": "", "lang": "de"}).json()["markdown"].startswith("Welten werden erzeugt.")
+
+    client.patch(f"/api/projects/{pid}/docs/pages/{p['id']}", json={"body": "Worlds are new.", "reason": "shorter"})
+    answers += ["Welt", "# Welten sind neu.", "# Welten sind neu."]
+    assert db(client, look) == 0 and not answers
+    assert client.get(f"/api/projects/{pid}/docs/pages/{p['id']}/translations").json()[0]["state"] == "failed"
+
+    # One made before the check, current but with a heading of a paragraph: hidden and made again, nothing deleted.
+    async def broken(session):
+        from plainboard.models import DocPage
+
+        page_ = await session.get(DocPage, p["id"])
+        await session.execute(update(DocTranslation).where(DocTranslation.page_id == p["id"]).values(body="# Welten sind neu.", source_hash=page_.source_hash, error="", translated_at=utcnow(), translated_by="llm default"))
+        await session.commit()
+
+    db(client, broken)
+    client.app_ref.state.docs_watcher._rechecked.clear()  # as after a restart
+    answers += ["Welt", "Welten sind neu."]
+    assert db(client, look) == 1 and not answers
+    got = db(client, lambda session: session.scalar(select(DocTranslation).where(DocTranslation.page_id == p["id"])))
+    assert got.body == "Welten sind neu." and t.state(type("P", (), {"source_hash": got.source_hash})(), got) == "current"
+
+
 def test_a_site_of_thousands_of_pages_is_served_and_listed_piece_by_piece(client, project):
     """3 000 pages: 30 sections of 50 pages, one chain 40 deep, the rest at the top. Nothing reads them all."""
     import time

@@ -9,7 +9,9 @@ outdated, still shown until the new one is there, and made again by the docs wat
 by hand stays until its page changes again.
 
 Markdown keeps its shape: code blocks are never sent, and for the APIs every piece of syntax (line markers, inline
-code, link targets, table bars, line breaks) travels as a tag the service leaves alone.
+code, link targets, table bars, line breaks) travels as a tag the service leaves alone. An LLM's answer must have the
+Markdown skeleton of what it was given (``skeleton``: blocks, heading levels, code blocks, links, images); it is asked
+once more, then the translation fails (#155).
 """
 
 from __future__ import annotations
@@ -118,6 +120,24 @@ async def pending(session: AsyncSession, site: DocSite, now: datetime, limit: in
         )
         out += [(p, lang) for p in await session.scalars(q)]
     return out
+
+
+async def recheck(session: AsyncSession, site: DocSite) -> int:
+    """Current translations by an LLM whose Markdown skeleton differs from their page's (made before #155) are made
+    again: outdated and not shown, the page in its own language meanwhile. Nothing is deleted. Returns how many."""
+    rows = await session.execute(
+        select(DocTranslation, DocPage.body)
+        .join(DocPage, DocPage.id == DocTranslation.page_id)
+        .where(DocTranslation.site_id == site.id, DocTranslation.translated_by.like("llm%"), DocTranslation.source_hash == DocPage.source_hash)
+    )
+    found = 0
+    for t, body in rows:
+        if differs(body, t.body) is not None:
+            t.source_hash, t.translated_at, found = "", None, found + 1
+    if found:
+        log.info("%d translations of doc site %s changed the Markdown structure: made again", found, site.id)
+        await session.commit()
+    return found
 
 
 # --- Markdown in pieces ---------------------------------------------------------------------------------------
@@ -231,10 +251,73 @@ async def by_api(site: DocSite, title: str, body: str, lang: str, client: httpx.
     return out[0].strip(), join([(go, out[i + 1]) for i, (go, _) in enumerate(pieces[1:])])
 
 
+# --- the skeleton a translation keeps ---------------------------------------------------------------------------
+
+_HEADING = re.compile(r"^(#{1,6})[ \t]+\S")
+_LIST = re.compile(r"^(?:[-*+]|\d+[.)])[ \t]+")
+_RULE = re.compile(r"^(?:-[ \t]*){3,}$|^(?:\*[ \t]*){3,}$|^(?:_[ \t]*){3,}$")
+_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*([^)\s]*)")
+_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(\s*[^)\s]*")
+
+
+def skeleton(markdown: str) -> dict:
+    """What a translation keeps of a page: the order of its blocks (each heading with its level; runs of paragraph
+    lines, list items, table rows, quotes or HTML as one block each), its code blocks, how many links and which
+    images. Indented lines belong to the block above them."""
+    kinds: list[str] = []
+    code = links = 0
+    images: list[str] = []
+    for go, text in blocks(markdown):
+        if not go:
+            if text:
+                kinds.append("code")
+                code += 1
+            continue
+        for line in text.split("\n"):
+            links += len(_LINK.findall(line))
+            images += _IMAGE.findall(line)
+            if not line.strip() or (line[:1] in " \t" and kinds):
+                continue
+            line = line.strip()
+            if m := _HEADING.match(line):
+                kind = f"h{len(m.group(1))}"
+            elif _RULE.match(line):
+                kind = "rule"
+            elif _LIST.match(line):
+                kind = "list"
+            elif line.startswith("|"):
+                kind = "table"
+            elif line.startswith(">"):
+                kind = "quote"
+            elif line.startswith("<"):
+                kind = "html"
+            else:
+                kind = "text"
+            if not (kinds and kinds[-1] == kind and kind in ("text", "list", "table", "quote", "html")):
+                kinds.append(kind)
+    return {"blocks": kinds, "code blocks": code, "links": links, "images": sorted(images)}
+
+
+def differs(original: str, translation: str) -> str | None:
+    """None when the translation has the original's skeleton, else what is different, in short."""
+    a, b = skeleton(original), skeleton(translation)
+    for key in a:
+        if a[key] != b[key]:
+            if key == "blocks":
+                at = next((i for i, (x, y) in enumerate(zip(a[key], b[key])) if x != y), min(len(a[key]), len(b[key])))
+                return f"block {at + 1} is {b[key][at] if at < len(b[key]) else 'missing'} instead of {a[key][at] if at < len(a[key]) else 'nothing'}"
+            return f"{key}: {b[key]} instead of {a[key]}"
+    return None
+
+
 LLM_SYSTEM = (
-    "You translate software documentation. Translate the Markdown you are given from {source} into {target}. Keep its Markdown "
-    "structure exactly: headings, lists, tables, emphasis, code blocks and inline code unchanged, URLs and references like "
-    "doc-file:12 or doc-page:3 unchanged, product names and identifiers untranslated. Answer with the translation only."
+    "You translate software documentation. Translate the Markdown you are given from {source} into {target}. Translate "
+    "the text only and keep the Markdown structure exactly, element by element: every heading stays a heading of the same "
+    "level (# stays #, ## stays ##), every paragraph stays a paragraph (never turn it into a heading), lists, tables and "
+    "block quotes stay as they are, blank lines stay where they are. Code blocks and inline code stay unchanged, not "
+    "translated. Link and image targets stay unchanged, including references like doc-file:12 or doc-page:3 and suffixes "
+    "like #light or #dark; HTML tags stay unchanged. Product names and identifiers stay untranslated. Add nothing, leave "
+    "nothing out. Answer with the translation only."
 )
 
 
@@ -251,10 +334,23 @@ def _llm_chunks(body: str) -> list[str]:
 
 
 async def by_llm(site: DocSite, title: str, body: str, lang: str, llm: Llm) -> tuple[str, str]:
+    """Each chunk whose answer has another Markdown skeleton than the chunk is asked once more; then it fails."""
     system = LLM_SYSTEM.format(source=site.language, target=lang)
     head = await llm(system, f"Translate this title (one line, nothing else):\n{title}")
-    parts = [await llm(system, chunk) if chunk.strip() else chunk for chunk in _llm_chunks(body)]
-    return head.strip().split("\n", 1)[0][:200] or title, "\n".join(p.strip("\n") for p in parts)
+    parts = []
+    for chunk in _llm_chunks(body):
+        if not chunk.strip():
+            parts.append(chunk)
+            continue
+        for attempt in range(2):
+            answer = (await llm(system, chunk)).strip("\n")
+            if (problem := differs(chunk, answer)) is None:
+                break
+            log.info("Translation into %s changed the Markdown structure (attempt %d): %s", lang, attempt + 1, problem)
+        else:
+            raise ServiceError(f"The translation changed the Markdown structure: {problem}")
+        parts.append(answer)
+    return head.strip().split("\n", 1)[0][:200] or title, "\n".join(parts)
 
 
 async def translate(site: DocSite, page: DocPage, lang: str, llm: Llm | None) -> tuple[str, str, str]:
