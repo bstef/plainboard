@@ -293,6 +293,10 @@ function DocAgent({ pid, site }: { pid: number; site: DocSite }) {
         </Field>
       </FieldRow>
       <SaveRow dirty={dirty} onSave={() => patch({ agent_provider: provider, agent_model: model, agent_effort: effort })} />
+      <div className="space-y-1">
+        <Toggle checked={site.restructure_check} onChange={(v) => void patch({ restructure_check: v })} label={t("docs.settings.restructure")} />
+        <p className="text-fg-3">{t("docs.settings.restructureHint")}</p>
+      </div>
     </div>
   );
 }

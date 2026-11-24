@@ -659,6 +659,30 @@ class DocSite(Timestamps, Base):
     # Versions (#126, services/docs_releases.py): off, the site always shows its current state (the working version,
     # no version in its addresses); on with the first cut. Off again, its versions stay but are not served.
     versioned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Its doc agent checks now and then, once the site grew, whether a larger restructuring would help, and proposes
+    # it to the user (#156, services/docs_proposals.py); off: never. When it last checked and how many pages it had then.
+    restructure_check: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    structure_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    structure_pages: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class DocProposal(Timestamps, Base):
+    """A larger restructuring of a doc site its doc agent proposed (#156, services/docs_proposals.py): the user
+    decides on its ticket; approved, the doc agent does it, declined, the same is not proposed again."""
+
+    __tablename__ = "doc_proposals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"))
+    decision_id: Mapped[int | None] = mapped_column(ForeignKey("decisions.id", ondelete="SET NULL"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    before: Mapped[str] = mapped_column(Text, default="")  # the outline as it is
+    after: Mapped[str] = mapped_column(Text, default="")  # the outline proposed
+    pages: Mapped[list[int]] = mapped_column(JSON, default=list)  # the pages concerned
+    fingerprint: Mapped[str] = mapped_column(String(64), default="")  # of the proposed outline: the same one again
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open | approved | declined
 
 
 class DocPage(Timestamps, Base):
@@ -680,6 +704,7 @@ class DocPage(Timestamps, Base):
     title: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(120))
     path: Mapped[str] = mapped_column(String(2000), default="")  # its address under the site: the slugs from the top (kept on every move)
+    moved_from: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")  # its earlier addresses, the latest first: they still find it (#156)
     depth: Mapped[int] = mapped_column(Integer, default=0)
     body: Mapped[str] = mapped_column(Text, default="")
     source_hash: Mapped[str] = mapped_column(String(16), default="")  # of title and text: a translation of another one is outdated

@@ -45,6 +45,8 @@ from ..models import (
     Comment,
     Conversation,
     Decision,
+    DocProposal,
+    DocSite,
     Job,
     JobStatus,
     Message,
@@ -63,6 +65,8 @@ from ..schemas import AssignmentOut, MessageOut, RunOut, TaskUpdate
 from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import decisions as decision_service
+from ..services import docs as docs_service
+from ..services import docs_proposals
 from ..services import ideas as idea_service
 from ..services import ticket_state
 from ..services import flow_log
@@ -2007,9 +2011,23 @@ class RunManager:
         task = await s.get(Task, decision.task_id)
         if project is None or task is None:
             return
+        if (proposal := await docs_proposals.of_decision(s, decision.id)) is not None:
+            await self._restructure(s, proposal, decision, task)
+            return
         recipient = decision.requested_by_agent_id or (await agent_service.get_manager(s, project.id)).id
         await inbox.push(s, recipient, f'{prompts.person(author)} decided on ticket #{task.number} ("{decision.question}"): {decision_service.answer_summary(decision)}')
         await self._maybe_wake(s, project, recipient)
+
+    async def _restructure(self, s: AsyncSession, proposal: DocProposal, decision: Decision, task: Task) -> None:
+        """A doc agent's proposal answered (#156): approved, it gets the restructuring as an assignment on its ticket;
+        declined, the ticket is done and the same proposal is refused from now on."""
+        order = await docs_proposals.settle(s, proposal, decision, task)
+        site = await s.get(DocSite, proposal.site_id)
+        if order is None or site is None:
+            await board_service.update_task(s, task, TaskUpdate(status="done"))
+            return
+        agent = await docs_service.ensure_agent(s, site)
+        await self.delegate(s, None, agent, f"Restructure the doc site {site.name}", order, task, source="PlainBoard")
 
     async def comment_added(self, s: AsyncSession, task: Task, comment: Comment) -> None:
         """A comment reaches the agents with an open assignment on its ticket (not its author), and the manager
