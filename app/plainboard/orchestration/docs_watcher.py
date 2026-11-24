@@ -108,6 +108,7 @@ class DocsWatcher:
         self._interval = interval
         self._task: asyncio.Task[None] | None = None
         self._daily: dict[int, datetime] = {}  # project -> its last daily look
+        self._rechecked: set[int] = set()  # sites whose LLM translations were checked for their Markdown skeleton
         self._bases: dict[int, str] = {}  # repository -> its base branch, as its commits were last read
         self._soon = asyncio.Event()
 
@@ -199,6 +200,9 @@ class DocsWatcher:
         for site in list(await s.scalars(select(DocSite).where(DocSite.project_id == project.id, DocSite.translator != "").order_by(DocSite.id))):
             if not site.languages:
                 continue
+            if site.id not in self._rechecked:
+                self._rechecked.add(site.id)
+                await docs_translate.recheck(s, site)
             llm = self._llm(s, project, site) if site.translator == "llm" else None
             for page, lang in await docs_translate.pending(s, site, now):
                 if time.monotonic() - started > TRANSLATE_SECONDS:
