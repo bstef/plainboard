@@ -14,7 +14,10 @@ Such a page is marked (``flagged_at``, ``flag_reason``) until someone edits it o
 Once a day per project it also reads the commits of each repository that did not come through a landing (direct
 pushes): they count into the pages' ``drift``. The manager hears, at most once a week per page, of pages whose
 linked code changed a lot since their last edit (``DRIFT_STALE`` commits) or that stayed marked for ``STALE_DAYS``.
-Everything is bounded: commits read, texts embedded and pages named.
+Each look also translates what is missing or outdated in the sites' further languages (services/docs_translate.py):
+at most ``docs_translate.BATCH`` pages per site and ``TRANSLATE_SECONDS`` per look; ``translate_soon`` looks at once.
+Everything is bounded: commits read, texts embedded, pages named and pages translated. Only pages with linked
+code paths are read for the paths; a site's other thousands of pages cost nothing here.
 """
 
 from __future__ import annotations
@@ -22,22 +25,26 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from plainboard_protocol import GitCommit, GitLogSpec
-from sqlalchemy import func, select
+from plainboard_protocol import CompletionResult, CompletionSpec, GitCommit, GitLogSpec
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..models import Assignment, DocPage, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Task, utcnow
+from ..models import Assignment, DocPage, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
+from ..services import accounts as account_service
 from ..services import agents as agent_service
+from ..services import docs_translate
+from ..services import settings as settings_service
 from ..services import flow_log
 from ..services import landings as landing_service
 from ..services import permissions
 from ..services import search as search_service
 from ..services.search import store
 from ..services.util import truncate
-from . import inbox
+from . import inbox, questions
 from .run_manager import RunManager
 from .runner_client import RunnerError
 
@@ -54,6 +61,13 @@ DAILY = timedelta(days=1)
 DRIFT_STALE = 10
 STALE_DAYS = 7
 REMIND_EVERY = timedelta(days=7)
+TRANSLATE_SECONDS = 120.0
+DEFAULT_PROVIDER = "claude_code"
+
+
+def linked():
+    """Pages with code paths of their own: the only ones a change of code is matched against."""
+    return cast(DocPage.paths, String) != "[]"
 
 
 @dataclass
@@ -82,6 +96,7 @@ class DocsWatcher:
         self._interval = interval
         self._task: asyncio.Task[None] | None = None
         self._daily: dict[int, datetime] = {}  # project -> its last daily look
+        self._soon = asyncio.Event()
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop(), name="docs-watcher")
@@ -91,20 +106,28 @@ class DocsWatcher:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)
 
+    def translate_soon(self) -> None:
+        """Look now (a language or a translator was added, a translation was asked for)."""
+        self._soon.set()
+
     async def _loop(self) -> None:
         while True:
             try:
                 await self.tick()
             except Exception:
                 log.exception("Docs watcher tick failed")
-            await asyncio.sleep(self._interval)
+            try:
+                await asyncio.wait_for(self._soon.wait(), self._interval)
+            except TimeoutError:
+                pass
+            self._soon.clear()
 
     async def tick(self, now: datetime | None = None) -> None:
         now = now or utcnow()
         if self._runs.paused:
             return
         async with self._sm() as s:
-            ids = list(await s.scalars(select(DocPage.project_id).distinct()))
+            ids = list(await s.scalars(select(DocSite.project_id).distinct()))
             for project in list(await s.scalars(select(Project).where(Project.id.in_(ids)).order_by(Project.id))):
                 try:
                     await self._project(s, project, now)
@@ -150,6 +173,76 @@ class DocsWatcher:
         if daily:
             self._daily[project.id] = now
             await self._remind(s, project, now)
+        await self.translate(s, project, now)
+
+    # --- translations ------------------------------------------------------------------------------------------
+
+    async def translate(self, s: AsyncSession, project: Project, now: datetime) -> int:
+        """Missing and outdated translations of the project's sites, a bounded batch. Returns how many were made."""
+        started, made = time.monotonic(), 0
+        for site in list(await s.scalars(select(DocSite).where(DocSite.project_id == project.id, DocSite.translator != "").order_by(DocSite.id))):
+            if not site.languages:
+                continue
+            llm = self._llm(s, project, site) if site.translator == "llm" else None
+            for page, lang in await docs_translate.pending(s, site, now):
+                if time.monotonic() - started > TRANSLATE_SECONDS:
+                    return made
+                page_id = page.id
+                await s.commit()  # nothing of the database is held while the translator works
+                try:
+                    title, body, by = await docs_translate.translate(site, page, lang, llm)
+                except Exception as exc:  # noqa: BLE001 - kept with the translation, tried again later
+                    log.info("Translating doc page %s into %s failed: %s", page_id, lang, exc)
+                    page = await s.get(DocPage, page_id)
+                    if page is not None:
+                        await docs_translate.save(s, site, page, lang, "", "", "", error=str(exc) or type(exc).__name__)
+                    continue
+                page = await s.get(DocPage, page_id)
+                if page is not None:
+                    await docs_translate.save(s, site, page, lang, title, body, by)
+                    made += 1
+        if made:
+            await flow_log.record(s, project.id, "docs.translated", pages=made, seconds=round(time.monotonic() - started, 1))
+        return made
+
+    def _llm(self, s: AsyncSession, project: Project, site: DocSite):  # noqa: ANN202
+        """One completion without tools on the project's subscriptions, its cost a run of the manager's."""
+
+        async def ask(system: str, prompt: str) -> str:
+            provider = site.translate_provider or project.idea_provider or DEFAULT_PROVIDER
+            model = site.translate_model
+            if not model:
+                try:
+                    catalog = await account_service.catalog(s, await self._runs.runner.providers())
+                except Exception:
+                    catalog = []
+                model = questions.default_model(provider, catalog)
+            manager = await agent_service.get_manager(s, project.id)
+            where = self._runs.runners.where(project.id)
+            account = await account_service.pick(s, provider, manager, None, model=model, fresh=True, where=where)
+            if account is None:
+                raise RuntimeError(await account_service.shut_out(s, provider, manager) or await account_service.not_signed_in(s, provider, manager, where) or "no subscription")
+            credentials = settings_service.credentials(await settings_service.get_all(s), account=account_service.fields(account))
+            account_key, manager_id = account.key, manager.id
+            await s.commit()
+            result: CompletionResult | None = None
+            error = ""
+            try:
+                result = await self._runs.runners.of(project.id).complete(CompletionSpec(provider=provider, model=model, system_prompt=system, prompt=prompt, credentials=credentials))
+            except Exception as exc:
+                error = str(exc) or type(exc).__name__
+            at = utcnow()
+            s.add(Run(
+                project_id=project.id, agent_id=manager_id, trigger=RunTrigger.DOCS, status=RunStatus.FAILED if error else RunStatus.SUCCEEDED, input_text="",
+                error=truncate(error, 500) if error else None, input_tokens=result.input_tokens if result else 0, output_tokens=result.output_tokens if result else 0,
+                cost_usd=result.cost_usd if result else 0.0, num_turns=1 if result else 0, account_key=account_key, created_at=at, started_at=at, finished_at=at,
+            ))  # fmt: skip
+            await s.commit()
+            if result is None:
+                raise RuntimeError(error)
+            return result.text
+
+        return ask
 
     async def _commits(self, s: AsyncSession, project: Project, repo: Repository, watch: DocWatch, now: datetime) -> list[GitCommit]:
         """The base branch's commits since the last one read (the first time: only where to start from)."""
@@ -175,7 +268,7 @@ class DocsWatcher:
     async def _drift(self, s: AsyncSession, project: Project, commits: list[GitCommit]) -> None:
         if not commits:
             return
-        for page in await s.scalars(select(DocPage).where(DocPage.project_id == project.id)):
+        for page in await s.scalars(select(DocPage).where(DocPage.project_id == project.id, linked())):
             if page.paths and (n := sum(1 for c in commits if any(matches(f, page.paths) for f in c.files))):
                 page.drift += n
         await s.commit()
@@ -194,7 +287,7 @@ class DocsWatcher:
             changed = sorted({f for c in commits for f in c.files})
             messages = "\n".join(c.message.split("\n", 1)[0] for c in commits[:40])
             texts.append((f"the commits in {repo.name}", f"{messages}\n\nChanged: {', '.join(changed[:80])}"))
-        for page in await s.scalars(select(DocPage).where(DocPage.project_id == project.id)):
+        for page in await s.scalars(select(DocPage).where(DocPage.project_id == project.id, linked())):
             if not page.paths:
                 continue
             touched = [c for c in commits if any(matches(f, page.paths) for f in c.files)]

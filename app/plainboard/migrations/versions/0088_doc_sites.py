@@ -1,4 +1,4 @@
-"""Doc sites (#118): doc_sites, doc_pages, doc_page_versions, doc_watch, attachments.doc_site_id, search_documents.doc_page_id
+"""Doc sites (#118): doc_sites, doc_pages, doc_page_versions, doc_translations, doc_watch, attachments.doc_site_id, search_documents.doc_page_id
 
 Revision ID: 0088
 Revises: 0087
@@ -26,6 +26,14 @@ def upgrade() -> None:
         sa.Column("description", sa.String(300), nullable=False),
         sa.Column("spec", sa.Text(), nullable=False),
         sa.Column("published", sa.Boolean(), nullable=False),
+        sa.Column("public", sa.Boolean(), nullable=False),
+        sa.Column("language", sa.String(20), nullable=False),
+        sa.Column("languages", sa.JSON(), nullable=False),
+        sa.Column("translator", sa.String(10), nullable=False),
+        sa.Column("translate_provider", sa.String(50), nullable=False),
+        sa.Column("translate_model", sa.String(100), nullable=False),
+        sa.Column("deepl_key_enc", sa.Text(), nullable=True),
+        sa.Column("google_key_enc", sa.Text(), nullable=True),
         sa.Column("domain", sa.String(253), nullable=True, unique=True),
         sa.Column("domain_token", sa.String(64), nullable=False),
         sa.Column("domain_verified_at", sa.DateTime(), nullable=True),
@@ -43,7 +51,10 @@ def upgrade() -> None:
         sa.Column("position", sa.Integer(), nullable=False),
         sa.Column("title", sa.String(200), nullable=False),
         sa.Column("slug", sa.String(120), nullable=False),
+        sa.Column("path", sa.String(2000), nullable=False),
+        sa.Column("depth", sa.Integer(), nullable=False),
         sa.Column("body", sa.Text(), nullable=False),
+        sa.Column("source_hash", sa.String(16), nullable=False),
         sa.Column("paths", sa.JSON(), nullable=False),
         sa.Column("edited_by", sa.String(100), nullable=False),
         sa.Column("edited_at", sa.DateTime(), nullable=False),
@@ -56,6 +67,8 @@ def upgrade() -> None:
     )
     for column in ("project_id", "site_id", "parent_id"):
         op.create_index(f"ix_doc_pages_{column}", "doc_pages", [column])
+    op.create_index("ix_doc_pages_tree", "doc_pages", ["site_id", "parent_id", "position"])
+    op.create_index("ix_doc_pages_path", "doc_pages", ["site_id", "path"])
     op.create_table(
         "doc_page_versions",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -70,6 +83,24 @@ def upgrade() -> None:
     )
     op.create_index("ix_doc_page_versions_project_id", "doc_page_versions", ["project_id"])
     op.create_index("ix_doc_page_versions_page_id", "doc_page_versions", ["page_id"])
+    op.create_table(
+        "doc_translations",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("project_id", sa.Integer(), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("site_id", sa.Integer(), sa.ForeignKey("doc_sites.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("page_id", sa.Integer(), sa.ForeignKey("doc_pages.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("lang", sa.String(20), nullable=False),
+        sa.Column("title", sa.String(200), nullable=False),
+        sa.Column("body", sa.Text(), nullable=False),
+        sa.Column("source_hash", sa.String(16), nullable=False),
+        sa.Column("translated_by", sa.String(100), nullable=False),
+        sa.Column("translated_at", sa.DateTime(), nullable=True),
+        sa.Column("error", sa.Text(), nullable=False),
+        sa.Column("attempted_at", sa.DateTime(), nullable=True),
+        sa.UniqueConstraint("page_id", "lang"),
+    )
+    for column in ("project_id", "site_id", "page_id"):
+        op.create_index(f"ix_doc_translations_{column}", "doc_translations", [column])
     op.create_table(
         "doc_watch",
         sa.Column("project_id", sa.Integer(), sa.ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True),
@@ -98,6 +129,7 @@ def downgrade() -> None:
         batch.drop_constraint("fk_attachments_doc_site_id_doc_sites", type_="foreignkey")
         batch.drop_column("doc_site_id")
     op.drop_table("doc_watch")
+    op.drop_table("doc_translations")
     op.drop_table("doc_page_versions")
     op.drop_table("doc_pages")
     op.drop_table("doc_sites")

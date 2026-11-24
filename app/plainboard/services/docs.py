@@ -6,35 +6,47 @@ Every saved state of a page is kept as a version (who, when, why) and can be res
 attachments with ``doc_site_id``: the retention (services/retention.py) only ever touches files of done tickets and
 the cleanup only workspaces, so they stay until their site goes or someone deletes them.
 
+Built for sites of thousands of pages in deep trees: every page keeps its address (``path``) and ``depth``, so a page
+is found by its address with one indexed query, and nothing here reads a whole site: children come page by page
+(``children``), the way to a page from its address prefixes, its neighbours along the tree with a few small queries.
+Every change moves ``DocSite.updated_at``: the stamp the public site's cache is keyed by.
+
 In a page, ``doc-file:<attachment id>`` names a file of the site and ``doc-page:<page id>`` another page
 (``![Diagram](doc-file:12)``, ``[Setup](doc-page:3)``): links that survive moves, renames and the move of a project;
-the renderer (services/docs_public.py) turns them into addresses. Published sites are served without login
-(api/docs_public.py) at /docs/<slug>/ and, once verified, at their own domain (services/docs_domains.py).
-What keeps pages current is orchestration/docs_watcher.py.
+the renderer (services/docs_public.py) turns them into addresses. Sites are draft, private (people with a role in the
+project) or public (api/docs_public.py), at /docs/<slug>/ and, once verified, at their own domain
+(services/docs_domains.py); translations into further languages: services/docs_translate.py. What keeps pages current
+is orchestration/docs_watcher.py.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
-from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Attachment, DocPage, DocPageVersion, DocSite, utcnow
+from ..models import Attachment, DocPage, DocPageVersion, DocSite, DocTranslation, utcnow
 from ..schemas import AttachmentOut, DocPageItem, DocSiteOut
 from . import board as board_service
 from .errors import NotFound, ServiceError
 from .util import slugify
 
-UNSET: Any = object()
 DOMAIN = re.compile(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+LANGUAGE = re.compile(r"^[a-z]{2,3}(-[a-zA-Z0-9]{2,8})?$")
 FILE_REF = re.compile(r"doc-file:(\d+)")
 PAGE_REF = re.compile(r"doc-page:(\d+)")
+PAGE_LIMIT = 200  # children of one page at a time
+MAX_DEPTH = 50
+
+
+def source_hash(title: str, body: str) -> str:
+    return hashlib.sha256(f"{title}\n{body}".encode()).hexdigest()[:16]
 
 
 # --- sites ----------------------------------------------------------------------------------------------------
@@ -57,10 +69,24 @@ def clean_domain(value: str) -> str:
     return host
 
 
+def clean_languages(values: list[str], language: str) -> list[str]:
+    out = []
+    for value in values:
+        code = value.strip()
+        if not LANGUAGE.match(code):
+            raise ServiceError(f"Not a language code: {value!r} (e.g. de, fr, pt-BR).")
+        if code != language and code not in out:
+            out.append(code)
+    return out[:30]
+
+
 def site_out(site: DocSite, pages: int = 0, stale: int = 0) -> DocSiteOut:
     return DocSiteOut(
         id=site.id, project_id=site.project_id, name=site.name, slug=site.slug, description=site.description, spec=site.spec,
-        published=site.published, domain=site.domain, domain_verified_at=site.domain_verified_at,
+        published=site.published, public=site.public, language=site.language, languages=list(site.languages or []),
+        translator=site.translator, translate_provider=site.translate_provider, translate_model=site.translate_model,
+        deepl_key_set=bool(site.deepl_key_enc), google_key_set=bool(site.google_key_enc),
+        domain=site.domain, domain_verified_at=site.domain_verified_at,
         cloudflare_token_set=bool(site.cloudflare_token_enc), url=f"/docs/{site.slug}/", pages=pages, stale_pages=stale,
         created_at=site.created_at, updated_at=site.updated_at,
     )  # fmt: skip
@@ -103,12 +129,17 @@ async def find_site(session: AsyncSession, project_id: int, ref: str) -> DocSite
     raise NotFound(f"No doc site {ref!r}. Sites: {names}")
 
 
-async def create_site(session: AsyncSession, project_id: int, *, name: str, slug: str | None = None, description: str = "", spec: str = "", published: bool = False) -> DocSite:
+async def create_site(
+    session: AsyncSession, project_id: int, *, name: str, slug: str | None = None, description: str = "", spec: str = "", published: bool = False,
+    public: bool = False, language: str = "en", languages: list[str] | None = None,
+) -> DocSite:  # fmt: skip
     if slug and await session.scalar(select(DocSite.id).where(DocSite.slug == slug)) is not None:
         raise ServiceError(f"The address /docs/{slug}/ is taken: choose another slug.", 409)
+    if not LANGUAGE.match(language):
+        raise ServiceError(f"Not a language code: {language!r}")
     site = DocSite(
         project_id=project_id, name=name.strip(), slug=slug or await unique_site_slug(session, name), description=description.strip(), spec=spec.strip(),
-        published=published, domain_token=secrets.token_urlsafe(24),
+        published=published, public=public, language=language, languages=clean_languages(languages or [], language), domain_token=secrets.token_urlsafe(24),
     )  # fmt: skip
     session.add(site)
     await session.commit()
@@ -116,23 +147,26 @@ async def create_site(session: AsyncSession, project_id: int, *, name: str, slug
     return site
 
 
-async def update_site(
-    session: AsyncSession, site: DocSite, *, name: str | None = None, slug: str | None = None, description: str | None = None,
-    spec: str | None = None, published: bool | None = None, domain: str | None = None,
-) -> DocSite:  # fmt: skip
-    """``domain``: "" removes it; another one has to be verified again."""
+SITE_FIELDS = ("name", "description", "spec", "published", "public", "translator", "translate_provider", "translate_model")
+
+
+async def update_site(session: AsyncSession, site: DocSite, **changes) -> DocSite:
+    """Name, slug, description, spec, published, public, languages, translator and its model; ``domain``: "" removes
+    it, another one has to be verified again."""
+    slug = changes.pop("slug", None)
     if slug is not None and slug != site.slug:
         if await session.scalar(select(DocSite.id).where(DocSite.slug == slug, DocSite.id != site.id)) is not None:
             raise ServiceError(f"The address /docs/{slug}/ is taken: choose another slug.", 409)
         site.slug = slug
-    if name is not None:
-        site.name = name.strip()
-    if description is not None:
-        site.description = description.strip()
-    if spec is not None:
-        site.spec = spec.strip()
-    if published is not None:
-        site.published = published
+    for key in SITE_FIELDS:
+        value = changes.get(key)
+        if value is not None:
+            setattr(site, key, value.strip() if isinstance(value, str) else value)
+    if site.translator not in ("", "llm", "deepl", "google"):
+        raise ServiceError("Translator: llm, deepl, google or none.")
+    if changes.get("languages") is not None:
+        site.languages = clean_languages(changes["languages"], site.language)
+    domain = changes.get("domain")
     if domain is not None:
         new = clean_domain(domain) if domain.strip() else None
         if new != site.domain:
@@ -142,14 +176,17 @@ async def update_site(
                 await docs_domains.check_free(session, new, site.id)
             site.domain, site.domain_verified_at = new, None
             site.domain_token = secrets.token_urlsafe(24)
-            docs_domains.forget()
+    site.updated_at = utcnow()
     await session.commit()
+    from . import docs_domains
+
+    docs_domains.forget()
     await publish_site(session, site)
     return site
 
 
 async def delete_site(session: AsyncSession, site: DocSite) -> None:
-    """With its pages, their versions and its files (on disk too)."""
+    """With its pages, their versions and translations, and its files (on disk too)."""
     project_id, site_id = site.project_id, site.id
     for attachment in await files(session, site_id):
         board_service.storage_path(attachment).unlink(missing_ok=True)
@@ -161,66 +198,126 @@ async def delete_site(session: AsyncSession, site: DocSite) -> None:
     bus.publish(project_id, "doc_site.deleted", {"id": site_id})
 
 
-# --- pages ----------------------------------------------------------------------------------------------------
+async def touch(session: AsyncSession, site_id: int) -> None:
+    await session.execute(update(DocSite).where(DocSite.id == site_id).values(updated_at=utcnow()))
 
 
-async def pages(session: AsyncSession, site_id: int) -> list[DocPage]:
-    """All pages of a site, in tree order (parents before their children, siblings by position)."""
-    rows = list(await session.scalars(select(DocPage).where(DocPage.site_id == site_id).order_by(DocPage.position, DocPage.id)))
-    return ordered(rows)
+# --- the tree -------------------------------------------------------------------------------------------------
 
 
-def ordered(rows: list[DocPage]) -> list[DocPage]:
-    children: dict[int | None, list[DocPage]] = {}
-    for page in sorted(rows, key=lambda p: (p.position, p.id)):
-        children.setdefault(page.parent_id, []).append(page)
-    out: list[DocPage] = []
+def _under(parent_id: int | None):
+    return DocPage.parent_id.is_(None) if parent_id is None else DocPage.parent_id == parent_id
 
-    def walk(parent: int | None) -> None:
-        for page in children.get(parent, []):
-            out.append(page)
-            walk(page.id)
 
-    walk(None)
+async def children(session: AsyncSession, site_id: int, parent_id: int | None, offset: int = 0, limit: int = PAGE_LIMIT) -> tuple[list[DocPage], dict[int, int], int]:
+    """One page of a page's children (None: the top), with how many children each has, and how many there are."""
+    q = select(DocPage).where(DocPage.site_id == site_id, _under(parent_id)).order_by(DocPage.position, DocPage.id)
+    rows = list(await session.scalars(q.offset(offset).limit(min(limit, PAGE_LIMIT))))
+    total = int(await session.scalar(select(func.count()).select_from(DocPage).where(DocPage.site_id == site_id, _under(parent_id))) or 0)
+    return rows, await child_counts(session, [p.id for p in rows]), total
+
+
+async def levels(session: AsyncSession, site_id: int, parent_ids: list[int | None]) -> dict[int | None, tuple[list[DocPage], int]]:
+    """The children of several pages at once (None: the top), at most ``PAGE_LIMIT`` each, with how many there are:
+    the navigation opened down to a page, in two queries whatever its depth."""
+    if not parent_ids:
+        return {}
+    ids = [p for p in parent_ids if p is not None]
+    where = or_(DocPage.parent_id.in_(ids), DocPage.parent_id.is_(None)) if None in parent_ids else DocPage.parent_id.in_(ids)
+    numbered = (
+        select(DocPage.id, func.row_number().over(partition_by=DocPage.parent_id, order_by=(DocPage.position, DocPage.id)).label("n"))
+        .where(DocPage.site_id == site_id, where)
+        .subquery()
+    )
+    rows = list(await session.scalars(select(DocPage).join(numbered, numbered.c.id == DocPage.id).where(numbered.c.n <= PAGE_LIMIT).order_by(DocPage.position, DocPage.id)))
+    totals = dict((await session.execute(select(DocPage.parent_id, func.count()).where(DocPage.site_id == site_id, where).group_by(DocPage.parent_id))).all())
+    out: dict[int | None, tuple[list[DocPage], int]] = {p: ([], int(totals.get(p, 0))) for p in parent_ids}
+    for page in rows:
+        out[page.parent_id][0].append(page)
     return out
 
 
-def url_paths(rows: Iterable[DocPage]) -> dict[int, str]:
-    """Each page's address under its site: the slugs from the top down (parent/child)."""
-    by_id = {p.id: p for p in rows}
-    out: dict[int, str] = {}
-
-    def path(page: DocPage, depth: int = 0) -> str:
-        if page.id in out:
-            return out[page.id]
-        parent = by_id.get(page.parent_id) if page.parent_id else None
-        out[page.id] = f"{path(parent, depth + 1)}/{page.slug}" if parent is not None and depth < 20 else page.slug
-        return out[page.id]
-
-    for page in by_id.values():
-        path(page)
-    return out
+async def child_counts(session: AsyncSession, ids: list[int]) -> dict[int, int]:
+    if not ids:
+        return {}
+    rows = await session.execute(select(DocPage.parent_id, func.count()).where(DocPage.parent_id.in_(ids)).group_by(DocPage.parent_id))
+    return {pid: int(n) for pid, n in rows.all()}
 
 
-def depth(page: DocPage, by_id: dict[int, DocPage]) -> int:
-    n, at = 0, page
-    while at.parent_id and at.parent_id in by_id and n < 20:
-        n, at = n + 1, by_id[at.parent_id]
-    return n
+async def home(session: AsyncSession, site_id: int) -> DocPage | None:
+    """The first page at the top: the site's start page."""
+    return await session.scalar(select(DocPage).where(DocPage.site_id == site_id, DocPage.parent_id.is_(None)).order_by(DocPage.position, DocPage.id).limit(1))
 
 
-def item(page: DocPage, path: str) -> DocPageItem:
+async def by_path(session: AsyncSession, site_id: int, path: str) -> DocPage | None:
+    path = path.strip("/")
+    if not path:
+        return await home(session, site_id)
+    return await session.scalar(select(DocPage).where(DocPage.site_id == site_id, DocPage.path == path).limit(1))
+
+
+def prefixes(path: str) -> list[str]:
+    parts = path.split("/")
+    return ["/".join(parts[: i + 1]) for i in range(len(parts) - 1)]
+
+
+async def ancestors(session: AsyncSession, page: DocPage) -> list[DocPage]:
+    """From the top down to its parent: one query by the prefixes of its address."""
+    if not page.parent_id:
+        return []
+    rows = {p.path: p for p in await session.scalars(select(DocPage).where(DocPage.site_id == page.site_id, DocPage.path.in_(prefixes(page.path))))}
+    return [rows[p] for p in prefixes(page.path) if p in rows]
+
+
+async def _sibling(session: AsyncSession, page: DocPage, after: bool) -> DocPage | None:
+    q = select(DocPage).where(DocPage.site_id == page.site_id, _under(page.parent_id), DocPage.id != page.id)
+    if after:
+        q = q.where((DocPage.position > page.position) | ((DocPage.position == page.position) & (DocPage.id > page.id))).order_by(DocPage.position, DocPage.id)
+    else:
+        q = q.where((DocPage.position < page.position) | ((DocPage.position == page.position) & (DocPage.id < page.id))).order_by(DocPage.position.desc(), DocPage.id.desc())
+    return await session.scalar(q.limit(1))
+
+
+async def neighbours(session: AsyncSession, page: DocPage) -> tuple[DocPage | None, DocPage | None]:
+    """The page before and after it in reading order (depth first), in a few queries along the tree."""
+    prev = await _sibling(session, page, after=False)
+    if prev is not None:  # the last page under the sibling before it
+        for _ in range(MAX_DEPTH):
+            last = await session.scalar(select(DocPage).where(DocPage.parent_id == prev.id).order_by(DocPage.position.desc(), DocPage.id.desc()).limit(1))
+            if last is None:
+                break
+            prev = last
+    elif page.parent_id:
+        prev = await session.get(DocPage, page.parent_id)
+    nxt = await session.scalar(select(DocPage).where(DocPage.parent_id == page.id).order_by(DocPage.position, DocPage.id).limit(1))
+    at = page
+    for _ in range(MAX_DEPTH):
+        if nxt is not None:
+            break
+        nxt = await _sibling(session, at, after=True)
+        if nxt is not None or not at.parent_id:
+            break
+        at = await session.get(DocPage, at.parent_id)
+        if at is None:
+            break
+    return prev, nxt
+
+
+async def search_titles(session: AsyncSession, site_id: int, query: str, limit: int = 20) -> list[DocPage]:
+    """Pages whose title or address has all these words."""
+    q = select(DocPage).where(DocPage.site_id == site_id)
+    for word in query.lower().split()[:6]:
+        like = f"%{word}%"
+        q = q.where(or_(func.lower(DocPage.title).like(like), DocPage.path.like(like)))
+    return list(await session.scalars(q.order_by(DocPage.depth, DocPage.position).limit(limit)))
+
+
+def item(page: DocPage, children_count: int = 0) -> DocPageItem:
     return DocPageItem(
-        id=page.id, site_id=page.site_id, parent_id=page.parent_id, position=page.position, title=page.title, slug=page.slug, path=path,
-        paths=list(page.paths or []), edited_by=page.edited_by, edited_at=page.edited_at, drift=page.drift, flagged_at=page.flagged_at,
-        flag_reason=page.flag_reason, updated_at=page.updated_at,
+        id=page.id, site_id=page.site_id, parent_id=page.parent_id, position=page.position, title=page.title, slug=page.slug, path=page.path,
+        depth=page.depth, children=children_count, paths=list(page.paths or []), edited_by=page.edited_by, edited_at=page.edited_at, drift=page.drift,
+        flagged_at=page.flagged_at, flag_reason=page.flag_reason, updated_at=page.updated_at,
     )  # fmt: skip
-
-
-async def page_items(session: AsyncSession, site_id: int) -> list[DocPageItem]:
-    rows = await pages(session, site_id)
-    paths = url_paths(rows)
-    return [item(p, paths[p.id]) for p in rows]
 
 
 async def get_page(session: AsyncSession, project_id: int, page_id: int) -> DocPage:
@@ -230,16 +327,13 @@ async def get_page(session: AsyncSession, project_id: int, page_id: int) -> DocP
     return page
 
 
-async def page_path(session: AsyncSession, page: DocPage) -> str:
-    return url_paths(await pages(session, page.site_id))[page.id]
-
-
 async def publish_page(session: AsyncSession, page: DocPage) -> None:
-    bus.publish(page.project_id, "doc_page.upserted", item(page, await page_path(session, page)))
+    counts = await child_counts(session, [page.id])
+    bus.publish(page.project_id, "doc_page.upserted", item(page, counts.get(page.id, 0)))
 
 
 async def _unique_page_slug(session: AsyncSession, site_id: int, parent_id: int | None, base: str, exclude_id: int | None) -> str:
-    q = select(DocPage.slug).where(DocPage.site_id == site_id, DocPage.parent_id.is_(None) if parent_id is None else DocPage.parent_id == parent_id)
+    q = select(DocPage.slug).where(DocPage.site_id == site_id, _under(parent_id), DocPage.slug.like(f"{base}%"))
     if exclude_id is not None:
         q = q.where(DocPage.id != exclude_id)
     taken = set(await session.scalars(q))
@@ -249,30 +343,51 @@ async def _unique_page_slug(session: AsyncSession, site_id: int, parent_id: int 
     return slug
 
 
-async def _place(session: AsyncSession, page: DocPage, parent_id: int | None, position: int | None) -> None:
-    """Put the page among its new siblings at ``position`` (None: last) and number them anew."""
+async def _place(session: AsyncSession, page: DocPage, parent_id: int | None, position: int | None) -> DocPage | None:
+    """Put the page among its new siblings at ``position`` (None: last). Returns the parent."""
+    parent = None
     if parent_id is not None:
         parent = await session.get(DocPage, parent_id)
         if parent is None or parent.site_id != page.site_id:
             raise ServiceError("The parent page is not a page of this site.")
-        at, seen = parent, 0
-        while at is not None and seen < 50:  # not below itself
-            if page.id is not None and at.id == page.id:
-                raise ServiceError("A page cannot be moved below itself.")
-            at, seen = (await session.get(DocPage, at.parent_id) if at.parent_id else None), seen + 1
-    siblings = list(
-        await session.scalars(
-            select(DocPage)
-            .where(DocPage.site_id == page.site_id, DocPage.parent_id.is_(None) if parent_id is None else DocPage.parent_id == parent_id)
-            .order_by(DocPage.position, DocPage.id)
-        )
-    )
-    siblings = [p for p in siblings if p is not page and (page.id is None or p.id != page.id)]
-    at = len(siblings) if position is None else min(position, len(siblings))
-    siblings.insert(at, page)
-    page.parent_id = parent_id
-    for n, sibling in enumerate(siblings):
-        sibling.position = n
+        if page.id is not None and (parent.id == page.id or parent.path.startswith(page.path + "/")):
+            raise ServiceError("A page cannot be moved below itself.")
+        if parent.depth + 1 >= MAX_DEPTH:
+            raise ServiceError(f"Pages nest at most {MAX_DEPTH} deep.")
+    same = page.id is not None and page.parent_id == parent_id
+    count = int(await session.scalar(select(func.count()).select_from(DocPage).where(DocPage.site_id == page.site_id, _under(parent_id))) or 0)
+    if same:
+        count -= 1
+    at = count if position is None else min(position, count)
+    shift = select(DocPage.id).where(DocPage.site_id == page.site_id, _under(parent_id), DocPage.position >= at)
+    if page.id is not None:
+        shift = shift.where(DocPage.id != page.id)
+    if same:  # close the gap it leaves, then open one where it goes
+        await session.execute(update(DocPage).where(DocPage.site_id == page.site_id, _under(parent_id), DocPage.position > page.position, DocPage.id != page.id).values(position=DocPage.position - 1))
+    elif page.id is not None:
+        await session.execute(update(DocPage).where(DocPage.site_id == page.site_id, _under(page.parent_id), DocPage.position > page.position).values(position=DocPage.position - 1))
+    await session.execute(update(DocPage).where(DocPage.id.in_(shift)).values(position=DocPage.position + 1).execution_options(synchronize_session="fetch"))
+    page.parent_id, page.position = parent_id, at
+    return parent
+
+
+async def _repath(session: AsyncSession, page: DocPage, parent: DocPage | None) -> None:
+    """Its address and depth from its parent's, and those of every page below it (level by level)."""
+    old = page.path
+    page.path = f"{parent.path}/{page.slug}" if parent else page.slug
+    page.depth = parent.depth + 1 if parent else 0
+    if not old or old == page.path or page.id is None:
+        return
+    level = [page]
+    for _ in range(MAX_DEPTH):
+        ids = {p.id: p for p in level}
+        below = list(await session.scalars(select(DocPage).where(DocPage.parent_id.in_(list(ids)))))
+        if not below:
+            break
+        for child in below:
+            up = ids[child.parent_id]
+            child.path, child.depth = f"{up.path}/{child.slug}", up.depth + 1
+        level = below
 
 
 @dataclass
@@ -281,14 +396,20 @@ class Author:
     agent_id: int | None = None
 
 
+def _paths(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(v.strip().lstrip("./").strip() for v in values if v.strip()))[:50]
+
+
 async def create_page(
     session: AsyncSession, site: DocSite, author: Author, *, title: str, body: str = "", parent_id: int | None = None, position: int | None = None,
     slug: str | None = None, paths: list[str] | None = None, reason: str = "",
 ) -> DocPage:  # fmt: skip
     now = utcnow()
-    page = DocPage(project_id=site.project_id, site_id=site.id, title=title.strip()[:200], body=body, paths=_paths(paths or []), edited_by=author.name, edited_at=now)
-    await _place(session, page, parent_id, position)
+    title = title.strip()[:200]
+    page = DocPage(project_id=site.project_id, site_id=site.id, title=title, body=body, paths=_paths(paths or []), edited_by=author.name, edited_at=now, source_hash=source_hash(title, body))
+    parent = await _place(session, page, parent_id, position)
     page.slug = await _unique_page_slug(session, site.id, parent_id, slug or slugify(title, "page"), None)
+    await _repath(session, page, parent)
     session.add(page)
     await session.flush()
     session.add(DocPageVersion(project_id=site.project_id, page_id=page.id, title=page.title, body=body, author=author.name, agent_id=author.agent_id, reason=(reason or "created")[:300], created_at=now))
@@ -298,34 +419,38 @@ async def create_page(
     return page
 
 
-def _paths(values: list[str]) -> list[str]:
-    return list(dict.fromkeys(v.strip().lstrip("./").strip() for v in values if v.strip()))[:50]
-
-
 async def update_page(
     session: AsyncSession, page: DocPage, author: Author, *, title: str | None = None, body: str | None = None, move: bool = False,
     parent_id: int | None = None, position: int | None = None, slug: str | None = None, paths: list[str] | None = None, reason: str = "",
 ) -> DocPage:  # fmt: skip
-    """A new title or text is a new version; a move, a new slug or new linked paths are none."""
+    """A new title or text is a new version (and makes its translations outdated); a move, a new slug or new linked
+    paths are none."""
     now = utcnow()
+    repath = False
+    parent = await session.get(DocPage, page.parent_id) if page.parent_id else None
     if move or position is not None:
         target = parent_id if move else page.parent_id
-        await _place(session, page, target, position)
+        parent = await _place(session, page, target, position)
         if slug is None:  # its slug stays unless a sibling there has it
             page.slug = await _unique_page_slug(session, page.site_id, target, page.slug, page.id)
+        repath = True
     if slug is not None and slug != page.slug:
         page.slug = await _unique_page_slug(session, page.site_id, page.parent_id, slug, page.id)
+        repath = True
+    if repath:
+        await _repath(session, page, parent)
     if paths is not None:
         page.paths = _paths(paths)
     changed = (title is not None and title.strip() != page.title) or (body is not None and body != page.body)
     if changed:
         page.title = title.strip()[:200] if title is not None else page.title
         page.body = body if body is not None else page.body
+        page.source_hash = source_hash(page.title, page.body)
         page.edited_by, page.edited_at = author.name, now
         page.drift, page.flagged_at, page.flag_reason, page.reminded_at = 0, None, "", None  # it was looked at
         session.add(DocPageVersion(project_id=page.project_id, page_id=page.id, title=page.title, body=page.body, author=author.name, agent_id=author.agent_id, reason=reason[:300], created_at=now))
     page.updated_at = now
-    await session.execute(update(DocSite).where(DocSite.id == page.site_id).values(updated_at=now))
+    await touch(session, page.site_id)
     await session.commit()
     await publish_page(session, page)
     return page
@@ -341,9 +466,12 @@ async def confirm_page(session: AsyncSession, page: DocPage, author: Author, rea
 
 
 async def delete_page(session: AsyncSession, page: DocPage) -> None:
-    """With the pages below it and all their versions."""
-    project_id, page_id, site_id = page.project_id, page.id, page.site_id
+    """With the pages below it and all their versions and translations."""
+    project_id, page_id, site_id, parent_id, position = page.project_id, page.id, page.site_id, page.parent_id, page.position
     await session.delete(page)
+    await session.flush()
+    await session.execute(update(DocPage).where(DocPage.site_id == site_id, _under(parent_id), DocPage.position > position).values(position=DocPage.position - 1))
+    await touch(session, site_id)
     await session.commit()
     bus.publish(project_id, "doc_page.deleted", {"id": page_id, "site_id": site_id})
 
@@ -382,8 +510,9 @@ async def add_file(session: AsyncSession, site: DocSite, filename: str, content_
     return attachment
 
 
-async def files(session: AsyncSession, site_id: int) -> list[Attachment]:
-    return list(await session.scalars(select(Attachment).where(Attachment.doc_site_id == site_id).order_by(Attachment.id)))
+async def files(session: AsyncSession, site_id: int, offset: int = 0, limit: int | None = None) -> list[Attachment]:
+    q = select(Attachment).where(Attachment.doc_site_id == site_id).order_by(Attachment.id).offset(offset)
+    return list(await session.scalars(q.limit(limit) if limit else q))
 
 
 async def get_file(session: AsyncSession, site: DocSite, attachment_id: int) -> Attachment:
@@ -409,9 +538,10 @@ def _relink(text: str, files: dict[int, int], pages: dict[int, int]) -> str:
 async def after_import(session: AsyncSession, new: dict[str, dict[int, int]]) -> None:
     """Imported pages name their files and pages by the ids of the other side: by the new ones from now on."""
     files, page_ids = new.get("attachments", {}), new.get("doc_pages", {})
-    if not page_ids or not (files or page_ids):
+    if not page_ids:
         return
-    for page in await session.scalars(select(DocPage).where(DocPage.id.in_(list(page_ids.values())))):
-        page.body = _relink(page.body, files, page_ids)
-    for version in await session.scalars(select(DocPageVersion).where(DocPageVersion.page_id.in_(list(page_ids.values())))):
-        version.body = _relink(version.body, files, page_ids)
+    ids = list(page_ids.values())
+    for model in (DocPage, DocPageVersion, DocTranslation):
+        column = model.id if model is DocPage else model.page_id
+        for row in await session.scalars(select(model).where(column.in_(ids), or_(model.body.contains("doc-file:"), model.body.contains("doc-page:")))):
+            row.body = _relink(row.body, files, page_ids)

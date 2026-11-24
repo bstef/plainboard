@@ -137,8 +137,10 @@ How work flows:
 - Doc sites (manage_doc_site, list_docs) are documentation that lives in PlainBoard; the order above
   ("no documentation") is about docs nobody asked for. Before you build a site, settle with the user what it
   should hold (content, structure, tone, audience, language; request_decision or chat) and write that into
-  its doc spec. Build it as the spec says, change the spec when the user's wishes change, publish only when the
-  user wants it. Give pages the code paths they describe (write_doc_page paths). After landings PlainBoard names
+  its doc spec, and whether it is public or private (only people of this project) and in which further languages
+  (translated automatically; its own language is English unless the user says otherwise). Build it as the spec says,
+  change the spec when the user's wishes change, publish only when the user wants it. Give pages the code paths they
+  describe (write_doc_page paths). After landings PlainBoard names
   the pages a change may have made outdated: have them updated or confirmed, yourself or in one assignment for
   all of them that names the pages and the site.
 - Effort: omit it normally (the member's own setting applies). Override it only when an assignment is

@@ -1,27 +1,32 @@
-"""Published doc sites without login (#118, services/docs_public.py).
+"""Served doc sites (#118, services/docs_public.py): public ones without login, private ones for people with a role
+in their project.
 
-- ``/docs/<slug>/<page path>``: the page as HTML: the frontend's ``docs.html`` (a Vite entry of its own) with the
-  page's title, description and canonical address in its head, the page rendered in ``#docs-root`` (what search
-  engines read) and ``window.__PB_DOCS__`` = {site, page} for the script; without a frontend build a plain page.
-  ``/docs/<slug>/sitemap.xml`` and ``robots.txt`` for search engines.
-- ``/api/public/docs/<slug>`` (site and navigation), ``.../page?path=`` (a page), ``.../search?q=``,
-  ``.../files/<id>`` (a file of the site): JSON for the script.
-- At a site's own verified domain (``DocHost``) the same at the root: ``/<page path>``, ``/sitemap.xml``,
-  ``/api/public/docs/<slug>/...`` and the frontend's ``/assets``. Nothing else of PlainBoard answers there.
-Unpublished sites and everything else are 404. Each client address has a request budget per minute.
+- ``/docs/<slug>/[<lang>/]<page path>``: the page as HTML: the frontend's ``docs.html`` (a Vite entry of its own) with
+  the page's title, description, canonical address and hreflang alternates in its head, the page and its navigation
+  rendered in ``#docs-root`` (what search engines read) and ``window.__PB_DOCS__`` = {site, page} for the script;
+  without a frontend build a plain page. A private site without a signed-in reader: 401 with a sign-in form
+  (``sign_in``: true in the state). ``/docs/<slug>/sitemap.xml`` and ``robots.txt``.
+- JSON under ``/api/public/docs/<slug>``: the site with its top level (``?lang=``), ``/nav?parent=&offset=&limit=``
+  (children, page by page), ``/page?path=&lang=``, ``/search?q=&lang=``, ``/files/<id>``. ETag on every view.
+- At a site's own verified domain (``DocHost``) the same at the root, plus ``/api/auth/login`` and ``logout`` for a
+  private site (the session cookie is that domain's). Nothing else of PlainBoard answers there.
+Drafts and everything else are 404. Each client address has a request budget per minute.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from fastapi import APIRouter, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ..config import get_config
 from ..models import DocSite
+from ..security import SESSION_COOKIE
 from ..services import board as board_service
 from ..services import docs as docs_service
 from ..services import docs_domains
@@ -32,14 +37,14 @@ from .guard import _hosts, is_https
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/public/docs", tags=["docs"])  # JSON (services/access.py: /api/public is open)
+router = APIRouter(prefix="/api/public/docs", tags=["docs"])  # JSON (services/access.py: /api/public is open; they check by themselves)
 pages = APIRouter(tags=["docs"])  # the HTML pages: no rule, they check by themselves
 
 PAGES = public.RateLimit(240)
 SEARCHES = public.RateLimit(30)
 FILES = public.RateLimit(600)
-CACHE = {"Cache-Control": "public, max-age=60"}
 DOMAIN_SLUG = "docs_domain_slug"  # in the request's state: it came to the site's own domain
+DOMAIN_PATHS = ("/api/auth/login", "/api/auth/logout")  # what a site's own domain passes on besides the site
 
 
 def _client(request: Request) -> str:
@@ -60,31 +65,67 @@ async def _site(session, request: Request, slug: str) -> DocSite:  # noqa: ANN00
     on_domain = request.scope.get("state", {}).get(DOMAIN_SLUG)
     if on_domain is not None and on_domain != slug:
         raise NotFound("Not found")  # a site's domain serves that site only
-    return await public.published(session, slug)
+    site = await public.served(session, slug)
+    await public.may_read(session, site, request.cookies.get(SESSION_COOKIE), request.headers.get("authorization"))
+    return site
+
+
+async def _view(request: Request, site: DocSite, key: tuple, make) -> Response:  # noqa: ANN001
+    """A JSON view from the cache (keyed by the site's stamp), with an ETag; a private one is never kept by a proxy."""
+    full = (site.id, site.updated_at.isoformat(), _base(request, site), *key)
+    data = public.CACHE.get(full)
+    if data is None:
+        data = public.CACHE.put(full, jsonable_encoder(await make()))
+    etag = '"' + hashlib.sha256(repr(full).encode()).hexdigest()[:20] + '"'
+    headers = {"ETag": etag, "Cache-Control": "public, max-age=60" if site.public else "private, no-cache", "Vary": "Cookie"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(data, headers=headers)
 
 
 @router.get("/{slug}")
-async def site(slug: str, request: Request, session: Session) -> JSONResponse:
-    """{name, slug, description, base, api, project, updated_at, home, nav: [{id, title, path, children}]}"""
+async def site(slug: str, request: Request, session: Session, lang: str | None = Query(default=None, max_length=20)) -> Response:
+    """{name, slug, description, public, base, api, language, languages, lang, lang_base, project, updated_at, home,
+    nav: {items: [{id, title, path, children}], total, offset}} (the top level)."""
     _limit(PAGES, request)
     found = await _site(session, request, slug)
-    return JSONResponse(_json(await public.site_view(session, found, _base(request, found))), headers=CACHE)
+    language = public.lang_of(found, lang)
+    return await _view(request, found, ("site", language), lambda: public.site_view(session, found, _base(request, found), language))
+
+
+@router.get("/{slug}/nav")
+async def nav(
+    slug: str, request: Request, session: Session, parent: int | None = None, lang: str | None = Query(default=None, max_length=20),
+    offset: int = Query(default=0, ge=0), limit: int = Query(default=docs_service.PAGE_LIMIT, ge=1, le=docs_service.PAGE_LIMIT),
+) -> Response:  # fmt: skip
+    """The children of a page (none: the top), page by page: {items: [{id, title, path, children}], total, offset}."""
+    _limit(PAGES, request)
+    found = await _site(session, request, slug)
+    language = public.lang_of(found, lang)
+    return await _view(request, found, ("nav", language, parent, offset, limit), lambda: public.nav(session, found, parent, language, offset, limit))
 
 
 @router.get("/{slug}/page")
-async def page(slug: str, request: Request, session: Session, path: str = Query(default="", max_length=1000)) -> JSONResponse:
-    """{id, title, path, html, toc: [{level, id, text}], markdown, description, updated_at, breadcrumbs, prev, next, children}"""
+async def page(slug: str, request: Request, session: Session, path: str = Query(default="", max_length=2000), lang: str | None = Query(default=None, max_length=20)) -> Response:
+    """{id, title, path, lang, fallback, html, toc: [{level, id, text}], markdown, description, updated_at, breadcrumbs,
+    prev, next, sidebar: [nav of the top, nav of each page on the way down], children: nav}"""
     _limit(PAGES, request)
     found = await _site(session, request, slug)
-    return JSONResponse(_json(await public.page_view(session, found, path, _base(request, found))), headers=CACHE)
+    language = public.lang_of(found, lang)
+    return await _view(request, found, ("page", language, path.strip("/")), lambda: public.page_view(session, found, path, _base(request, found), language))
 
 
 @router.get("/{slug}/search")
-async def search(slug: str, request: Request, session: Session, q: str = Query(min_length=1, max_length=200), limit: int = Query(default=10, ge=1, le=20)) -> JSONResponse:
-    """[{title, path, snippet}]: by words, and by meaning where semantic search runs; published pages of this site only."""
+async def search(
+    slug: str, request: Request, session: Session, q: str = Query(min_length=1, max_length=200), lang: str | None = Query(default=None, max_length=20),
+    limit: int = Query(default=10, ge=1, le=20),
+) -> JSONResponse:  # fmt: skip
+    """[{title, path, url, snippet}] in that language: by words, and by meaning where semantic search runs."""
     _limit(SEARCHES, request)
     found = await _site(session, request, slug)
-    return JSONResponse(_json(await public.search(session, found, q, _base(request, found), limit)))
+    language = public.lang_of(found, lang)
+    hits = await public.search(session, found, q, _base(request, found), language, limit)
+    return JSONResponse(jsonable_encoder(hits), headers={"Cache-Control": "private, no-cache" if not found.public else "public, max-age=60"})
 
 
 @router.get("/{slug}/files/{attachment_id}")
@@ -96,18 +137,12 @@ async def file(slug: str, attachment_id: int, request: Request, session: Session
     if not path.exists():
         raise NotFound("Not found")
     shown = board_service.inline_type(path, attachment.filename)  # pictures, PDF, text inline; never a page or an SVG
-    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=3600"}
+    headers = {"X-Content-Type-Options": "nosniff", "Cache-Control": f"{'public' if found.public else 'private'}, max-age=3600"}
     if shown != "application/pdf":
         headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
     if shown:
         return FileResponse(path, media_type=shown, filename=attachment.filename, content_disposition_type="inline", headers=headers)
     return FileResponse(path, media_type=attachment.content_type, filename=attachment.filename, content_disposition_type="attachment", headers=headers)
-
-
-def _json(value):  # noqa: ANN001, ANN202
-    from fastapi.encoders import jsonable_encoder
-
-    return jsonable_encoder(value)
 
 
 # --- HTML ------------------------------------------------------------------------------------------------------
@@ -122,43 +157,63 @@ def _template() -> str | None:
 
 
 def _origin(request: Request) -> str:
-    hosts = sorted(_hosts(request.headers))
-    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip() or request.headers.get("host") or (hosts[0] if hosts else "localhost")
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip() or request.headers.get("host") or next(iter(sorted(_hosts(request.headers))), "localhost")
     return f"{'https' if is_https(request) else 'http'}://{host}"
 
 
 @pages.get("/docs/{slug}", include_in_schema=False)
-async def site_root(slug: str, request: Request) -> Response:
+async def site_root(slug: str) -> Response:
     return RedirectResponse(f"/docs/{slug}/", status_code=308)
 
 
 @pages.get("/docs/{slug}/{path:path}", include_in_schema=False)
 async def html_page(slug: str, path: str, request: Request, session: Session) -> Response:
+    template = _template()
     try:
         _limit(PAGES, request)
         found = await _site(session, request, slug)
     except ServiceError as exc:
+        if exc.status_code == 401:
+            site_ = await public.served(session, slug)
+            return HTMLResponse(public.sign_in_page(template, site_), status_code=401, headers={"Cache-Control": "no-store"})
         return PlainTextResponse(str(exc), status_code=exc.status_code)
     base = _base(request, found)
     site_url = _origin(request) + base
     if path == "robots.txt":
-        return PlainTextResponse(f"User-agent: *\nAllow: /\nSitemap: {site_url}/sitemap.xml\n", headers=CACHE)
-    view = _json(await public.site_view(session, found, base))
+        rules = "Allow: /" if found.public else "Disallow: /"
+        return PlainTextResponse(f"User-agent: *\n{rules}\nSitemap: {site_url}/sitemap.xml\n")
     if path == "sitemap.xml":
-        return Response(public.sitemap(site_url, view), media_type="application/xml", headers=CACHE)
+        if not found.public:
+            return PlainTextResponse("Not found", status_code=404)
+        return Response(await public.sitemap(session, found, site_url), media_type="application/xml", headers={"Cache-Control": "public, max-age=600"})
+    first, _, rest = path.partition("/")
+    lang = found.language
+    if first in (found.languages or []):
+        lang, path = first, rest
+    cache = {"Cache-Control": "public, max-age=60" if found.public else "private, no-store"}
+    key = (found.id, found.updated_at.isoformat(), base, "html", lang, path.strip("/"), _origin(request))
+    if (done := public.CACHE.get(key)) is not None:
+        return HTMLResponse(done, headers=cache)
+    view = jsonable_encoder(await public.site_view(session, found, base, lang))
+    here = public.lang_base(found, base, lang)
     try:
-        page_view = _json(await public.page_view(session, found, path, base)) if view["nav"] else None
+        page_view = jsonable_encoder(await public.page_view(session, found, path, base, lang)) if view["nav"]["items"] else None
     except NotFound:
-        return HTMLResponse(public.document(_template(), view, None, site_url + "/"), status_code=404)
-    canonical = f"{site_url}/{page_view['path']}" if page_view and path.strip("/") else f"{site_url}/"
-    return HTMLResponse(public.document(_template(), view, page_view, canonical), headers=CACHE)
+        return HTMLResponse(public.document(template, {"site": view, "page": None}, public.head_html(view, None, site_url + "/", {}), public.body_html(view, None), lang), status_code=404)
+    page_path = page_view["path"] if page_view and path.strip("/") else ""
+    canonical = f"{_origin(request)}{here}/{page_path}"
+    alternates = {code: f"{site_url}{'' if code == found.language else '/' + code}/{page_path}" for code in view["languages"]}
+    if len(alternates) > 1:
+        alternates["x-default"] = alternates[found.language]
+    out = public.document(template, {"site": view, "page": page_view}, public.head_html(view, page_view, canonical, alternates), public.body_html(view, page_view), lang)
+    return HTMLResponse(public.CACHE.put(key, out), headers=cache)
 
 
 # --- a site's own domain ---------------------------------------------------------------------------------------
 
 
 class DocHost:
-    """A request to a doc site's own domain: that site, its files and the frontend's assets, nothing else."""
+    """A request to a doc site's own domain: that site, its files, the frontend's assets and the sign-in, nothing else."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -190,7 +245,7 @@ class DocHost:
             return
         state = {**scope.get("state", {}), DOMAIN_SLUG: slug}
         own_api = f"/api/public/docs/{slug}"
-        if path == own_api or path.startswith(own_api + "/") or path.startswith("/assets/"):
+        if path == own_api or path.startswith(own_api + "/") or path.startswith("/assets/") or path in DOMAIN_PATHS:
             await self.app({**scope, "state": state}, receive, send)
             return
         rewritten = f"/docs/{slug}{path}"

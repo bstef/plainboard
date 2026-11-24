@@ -44,12 +44,20 @@ def test_pages_form_a_tree_keep_every_version_and_restore_one(client, project):
     again = page(client, pid, s["id"], title="Setup", parent_id=start["id"])
     assert (setup["path"], again["path"]) == ("getting-started/setup", "getting-started/setup-2")
     first = page(client, pid, s["id"], title="Overview", position=0)
-    tree = client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages").json()
-    assert [p["title"] for p in tree] == ["Overview", "Getting started", "Setup", "Setup"]  # parents before children, by position
+    top = client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages").json()
+    assert [(p["title"], p["children"]) for p in top["items"]] == [("Overview", 0), ("Getting started", 2)] and top["total"] == 2  # by position
+    below = client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages", params={"parent": start["id"]}).json()["items"]
+    assert [(p["title"], p["depth"]) for p in below] == [("Setup", 1), ("Setup", 1)]
 
     # A move is no version; a text change is one, with who and why.
     moved = client.patch(f"/api/projects/{pid}/docs/pages/{again['id']}", json={"move": True, "parent_id": None, "position": 0}).json()
     assert moved["path"] == "setup-2" and moved["versions"] == 1  # its slug stays
+    assert [p["position"] for p in client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages").json()["items"]] == [0, 1, 2]
+    deep = client.patch(f"/api/projects/{pid}/docs/pages/{start['id']}", json={"move": True, "parent_id": first["id"]}).json()
+    assert deep["path"] == "overview/getting-started" and deep["ancestors"] == [{"id": first["id"], "title": "Overview", "path": "overview"}]
+    assert client.get(f"/api/projects/{pid}/docs/pages/{setup['id']}").json()["path"] == "overview/getting-started/setup"  # the pages below it moved along
+    assert client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages/by-path", params={"path": "overview/getting-started/setup"}).json()["id"] == setup["id"]
+    assert [p["id"] for p in client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages/find", params={"q": "getting"}).json()][0] == start["id"]
     assert client.patch(f"/api/projects/{pid}/docs/pages/{start['id']}", json={"move": True, "parent_id": setup["id"]}).status_code == 400  # not below itself
     changed = client.patch(f"/api/projects/{pid}/docs/pages/{start['id']}", json={"body": "# Install\n\nRun `pb up`.", "reason": "new command"}).json()
     assert changed["versions"] == 2 and changed["edited_by"] == "Admin"
@@ -60,7 +68,8 @@ def test_pages_form_a_tree_keep_every_version_and_restore_one(client, project):
     assert client.get(f"/api/projects/{pid}/docs/pages/{start['id']}/versions").json()[0]["reason"].startswith("restored the version of")
 
     assert client.delete(f"/api/projects/{pid}/docs/pages/{start['id']}").status_code == 204  # with the page below it
-    assert [p["id"] for p in client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages").json()] == [again["id"], first["id"]]
+    assert [p["id"] for p in client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages").json()["items"]] == [again["id"], first["id"]]
+    assert client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages", params={"parent": first["id"]}).json()["total"] == 0
     assert client.post(f"/api/projects/{pid}/docs/sites", json={"name": "Other", "slug": "handbook"}).status_code == 409
 
 
@@ -107,7 +116,7 @@ def test_doc_files_are_never_deleted_by_the_retention(client, project):
     assert [f["id"] for f in client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/files").json()] == [picture["id"]]
 
 
-def test_a_published_site_is_served_without_login_as_html_json_and_search(client, project, monkeypatch):
+def test_a_public_site_is_served_without_login_as_html_json_and_search(client, project, monkeypatch):
     pid = project["id"]
     s = site(client, pid, description="How to run the shop")
     (picture,) = client.post(f"/api/projects/{pid}/docs/sites/{s['id']}/files", files=[("files", ("arch.png", b"\x89PNG\r\n\x1a\nxx", "image/png"))]).json()
@@ -120,17 +129,21 @@ def test_a_published_site_is_served_without_login_as_html_json_and_search(client
     assert client.get("/docs/handbook/").status_code == 404  # a draft is not there
     assert client.get("/api/public/docs/handbook").status_code == 404
     sign_in(client, "admin", ADMIN_PASSWORD)
-    client.patch(f"/api/projects/{pid}/docs/sites/{s['id']}", json={"published": True})
-    client.patch(f"/api/projects/{pid}/docs/sites/{other['id']}", json={"published": True})
+    client.patch(f"/api/projects/{pid}/docs/sites/{s['id']}", json={"published": True, "public": True})
+    client.patch(f"/api/projects/{pid}/docs/sites/{other['id']}", json={"published": True, "public": True})
     client.cookies.clear()
 
     view = client.get("/api/public/docs/handbook").json()
     assert view["name"] == "Handbook" and view["home"] == "welcome" and view["base"] == "/docs/handbook"
-    assert view["nav"] == [{"id": home["id"], "title": "Welcome", "path": "welcome", "children": [{"id": api["id"], "title": "Payments API", "path": "welcome/payments-api", "children": []}]}]
+    assert view["nav"] == {"items": [{"id": home["id"], "title": "Welcome", "path": "welcome", "children": 1}], "total": 1, "offset": 0}
+    assert client.get("/api/public/docs/handbook/nav", params={"parent": home["id"]}).json()["items"] == [{"id": api["id"], "title": "Payments API", "path": "welcome/payments-api", "children": 0}]
     got = client.get("/api/public/docs/handbook/page", params={"path": "welcome/payments-api"}).json()
     assert got["toc"] == [{"level": 2, "id": "webhooks", "text": "Webhooks"}] and got["breadcrumbs"] == [{"title": "Welcome", "path": "welcome"}]
     assert f'src="/api/public/docs/handbook/files/{picture["id"]}"' in got["html"] and 'href="/docs/handbook/welcome"' in got["html"]
-    assert "<script>" not in got["html"] and got["prev"] == {"title": "Welcome", "path": "welcome"}
+    assert "<script>" not in got["html"] and got["prev"] == {"title": "Welcome", "path": "welcome"} and got["next"] is None
+    assert [len(level["items"]) for level in got["sidebar"]] == [1, 1]
+    again = client.get("/api/public/docs/handbook/page", params={"path": "welcome/payments-api"}, headers={"if-none-match": client.get("/api/public/docs/handbook/page", params={"path": "welcome/payments-api"}).headers["etag"]})
+    assert again.status_code == 304
     assert client.get("/api/public/docs/handbook/page", params={"path": ""}).json()["title"] == "Welcome"
 
     html = client.get("/docs/handbook/welcome/payments-api")
@@ -156,7 +169,7 @@ def test_a_site_at_its_own_domain_is_served_there_only_when_verified(client, pro
     from plainboard.services import docs_domains
 
     pid = project["id"]
-    s = site(client, pid, published=True)
+    s = site(client, pid, published=True, public=True)
     page(client, pid, s["id"], title="Welcome", body="Hello from the docs.")
     assert client.put(f"/api/projects/{pid}/docs/sites/{s['id']}/domain", json={"domain": "testserver"}).status_code == 400  # PlainBoard's own host
     setup = client.put(f"/api/projects/{pid}/docs/sites/{s['id']}/domain", json={"domain": "https://Docs.Example.com/"}).json()
@@ -294,7 +307,7 @@ def test_a_project_moves_with_its_doc_sites_files_and_links(client, project):
     from test_transfer import bring_in, export
 
     pid = project["id"]
-    s = site(client, pid, spec="Be brief.", published=True)
+    s = site(client, pid, spec="Be brief.", published=True, public=True, languages=["de"])
     client.put(f"/api/projects/{pid}/docs/sites/{s['id']}/domain", json={"domain": "docs.example.com"})
     (picture,) = client.post(f"/api/projects/{pid}/docs/sites/{s['id']}/files", files=[("files", ("a.png", b"\x89PNG\r\n\x1a\nzz", "image/png"))]).json()
     top = page(client, pid, s["id"], title="Top", body="top")
@@ -304,8 +317,9 @@ def test_a_project_moves_with_its_doc_sites_files_and_links(client, project):
     new_pid = resp.json()["project"]["id"] if "project" in resp.json() else resp.json()["id"]
     (copy,) = client.get(f"/api/projects/{new_pid}/docs/sites").json()
     assert copy["slug"] == "handbook-2" and copy["spec"] == "Be brief." and copy["domain"] is None  # this installation serves the original
-    pages = client.get(f"/api/projects/{new_pid}/docs/sites/{copy['id']}/pages").json()
-    assert [p["path"] for p in pages] == ["top", "top/below"]
+    pages = client.get(f"/api/projects/{new_pid}/docs/sites/{copy['id']}/pages").json()["items"]
+    pages += client.get(f"/api/projects/{new_pid}/docs/sites/{copy['id']}/pages", params={"parent": pages[0]["id"]}).json()["items"]
+    assert [p["path"] for p in pages] == ["top", "top/below"] and copy["languages"] == ["de"]
     (new_file,) = client.get(f"/api/projects/{new_pid}/docs/sites/{copy['id']}/files").json()
     body = client.get(f"/api/projects/{new_pid}/docs/pages/{pages[1]['id']}").json()["body"]
     assert body == f"![a](doc-file:{new_file['id']}) [up](doc-page:{pages[0]['id']})" and new_file["id"] != picture["id"]
@@ -320,7 +334,7 @@ def test_doc_pages_are_found_by_agents_people_and_the_public_search(client, proj
 
     monkeypatch.setattr(embedding, "_current", {embedding.DEFAULT: FakeEmbedder()})
     pid = project["id"]
-    s = site(client, pid, published=True)
+    s = site(client, pid, published=True, public=True)
     found = page(client, pid, s["id"], title="Webhooks", body="Stripe retries webhooks with exponential backoff for six hours.")
     index(client)
     result = search(client, manager_of(client, pid)["id"], pid, query="stripe webhook backoff", kinds=["doc"])
@@ -330,3 +344,216 @@ def test_doc_pages_are_found_by_agents_people_and_the_public_search(client, proj
     assert client.get("/api/public/docs/handbook/search", params={"q": "exponential backoff"}).json()[0]["title"] == "Webhooks"
     assert client.delete(f"/api/projects/{pid}/docs/pages/{found['id']}").status_code == 204
     assert "Nothing found." in search(client, manager_of(client, pid)["id"], pid, query="stripe webhook backoff", kinds=["doc"])
+
+
+def test_a_private_site_is_only_for_people_of_its_project_also_at_its_domain(client, project, monkeypatch):
+    from plainboard.models import DocSite, utcnow
+    from plainboard.services import docs_domains
+
+    pid = project["id"]
+    s = site(client, pid, published=True)  # published, private
+    page(client, pid, s["id"], title="Internals", body="Secret architecture.")
+    client.put(f"/api/projects/{pid}/docs/sites/{s['id']}/domain", json={"domain": "intern.example.com"})
+
+    async def verified(session):
+        (await session.get(DocSite, s["id"])).domain_verified_at = utcnow()
+        await session.commit()
+
+    db(client, verified)
+    docs_domains.forget()
+    assert client.get("/api/public/docs/handbook/page", params={"path": ""}).json()["title"] == "Internals"  # the admin
+    assert client.get("/docs/handbook/").headers["cache-control"] == "private, no-store"
+    olga = friend(client, "olga")
+    friend(client, "stranger")
+    client.put(f"/api/projects/{pid}/members/{olga['id']}", json={"role": "viewer"})
+    client.cookies.clear()
+    assert client.get("/api/public/docs/handbook").status_code == 401
+    shown = client.get("/docs/handbook/internals")
+    assert shown.status_code == 401 and "Secret architecture" not in shown.text and "/api/auth/login" in shown.text
+    assert client.get("/api/public/docs/handbook/search", params={"q": "secret"}).status_code == 401
+    as_friend(client, "stranger")
+    assert client.get("/api/public/docs/handbook").status_code == 404
+    as_friend(client, "olga")
+    assert "Secret architecture" in client.get("/docs/handbook/internals").text
+
+    client.cookies.clear()  # at its own domain: signs in there, with a session cookie of that domain
+    host = {"host": "intern.example.com"}
+    assert client.get("/internals", headers=host).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "olga", "password": "olga-password"}, headers=host).status_code == 200
+    assert "Secret architecture" in client.get("/internals", headers=host).text
+    assert client.get("/api/projects", headers=host).status_code == 404
+    sign_in(client, "admin", ADMIN_PASSWORD)
+
+
+def test_markdown_keeps_its_shape_through_a_translation_api():
+    from plainboard.services import docs_translate as t
+
+    pieces = t.blocks("# Title\n\nSee `pb up` and [docs](https://x.io/a).\n\n```sh\nrm -rf /\n```\n\n| a | b |\n- one\n- two")
+    assert pieces[4] == (False, "```sh\nrm -rf /\n```")
+    text, kept = t.protect(pieces[2][1], lambda i: f"<x>{i}</x>")
+    assert "pb up" not in text and "https" not in text and kept == ["`pb up`", "](https://x.io/a)"]
+    assert t.restore(text.replace("See", "Siehe").replace("and", "und"), kept, t._DEEPL_TAG) == "Siehe `pb up` und [docs](https://x.io/a)."
+    text, kept = t.protect("- one\n- two & <b>", lambda i: f'<span translate="no">{i}</span>')
+    assert t.restore(text, kept, t._GOOGLE_TAG) == "- one\n- two & <b>"
+
+
+def test_pages_are_translated_kept_in_sync_and_served_per_language(client, project, monkeypatch):
+    from plainboard.services import docs_translate
+
+    pid = project["id"]
+    s = site(client, pid, published=True, public=True, languages=["de", "fr"])
+    assert s["language"] == "en" and s["languages"] == ["de", "fr"]
+    home = page(client, pid, s["id"], title="Welcome", body="Hello world.\n\n```\ncode stays\n```")
+    sub = page(client, pid, s["id"], title="Payments", parent_id=home["id"], body="Payments are retried.")
+    asked = []
+
+    def deepl(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        asked.append(body)
+        assert request.headers["authorization"] == "DeepL-Auth-Key key-1:fx" and request.url.host == "api-free.deepl.com"
+        words = {"Welcome": "Willkommen", "Hello world.": "Hallo Welt.", "Payments": "Zahlungen", "Payments are retried.": "Zahlungen werden wiederholt.", "Payments are retried twice.": "Zahlungen werden zweimal wiederholt."}
+        return httpx.Response(200, json={"translations": [{"text": words.get(x, x)} for x in body["text"]]})
+
+    monkeypatch.setattr(client.app_ref.state.docs_watcher, "translate_soon", lambda: None)  # the test looks itself
+    real = httpx.AsyncClient
+    monkeypatch.setattr(docs_translate.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(deepl), **kw))
+    assert client.patch(f"/api/projects/{pid}/docs/sites/{s['id']}", json={"translator": "deepl", "languages": ["de"]}).status_code == 200
+    out = client.put(f"/api/projects/{pid}/docs/sites/{s['id']}/translator-keys", json={"deepl": "key-1:fx"}).json()
+    assert out["deepl_key_set"] is True and "key-1" not in json.dumps(out)
+    watcher = client.app_ref.state.docs_watcher
+    from plainboard.models import Project, utcnow
+
+    async def look(session):
+        return await watcher.translate(session, await session.get(Project, pid), utcnow())
+
+    assert db(client, look) == 2 and db(client, look) == 0  # nothing left to do
+    assert all(b["target_lang"] == "DE" and b["tag_handling"] == "xml" for b in asked) and not any("code stays" in x for b in asked for x in b["text"])
+    states = client.get(f"/api/projects/{pid}/docs/pages/{sub['id']}/translations").json()
+    assert [(x["lang"], x["state"], x["title"], x["translated_by"]) for x in states] == [("de", "current", "Zahlungen", "deepl")]
+
+    got = client.get("/api/public/docs/handbook/page", params={"path": "welcome/payments", "lang": "de"}).json()
+    assert got["title"] == "Zahlungen" and "Zahlungen werden wiederholt." in got["html"] and got["breadcrumbs"] == [{"title": "Willkommen", "path": "welcome"}]
+    html = client.get("/docs/handbook/de/welcome/payments").text
+    assert '<html lang="de">' in html and "Zahlungen werden wiederholt." in html and 'hreflang="en" href="http://testserver/docs/handbook/welcome/payments"' in html
+    assert 'href="/docs/handbook/de/welcome"' in html  # the navigation stays in its language
+    assert client.get("/api/public/docs/handbook/search", params={"q": "wiederholt", "lang": "de"}).json()[0]["url"] == "/docs/handbook/de/welcome/payments"
+    assert client.get("/api/public/docs/handbook/search", params={"q": "wiederholt"}).json() == []
+    assert client.get("/api/public/docs/handbook/page", params={"path": "", "lang": "xx"}).status_code == 404
+
+    # The page changes: its translation is outdated, still shown, and made again in the next batch.
+    client.patch(f"/api/projects/{pid}/docs/pages/{sub['id']}", json={"body": "Payments are retried twice.", "reason": "twice"})
+    assert client.get(f"/api/projects/{pid}/docs/pages/{sub['id']}/translations").json()[0]["state"] == "outdated"
+    assert db(client, look) == 1
+    assert "zweimal" in client.get("/api/public/docs/handbook/page", params={"path": "welcome/payments", "lang": "de"}).json()["html"]
+    # By hand: current until the page changes again.
+    put = client.put(f"/api/projects/{pid}/docs/pages/{home['id']}/translations/de", json={"title": "Hallo", "body": "Von Hand."}).json()
+    assert put["state"] == "current" and put["translated_by"] == "Admin"
+
+
+def test_an_llm_translates_on_the_projects_subscription(client, project, monkeypatch):
+    from plainboard_protocol import CompletionResult
+
+    from plainboard.models import Project, Run, utcnow
+    from sqlalchemy import select
+
+    pid = project["id"]
+    monkeypatch.setattr(client.app_ref.state.docs_watcher, "translate_soon", lambda: None)  # the test looks itself
+    s = site(client, pid, published=True, public=True, languages=["fr"])
+    client.patch(f"/api/projects/{pid}/docs/sites/{s['id']}", json={"translator": "llm", "translate_model": "claude-haiku-x"})
+    page(client, pid, s["id"], title="Welcome", body="Hello.")
+    fake = runner(client)
+    specs = []
+
+    async def complete(spec):
+        specs.append(spec)
+        return CompletionResult(text="Bienvenue" if "title" in spec.prompt else "Bonjour.", input_tokens=10, output_tokens=5, cost_usd=0.001)
+
+    fake.complete = complete
+
+    async def look(session):
+        return await client.app_ref.state.docs_watcher.translate(session, await session.get(Project, pid), utcnow())
+
+    assert db(client, look) == 1
+    assert specs[0].model == "claude-haiku-x" and "into fr" in specs[0].system_prompt
+    assert client.get("/api/public/docs/handbook/page", params={"path": "", "lang": "fr"}).json()["markdown"] == "Bonjour."
+    runs = db(client, lambda session: session.scalars(select(Run.trigger).where(Run.project_id == pid, Run.trigger == "docs")))
+    assert len(list(runs)) == 2  # title and text, each counted
+
+
+def test_a_site_of_thousands_of_pages_is_served_and_listed_piece_by_piece(client, project):
+    """3 000 pages: 30 sections of 50 pages, one chain 40 deep, the rest at the top. Nothing reads them all."""
+    import time
+
+    from plainboard.models import DocPage, utcnow
+    from plainboard.services.docs import source_hash
+    from sqlalchemy import event, insert
+
+    pid = project["id"]
+    s = site(client, pid, published=True, public=True)
+
+    async def fill(session):
+        now, rows = utcnow(), []
+
+        def row(id_, parent, pos, slug, path, depth):
+            title = f"Page {slug}"
+            body = f"Text of {slug}. " + ("needle " if id_ == 2500 else "") + "lorem ipsum " * 20
+            return {"id": 100000 + id_, "project_id": pid, "site_id": s["id"], "parent_id": parent and 100000 + parent, "position": pos, "title": title, "slug": slug,
+                    "path": path, "depth": depth, "body": body, "source_hash": source_hash(title, body), "paths": [], "edited_by": "x", "edited_at": now,
+                    "drift": 0, "flag_reason": "", "created_at": now, "updated_at": now}  # fmt: skip
+
+        n = 0
+        for sec in range(30):
+            n += 1
+            sec_id = n
+            rows.append(row(sec_id, None, sec, f"s{sec}", f"s{sec}", 0))
+            for k in range(50):
+                n += 1
+                rows.append(row(n, sec_id, k, f"p{k}", f"s{sec}/p{k}", 1))
+        parent, path = None, ""
+        for d in range(40):
+            n += 1
+            path = f"{path}/d{d}" if path else f"d{d}"
+            rows.append(row(n, parent, 30 if parent is None else 0, f"d{d}", path, d))
+            parent = n
+        while n < 3000:
+            n += 1
+            rows.append(row(n, None, n, f"t{n}", f"t{n}", 0))
+        for start in range(0, len(rows), 500):
+            await session.execute(insert(DocPage), rows[start : start + 500])
+        await session.commit()
+        return n
+
+    assert db(client, fill) == 3000
+    from plainboard.db import sessionmaker
+
+    engine = sessionmaker()().bind
+    statements = []
+    listen = lambda *a: statements.append(1)  # noqa: E731
+    event.listen(engine.sync_engine, "before_cursor_execute", listen)
+    try:
+        started = time.monotonic()
+        deep = client.get("/api/public/docs/handbook/page", params={"path": "/".join(f"d{i}" for i in range(40))}).json()
+        took = time.monotonic() - started
+        used = len(statements)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", listen)
+    assert deep["title"] == "Page d39" and len(deep["breadcrumbs"]) == 39 and deep["prev"]["title"] == "Page d38" and deep["next"]["title"].startswith("Page t")
+    assert len(deep["sidebar"]) == 40 and len(deep["sidebar"][0]["items"]) == 200 and "Page d0" in [i["title"] for i in deep["sidebar"][0]["items"]]
+    assert all(len(level["items"]) == 1 for level in deep["sidebar"][1:])
+    assert used < 80 and took < 5, (used, took)  # by the depth, not by the size
+    top = client.get("/api/public/docs/handbook").json()["nav"]
+    assert top["total"] == 30 + 1 + (3000 - 30 - 30 * 50 - 40) and len(top["items"]) == 200
+    more = client.get("/api/public/docs/handbook/nav", params={"offset": 200, "limit": 200}).json()
+    assert more["offset"] == 200 and len(more["items"]) == 200
+    assert client.get("/api/public/docs/handbook/search", params={"q": "needle"}).json()[0]["title"].startswith("Page")
+    first = client.get("/api/projects/{}/docs/sites/{}/pages".format(pid, s["id"]), params={"parent": 100001}).json()
+    assert first["total"] == 50 and len(first["items"]) == 50
+    html = client.get("/docs/handbook/s3/p7")
+    assert html.status_code == 200 and len(html.text) < 200_000
+
+    manager = manager_of(client, pid)
+    chat(client, manager["id"], "TOOL list_docs " + json.dumps({"site": "handbook"}) + "\nTOOL list_docs " + json.dumps({"site": "handbook", "query": "p7 s3"}))
+    wait_for(lambda: idle(client, pid))
+    listed, found = tool_results(client, manager["id"])[-2:]
+    assert listed.count("\n- ") == 50 and "(more: offset=50)" in listed and len(listed) < 12000
+    assert '/s3/p7 "Page p7"' in found

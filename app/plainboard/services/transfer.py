@@ -80,7 +80,7 @@ TABLES: tuple[Table, ...] = (
     Table("tasks", refs=AGENT),
     Table("task_transitions"),
     # Doc sites (#118): slug and domain are the installation's, so a copy gets free ones (and verifies its domain again).
-    Table("doc_sites", sealed=("cloudflare_token_enc",), reset={"domain_verified_at": None}),
+    Table("doc_sites", sealed=("cloudflare_token_enc", "deepl_key_enc", "google_key_enc"), reset={"domain_verified_at": None}),
     Table("attachments", refs={"task_id": "tasks", "uploaded_by_agent_id": "agents", "doc_site_id": "doc_sites"}, late={"idea_id": "ideas"}),
     Table("comments", ("task_id", "tasks"), {"task_id": "tasks", "author_agent_id": "agents"}),
     Table("decisions", refs={"task_id": "tasks", "requested_by_agent_id": "agents"}, lists={"attachment_ids": "attachments"}),
@@ -91,6 +91,7 @@ TABLES: tuple[Table, ...] = (
     Table("idea_versions", refs={"idea_id": "ideas"}),
     Table("doc_pages", refs={"site_id": "doc_sites"}, late={"parent_id": "doc_pages"}, reset={"reminded_at": None}),
     Table("doc_page_versions", refs={"page_id": "doc_pages", "agent_id": "agents"}),
+    Table("doc_translations", refs={"site_id": "doc_sites", "page_id": "doc_pages"}),
     Table("ticket_states", ("task_id", "tasks"), {"task_id": "tasks", "until_assignment_id": "assignments"}, key="task_id"),
     # A chat goes on from its summary and its latest messages: the provider's own session stays behind.
     Table(
@@ -190,7 +191,7 @@ def _credential(table: str, row: dict[str, Any]) -> str:
     """A credential by the name the user knows it by."""
     if table == "projects":
         return "the project's GitHub token"
-    what = {"repositories": "the access of repository", "mcp_servers": "the environment of MCP server", "secrets": "the secret", "doc_sites": "the Cloudflare token of doc site"}[table]
+    what = {"repositories": "the access of repository", "mcp_servers": "the environment of MCP server", "secrets": "the secret", "doc_sites": "the Cloudflare token or translator keys of doc site"}[table]
     return f"{what} {row.get('name', '')}".strip()
 
 

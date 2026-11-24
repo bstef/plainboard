@@ -54,6 +54,7 @@ class RunTrigger(StrEnum):
     WAKE = "wake"  # inbox updates (e.g. finished assignments) for the agent
     QUESTION = "question"  # a person's question (orchestration/questions.py): stored when it ends, for the statistics only
     IDEAS = "ideas"  # sorting ideas or planning tickets from them (orchestration/ideas.py): for the statistics only
+    DOCS = "docs"  # translating doc pages (services/docs_translate.py): for the statistics only
 
 
 class AssignmentStatus(StrEnum):
@@ -619,7 +620,15 @@ class DocSite(Timestamps, Base):
     # The doc spec: what the user wants in it (content, structure, tone, audience), written by the manager with
     # the user. Every agent that writes the site reads it with the site and follows it.
     spec: Mapped[str] = mapped_column(Text, default="")
-    published: Mapped[bool] = mapped_column(Boolean, default=False)
+    published: Mapped[bool] = mapped_column(Boolean, default=False)  # served at all (else a draft, in the app only)
+    public: Mapped[bool] = mapped_column(Boolean, default=False)  # served to everyone; else only to people with a role in the project
+    language: Mapped[str] = mapped_column(String(20), default="en")  # what its pages are written in
+    languages: Mapped[list[str]] = mapped_column(JSON, default=list)  # further languages, translated (services/docs_translate.py)
+    translator: Mapped[str] = mapped_column(String(10), default="")  # llm | deepl | google | "" (none: translations by hand)
+    translate_provider: Mapped[str] = mapped_column(String(50), default="")  # llm: the provider and model ("": the provider's small one)
+    translate_model: Mapped[str] = mapped_column(String(100), default="")
+    deepl_key_enc: Mapped[str | None] = mapped_column(Text)  # write-only
+    google_key_enc: Mapped[str | None] = mapped_column(Text)  # write-only
     domain: Mapped[str | None] = mapped_column(String(253), unique=True)  # its own host name, served by Host header
     domain_token: Mapped[str] = mapped_column(String(64), default="")  # answered at /.well-known/plainboard-docs on that host
     domain_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -630,6 +639,7 @@ class DocPage(Timestamps, Base):
     """A page of a doc site. Every saved state is a ``DocPageVersion``."""
 
     __tablename__ = "doc_pages"
+    __table_args__ = (Index("ix_doc_pages_tree", "site_id", "parent_id", "position"), Index("ix_doc_pages_path", "site_id", "path"))
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     site_id: Mapped[int] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
@@ -637,7 +647,10 @@ class DocPage(Timestamps, Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
     title: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(120))
+    path: Mapped[str] = mapped_column(String(2000), default="")  # its address under the site: the slugs from the top (kept on every move)
+    depth: Mapped[int] = mapped_column(Integer, default=0)
     body: Mapped[str] = mapped_column(Text, default="")
+    source_hash: Mapped[str] = mapped_column(String(16), default="")  # of title and text: a translation of another one is outdated
     # Code paths it describes (prefixes or globs, e.g. app/plainboard/services/docs.py, runner/*): a change there
     # after a landing marks it for an update (orchestration/docs_watcher.py).
     paths: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -662,6 +675,25 @@ class DocPageVersion(Base):
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
     reason: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DocTranslation(Base):
+    """A page in another language of its site (services/docs_translate.py). ``source_hash``: of the page it was made from."""
+
+    __tablename__ = "doc_translations"
+    __table_args__ = (UniqueConstraint("page_id", "lang"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
+    page_id: Mapped[int] = mapped_column(ForeignKey("doc_pages.id", ondelete="CASCADE"), index=True)
+    lang: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    source_hash: Mapped[str] = mapped_column(String(16), default="")
+    translated_by: Mapped[str] = mapped_column(String(100), default="")  # deepl | google | the model | a person's name
+    translated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    error: Mapped[str] = mapped_column(Text, default="")  # the last attempt failed: tried again after a while
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class DocWatch(Base):

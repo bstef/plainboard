@@ -133,7 +133,8 @@ RULES: tuple[Rule, ...] = (
     _project("/search"),  # the command palette: its history by meaning, for everyone who reads the project
     _project("/ideas", write=Need.MEMBER),
     _project("/docs", write=Need.MEMBER),  # doc sites (#118): viewers read, members write
-    _project("/docs/sites/{site_id}/domain", write=Need.OWNER),  # its own domain and the Cloudflare token: the owner's  # collecting and planning starts nothing (services/ideas.py)
+    _project("/docs/sites/{site_id}/domain", write=Need.OWNER),  # its own domain and the Cloudflare token: the owner's
+    _project("/docs/sites/{site_id}/translator-keys", write=Need.OWNER),  # DeepL and Google keys: the owner's  # collecting and planning starts nothing (services/ideas.py)
     _project("/schedules", write=Need.MEMBER),
     _project("/browser", read=Need.MEMBER),  # the browser window is driven, not only watched
     _project("/previews", write=Need.MEMBER),  # which servers run; a member stops one

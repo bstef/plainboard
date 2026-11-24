@@ -1649,6 +1649,12 @@ class DocSiteCreate(BaseModel):
     description: str = Field(default="", max_length=300)
     spec: str = Field(default="", max_length=20000)
     published: bool = False
+    public: bool = False  # published and public: everyone; published and private: people with a role in the project
+    language: str = Field(default="en", max_length=20)
+    languages: list[str] = Field(default_factory=list, max_length=30)
+
+
+Translator = Literal["", "llm", "deepl", "google"]
 
 
 class DocSiteUpdate(BaseModel):
@@ -1657,6 +1663,36 @@ class DocSiteUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=300)
     spec: str | None = Field(default=None, max_length=20000)
     published: bool | None = None
+    public: bool | None = None
+    languages: list[str] | None = Field(default=None, max_length=30)  # further languages, translated
+    translator: Translator | None = None
+    translate_provider: str | None = Field(default=None, max_length=50)  # llm: "" = the project's default provider
+    translate_model: str | None = Field(default=None, max_length=100)  # llm: "" = the provider's small model
+
+
+class DocKeysIn(BaseModel):
+    """Write-only; "" removes a key, None keeps it."""
+
+    deepl: str | None = Field(default=None, max_length=200)
+    google: str | None = Field(default=None, max_length=200)
+
+
+class DocTranslationItem(BaseModel):
+    lang: str
+    title: str
+    state: Literal["current", "outdated", "missing", "failed"]
+    translated_by: str = ""
+    translated_at: UTCDateTime | None = None
+    error: str = ""
+
+
+class DocTranslationOut(DocTranslationItem):
+    body: str
+
+
+class DocTranslationIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(max_length=200000)
 
 
 class DocDomainIn(BaseModel):
@@ -1683,10 +1719,18 @@ class DocSiteOut(ORM):
     description: str
     spec: str
     published: bool
+    public: bool = False
+    language: str = "en"
+    languages: list[str] = []
+    translator: str = ""
+    translate_provider: str = ""
+    translate_model: str = ""
+    deepl_key_set: bool = False
+    google_key_set: bool = False
     domain: str | None = None
     domain_verified_at: UTCDateTime | None = None
     cloudflare_token_set: bool = False
-    url: str  # its public address under this PlainBoard: /docs/<slug>/
+    url: str  # its address under this PlainBoard: /docs/<slug>/
     pages: int = 0
     stale_pages: int = 0  # flagged as possibly outdated
     created_at: UTCDateTime
@@ -1702,7 +1746,9 @@ class DocPageItem(ORM):
     position: int
     title: str
     slug: str
-    path: str  # under the site: parent-slug/slug ("" for none: the home page is the first page at the top)
+    path: str  # under the site: parent-slug/slug (the home page is the first page at the top, also at "")
+    depth: int = 0
+    children: int = 0  # pages directly below it
     paths: list[str]
     edited_by: str
     edited_at: UTCDateTime
@@ -1712,9 +1758,23 @@ class DocPageItem(ORM):
     updated_at: UTCDateTime
 
 
+class DocCrumb(BaseModel):
+    id: int
+    title: str
+    path: str
+
+
 class DocPageOut(DocPageItem):
     body: str
     versions: int = 0
+    ancestors: list[DocCrumb] = []  # from the top down: what to open in the tree
+    translations: list[DocTranslationItem] = []
+
+
+class DocPagesOut(BaseModel):
+    items: list[DocPageItem]
+    total: int  # children of that parent
+    offset: int
 
 
 class DocPageCreate(BaseModel):
