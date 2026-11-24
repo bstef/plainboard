@@ -95,6 +95,8 @@ export interface Repository {
   check_command: string;
   quick_check_command: string;
   land_first: boolean;
+  /** The branch the base branch is promoted to on request (#129); empty: no promotion step. */
+  release_branch: string;
   check_target_seconds?: number;
   checks_verdict?: string;
   /** Branches that are fully merged are removed, once a day. */
@@ -942,6 +944,8 @@ export interface FlowRepo {
   check_target_seconds: number;
   /** The base branch fails its checks. */
   red: boolean;
+  /** The release branch it is promoted to on request; empty: none. */
+  release: string;
 }
 export interface FlowJob {
   id: number;
@@ -1003,6 +1007,48 @@ export interface FlowLive {
   work: FlowWork[];
   branches: FlowBranch[];
   trains: FlowTrain[];
+  /** Per repository with a release branch: the promotion on its way, else the last one. */
+  promotions: Promotion[];
+}
+/** A fixed commit of the base branch brought to the release branch (#129). */
+export interface Promotion {
+  id: number;
+  repository_id: number;
+  base: string;
+  release: string;
+  sha: string;
+  tag: string;
+  status: "checking" | "promoted" | "pull_request" | "failed";
+  how: string;
+  /** The pull request, when the release branch refused the push. */
+  url: string;
+  detail: string;
+  commits: number;
+  tickets: number;
+  by: string;
+  started_at: string;
+  finished_at: string | null;
+}
+export interface PromotionTicket {
+  task_id: number | null;
+  task_number: number | null;
+  title: string;
+  branch: string;
+}
+export interface PromotionPreview {
+  repository_id: number;
+  base: string;
+  release: string;
+  sha: string;
+  release_sha: string | null;
+  /** Else a merge commit: the release branch has commits of its own. */
+  fast_forward: boolean;
+  total: number;
+  commits: { sha: string; author: string; date: string; message: string }[];
+  tickets: PromotionTicket[];
+  /** This exact commit passed its checks already: no check run. */
+  checked: boolean;
+  running: Promotion | null;
 }
 export interface FlowRepair {
   agent_id: number | null;
@@ -1023,7 +1069,7 @@ export interface FlowHistory {
   next_before: string | null;
 }
 export interface FlowStep {
-  key: "handed" | "failed" | "repair" | "checking" | "landed" | "stuck";
+  key: "handed" | "failed" | "repair" | "checking" | "landed" | "stuck" | "released";
   state: "done" | "now" | "todo";
   at: string | null;
   detail: string;
@@ -1199,6 +1245,33 @@ export interface DocSite {
   stale_pages: number;
   /** Its own look (#121): every field at its default is the look every site has. */
   theme: DocTheme;
+  /** It uses versions (#126); off: it always shows the current state, visitors see no versions. */
+  versioned: boolean;
+  /** Its versions: the working one first, then the released ones, the newest first. */
+  releases: DocRelease[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** A version of a doc site (#126). The working one is written now ("next" until renamed). */
+export interface DocRelease {
+  id: number;
+  site_id: number;
+  name: string;
+  /** Its address: /docs/<site>/<slug>/ */
+  slug: string;
+  working: boolean;
+  seq: number;
+  notes: string;
+  released_on: string | null;
+  deprecated: boolean;
+  /** Not served (the working one: not public). */
+  hidden: boolean;
+  /** Chosen as the visitors' default. */
+  is_default: boolean;
+  /** What visitors get at /docs/<site>/ now (chosen, else the latest released one). */
+  default: boolean;
+  url: string;
   created_at: string;
   updated_at: string;
 }
@@ -1243,6 +1316,8 @@ export interface DocCustomPage {
 export interface DocPageItem {
   id: number;
   site_id: number;
+  /** The version it was read in; null: the working one. */
+  release_id?: number | null;
   parent_id: number | null;
   position: number;
   title: string;

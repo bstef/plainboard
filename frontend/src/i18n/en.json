@@ -250,6 +250,8 @@
     "repoTidyHint": "Every hour and after each landing, PlainBoard deletes the branches whose content is all on the base branch already, also when they were squashed, rebased or landed inside another branch. Anything not proven to be there stays, and so do the base and default branch, protected branches, branches of open pull requests, what PlainBoard has in flight, and anything with a commit younger than an hour. The manager is told each deleted branch with its commit, so it can be restored; old branches with unmerged work are only named to it.",
     "repoLandingHint": "An agent hands over its finished branch and goes on with other work. PlainBoard brings the branches to the base branch by itself.",
     "repoLandWhen": "When does a finished branch reach the base branch?",
+    "repoRelease": "Release branch",
+    "repoReleaseHint": "Optional, e.g. main. Branches land on the base branch; when you or the manager promote it, its head is checked once and brought to this branch (in the flow view). Empty: no promotion step.",
     "repoLandChecked": "After the checks pass",
     "repoLandCheckedHint": "PlainBoard merges all finished branches, checks them once together, and only what passes reaches the base branch. Right for a branch you release from, and where checks are quick and reliable.",
     "repoLandFirstBadge": "merges at once",
@@ -1596,7 +1598,8 @@
       "repair": "Repair by its author",
       "checking": "Checked on a train",
       "landed": "Landed on the base branch",
-      "stuck": "With the manager"
+      "stuck": "With the manager",
+      "released": "Released"
     },
     "member": {
       "turn": "Working",
@@ -1615,6 +1618,32 @@
       "quiet": "Nothing on its way",
       "waiting": "{{count}} handed over",
       "repairing": "{{count}} being repaired"
+    },
+    "promotion": {
+      "button": "Promote to {{release}}",
+      "title": "Promote {{base}} to {{release}}",
+      "confirm": "Check and promote to {{release}}",
+      "summary_one": "{{count}} commit of {{base}} at {{sha}} is not on {{release}} yet.",
+      "summary_other": "{{count}} commits of {{base}} at {{sha}} are not on {{release}} yet.",
+      "fastForward": "{{release}} is moved forward to it.",
+      "merge": "{{release}} has commits of its own: it gets a merge commit.",
+      "check": "The repository's checks run once on exactly this commit; only if they pass is it pushed. Branches keep landing on the base branch meanwhile.",
+      "checked": "This exact commit passed its checks already: it is pushed without another check run.",
+      "running": "A promotion ({{sha}}) is on its way already.",
+      "nothing": "Nothing to promote: {{release}} has everything of {{base}}.",
+      "tickets_one": "{{count}} landed branch",
+      "tickets_other": "{{count}} landed branches",
+      "noTickets": "No branches of PlainBoard since the last promotion.",
+      "commits_one": "{{count}} commit",
+      "commits_other": "{{count}} commits",
+      "moreCommits": "… and {{count}} more",
+      "tag": "Tag (optional)",
+      "tagHint": "Set on the promoted commit, e.g. a version.",
+      "checking": "Promotion of {{sha}} to {{release}}: being checked",
+      "promoted": "{{sha}} promoted to {{release}}",
+      "pull_request": "{{release}} is protected: pull request for {{sha}}",
+      "failed": "Promotion of {{sha}} to {{release}} failed",
+      "open": "Open"
     }
   },
   "customerLanguages": {
@@ -1863,7 +1892,16 @@
       }
     },
     "links": "Links",
-    "legal": "About this site"
+    "legal": "About this site",
+    "version": "Version",
+    "versions": "Versions",
+    "versionWorking": "in development",
+    "versionLatest": "latest",
+    "versionDeprecated": "deprecated",
+    "bannerWorking": "You are reading the documentation of the next version, still in development.",
+    "bannerOld": "You are reading the documentation of version {{name}}, which is not the current one.",
+    "bannerDeprecated": "Version {{name}} is deprecated.",
+    "bannerToCurrent": "Go to the current version ({{name}})"
   },
   "docs": {
     "assistant": {
@@ -1916,7 +1954,8 @@
       "pages": "Pages",
       "rules": "Doc rules",
       "files": "Files",
-      "settings": "Settings"
+      "settings": "Settings",
+      "versions": "Versions"
     },
     "visibility": {
       "draft": "Draft",
@@ -1933,7 +1972,8 @@
       "allCurrent": "All current",
       "languages": "Languages",
       "address": "Address",
-      "agent": "Doc agent"
+      "agent": "Doc agent",
+      "version": "Editing version"
     },
     "rules": {
       "title": "Doc rules",
@@ -1982,10 +2022,10 @@
       "bodyPlaceholder": "Write in Markdown. Drop or paste pictures and files here.",
       "gone": "This page does not exist anymore.",
       "edited": "{{who}} · {{when}}",
-      "versions_one": "{{count}} version",
-      "versions_other": "{{count}} versions",
-      "history_one": "History ({{count}} version)",
-      "history_other": "History ({{count}} versions)",
+      "versions_one": "{{count}} edit",
+      "versions_other": "{{count}} edits",
+      "history_one": "History ({{count}} edit)",
+      "history_other": "History ({{count}} edits)",
       "onSite": "Show on the site",
       "settings": "Address and code paths",
       "mode": "View",
@@ -2243,6 +2283,56 @@
       "byHand": "Footer pages are not translated automatically. Without a text here, readers of this language see the {{language}} original.",
       "deleteTitle": "Delete “{{title}}”?",
       "deleteText": "The page and its link in the footer go; its address shows “not found”. Files it uses stay with the site."
+    },
+    "releases": {
+      "title": "Versions",
+      "hint": "Keep a version of the docs for each release of your product while the next one is being written. Cutting a version copies nothing and takes no time; anyone can still correct it later.",
+      "use": "Use versions",
+      "usedYes": "This site uses versions.",
+      "usedNo": "This site uses no versions.",
+      "onHint": "Visitors can switch between versions; addresses carry the version, and the version in development is marked as such.",
+      "offHint": "Off: the site always shows the current state, as it is written now. No version switcher, no version in the addresses.",
+      "offKeptHint": "Off: visitors see the current state only. The versions below are kept and can still be edited; switch on again to show them.",
+      "firstHint": "Cut the first version when you release your product: its pages stay as they are now, while writing goes on for the next release.",
+      "cutFirst": "Cut the first version",
+      "cut": "Cut a version",
+      "cutNow": "Cut {{name}}",
+      "cutHint": "Takes the pages, their translations and files as they are now in {{working}}. Writing goes on in {{working}}.",
+      "cutTurnsOn": "This turns versions on: visitors get a version switcher and land on this version.",
+      "name": "Name",
+      "nameHint": "As visitors see it, e.g. 1.0 or 2024.2",
+      "slug": "Address",
+      "slugHint": "{{url}}",
+      "date": "Release date",
+      "notes": "Notes",
+      "notesHint": "What is new in it, for the version list (optional).",
+      "inDevelopment": "In development",
+      "default": "Default",
+      "deprecated": "Deprecated",
+      "hidden": "Not public",
+      "workingHint": "Being written now; the next version is cut from it.",
+      "releasedOn": "Released {{date}}",
+      "editPages": "Edit pages",
+      "readPages": "Read pages",
+      "settings": "Settings",
+      "settingsOf": "Version {{name}}",
+      "makeDefault": "Visitors land here",
+      "makeDefaultHint": "Shown at the site's address without a version. Off: the newest released version that is not deprecated.",
+      "markDeprecated": "Deprecated",
+      "markDeprecatedHint": "Readers of this version see a note with a link to the current one.",
+      "hide": "Not public",
+      "hideHint": "Taken off the public site; it stays here and can still be edited.",
+      "hideWorking": "Version in development not public",
+      "hideWorkingHint": "Visitors only see released versions, not what is being written now.",
+      "delete": "Delete version {{name}}",
+      "deleteSure": "Delete version",
+      "deleteHint": "Removes version {{name}} with the corrections made only in it. The other versions keep their pages.",
+      "editing": "Version being edited",
+      "manage": "Manage versions",
+      "pickerReleased": "Released version: changes go into {{name}} only.",
+      "editingReleased": "You are editing version {{name}}, already released.",
+      "correctionsOnly": "Make corrections only here. New content belongs in {{working}}.",
+      "notInVersion": "This page is not in version {{name}}."
     }
   }
 }
