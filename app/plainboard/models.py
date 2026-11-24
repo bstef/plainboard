@@ -422,6 +422,8 @@ class Agent(Timestamps, Base):
     color: Mapped[str] = mapped_column(String(20), default="#6366f1")
     all_repos: Mapped[bool] = mapped_column(Boolean, default=True)  # False = only `repositories`
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="SET NULL"))  # None = automatic
+    # The doc agent of this doc site (#118): it alone writes the site's pages; hidden from the team and the board.
+    doc_site_id: Mapped[int | None] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
 
     project: Mapped[Project] = relationship(back_populates="agents")
     repositories: Mapped[list[Repository]] = relationship(secondary=agent_repositories, lazy="selectin")

@@ -224,36 +224,69 @@ def test_cloudflare_creates_the_cname_and_the_token_is_never_shown(client, proje
     assert "cf-secret-token" not in shown and '"cloudflare_token_set":true' in shown
 
 
-def test_agents_write_pages_by_the_doc_spec_and_attach_files(client, project):
+def test_each_site_has_its_own_hidden_doc_agent_that_alone_writes_it(client, project):
     pid = project["id"]
     manager = manager_of(client, pid)
     dev = make_member(client, pid, "Dev")
-    chat(client, manager["id"], "TOOL manage_doc_site " + json.dumps({"name": "Guide", "spec": "Audience: shop owners. Tone: friendly. Every page starts with a one-line summary."}))
+    chat(client, manager["id"], "TOOL manage_doc_site " + json.dumps({"name": "Guide", "spec": "Audience: shop owners. Tone: friendly.", "agent_model": "claude-sonnet-x", "agent_effort": "low", "domain_help": True}))
     wait_for(lambda: idle(client, pid))
-    assert tool_results(client, manager["id"])[-1].startswith("Created doc site guide (id ")
-    chat(client, dev["id"], "TOOL write_doc_page " + json.dumps({"site": "guide", "title": "Orders", "body": "Orders arrive here.", "reason": "first page", "paths": ["app/orders"]}))
+    created = tool_results(client, manager["id"])[-1]
+    assert created.startswith("Created doc site guide (id ") and "Its doc agent: docs-guide (claude-sonnet-x, effort low)." in created and "Cloudflare API token" in created
+    guide = client.get(f"/api/projects/{pid}/docs/sites").json()[0]
+    writer = agents_by_slug(client, pid)["docs-guide"]
+    assert guide["agent"]["id"] == writer["id"] and writer["doc_site_id"] == guide["id"] and "Audience: shop owners." in writer["instructions"]
+    other = site(client, pid, name="Other")
+
+    # Hidden from the team: list_agents, the team in every prompt.
+    chat(client, manager["id"], "TOOL list_agents {}")
     wait_for(lambda: idle(client, pid))
-    written = tool_results(client, dev["id"])[-1]
-    assert written.startswith("Created doc page ") and "Doc spec of guide (follow it):\nAudience: shop owners." in written  # it had not read the spec
+    assert "docs-guide" not in tool_results(client, manager["id"])[-1] and "docs-guide" not in runner(client).specs[-1].system_prompt
+
+    # Everyone reads, only the doc agent writes, and only its own site.
+    chat(client, dev["id"], "TOOL write_doc_page " + json.dumps({"site": "guide", "title": "Orders", "reason": "first page"}))
+    wait_for(lambda: idle(client, pid))
+    assert tool_results(client, dev["id"])[-1] == "Tool write_doc_page is not available to you"
+    dev_tools = {t.name for t in runner(client).specs[-1].bridge.tools}
+    assert {"list_docs", "read_doc_page"} <= dev_tools and not dev_tools & {"write_doc_page", "attach_doc_file", "manage_doc_site", "order_docs"}
+    chat(client, writer["id"], "\n".join([
+        "TOOL write_doc_page " + json.dumps({"site": "guide", "title": "Orders", "body": "Orders arrive here.", "reason": "first page", "paths": ["app/orders"]}),
+        "TOOL write_doc_page " + json.dumps({"site": "other", "title": "X", "reason": "not mine"}),
+    ]))  # fmt: skip
+    wait_for(lambda: idle(client, pid))
+    written, refused = tool_results(client, writer["id"])[-2:]
+    assert written.startswith("Created doc page ") and refused == "Only the doc agent of other writes it."
+    assert {"write_doc_page", "attach_doc_file", "list_docs"} <= {t.name for t in runner(client).specs[-1].bridge.tools}
     page_id = int(written.split()[3])
-    chat(client, dev["id"], "\n".join(["TOOL list_docs {\"site\": \"guide\"}", "TOOL read_doc_page " + json.dumps({"page": page_id}), "TOOL write_doc_page " + json.dumps({"page": page_id, "body": "Summary: orders.\n\nOrders arrive here.", "reason": "spec: summary line"})]))
+    chat(client, dev["id"], "\n".join(["TOOL list_docs {\"site\": \"guide\"}", "TOOL read_doc_page " + json.dumps({"page": page_id})]))
     wait_for(lambda: idle(client, pid))
-    listed, read, saved = tool_results(client, dev["id"])[-3:]
-    assert "Doc spec of guide" in listed and f'- {page_id} /orders "Orders"' in listed and "paths: app/orders" in listed
-    assert "Doc spec" not in read and "Orders arrive here." in read  # seen once in this turn
-    assert "saved as a new version" in saved and "Doc spec" not in saved
-    assert "manage_doc_site" not in [t.name for t in runner(client).specs[-1].bridge.tools]  # the manager's
-    assert {"list_docs", "read_doc_page", "write_doc_page", "attach_doc_file"} <= {t.name for t in runner(client).specs[-1].bridge.tools}
+    listed, read = tool_results(client, dev["id"])[-2:]
+    assert f'- {page_id} /orders "Orders"' in listed and "paths: app/orders" in listed and "Doc spec" not in listed and "Orders arrive here." in read
+
+    # The manager configures it and orders work; the agent goes with its site.
+    chat(client, manager["id"], "\n".join([
+        "TOOL manage_doc_site " + json.dumps({"site": "guide", "spec": "Audience: developers.", "agent_model": "claude-opus-x"}),
+        "TOOL order_docs " + json.dumps({"site": "guide", "title": "First version", "instructions": "Write the first version of the guide."}),
+    ]))  # fmt: skip
+    wait_for(lambda: idle(client, pid))
+    saved, ordered = tool_results(client, manager["id"])[-2:]
+    assert "claude-opus-x" in saved and ordered.startswith("Assignment #") and "doc agent of guide (docs-guide)" in ordered
+    writer = agents_by_slug(client, pid)["docs-guide"]
+    assert writer["model"] == "claude-opus-x" and "Audience: developers." in writer["instructions"]
+    assert [a["agent_id"] for a in client.get(f"/api/projects/{pid}/assignments").json() if a["title"] == "First version"] == [writer["id"]]
+    assert client.delete(f"/api/projects/{pid}/docs/sites/{guide['id']}").status_code == 204
+    assert "docs-guide" not in agents_by_slug(client, pid) and "docs-other" in agents_by_slug(client, pid)
+    assert other["agent"]["slug"] == "docs-other"
 
 
-def test_the_manager_hears_once_per_burst_which_pages_a_landing_may_have_made_outdated(client, project):
-    from plainboard.models import DocPage, InboxItem, Landing, LandingStatus, utcnow
+def test_the_doc_agent_gets_once_per_burst_the_pages_a_landing_may_have_made_outdated(client, project):
+    from plainboard.models import Assignment, DocPage, InboxItem, Landing, LandingStatus, utcnow
     from sqlalchemy import select
 
     pid = project["id"]
     client.patch(f"/api/projects/{pid}", json={"auto_wake_manager": False})
     repo = client.post(f"/api/projects/{pid}/repositories", json={"name": "api", "url": "https://github.com/acme/api.git"}).json()
     s = site(client, pid)
+    writer = s["agent"]["id"]
     pay = page(client, pid, s["id"], title="Payments", body="How payments work.", paths=["app/pay", "docs/*.md"])
     other = page(client, pid, s["id"], title="Orders", body="Orders.", paths=["app/orders"])
     fake = runner(client)
@@ -272,20 +305,25 @@ def test_the_manager_hears_once_per_burst_which_pages_a_landing_may_have_made_ou
     client.portal.call(watcher.tick, now + timedelta(minutes=5))  # still landing: nothing yet
     db(client, lambda s: land(s, now + timedelta(minutes=6), "be/more"))
     client.portal.call(watcher.tick, now + timedelta(minutes=20))
+    wait_for(lambda: idle(client, pid))
+
+    async def orders(s):
+        return [a.instructions for a in await s.scalars(select(Assignment).where(Assignment.agent_id == writer).order_by(Assignment.id))]
 
     manager = agents_by_slug(client, pid)["manager"]
 
-    async def inbox(s):
+    async def manager_inbox(s):
         return [i.text for i in await s.scalars(select(InboxItem).where(InboxItem.agent_id == manager["id"]))]
 
-    texts = [t for t in db(client, inbox) if t.startswith("Docs may be outdated")]
+    texts = db(client, orders)
     assert len(texts) == 1, texts
-    assert "api: be/retries; be/more" in texts[0] and f'doc page {pay["id"]} "Payments" (site handbook): its linked code changed: app/pay/webhooks.py, app/pay/x.py, docs/pay.md (2 commits)' in texts[0]
+    assert "api: be/retries; be/more" in texts[0] and f'doc page {pay["id"]} "Payments" (/payments): its linked code changed: app/pay/webhooks.py, app/pay/x.py, docs/pay.md (2 commits)' in texts[0]
     assert "Orders" not in texts[0] and fake.git_log_specs[-1].since == "a" * 40
+    assert not db(client, manager_inbox)  # the manager is not involved, not even by the report
     flagged = client.get(f"/api/projects/{pid}/docs/pages/{pay['id']}").json()
     assert flagged["flagged_at"] and flagged["drift"] == 2 and client.get(f"/api/projects/{pid}/docs/sites/{s['id']}").json()["stale_pages"] == 1
     client.portal.call(watcher.tick, now + timedelta(minutes=40))
-    assert len([t for t in db(client, inbox) if t.startswith("Docs may be outdated")]) == 1  # nothing new landed
+    assert len(db(client, orders)) == 1  # nothing new landed
 
     cleared = client.post(f"/api/projects/{pid}/docs/pages/{pay['id']}/confirm").json()
     assert cleared["flagged_at"] is None and cleared["drift"] == 0
@@ -297,10 +335,11 @@ def test_the_manager_hears_once_per_burst_which_pages_a_landing_may_have_made_ou
 
     db(client, drift)
     client.portal.call(watcher.tick, now + timedelta(days=2))
-    stale = [t for t in db(client, inbox) if t.startswith("Doc pages that are probably stale")]
+    wait_for(lambda: idle(client, pid))
+    stale = [t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]
     assert len(stale) == 1 and f'doc page {other["id"]} "Orders"' in stale[0] and "12 commits changed its linked code" in stale[0]
     client.portal.call(watcher.tick, now + timedelta(days=3, hours=1))
-    assert len([t for t in db(client, inbox) if t.startswith("Doc pages that are probably stale")]) == 1
+    assert len([t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]) == 1
 
 
 def test_a_project_moves_with_its_doc_sites_files_and_links(client, project):
@@ -476,8 +515,8 @@ def test_an_llm_translates_on_the_projects_subscription(client, project, monkeyp
     assert db(client, look) == 1
     assert specs[0].model == "claude-haiku-x" and "into fr" in specs[0].system_prompt
     assert client.get("/api/public/docs/handbook/page", params={"path": "", "lang": "fr"}).json()["markdown"] == "Bonjour."
-    runs = db(client, lambda session: session.scalars(select(Run.trigger).where(Run.project_id == pid, Run.trigger == "docs")))
-    assert len(list(runs)) == 2  # title and text, each counted
+    runs = db(client, lambda session: session.scalars(select(Run.agent_id).where(Run.project_id == pid, Run.trigger == "docs")))
+    assert list(runs) == [s["agent"]["id"]] * 2  # title and text, each counted, on the doc agent
 
 
 def test_a_site_of_thousands_of_pages_is_served_and_listed_piece_by_piece(client, project):

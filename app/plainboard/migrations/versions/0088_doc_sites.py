@@ -1,4 +1,4 @@
-"""Doc sites (#118): doc_sites, doc_pages, doc_page_versions, doc_translations, doc_watch, attachments.doc_site_id, search_documents.doc_page_id
+"""Doc sites (#118): doc_sites, doc_pages, doc_page_versions, doc_translations, doc_watch, attachments.doc_site_id, agents.doc_site_id, search_documents.doc_page_id
 
 Revision ID: 0088
 Revises: 0087
@@ -111,8 +111,12 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("attachments") as batch:
         batch.add_column(sa.Column("doc_site_id", sa.Integer(), nullable=True))
-        batch.create_foreign_key("fk_attachments_doc_site_id_doc_sites", "doc_sites", ["doc_site_id"], ["id"], ondelete="CASCADE")
+        batch.create_foreign_key("attachments_doc_site_id_fkey", "doc_sites", ["doc_site_id"], ["id"], ondelete="CASCADE")
         batch.create_index("ix_attachments_doc_site_id", ["doc_site_id"])
+    with op.batch_alter_table("agents") as batch:
+        batch.add_column(sa.Column("doc_site_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key("agents_doc_site_id_fkey", "doc_sites", ["doc_site_id"], ["id"], ondelete="CASCADE")
+        batch.create_index("ix_agents_doc_site_id", ["doc_site_id"])
     if _search_there(op.get_bind()):  # where the search tables are made later, search.schema.ensure links them then
         from plainboard.services.search.schema import link_doc_pages
 
@@ -124,9 +128,13 @@ def downgrade() -> None:
         op.execute("ALTER TABLE search_documents DROP CONSTRAINT IF EXISTS fk_search_documents_doc_page_id")
         op.execute("DROP INDEX IF EXISTS ix_search_documents_doc_page_id")
         op.execute("ALTER TABLE search_documents DROP COLUMN IF EXISTS doc_page_id")
+    with op.batch_alter_table("agents") as batch:
+        batch.drop_index("ix_agents_doc_site_id")
+        batch.drop_constraint("agents_doc_site_id_fkey", type_="foreignkey")
+        batch.drop_column("doc_site_id")
     with op.batch_alter_table("attachments") as batch:
         batch.drop_index("ix_attachments_doc_site_id")
-        batch.drop_constraint("fk_attachments_doc_site_id_doc_sites", type_="foreignkey")
+        batch.drop_constraint("attachments_doc_site_id_fkey", type_="foreignkey")
         batch.drop_column("doc_site_id")
     op.drop_table("doc_watch")
     op.drop_table("doc_translations")

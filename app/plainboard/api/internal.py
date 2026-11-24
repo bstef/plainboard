@@ -119,6 +119,9 @@ async def upload_doc_file(
     ctx = _writer(_context(runs, run_id, authorization))
     try:
         found = await docs_service.find_site(session, ctx.project_id, site)
+        writer = await agent_service.get(session, ctx.agent_id)
+        if writer.doc_site_id != found.id:
+            return ToolCallResult(text=f"Only the doc agent of {found.slug} adds its files.", is_error=True)
         attachment = await docs_service.add_file(session, found, file.filename or "file", file.content_type or "", file.file, agent_id=ctx.agent_id)
     except ServiceError as exc:
         return ToolCallResult(text=str(exc), is_error=True)

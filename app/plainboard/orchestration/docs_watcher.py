@@ -1,7 +1,8 @@
 """Keeps doc sites current (#118), without a model.
 
-After branches land, the watcher finds the doc pages the change may concern and tells the project's manager in
-one message per burst of landings (not per commit): the manager updates them or orders one assignment for them.
+After branches land, the watcher finds the doc pages the change may concern and hands them to each site's doc agent
+(services/docs.ensure_agent) in one assignment per site and burst of landings (not per commit); the manager is not
+involved. A doc agent that still works on one gets the next pages as an update instead.
 A burst is over when nothing landed for ``QUIET`` (or ``MAX_WAIT`` after its first landing).
 
 A page is concerned when
@@ -12,7 +13,7 @@ A page is concerned when
 Such a page is marked (``flagged_at``, ``flag_reason``) until someone edits it or confirms it is still right.
 
 Once a day per project it also reads the commits of each repository that did not come through a landing (direct
-pushes): they count into the pages' ``drift``. The manager hears, at most once a week per page, of pages whose
+pushes): they count into the pages' ``drift``. The doc agent hears, at most once a week per page, of pages whose
 linked code changed a lot since their last edit (``DRIFT_STALE`` commits) or that stayed marked for ``STALE_DAYS``.
 Each look also translates what is missing or outdated in the sites' further languages (services/docs_translate.py):
 at most ``docs_translate.BATCH`` pages per site and ``TRANSLATE_SECONDS`` per look; ``translate_soon`` looks at once.
@@ -33,9 +34,9 @@ from plainboard_protocol import CompletionResult, CompletionSpec, GitCommit, Git
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..models import Assignment, DocPage, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
+from ..models import Assignment, AssignmentStatus, DocPage, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
 from ..services import accounts as account_service
-from ..services import agents as agent_service
+from ..services import docs as docs_service
 from ..services import docs_translate
 from ..services import settings as settings_service
 from ..services import flow_log
@@ -206,10 +207,11 @@ class DocsWatcher:
         return made
 
     def _llm(self, s: AsyncSession, project: Project, site: DocSite):  # noqa: ANN202
-        """One completion without tools on the project's subscriptions, its cost a run of the manager's."""
+        """One completion without tools on the project's subscriptions, its cost a run of the site's doc agent."""
 
         async def ask(system: str, prompt: str) -> str:
-            provider = site.translate_provider or project.idea_provider or DEFAULT_PROVIDER
+            agent = await docs_service.ensure_agent(s, site)
+            provider = site.translate_provider or agent.provider or project.idea_provider or DEFAULT_PROVIDER
             model = site.translate_model
             if not model:
                 try:
@@ -217,13 +219,12 @@ class DocsWatcher:
                 except Exception:
                     catalog = []
                 model = questions.default_model(provider, catalog)
-            manager = await agent_service.get_manager(s, project.id)
             where = self._runs.runners.where(project.id)
-            account = await account_service.pick(s, provider, manager, None, model=model, fresh=True, where=where)
+            account = await account_service.pick(s, provider, agent, None, model=model, fresh=True, where=where)
             if account is None:
-                raise RuntimeError(await account_service.shut_out(s, provider, manager) or await account_service.not_signed_in(s, provider, manager, where) or "no subscription")
+                raise RuntimeError(await account_service.shut_out(s, provider, agent) or await account_service.not_signed_in(s, provider, agent, where) or "no subscription")
             credentials = settings_service.credentials(await settings_service.get_all(s), account=account_service.fields(account))
-            account_key, manager_id = account.key, manager.id
+            account_key, agent_id = account.key, agent.id
             await s.commit()
             result: CompletionResult | None = None
             error = ""
@@ -233,7 +234,7 @@ class DocsWatcher:
                 error = str(exc) or type(exc).__name__
             at = utcnow()
             s.add(Run(
-                project_id=project.id, agent_id=manager_id, trigger=RunTrigger.DOCS, status=RunStatus.FAILED if error else RunStatus.SUCCEEDED, input_text="",
+                project_id=project.id, agent_id=agent_id, trigger=RunTrigger.DOCS, status=RunStatus.FAILED if error else RunStatus.SUCCEEDED, input_text="",
                 error=truncate(error, 500) if error else None, input_tokens=result.input_tokens if result else 0, output_tokens=result.output_tokens if result else 0,
                 cost_usd=result.cost_usd if result else 0.0, num_turns=1 if result else 0, account_key=account_key, created_at=at, started_at=at, finished_at=at,
             ))  # fmt: skip
@@ -324,51 +325,64 @@ class DocsWatcher:
                 c.page.flagged_at = now
             c.page.flag_reason = truncate("; ".join(c.reasons), 500)
         await s.commit()
-        lines = [_line(c.page, sites, "; ".join(c.reasons)) for c in concerns[:PAGES_NAMED]]
-        more = f"\n(and {len(concerns) - PAGES_NAMED} more marked pages: list_docs)" if len(concerns) > PAGES_NAMED else ""
-        text = (
-            f"Docs may be outdated after what landed ({' | '.join(landed)}). Pages to check:\n" + "\n".join(lines) + more + "\n"
-            "Each site's doc spec applies (read_doc_page shows it). Update what the change made wrong with write_doc_page and a reason, or confirm "
-            "a page that is still right (write_doc_page still_current). Do it yourself or order one assignment for all of them, never one per page."
-        )
         await flow_log.record(s, project.id, "docs.outdated", pages=[c.page.id for c in concerns], landed=landed)
-        await self._send(s, project, text)
+        for site_id, mine in _by_site([c.page for c in concerns]).items():
+            reasons = {c.page.id: "; ".join(c.reasons) for c in concerns}
+            lines = [_line(p, reasons[p.id]) for p in mine[:PAGES_NAMED]]
+            more = f"\n(and {len(mine) - PAGES_NAMED} more marked pages: list_docs marked=true)" if len(mine) > PAGES_NAMED else ""
+            text = (
+                f"Pages of your doc site may be outdated after what landed ({' | '.join(landed)}). Pages to check:\n" + "\n".join(lines) + more + "\n"
+                "Update what the change made wrong (write_doc_page with a reason), or confirm a page that is still right (write_doc_page still_current)."
+            )
+            await self._send(s, sites[site_id], "Update docs after landings", text)
 
     async def _remind(self, s: AsyncSession, project: Project, now: datetime) -> None:
         due = (DocPage.reminded_at.is_(None)) | (DocPage.reminded_at < now - REMIND_EVERY)
         stale = (DocPage.drift >= DRIFT_STALE) | (DocPage.flagged_at < now - timedelta(days=STALE_DAYS))
-        pages = list(await s.scalars(select(DocPage).where(DocPage.project_id == project.id, due, stale).order_by(DocPage.drift.desc(), DocPage.id)))
-        if not pages:
-            return
         sites = {site.id: site for site in await s.scalars(select(DocSite).where(DocSite.project_id == project.id))}
-        lines = []
-        for page in pages[:PAGES_NAMED]:
-            page.reminded_at = now
-            why = []
-            if page.drift >= DRIFT_STALE:
-                why.append(f"{page.drift} commits changed its linked code since its last edit {page.edited_at:%Y-%m-%d}")
-            if page.flagged_at and page.flagged_at < now - timedelta(days=STALE_DAYS):
-                why.append(f"marked as possibly outdated since {page.flagged_at:%Y-%m-%d}: {truncate(page.flag_reason, 200)}")
-            lines.append(_line(page, sites, "; ".join(why)))
-        await s.commit()
-        total = int(await s.scalar(select(func.count()).select_from(DocPage).where(DocPage.project_id == project.id, stale)) or 0)
-        more = f"\n(of {total} such pages: list_docs)" if total > len(lines) else ""
-        text = (
-            "Doc pages that are probably stale:\n" + "\n".join(lines) + more + "\n"
-            "Bring them up to date per their site's doc spec (one assignment for all of them, or yourself), or confirm with write_doc_page still_current."
+        for site in sites.values():
+            pages = list(await s.scalars(select(DocPage).where(DocPage.site_id == site.id, due, stale).order_by(DocPage.drift.desc(), DocPage.id).limit(PAGES_NAMED + 1)))
+            if not pages:
+                continue
+            lines = []
+            for page in pages[:PAGES_NAMED]:
+                page.reminded_at = now
+                why = []
+                if page.drift >= DRIFT_STALE:
+                    why.append(f"{page.drift} commits changed its linked code since its last edit {page.edited_at:%Y-%m-%d}")
+                if page.flagged_at and page.flagged_at < now - timedelta(days=STALE_DAYS):
+                    why.append(f"marked as possibly outdated since {page.flagged_at:%Y-%m-%d}: {truncate(page.flag_reason, 200)}")
+                lines.append(_line(page, "; ".join(why)))
+            await s.commit()
+            total = int(await s.scalar(select(func.count()).select_from(DocPage).where(DocPage.site_id == site.id, stale)) or 0)
+            more = f"\n(of {total} such pages: list_docs marked=true)" if total > len(lines) else ""
+            text = (
+                "Pages of your doc site that are probably stale:\n" + "\n".join(lines) + more + "\n"
+                "Bring them up to date per the doc spec, or confirm them with write_doc_page still_current."
+            )
+            await self._send(s, site, "Bring stale doc pages up to date", text)
+
+    async def _send(self, s: AsyncSession, site: DocSite, title: str, text: str) -> None:
+        """To the site's doc agent: one assignment, or an update for the one it still works on."""
+        agent = await docs_service.ensure_agent(s, site)
+        if not agent.enabled:
+            return  # paused by the user: the pages stay marked, list_docs shows them
+        busy = await s.scalar(
+            select(Assignment.id).where(Assignment.agent_id == agent.id, Assignment.created_by_agent_id.is_(None), Assignment.status.in_((AssignmentStatus.QUEUED, AssignmentStatus.RUNNING))).limit(1)
         )
-        await self._send(s, project, text)
-
-    async def _send(self, s: AsyncSession, project: Project, text: str) -> None:
-        try:
-            manager = await agent_service.get_manager(s, project.id)
-        except Exception:
+        if busy is not None:
+            await inbox.push(s, agent.id, f"More for assignment #{busy}: {text}")
+            await self._runs.request_wake(s, agent.id)
             return
-        await inbox.push(s, manager.id, text)
-        if project.auto_wake_manager:
-            await self._runs.request_wake(s, manager.id)
+        await self._runs.delegate(s, None, agent, title, text, None, source="PlainBoard")
 
 
-def _line(page: DocPage, sites: dict[int, DocSite], why: str) -> str:
-    site = sites.get(page.site_id)
-    return f'- doc page {page.id} "{page.title}" (site {site.slug if site else page.site_id}): {why}'
+def _by_site(pages: list[DocPage]) -> dict[int, list[DocPage]]:
+    out: dict[int, list[DocPage]] = {}
+    for page in pages:
+        out.setdefault(page.site_id, []).append(page)
+    return out
+
+
+def _line(page: DocPage, why: str) -> str:
+    return f'- doc page {page.id} "{page.title}" (/{page.path}): {why}'

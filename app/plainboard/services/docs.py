@@ -31,8 +31,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Attachment, DocPage, DocPageVersion, DocSite, DocTranslation, utcnow
-from ..schemas import AttachmentOut, DocPageItem, DocSiteOut
+from ..models import Agent, Attachment, DocPage, DocPageVersion, DocSite, DocTranslation, utcnow
+from ..schemas import AgentCreate, AgentUpdate, AttachmentOut, DocAgentOut, DocPageItem, DocSiteOut
 from . import board as board_service
 from .errors import NotFound, ServiceError
 from .util import slugify
@@ -80,7 +80,7 @@ def clean_languages(values: list[str], language: str) -> list[str]:
     return out[:30]
 
 
-def site_out(site: DocSite, pages: int = 0, stale: int = 0) -> DocSiteOut:
+def site_out(site: DocSite, pages: int = 0, stale: int = 0, agent: Agent | None = None) -> DocSiteOut:
     return DocSiteOut(
         id=site.id, project_id=site.project_id, name=site.name, slug=site.slug, description=site.description, spec=site.spec,
         published=site.published, public=site.public, language=site.language, languages=list(site.languages or []),
@@ -88,6 +88,7 @@ def site_out(site: DocSite, pages: int = 0, stale: int = 0) -> DocSiteOut:
         deepl_key_set=bool(site.deepl_key_enc), google_key_set=bool(site.google_key_enc),
         domain=site.domain, domain_verified_at=site.domain_verified_at,
         cloudflare_token_set=bool(site.cloudflare_token_enc), url=f"/docs/{site.slug}/", pages=pages, stale_pages=stale,
+        agent=DocAgentOut(id=agent.id, slug=agent.slug, name=agent.name, provider=agent.provider, model=agent.model, effort=agent.effort, enabled=agent.enabled) if agent else None,
         created_at=site.created_at, updated_at=site.updated_at,
     )  # fmt: skip
 
@@ -100,7 +101,8 @@ async def site_outs(session: AsyncSession, sites: list[DocSite]) -> list[DocSite
         select(DocPage.site_id, func.count(), func.count(DocPage.flagged_at)).where(DocPage.site_id.in_(ids)).group_by(DocPage.site_id)
     )
     counts = {site_id: (int(n), int(stale)) for site_id, n, stale in rows.all()}
-    return [site_out(s, *counts.get(s.id, (0, 0))) for s in sites]
+    agents = {a.doc_site_id: a for a in await session.scalars(select(Agent).where(Agent.doc_site_id.in_(ids)))}
+    return [site_out(s, *counts.get(s.id, (0, 0)), agents.get(s.id)) for s in sites]
 
 
 async def publish_site(session: AsyncSession, site: DocSite) -> None:
@@ -131,8 +133,10 @@ async def find_site(session: AsyncSession, project_id: int, ref: str) -> DocSite
 
 async def create_site(
     session: AsyncSession, project_id: int, *, name: str, slug: str | None = None, description: str = "", spec: str = "", published: bool = False,
-    public: bool = False, language: str = "en", languages: list[str] | None = None,
+    public: bool = False, language: str = "en", languages: list[str] | None = None, agent_provider: str | None = None, agent_model: str | None = None,
+    agent_effort: str | None = None,
 ) -> DocSite:  # fmt: skip
+    """With its doc agent, the one agent that writes it (``ensure_agent``)."""
     if slug and await session.scalar(select(DocSite.id).where(DocSite.slug == slug)) is not None:
         raise ServiceError(f"The address /docs/{slug}/ is taken: choose another slug.", 409)
     if not LANGUAGE.match(language):
@@ -143,8 +147,57 @@ async def create_site(
     )  # fmt: skip
     session.add(site)
     await session.commit()
+    await ensure_agent(session, site, provider=agent_provider, model=agent_model, effort=agent_effort)
     await publish_site(session, site)
     return site
+
+
+# --- the doc agent ---------------------------------------------------------------------------------------------
+# Every site has its own agent, hidden from the team and the board: it alone writes the site's pages (the user does
+# in the app), so the site reads as one. Its standing instructions are the doc spec; the watcher hands it the pages
+# to update after landings, the manager orders it work (tools/docs.py order_docs). It counts into the parallel limit.
+
+AGENT_GUIDE = """You are the doc agent of the doc site "{name}" (slug {slug}, /docs/{slug}/), and the only agent that writes it.
+- Read the code and the project's history to document what is real; follow the doc spec below in every page.
+- Write pages with write_doc_page (a short reason each time), files with attach_doc_file, link pages with doc-page:ID.
+- Give each page the code paths it describes (paths): changes there after a landing come back to you.
+- Pages PlainBoard names as possibly outdated: update what the change made wrong, or confirm them (still_current).
+- Keep pages short and find before you write (list_docs query): change a page rather than add a second one.
+- You write no code and change no repository.
+
+## Doc spec
+{spec}"""
+
+
+def agent_instructions(site: DocSite) -> str:
+    return AGENT_GUIDE.format(name=site.name, slug=site.slug, spec=site.spec.strip() or "None yet: the manager agrees it with the user. Write no pages before it is there.")
+
+
+async def doc_agent(session: AsyncSession, site_id: int) -> Agent | None:
+    return await session.scalar(select(Agent).where(Agent.doc_site_id == site_id).limit(1))
+
+
+async def ensure_agent(session: AsyncSession, site: DocSite, *, provider: str | None = None, model: str | None = None, effort: str | None = None) -> Agent:
+    """The site's doc agent, made if it has none; ``provider``, ``model``, ``effort``: None keeps (or takes the defaults)."""
+    from . import agents as agent_service
+
+    agent = await doc_agent(session, site.id)
+    name = f"Docs {site.name}"[:100]
+    if agent is None:
+        data = AgentCreate(
+            name=name, role="Doc agent", description=f"Writes and keeps current the doc site {site.slug}", instructions=agent_instructions(site),
+            provider=provider or None, model=model or None, effort=effort or None,
+        )  # fmt: skip
+        return await agent_service.create(session, site.project_id, data, doc_site_id=site.id)
+    fields: dict = {}
+    if agent.instructions != agent_instructions(site):
+        fields["instructions"] = agent_instructions(site)
+    if agent.name != name:
+        fields["name"] = name
+    for key, value in (("provider", provider), ("model", model), ("effort", effort)):
+        if value is not None and value != (getattr(agent, key) or ""):
+            fields[key] = value
+    return await agent_service.update(session, agent, AgentUpdate(**fields)) if fields else agent
 
 
 SITE_FIELDS = ("name", "description", "spec", "published", "public", "translator", "translate_provider", "translate_model")
@@ -178,6 +231,7 @@ async def update_site(session: AsyncSession, site: DocSite, **changes) -> DocSit
             site.domain_token = secrets.token_urlsafe(24)
     site.updated_at = utcnow()
     await session.commit()
+    await ensure_agent(session, site, provider=changes.get("agent_provider"), model=changes.get("agent_model"), effort=changes.get("agent_effort"))
     from . import docs_domains
 
     docs_domains.forget()
@@ -190,6 +244,10 @@ async def delete_site(session: AsyncSession, site: DocSite) -> None:
     project_id, site_id = site.project_id, site.id
     for attachment in await files(session, site_id):
         board_service.storage_path(attachment).unlink(missing_ok=True)
+    if (agent := await doc_agent(session, site_id)) is not None:
+        from . import agents as agent_service
+
+        await agent_service.delete(session, agent)
     await session.delete(site)
     await session.commit()
     from . import docs_domains

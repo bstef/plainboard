@@ -65,7 +65,7 @@ AGENT = {"created_by_agent_id": "agents"}
 # and idea_changes (what can be undone right now: its ids are this side's).
 TABLES: tuple[Table, ...] = (
     Table("projects", sealed=("github_token_enc",), reset={"workspace_path": None, "account_id": None, "account_ids": [], "blocked_account_ids": None, "runner_id": None, "owner_id": None}),
-    Table("agents", reset={"account_id": None, "team_pause": False}),
+    Table("agents", reset={"account_id": None, "team_pause": False}, late={"doc_site_id": "doc_sites"}),
     Table("repositories", sealed=("token_enc", "ssh_key_enc"), reset={"tidied_at": None, "tidy_listed": None, "failing_told_at": None, "slow_told_at": None, "slow_told_seconds": None, "checks_baseline_at": None}),
     Table("mcp_servers", sealed=("env_enc", "headers_enc")),
     Table("secrets", sealed=("value_enc",)),

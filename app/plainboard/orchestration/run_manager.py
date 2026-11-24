@@ -819,7 +819,9 @@ class RunManager:
         effort: str | None = None,
         landing_id: int | None = None,
         train_id: int | None = None,
+        source: str | None = None,
     ) -> Assignment:
+        """``source``: who ordered it when no agent did (e.g. "PlainBoard"); else the user or PlainBoard's landing."""
         if task is not None and task.project_id != target.project_id:
             raise ServiceError("Ticket belongs to another project")
         if task is not None and task.status in (TaskStatus.BACKLOG, TaskStatus.TODO, TaskStatus.REVIEW):
@@ -837,7 +839,7 @@ class RunManager:
         )
         s.add(assignment)
         await s.commit()
-        from_name = caller.name if caller else "PlainBoard" if landing_id or train_id else "the user"
+        from_name = caller.name if caller else source or ("PlainBoard" if landing_id or train_id else "the user")
         run = await self.enqueue(
             s,
             target,
@@ -1565,7 +1567,7 @@ class RunManager:
                 capacity = await board_service.capacity(
                     s, project.id, limit, except_run_id=run.id, waiting=self.waiting_for_job(), backlog=project.continue_with_backlog
                 )
-                team = [a for a in await agent_service.list_for_project(s, project.id) if a.enabled and not a.is_manager]
+                team = [a for a in await agent_service.list_for_project(s, project.id, doc_agents=False) if a.enabled and not a.is_manager]
                 open_todos = await todo_service.open_stats(s, [a.id for a in team])
                 todo_counts = [(a.name, *_count_and_age(open_todos.get(a.id))) for a in team[:12]]
                 checks = (
@@ -1912,6 +1914,8 @@ class RunManager:
                     f"and the fix lands like any branch: {truncate(text, 500)}",
                 )
             return
+        if ok and agent.doc_site_id is not None and assignment.created_by_agent_id is None:
+            return  # a doc agent's update that PlainBoard ordered after landings (docs_watcher): it costs the manager no turn
         ref = f", ticket #{ticket.number}" if ticket else ""
         recipient = assignment.created_by_agent_id or (await agent_service.get_manager(s, project.id)).id
         if recipient != agent.id:

@@ -1,7 +1,8 @@
-"""Doc sites (#118, services/docs.py): agents read and write pages, the manager makes sites and keeps their doc spec.
+"""Doc sites (#118, services/docs.py): every agent reads them, each site's own doc agent alone writes it.
 
-The doc spec says what the user wants in a site; every agent that writes it gets it with what it reads, and with its
-first write of the site in a turn if it read nothing before.
+The manager makes and configures sites (with their doc agent), keeps the doc spec with the user and orders the doc
+agent work (order_docs). The doc spec says what the user wants in a site: it is the doc agent's standing instructions,
+and the manager sees it with the first look at a site in a turn.
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from ..models import DocPage, DocSite
+from ..models import Assignment, DocPage, DocSite
+from ..services import board as board_service
 from ..services import docs as docs_service
 from ..services.util import truncate
-from .registry import ALL, DOCS, MANAGER, ToolContext, ToolError, local_tool, tool
+from .registry import ALL, DOC_AGENT, DOCS, MANAGER, ToolContext, ToolError, local_tool, tool
 
 _spec_seen: OrderedDict[tuple[int, int], None] = OrderedDict()  # (run, site): the spec was in a result of this turn
 
@@ -39,11 +41,17 @@ def _author(ctx: ToolContext) -> docs_service.Author:
     return docs_service.Author(ctx.agent.name, ctx.agent.id)
 
 
+def _own(ctx: ToolContext, site: DocSite) -> None:
+    if ctx.agent.doc_site_id != site.id:
+        raise ToolError(f"Only the doc agent of {site.slug} writes it.")
+
+
 def _site_line(site, pages: int, stale: int) -> str:  # noqa: ANN001
     where = f"/docs/{site.slug}/" + (f", {site.domain}" + ("" if site.domain_verified_at else " (not verified)") if site.domain else "")
     served = ("public" if site.public else "private") if site.published else "draft"
     langs = f"; languages {site.language}+{','.join(site.languages)}" if site.languages else ""
-    return f"- {site.slug}: {site.name} [{served}; {where}; {pages} pages" + (f", {stale} marked outdated" if stale else "") + f"{langs}]"
+    agent = f"; doc agent {site.agent.slug}" if getattr(site, "agent", None) else ""
+    return f"- {site.slug}: {site.name} [{served}; {where}; {pages} pages" + (f", {stale} marked outdated" if stale else "") + f"{langs}{agent}]"
 
 
 LISTED = 50  # pages per call
@@ -79,7 +87,7 @@ async def list_docs(ctx: ToolContext, args: ListDocsArgs) -> str:
             return "No doc sites yet."
         return "\n".join(_site_line(s, s.pages, s.stale_pages) for s in outs)
     site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
-    head = [] if _saw(ctx.run.run_id, site.id) else [_spec(site), ""]
+    head = [_spec(site), ""] if ctx.agent.is_manager and not _saw(ctx.run.run_id, site.id) else []
     if args.query:
         rows = await docs_service.search_titles(ctx.session, site.id, args.query, LISTED)
         title, total = f"Pages of {site.slug} matching {args.query!r}:", len(rows)
@@ -107,12 +115,11 @@ class ReadDocPageArgs(BaseModel):
 READ_CHARS = 20000
 
 
-@tool("read_doc_page", "A doc page's Markdown (long pages in parts), with its site's doc spec.", ReadDocPageArgs, roles=ALL, feature=DOCS)
+@tool("read_doc_page", "A doc page's Markdown (long pages in parts).", ReadDocPageArgs, roles=ALL, feature=DOCS)
 async def read_doc_page(ctx: ToolContext, args: ReadDocPageArgs) -> str:
     page = await docs_service.get_page(ctx.session, ctx.project.id, args.page)
     site = await ctx.session.get(DocSite, page.site_id)
     assert site is not None
-    spec = "" if _saw(ctx.run.run_id, site.id) else _spec(site) + "\n\n"
     facts = [f"site {site.slug}", f"/{page.path}", f"edited {page.edited_at:%Y-%m-%d} by {page.edited_by}"]
     if page.paths:
         facts.append(f"paths: {', '.join(page.paths)}")
@@ -120,13 +127,13 @@ async def read_doc_page(ctx: ToolContext, args: ReadDocPageArgs) -> str:
     body = page.body or "(empty)"
     part = body[args.offset : args.offset + READ_CHARS]
     more = f"\n\n(characters {args.offset}-{args.offset + len(part)} of {len(body)}; more: offset={args.offset + len(part)})" if args.offset or len(body) > args.offset + READ_CHARS else ""
-    return f"{spec}Doc page {page.id} \"{page.title}\" ({'; '.join(facts)}){mark}\n\n{part}{more}"
+    return f"Doc page {page.id} \"{page.title}\" ({'; '.join(facts)}){mark}\n\n{part}{more}"
 
 
 class WriteDocPageArgs(BaseModel):
     reason: str = Field(min_length=3, max_length=300, description="Why, in one short sentence (kept with the version)")
     page: int | None = Field(default=None, description="Page id to change; empty = a new page")
-    site: str | None = Field(default=None, description="New page: site slug/id")
+    site: str | None = Field(default=None, description="New page: your site's slug/id")
     title: str | None = Field(default=None, max_length=200)
     body: str | None = Field(default=None, description="Whole Markdown text. Files: ![alt](doc-file:ID), links to pages: [text](doc-page:ID)")
     parent: int | None = Field(default=None, description="Parent page id (with move: 0 = top level)")
@@ -139,10 +146,9 @@ class WriteDocPageArgs(BaseModel):
 
 @tool(
     "write_doc_page",
-    "Create, change or move a doc page; every change of title or text is kept as a version. Follow the site's doc spec.",
+    "Create, change or move a page of your doc site; every change of title or text is kept as a version. Follow the doc spec.",
     WriteDocPageArgs,
-    roles=ALL,
-    feature=DOCS,
+    roles=(DOC_AGENT,),
 )
 async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
     author = _author(ctx)
@@ -150,6 +156,7 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         if not args.site or not args.title:
             raise ToolError("A new page needs site and title.")
         site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
+        _own(ctx, site)
         page = await docs_service.create_page(
             ctx.session, site, author, title=args.title, body=args.body or "", parent_id=args.parent or None, position=args.position,
             slug=args.slug, paths=args.paths, reason=args.reason,
@@ -159,6 +166,7 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         page = await docs_service.get_page(ctx.session, ctx.project.id, args.page)
         site = await ctx.session.get(DocSite, page.site_id)
         assert site is not None
+        _own(ctx, site)
         if args.still_current and args.body is None and args.title is None:
             await docs_service.confirm_page(ctx.session, page, author, args.reason)
             return f"Doc page {page.id} confirmed as current."
@@ -169,13 +177,11 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         )  # fmt: skip
         changed = await docs_service.count_versions(ctx.session, page.id) > versions
         done = f"Doc page {page.id} /{page.path} {'saved as a new version' if changed else 'updated (text unchanged)'}."
-    if not _saw(ctx.run.run_id, site.id):
-        done += f"\n\n{_spec(site)}\nIf the page does not follow it yet, change it."
     return done
 
 
 class ManageDocSiteArgs(BaseModel):
-    site: str | None = Field(default=None, description="Site slug/id to change; empty = a new site")
+    site: str | None = Field(default=None, description="Site slug/id to change; empty = a new site (with its own doc agent)")
     name: str | None = Field(default=None, max_length=200)
     slug: str | None = Field(default=None, max_length=80, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", description="Its address /docs/<slug>/")
     description: str | None = Field(default=None, max_length=300, description="One sentence for search engines")
@@ -185,32 +191,84 @@ class ManageDocSiteArgs(BaseModel):
     languages: list[str] | None = Field(default=None, max_length=30, description="Further languages (codes), translated automatically")
     translator: Literal["", "llm", "deepl", "google"] | None = Field(default=None, description="How (deepl/google need the API key the user enters in the site's settings)")
     translate_model: str | None = Field(default=None, max_length=100, description="llm: model id; empty = the provider's small one")
+    agent_provider: str | None = Field(default=None, max_length=50, description="Its doc agent's provider (list_models); empty = default")
+    agent_model: str | None = Field(default=None, max_length=100, description="Its doc agent's model; empty = the default for members")
+    agent_effort: Literal["", "low", "medium", "high", "xhigh", "max"] | None = None
+    domain_help: bool = Field(default=False, description="Also return how the user gives it an own domain")
 
 
-@tool("manage_doc_site", "Create a doc site or change its name, slug, description, doc spec or published state.", ManageDocSiteArgs, roles=(MANAGER,))
+DOMAIN_HELP = (
+    "Own domain: the user enters it in the site's settings in PlainBoard (only the owner), then either gives a Cloudflare API token "
+    "there (PlainBoard creates the DNS record) or sets a CNAME to this PlainBoard's host name themselves; behind a Cloudflare tunnel "
+    "also a public hostname rule to PlainBoard. PlainBoard verifies the domain itself and serves the site there only after that."
+)
+
+
+def _agent_line(site: DocSite, agent) -> str:  # noqa: ANN001
+    return f" Its doc agent: {agent.slug} ({agent.model}{', effort ' + agent.effort if agent.effort else ''})." if agent else ""
+
+
+@tool(
+    "manage_doc_site",
+    "Create a doc site (it gets its own hidden doc agent, the only one that writes it) or change its settings, doc spec or doc agent's model.",
+    ManageDocSiteArgs,
+    roles=(MANAGER,),
+)
 async def manage_doc_site(ctx: ToolContext, args: ManageDocSiteArgs) -> str:
+    agent_args = {"agent_provider": args.agent_provider, "agent_model": args.agent_model, "agent_effort": args.agent_effort}
+    help_ = f"\n{DOMAIN_HELP}" if args.domain_help else ""
     if args.site is None:
         if not args.name:
             raise ToolError("A new site needs a name.")
         site = await docs_service.create_site(
             ctx.session, ctx.project.id, name=args.name, slug=args.slug, description=args.description or "", spec=args.spec or "", published=bool(args.published),
-            public=bool(args.public), languages=args.languages or [],
-        )
+            public=bool(args.public), languages=args.languages or [], **agent_args,
+        )  # fmt: skip
         if args.translator or args.translate_model:
             site = await docs_service.update_site(ctx.session, site, translator=args.translator, translate_model=args.translate_model)
-        hint = "" if site.spec else " Write its doc spec with the user before pages are written."
+        hint = " Write its doc spec with the user, then order the first version with order_docs." if not site.spec else " Order the first version with order_docs."
         served = ("public" if site.public else "private") if site.published else "draft"
-        return f"Created doc site {site.slug} (id {site.id}, /docs/{site.slug}/, {served}).{hint}"
+        agent = await docs_service.doc_agent(ctx.session, site.id)
+        return f"Created doc site {site.slug} (id {site.id}, /docs/{site.slug}/, {served}).{_agent_line(site, agent)}{hint}{help_}"
     site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
-    site = await docs_service.update_site(ctx.session, site, **args.model_dump(exclude={"site"}, exclude_none=True))
+    site = await docs_service.update_site(ctx.session, site, **args.model_dump(exclude={"site", "domain_help"}, exclude_none=True))
     served = ("public" if site.public else "private") if site.published else "draft"
-    return f"Doc site {site.slug} saved ({served}{'; languages ' + ', '.join(site.languages) if site.languages else ''})."
+    agent = await docs_service.doc_agent(ctx.session, site.id)
+    langs = "; languages " + ", ".join(site.languages) if site.languages else ""
+    return f"Doc site {site.slug} saved ({served}{langs}).{_agent_line(site, agent)}{help_}"
+
+
+class OrderDocsArgs(BaseModel):
+    site: str = Field(description="Site slug/id")
+    title: str = Field(min_length=3, max_length=200, description="Short title of the work order")
+    instructions: str = Field(min_length=10, max_length=20000, description="What to write or change, self-contained (the doc spec it has already)")
+    ticket_number: int | None = Field(default=None, description="The ticket this is for, if any")
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+
+
+@tool(
+    "order_docs",
+    "Give a doc site's doc agent a work order (e.g. its first version, a new section). Its report comes back as an update.",
+    OrderDocsArgs,
+    roles=(MANAGER,),
+    feature=DOCS,
+)
+async def order_docs(ctx: ToolContext, args: OrderDocsArgs) -> str:
+    site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
+    agent = await docs_service.ensure_agent(ctx.session, site)
+    task = await board_service.get_task_by_number(ctx.session, ctx.project.id, args.ticket_number) if args.ticket_number else None
+    open_work = await ctx.session.scalar(
+        select(func.count()).select_from(Assignment).where(Assignment.agent_id == agent.id, Assignment.status.in_(board_service.OPEN_ASSIGNMENT_STATUSES))
+    )
+    assignment = await ctx.runs.delegate(ctx.session, ctx.agent, agent, args.title, args.instructions, task, effort=args.effort)
+    after = f" It starts after its {open_work} open one(s)." if open_work else ""
+    paused = " It is paused: it starts when enabled again." if not agent.enabled else ""
+    return f"Assignment #{assignment.id} queued for the doc agent of {site.slug} ({agent.slug}).{after}{paused}"
 
 
 class AttachDocFileArgs(BaseModel):
-    site: str = Field(description="Site slug/id")
+    site: str = Field(description="Your site's slug/id")
     path: str = Field(description="File in your workspace (absolute or relative)")
 
 
-local_tool("attach_doc_file", "Add a file or image from your workspace to a doc site; kept for good. Returns how to use it in a page.", AttachDocFileArgs, feature=DOCS)
-
+local_tool("attach_doc_file", "Add a file or image from your workspace to your doc site; kept for good. Returns how to use it in a page.", AttachDocFileArgs, roles=(DOC_AGENT,))

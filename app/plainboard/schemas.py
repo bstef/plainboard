@@ -664,6 +664,7 @@ class AgentOut(ORM):
     slug: str
     role: str
     is_manager: bool
+    doc_site_id: int | None = None  # the doc agent of this doc site: hidden from team and board, set up in the site's settings
     description: str
     instructions: str
     provider: str
@@ -1652,6 +1653,9 @@ class DocSiteCreate(BaseModel):
     public: bool = False  # published and public: everyone; published and private: people with a role in the project
     language: str = Field(default="en", max_length=20)
     languages: list[str] = Field(default_factory=list, max_length=30)
+    agent_provider: str | None = Field(default=None, max_length=50)  # its doc agent; None: the installation's defaults
+    agent_model: str | None = Field(default=None, max_length=100)
+    agent_effort: str | None = Field(default=None, max_length=20)
 
 
 Translator = Literal["", "llm", "deepl", "google"]
@@ -1668,6 +1672,9 @@ class DocSiteUpdate(BaseModel):
     translator: Translator | None = None
     translate_provider: str | None = Field(default=None, max_length=50)  # llm: "" = the project's default provider
     translate_model: str | None = Field(default=None, max_length=100)  # llm: "" = the provider's small model
+    agent_provider: str | None = Field(default=None, max_length=50)  # its doc agent
+    agent_model: str | None = Field(default=None, max_length=100)
+    agent_effort: str | None = Field(default=None, max_length=20)  # "": the installation's default
 
 
 class DocKeysIn(BaseModel):
@@ -1711,6 +1718,18 @@ class DocDomainOut(BaseModel):
     cloudflare_token_set: bool = False
 
 
+class DocAgentOut(BaseModel):
+    """The hidden agent of a doc site (#118): configured in the site's settings."""
+
+    id: int
+    slug: str
+    name: str
+    provider: str
+    model: str
+    effort: str | None = None
+    enabled: bool = True
+
+
 class DocSiteOut(ORM):
     id: int
     project_id: int
@@ -1730,6 +1749,7 @@ class DocSiteOut(ORM):
     domain: str | None = None
     domain_verified_at: UTCDateTime | None = None
     cloudflare_token_set: bool = False
+    agent: DocAgentOut | None = None  # its doc agent, the only agent that writes it
     url: str  # its address under this PlainBoard: /docs/<slug>/
     pages: int = 0
     stale_pages: int = 0  # flagged as possibly outdated

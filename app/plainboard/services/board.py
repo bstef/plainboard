@@ -359,7 +359,7 @@ async def capacity(
     open_assignment = set(await session.scalars(select(Assignment.agent_id).where(Assignment.status == AssignmentStatus.RUNNING)))
     # A member that waits for its own job takes no slot, and its next assignment waits for that job, not for a slot.
     queued = {agent_id for agent_id, status, _project in rows if status == RunStatus.QUEUED and (agent_id in running or agent_id not in open_assignment)}
-    team = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager).order_by(Agent.id)))
+    team = list(await session.scalars(select(Agent).where(Agent.project_id == project_id, Agent.enabled, ~Agent.is_manager, Agent.doc_site_id.is_(None)).order_by(Agent.id)))
     active = {agent_id for agent_id, _status, project in rows if project == project_id}
     columns = (TaskStatus.TODO, TaskStatus.IN_PROGRESS, *((TaskStatus.BACKLOG,) if backlog else ()))
     open_tickets = select(Task.id).where(Task.project_id == project_id, Task.archived_at.is_(None), Task.status.in_(columns))
