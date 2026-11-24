@@ -100,6 +100,7 @@ export default function AssistantPanel({
   const abort = useRef<AbortController | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const stick = useRef(true);
 
   // Kept for the tab's session: a reload or a page opened by address goes on with it, as long as the server does.
@@ -124,6 +125,39 @@ export default function AssistantPanel({
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = before;
+    };
+  }, [open]);
+
+  // Phone keyboards (#153): the sheet follows the visible part of the screen. Android Chrome shrinks the page
+  // itself (interactive-widget=resizes-content in docs.html); iOS Safari only shrinks the visual viewport and
+  // lays the keyboard over the page, so the sheet takes that viewport's top and height.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const el = panel.current;
+    if (!open || !vv || !el || !matchMedia(PHONE).matches) return;
+    const fit = () => {
+      if (Math.abs(vv.scale - 1) > 0.01) {
+        el.style.removeProperty("--doc-ai-top");
+        el.style.removeProperty("--doc-ai-h");
+        delete el.dataset.keyboard;
+        return;
+      }
+      el.style.setProperty("--doc-ai-top", `${vv.offsetTop}px`);
+      el.style.setProperty("--doc-ai-h", `${vv.height}px`);
+      // Keyboard up: the home bar's safe area lies under it and needs no room.
+      if (document.documentElement.clientHeight - vv.height > 120) el.dataset.keyboard = "";
+      else delete el.dataset.keyboard;
+      if (stick.current && list.current) list.current.scrollTop = list.current.scrollHeight;
+    };
+    fit();
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    return () => {
+      vv.removeEventListener("resize", fit);
+      vv.removeEventListener("scroll", fit);
+      el.style.removeProperty("--doc-ai-top");
+      el.style.removeProperty("--doc-ai-h");
+      delete el.dataset.keyboard;
     };
   }, [open]);
 
@@ -270,7 +304,7 @@ export default function AssistantPanel({
   const tooLong = input.length > MAX_CHARS;
 
   return (
-    <section id="doc-ai-panel" role="dialog" aria-modal="false" aria-label={t("docsSite.assistant.title")} className="doc-ai-panel" hidden={!open}>
+    <section ref={panel} id="doc-ai-panel" role="dialog" aria-modal="false" aria-label={t("docsSite.assistant.title")} className="doc-ai-panel" hidden={!open}>
       <header className="doc-ai-head">
         <span className="doc-ai-mark" aria-hidden>
           <Sparkle className="size-4" />
