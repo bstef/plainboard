@@ -11,6 +11,8 @@ A page is concerned when
   is close in meaning to one of the page's chunks: at least ``ModelCard.hint_similarity`` less ``NEAR_MARGIN``
   (the hint's threshold is calibrated for ticket against ticket; a change against prose reads a little lower).
 Such a page is marked (``flagged_at``, ``flag_reason``) until someone edits it or confirms it is still right.
+The message also sums up what landed (tickets, report excerpts, commit subjects; bounded): the terms the doc agent
+searches its site for (list_docs query) to find the places nobody marked.
 
 Once a day per project it also reads the commits of each repository that did not come through a landing (direct
 pushes): they count into the pages' ``drift``. The doc agent hears, at most once a week per page, of pages whose
@@ -58,6 +60,10 @@ TEXTS = 8  # landed changes embedded at most per look
 NEAR = 3  # nearest pages per landed change
 NEAR_MARGIN = 0.05
 PAGES_NAMED = 12  # in one message
+CHANGES = 12  # landings summed up in one message
+REPORT_CHARS = 300  # of each landing's report
+COMMIT_SUBJECTS = 15  # per repository
+CHANGE_CHARS = 4000  # the whole summary
 DAILY = timedelta(days=1)
 DRIFT_STALE = 10
 STALE_DAYS = 7
@@ -139,6 +145,7 @@ class DocsWatcher:
     async def _project(self, s: AsyncSession, project: Project, now: datetime) -> None:
         concerns: dict[int, Concern] = {}
         landed: list[str] = []
+        changes: list[str] = []  # what landed, in short: the terms the doc agent searches for
         daily = now - self._daily.get(project.id, datetime.min) >= DAILY
         for repo in list(await s.scalars(select(Repository).where(Repository.project_id == project.id).order_by(Repository.id))):
             watch = await s.get(DocWatch, (project.id, repo.id))
@@ -167,10 +174,10 @@ class DocsWatcher:
             watch = await s.get(DocWatch, (project.id, repo.id))
             watch.landed_at = landings[-1].merged_at
             await s.commit()
-            labels = await self._concerned(s, project, repo, landings, commits, concerns)
+            labels = await self._concerned(s, project, repo, landings, commits, concerns, changes)
             landed.append(f"{repo.name}: {'; '.join(labels)}")
         if concerns:
-            await self._tell(s, project, landed, list(concerns.values()), now)
+            await self._tell(s, project, landed, list(concerns.values()), now, changes)
         if daily:
             self._daily[project.id] = now
             await self._remind(s, project, now)
@@ -274,8 +281,10 @@ class DocsWatcher:
                 page.drift += n
         await s.commit()
 
-    async def _concerned(self, s: AsyncSession, project: Project, repo: Repository, landings: list[Landing], commits: list[GitCommit], concerns: dict[int, Concern]) -> list[str]:
-        """Adds the pages these landings concern; returns how the landings are named."""
+    async def _concerned(
+        self, s: AsyncSession, project: Project, repo: Repository, landings: list[Landing], commits: list[GitCommit], concerns: dict[int, Concern], changes: list[str]
+    ) -> list[str]:
+        """Adds the pages these landings concern and to ``changes`` what landed, in short; returns how the landings are named."""
         labels, texts = [], []
         for landing in landings:
             task = await s.get(Task, landing.task_id) if landing.task_id else None
@@ -284,10 +293,18 @@ class DocsWatcher:
             labels.append(label)
             parts = [landing.title or landing.branch, f"#{task.number} {task.title}\n{truncate(task.description, 800)}" if task else "", truncate(report.result, 1200) if report and report.result else ""]
             texts.append((label, "\n\n".join(p for p in parts if p)))
+            if len(changes) < CHANGES:
+                said = f"#{task.number} {task.title}" if task else landing.title or landing.branch
+                excerpt = " ".join(report.result.split()) if report and report.result else ""
+                changes.append(f"- {repo.name} {said}" + (f": {truncate(excerpt, REPORT_CHARS)}" if excerpt else ""))
         if commits:
             changed = sorted({f for c in commits for f in c.files})
             messages = "\n".join(c.message.split("\n", 1)[0] for c in commits[:40])
             texts.append((f"the commits in {repo.name}", f"{messages}\n\nChanged: {', '.join(changed[:80])}"))
+            subjects = list(dict.fromkeys(c.message.split("\n", 1)[0].strip() for c in commits if c.message.strip()))
+            if subjects:
+                more = f" (and {len(subjects) - COMMIT_SUBJECTS} more)" if len(subjects) > COMMIT_SUBJECTS else ""
+                changes.append(f"- commits in {repo.name}: " + "; ".join(truncate(m, 120) for m in subjects[:COMMIT_SUBJECTS]) + more)
         for page in await s.scalars(select(DocPage).where(DocPage.project_id == project.id, linked())):
             if not page.paths:
                 continue
@@ -318,7 +335,7 @@ class DocsWatcher:
                         concerns.setdefault(page.id, Concern(page)).reasons.append(f"close in meaning to {label} ({hit.similarity:.2f})")
         await flow_log.record(s, project.id, "docs.near", model=model.name, threshold=threshold, nearest=found)
 
-    async def _tell(self, s: AsyncSession, project: Project, landed: list[str], concerns: list[Concern], now: datetime) -> None:
+    async def _tell(self, s: AsyncSession, project: Project, landed: list[str], concerns: list[Concern], now: datetime, changes: list[str] | None = None) -> None:
         sites = {site.id: site for site in await s.scalars(select(DocSite).where(DocSite.project_id == project.id))}
         for c in concerns:
             if c.page.flagged_at is None:
@@ -332,8 +349,13 @@ class DocsWatcher:
             more = f"\n(and {len(mine) - PAGES_NAMED} more marked pages: list_docs marked=true)" if len(mine) > PAGES_NAMED else ""
             text = (
                 f"Pages of your doc site may be outdated after what landed ({' | '.join(landed)}). Pages to check:\n" + "\n".join(lines) + more + "\n"
-                "Update what the change made wrong (write_doc_page with a reason), or confirm a page that is still right (write_doc_page still_current)."
+                "Update what the change made wrong (write_doc_page with a reason), or confirm a page that is still right (write_doc_page still_current).\n"
+                "Then search your site yourself (list_docs query, a few searches: the change's meaning and its terms: settings, commands, endpoints, "
+                "UI labels) for other pages that describe what changed, add a page for a new feature that has none, and keep your site overview "
+                "in your notes current."
             )
+            if changes:
+                text += "\n\n" + truncate("What landed:\n" + "\n".join(changes), CHANGE_CHARS)
             await self._send(s, sites[site_id], "Update docs after landings", text)
 
     async def _remind(self, s: AsyncSession, project: Project, now: datetime) -> None:
