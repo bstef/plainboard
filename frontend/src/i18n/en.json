@@ -278,7 +278,7 @@
     "ideaModelHint": "What reads, sorts and rearranges the ideas of this project. A small model is enough. Empty: the provider's small model."
   },
   "board": {
-    "filter": "Filter tickets…",
+    "filter": "Search tickets…",
     "hint": "Move a ticket to In Progress (or open it and click “Hand to manager”) to let the manager plan and delegate it.",
     "addTicket": "Add ticket",
     "newTicketPlaceholder": "Ticket title",

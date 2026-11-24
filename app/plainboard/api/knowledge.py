@@ -35,10 +35,18 @@ router = APIRouter(prefix="/api/projects/{project_id}", tags=["knowledge"])
 
 
 @router.get("/search", response_model=ProjectSearchOut)
-async def search_project(project_id: int, session: Session, q: str = Query(min_length=1, max_length=300), limit: int = Query(8, ge=1, le=20)) -> ProjectSearchOut:
-    """The project's history by meaning and words, for the command palette; whoever may read the project."""
+async def search_project(
+    project_id: int,
+    session: Session,
+    q: str = Query(min_length=1, max_length=300),
+    limit: int = Query(8, ge=1, le=50),
+    kinds: list[str] | None = Query(None),
+    close: bool = False,
+) -> ProjectSearchOut:
+    """The project's history by meaning and words, for the command palette and the board's filter (``kinds=ticket``,
+    ``close``: by meaning only what stands out); whoever may read the project."""
     project = await project_service.get(session, project_id)
-    return ProjectSearchOut(**await search_service.for_user(session, project, q, limit))
+    return ProjectSearchOut(**await search_service.for_user(session, project, q, limit, kinds=kinds, only_close=close))
 
 
 @router.get("/notes", response_model=list[NoteOut])

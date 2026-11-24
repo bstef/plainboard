@@ -315,6 +315,25 @@ def test_a_hit_says_how_old_it_is_and_where_its_item_stands_now(client, project,
 
 
 @pg_only
+def test_the_boards_filter_searches_the_tickets_alone(client, project, embedder):
+    pid = project["id"]
+    login = ticket(client, pid, "Anmeldung schlägt fehl", "Nach dem Token-Refresh fliegt man beim SSO-Login raus.")
+    assert client.post(f"/api/tasks/{login['id']}/comments", json={"body": "Anmeldung: der Session-Cookie wird beim Refresh nicht erneuert."}).status_code == 201
+    assert client.post(f"/api/projects/{pid}/notes", json={"title": "Anmeldung", "content": "Anmeldung per SSO und Token-Refresh."}).status_code == 201
+    index(client)
+    everything = client.get(f"/api/projects/{pid}/search", params={"q": "Anmeldung Refresh"}).json()["hits"]
+    assert {h["kind"] for h in everything} == {"ticket", "comment", "note"}
+    dark = ticket(client, pid, "Dunkles Design für die Einstellungen", "Ein Dark-Mode-Schalter auf der Einstellungsseite.")
+    index(client)
+    only = client.get(f"/api/projects/{pid}/search", params={"q": "Anmeldung Refresh", "kinds": "ticket", "limit": 50}).json()
+    assert only["state"] == "ok" and [(h["kind"], h["ticket_number"], h["task_id"]) for h in only["hits"]] == [
+        ("ticket", login["number"], login["id"]), ("ticket", dark["number"], dark["id"])
+    ]  # fmt: skip  # by meaning there is always a nearest
+    close = client.get(f"/api/projects/{pid}/search", params={"q": "Anmeldung Refresh", "kinds": "ticket", "close": True}).json()["hits"]
+    assert [h["task_id"] for h in close] == [login["id"]]  # the filter: only what stands out
+
+
+@pg_only
 def test_another_model_builds_its_index_in_the_background_and_search_switches_when_it_is_complete(client, project, embedder, monkeypatch):
     from plainboard.services.search import embedding
 

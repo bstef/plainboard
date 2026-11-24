@@ -184,15 +184,31 @@ def _commit_url(repo_url: str, sha: str) -> str | None:
     return None
 
 
-async def for_user(s: AsyncSession, project: Project, query: str, limit: int = 8) -> dict:
-    """A person's search in the web UI (the command palette): the state of search and the hits, each with what
+CLOSEST_WINDOW = 10  # where a filter looks for the drop in similarity
+
+
+def closest(hits: list[Hit]) -> list[Hit]:
+    """For a filter (the board's, #133): what matches by words, and by meaning only what stands out, the nearest
+    down to the largest drop in similarity among the first few. Search by meaning always has a nearest, even for
+    nonsense, and a model's scale is its own: no fixed threshold."""
+    sims = sorted((h.similarity for h in hits if h.similarity is not None), reverse=True)[:CLOSEST_WINDOW]
+    if len(sims) < 2:
+        return hits
+    drop = max(range(len(sims) - 1), key=lambda i: sims[i] - sims[i + 1])
+    return [h for h in hits if h.word_rank is not None or (h.similarity is not None and h.similarity >= sims[drop])]
+
+
+async def for_user(s: AsyncSession, project: Project, query: str, limit: int = 8, kinds: list[str] | None = None, only_close: bool = False) -> dict:
+    """A person's search in the web UI (the command palette; the board's filter with ``kinds`` and ``only_close``): the state of search and the hits, each with what
     opens it (its ticket's id, a note's id, a commit's page). Off or not there: no hits and why, never an error."""
     if not await available(s):
         return {"state": "unavailable", "hits": []}
     if not await enabled(s, project):
         return {"state": "off", "hits": []}
     ready = (await embedder(s)).state == "ready"
-    hits = await find(s, project, query, limit=limit)
+    hits = await find(s, project, query, kinds=kinds or None, limit=limit)
+    if only_close:
+        hits = closest(hits)
     numbers = {h.ticket_number for h in hits if h.ticket_number}
     ids = dict((await s.execute(select(Task.number, Task.id).where(Task.project_id == project.id, Task.number.in_(numbers)))).all()) if numbers else {}
     repos = {r.id: r for r in await s.scalars(select(Repository).where(Repository.project_id == project.id))} if any(h.kind == COMMIT for h in hits) else {}

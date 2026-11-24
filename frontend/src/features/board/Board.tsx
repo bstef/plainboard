@@ -26,6 +26,7 @@ import { useShell } from "../layout/shell-context";
 import { ArchiveDialog } from "./ArchiveDialog";
 import { TaskCard } from "./TaskCard";
 import { TicketRequestDialog } from "./TicketRequestDialog";
+import { useTicketFilter } from "./ticketFilter";
 
 export const STATUSES: TaskStatus[] = ["backlog", "todo", "in_progress", "review", "done"];
 
@@ -60,20 +61,13 @@ export function Board() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const { matches: visible } = useTicketFilter(project.id, filter, tasks.data);
   const columns = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    const visible = (tasks.data ?? []).filter(
-      (task) =>
-        !needle ||
-        task.title.toLowerCase().includes(needle) ||
-        needle.replace(/^#/, "") === String(task.number) ||
-        task.labels.some((l) => l.toLowerCase().includes(needle)),
-    );
     const byStatus = Object.fromEntries(STATUSES.map((s) => [s, [] as Task[]])) as Record<TaskStatus, Task[]>;
     for (const task of visible) byStatus[task.status]?.push(task);
     for (const s of STATUSES) byStatus[s].sort((a, b) => a.position - b.position);
     return byStatus;
-  }, [tasks.data, filter]);
+  }, [visible]);
 
   const findTask = (key: string | number) => tasks.data?.find((task) => taskKey(task.id) === key);
 

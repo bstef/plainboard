@@ -125,3 +125,13 @@ export function useAutoGrow(ref: RefObject<HTMLTextAreaElement | null>, value: u
     return () => watch.disconnect();
   }, [ref]);
 }
+
+/** The value once it has not changed for ``ms``. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [out, setOut] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setOut(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return out;
+}
