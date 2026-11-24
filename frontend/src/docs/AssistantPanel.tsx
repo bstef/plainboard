@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useAutoGrow } from "../lib/hooks";
 import { parseUrl } from "./api";
 import { CodeBlock } from "./Content";
 import type { PageView, SiteView } from "./types";
@@ -131,13 +132,7 @@ export default function AssistantPanel({
     if (stick.current && list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [messages]);
 
-  // The field grows with the question, up to a few lines.
-  useLayoutEffect(() => {
-    const el = field.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
-  }, [input, open]);
+  useAutoGrow(field, open ? input : null);
 
   useEffect(() => () => abort.current?.abort(), []);
 

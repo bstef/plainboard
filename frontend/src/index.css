@@ -110,6 +110,10 @@
   #root {
     height: 100dvh;
   }
+  /* No field is sized by hand: multi-line fields grow with their text (useAutoGrow, #134). */
+  textarea {
+    resize: none;
+  }
   /* One type size. Rank comes from weight, case, reversal and rule, never from size. */
   body {
     @apply bg-bg text-fg antialiased;

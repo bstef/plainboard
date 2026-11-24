@@ -13,7 +13,7 @@ import { PendingFile } from "../../components/PendingFile";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, ChatPanelToggle, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
-import { useDismiss, useInView, useStored } from "../../lib/hooks";
+import { useAutoGrow, useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useShell } from "../layout/shell-context";
 import { AskDialog } from "./AskDialog";
@@ -458,12 +458,7 @@ function Composer({
   }, [seed]);
   const picker = useRef<HTMLInputElement>(null);
 
-  useLayoutEffect(() => {
-    const el = area.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, [text]);
+  useAutoGrow(area, text);
 
   const send = async () => {
     const value = text.trim();
