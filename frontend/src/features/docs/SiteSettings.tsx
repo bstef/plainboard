@@ -1,12 +1,12 @@
 import clsx from "clsx";
-import { Check, Cloud, Copy, Globe2, KeyRound, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, Cloud, Copy, ExternalLink, Globe2, KeyRound, Loader2, Plus, RefreshCw, ShieldAlert, Trash2, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { useMeta } from "../../api/queries";
 import type { DocSite, DocTranslator } from "../../api/types";
 import { SaveRow, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
-import { Badge, Button, ErrorText, Field, FieldRow, Input, Segmented, Select, Toggle } from "../../components/ui";
+import { Badge, Button, ErrorText, Field, FieldRow, Input, Modal, Segmented, Select, Toggle } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { ModelSelect } from "../team/AgentEditor";
 import { languageLabel } from "./PageEditor";
@@ -21,6 +21,7 @@ export function SiteSettings({ pid, site, isOwner, section, onSection, onDeleted
     { id: "general", label: t("docs.settings.general"), description: t("docs.settings.generalHint"), content: <General pid={pid} site={site} /> },
     { id: "languages", label: t("docs.settings.languages"), description: t("docs.settings.languagesHint"), content: <Languages pid={pid} site={site} isOwner={isOwner} /> },
     { id: "agent", label: t("docs.settings.agent"), description: t("docs.settings.agentHint"), content: <DocAgent pid={pid} site={site} /> },
+    { id: "assistant", label: t("docs.assistant.section"), description: t("docs.assistant.sectionHint"), content: <AssistantSettings pid={pid} site={site} /> },
     { id: "domain", label: t("docs.settings.domain"), description: t("docs.settings.domainHint"), content: <Domain pid={pid} site={site} isOwner={isOwner} /> },
     { id: "delete", label: t("docs.settings.delete"), description: t("docs.settings.deleteHint"), content: <Delete pid={pid} site={site} onDeleted={onDeleted} /> },
   ];
@@ -286,6 +287,154 @@ function DocAgent({ pid, site }: { pid: number; site: DocSite }) {
         </Field>
       </FieldRow>
       <SaveRow dirty={dirty} onSave={() => patch({ agent_provider: provider, agent_model: model, agent_effort: effort })} />
+    </div>
+  );
+}
+
+// --- the assistant for visitors (#119) ------------------------------------------------------------------------
+
+function AssistantSettings({ pid, site }: { pid: number; site: DocSite }) {
+  const { t } = useTranslation();
+  const meta = useMeta();
+  const patch = usePatch(pid, site);
+  const [enabled, setEnabled] = useState(site.assistant_enabled);
+  const [model, setModel] = useState(site.assistant_model);
+  const [effort, setEffort] = useState(site.assistant_effort);
+  const [code, setCode] = useState(site.assistant_code);
+  const [messages, setMessages] = useState(String(site.assistant_daily_messages));
+  const [cost, setCost] = useState(String(site.assistant_daily_cost));
+  const [tokens, setTokens] = useState(String(site.assistant_max_tokens));
+  const [confirming, setConfirming] = useState(false);
+  // It runs on Claude only (services/docs.ASSISTANT_PROVIDERS): another provider's run always has a shell.
+  const claude = (meta.data?.providers ?? []).find((p) => p.name === "claude_code");
+  const models = claude?.models ?? [];
+  const small = models.filter((m) => m.tier === "small");
+  const fallback = small.find((m) => m.id.includes("haiku")) ?? small[0] ?? models[models.length - 1];
+  const efforts = claude?.efforts ?? [];
+  const num = (v: string) => (v.trim() === "" ? NaN : Number(v));
+  const valid = Number.isInteger(num(messages)) && num(messages) >= 1 && num(cost) >= 0 && Number.isInteger(num(tokens)) && num(tokens) >= 128 && num(tokens) <= 8192;
+  const dirty =
+    enabled !== site.assistant_enabled ||
+    model !== site.assistant_model ||
+    effort !== site.assistant_effort ||
+    code !== site.assistant_code ||
+    num(messages) !== site.assistant_daily_messages ||
+    num(cost) !== site.assistant_daily_cost ||
+    num(tokens) !== site.assistant_max_tokens;
+  return (
+    <div className="space-y-5">
+      <div className="space-y-1">
+        <Toggle checked={enabled} onChange={setEnabled} label={t("docs.assistant.enabled")} />
+        <p className="text-fg-3">{t("docs.assistant.enabledHint")}</p>
+        {enabled && !site.published && <p className="text-you-fg">{t("docs.assistant.draft")}</p>}
+      </div>
+      <Field group label={t("docs.assistant.model")} hint={t("docs.assistant.modelHint")}>
+        <div data-part="assistant-model" className="flex flex-wrap items-start gap-2">
+          <div className="min-w-0 flex-1 basis-48">
+            <Select aria-label={t("docs.assistant.model")} value={model} onChange={(e) => setModel(e.target.value)}>
+              <option value="">{t("projects.askModelSmall", { model: fallback?.label ?? "Claude Haiku" })}</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+              {model && !models.some((m) => m.id === model) && <option value={model}>{model}</option>}
+            </Select>
+          </div>
+          <div className="w-full sm:w-48">
+            <Select aria-label={t("settings.defaultEffort")} value={effort} onChange={(e) => setEffort(e.target.value)}>
+              <option value="">{t("team.effortDefault")}</option>
+              {efforts.map((e) => (
+                <option key={e} value={e}>
+                  {t("settings.effortOption", { effort: e })}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+      </Field>
+      <div className="space-y-2">
+        <Toggle checked={code} onChange={(v) => (v ? setConfirming(true) : setCode(false))} label={t("docs.assistant.code")} />
+        <p className="text-fg-3">{t("docs.assistant.codeHint")}</p>
+        <div role="note" data-part="assistant-warning" className={clsx("flex gap-2.5 rounded-sm p-3 ring-1 ring-inset", code ? "bg-you-bg text-fg ring-you" : "text-fg-2 ring-line-2")}>
+          <ShieldAlert className={clsx("mt-0.5 size-4 shrink-0", code ? "text-you-fg" : "text-fg-3")} aria-hidden />
+          <div className="space-y-1">
+            <p className="font-semibold">{t("docs.assistant.warningTitle")}</p>
+            <p>{t("docs.assistant.warning")}</p>
+          </div>
+        </div>
+      </div>
+      <Field group label={t("docs.assistant.limits")} hint={t("docs.assistant.limitsHint")}>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="space-y-1">
+            <span className="block text-fg-2">{t("docs.assistant.dailyMessages")}</span>
+            <Input type="number" inputMode="numeric" min={1} max={100000} value={messages} onChange={(e) => setMessages(e.target.value)} />
+            <span className="block text-fg-3">{t("docs.assistant.dailyMessagesHint")}</span>
+          </label>
+          <label className="space-y-1">
+            <span className="block text-fg-2">{t("docs.assistant.dailyCost")}</span>
+            <Input type="number" inputMode="decimal" min={0} step={0.5} value={cost} onChange={(e) => setCost(e.target.value)} />
+            <span className="block text-fg-3">{t("docs.assistant.dailyCostHint")}</span>
+          </label>
+          <label className="space-y-1">
+            <span className="block text-fg-2">{t("docs.assistant.maxTokens")}</span>
+            <Input type="number" inputMode="numeric" min={128} max={8192} step={128} value={tokens} onChange={(e) => setTokens(e.target.value)} />
+            <span className="block text-fg-3">{t("docs.assistant.maxTokensHint")}</span>
+          </label>
+        </div>
+      </Field>
+      <SaveRow
+        dirty={dirty && valid}
+        onSave={() =>
+          patch({
+            assistant_enabled: enabled,
+            assistant_provider: "",
+            assistant_model: model,
+            assistant_effort: effort,
+            assistant_code: code,
+            assistant_daily_messages: num(messages),
+            assistant_daily_cost: num(cost),
+            assistant_max_tokens: num(tokens),
+          })
+        }
+      >
+        {site.published && (
+          <a href={site.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-fg-2 hover:text-fg">
+            <ExternalLink className="size-4" /> {t("docs.assistant.try")}
+          </a>
+        )}
+      </SaveRow>
+      <Modal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        width="max-w-lg"
+        title={
+          <span className="flex items-center gap-2">
+            <ShieldAlert className="size-4 text-you-fg" /> {t("docs.assistant.confirmTitle")}
+          </span>
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setCode(true);
+                setConfirming(false);
+              }}
+            >
+              {t("docs.assistant.confirmYes")}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p>{t("docs.assistant.warning")}</p>
+          <p className="text-fg-2">{t("docs.assistant.confirmText")}</p>
+        </div>
+      </Modal>
     </div>
   );
 }

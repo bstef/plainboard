@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import { useTranslation } from "react-i18next";
 import { useDismiss } from "../lib/hooks";
 import { setAppearance, useLook } from "../lib/theme";
+import { Assistant } from "./Assistant";
 import { knownPage, langBase, loadNav, loadPage, NotFoundError, pageUrl, parseUrl, prefetch } from "./api";
 import { Content } from "./Content";
 import { SearchDialog } from "./Search";
@@ -252,7 +253,7 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
   );
 
   return (
-    <div className="doc-shell">
+    <div className={clsx("doc-shell", site.assistant && "has-ai")}>
       <div className={clsx("doc-progress", loading && "is-on")} aria-hidden />
       <header className="doc-header">
         <div className="doc-header-in">
@@ -359,7 +360,9 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
         <aside className="doc-toc">{page && <Toc page={page} />}</aside>
       </div>
       {/* The place for the site's assistant (#119): bottom right, kept free by everything else. */}
-      <div id="pb-docs-assistant" data-part="docs-assistant" className="doc-assistant-slot" />
+      <div id="pb-docs-assistant" data-part="docs-assistant" className="doc-assistant-slot">
+        {site.assistant && <Assistant site={site} lang={lang} page={page} onNavigate={onNavigate} />}
+      </div>
       <SearchDialog site={site} lang={lang} open={searching} onClose={() => setSearching(false)} onOpen={go} />
     </div>
   );
