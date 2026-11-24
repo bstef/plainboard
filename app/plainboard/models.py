@@ -593,6 +593,8 @@ class Attachment(Base):
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
     # A file of an idea (#100): never deleted by the retention, kept when the idea is closed.
     idea_id: Mapped[int | None] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
+    # A file of a doc site (#118): never deleted by the retention or the cleanup, only with its site or by hand.
+    doc_site_id: Mapped[int | None] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
     filename: Mapped[str] = mapped_column(String(300))
     content_type: Mapped[str] = mapped_column(String(150))
     size: Mapped[int] = mapped_column(Integer)
@@ -602,6 +604,75 @@ class Attachment(Base):
     # Its file was deleted by the project's retention (services/retention.py); the entry stays with name and size.
     purged_at: Mapped[datetime | None] = mapped_column(DateTime)
     purged_after_days: Mapped[int | None] = mapped_column(Integer)
+
+
+class DocSite(Timestamps, Base):
+    """A documentation site of a project (#118, services/docs.py): pages in a tree, written by people and agents,
+    served without login at /docs/<slug> once published, and at its own domain once that is verified."""
+
+    __tablename__ = "doc_sites"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(80), unique=True)  # /docs/<slug>: unique in the installation
+    description: Mapped[str] = mapped_column(String(300), default="")  # for search engines and link previews
+    # The doc spec: what the user wants in it (content, structure, tone, audience), written by the manager with
+    # the user. Every agent that writes the site reads it with the site and follows it.
+    spec: Mapped[str] = mapped_column(Text, default="")
+    published: Mapped[bool] = mapped_column(Boolean, default=False)
+    domain: Mapped[str | None] = mapped_column(String(253), unique=True)  # its own host name, served by Host header
+    domain_token: Mapped[str] = mapped_column(String(64), default="")  # answered at /.well-known/plainboard-docs on that host
+    domain_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cloudflare_token_enc: Mapped[str | None] = mapped_column(Text)  # write-only: creates the DNS record
+
+
+class DocPage(Timestamps, Base):
+    """A page of a doc site. Every saved state is a ``DocPageVersion``."""
+
+    __tablename__ = "doc_pages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("doc_pages.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text, default="")
+    # Code paths it describes (prefixes or globs, e.g. app/plainboard/services/docs.py, runner/*): a change there
+    # after a landing marks it for an update (orchestration/docs_watcher.py).
+    paths: Mapped[list[str]] = mapped_column(JSON, default=list)
+    edited_by: Mapped[str] = mapped_column(String(100), default="")
+    edited_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)  # its text last changed (a move is no edit)
+    drift: Mapped[int] = mapped_column(Integer, default=0)  # commits that changed its paths since that
+    flagged_at: Mapped[datetime | None] = mapped_column(DateTime)  # since when it may be outdated (an edit clears it)
+    flag_reason: Mapped[str] = mapped_column(Text, default="")
+    reminded_at: Mapped[datetime | None] = mapped_column(DateTime)  # the manager last heard it is stale
+
+
+class DocPageVersion(Base):
+    """A saved state of a page: who (a person or an agent), when, why. The newest is the page as it is."""
+
+    __tablename__ = "doc_page_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    page_id: Mapped[int] = mapped_column(ForeignKey("doc_pages.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text, default="")
+    author: Mapped[str] = mapped_column(String(100), default="")
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
+    reason: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DocWatch(Base):
+    """How far the docs watcher read a repository of a project: its last commit, and the last landing it took in."""
+
+    __tablename__ = "doc_watch"
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    repository_id: Mapped[int] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"), primary_key=True)
+    head: Mapped[str] = mapped_column(String(64), default="")
+    landed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class Decision(Timestamps, Base):
@@ -1060,6 +1131,9 @@ class SearchDocument(Base):
     comment_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id", ondelete="CASCADE"), index=True)
     note_id: Mapped[int | None] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"), index=True)
     repository_id: Mapped[int | None] = mapped_column(ForeignKey("repositories.id", ondelete="CASCADE"), index=True)
+    # A doc page: its foreign key is added by search.schema.ensure once doc_pages exists (migration 0073 makes this
+    # table from today's models, before 0088 made doc_pages).
+    doc_page_id: Mapped[int | None] = mapped_column(Integer, index=True)
     tsv: Mapped[Any] = mapped_column(TSVECTOR, Computed("to_tsvector('simple', header || ' ' || body)", persisted=True), deferred=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

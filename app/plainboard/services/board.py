@@ -775,6 +775,7 @@ async def store_attachment(
     *,
     task_id: int | None = None,
     idea_id: int | None = None,
+    doc_site_id: int | None = None,
     agent_id: int | None = None,
 ) -> Attachment:
     """``data``: the content, or a file to read it from (an upload: never read whole into memory)."""
@@ -784,6 +785,7 @@ async def store_attachment(
         project_id=project_id,
         task_id=task_id,
         idea_id=idea_id,
+        doc_site_id=doc_site_id,
         filename=Path(filename).name[:300] or "file",
         content_type=content_type or "application/octet-stream",
         storage_name=f"{uuid.uuid4().hex}{suffix}",
@@ -812,7 +814,7 @@ async def list_attachments(session: AsyncSession, task_id: int) -> list[Attachme
 
 async def chat_attachments(session: AsyncSession, project_id: int, ids: list[int]) -> list[Attachment]:
     """Files of a chat message (they belong to the project, not to a ticket)."""
-    q = select(Attachment).where(Attachment.project_id == project_id, Attachment.task_id.is_(None), Attachment.idea_id.is_(None), Attachment.id.in_(ids))
+    q = select(Attachment).where(Attachment.project_id == project_id, Attachment.task_id.is_(None), Attachment.idea_id.is_(None), Attachment.doc_site_id.is_(None), Attachment.id.in_(ids))
     return list((await session.scalars(q.order_by(Attachment.id))).all())
 
 

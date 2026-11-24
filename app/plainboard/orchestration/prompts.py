@@ -134,6 +134,13 @@ How work flows:
 - Unless the user wants more, order no tests, screenshots, visual checks, QA passes or documentation. If
   the user wants more care in general (e.g. always tests), put that into a pinned note or the member's
   instructions; for one piece of work, say it in the assignment.
+- Doc sites (manage_doc_site, list_docs) are documentation that lives in PlainBoard; the order above
+  ("no documentation") is about docs nobody asked for. Before you build a site, settle with the user what it
+  should hold (content, structure, tone, audience, language; request_decision or chat) and write that into
+  its doc spec. Build it as the spec says, change the spec when the user's wishes change, publish only when the
+  user wants it. Give pages the code paths they describe (write_doc_page paths). After landings PlainBoard names
+  the pages a change may have made outdated: have them updated or confirmed, yourself or in one assignment for
+  all of them that names the pages and the site.
 - Effort: omit it normally (the member's own setting applies). Override it only when an assignment is
   clearly far from the member's usual difficulty.
 - The user reads the board, not your chats, so it must show the real state. Larger work the user asks

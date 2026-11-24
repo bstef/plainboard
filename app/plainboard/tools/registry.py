@@ -31,6 +31,7 @@ MANAGER = "manager"
 WORKER = "worker"
 ALL = (MANAGER, WORKER)
 SEARCH = "search"  # a feature: tools of it go only to agents whose project has it (``RunManager`` names them)
+DOCS = "docs"  # the project has a doc site (services/docs.py)
 
 
 @dataclass
@@ -80,9 +81,9 @@ def tool(name: str, description: str, args: type[BaseModel] = NoArgs, roles: tup
     return register
 
 
-def local_tool(name: str, description: str, args: type[BaseModel], roles: tuple[str, ...] = ALL) -> None:
+def local_tool(name: str, description: str, args: type[BaseModel], roles: tuple[str, ...] = ALL, feature: str | None = None) -> None:
     """Declare a tool that the runner executes itself (needs the agent's filesystem)."""
-    tool(name, description, args, roles, local=True)(None)
+    tool(name, description, args, roles, local=True, feature=feature)(None)
 
 
 def clean_schema(node: Any, mapping: bool = False) -> Any:
@@ -151,7 +152,7 @@ async def execute(name: str, ctx: ToolContext, raw_args: dict[str, Any] | None) 
 
 
 def _load_modules() -> None:
-    from . import automation, board, flow, ideas, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
+    from . import automation, board, docs, flow, ideas, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
 
 
 _load_modules()

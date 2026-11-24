@@ -175,7 +175,7 @@ def test_the_history_is_indexed_once_and_found_by_meaning_and_by_words(client, p
     status = client.get("/api/search/status").json()
     assert status["available"] and status["documents"] == status["embedded"] == 4
     assert {k: (v["items"], v["total"], v["embedded"]) for k, v in status["by_kind"].items()} == {
-        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1), "idea": (0, 0, 0)
+        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1), "idea": (0, 0, 0), "doc": (0, 0, 0)
     }  # fmt: skip
     assert status["errors"] == []
     embedded = len(embedder.embedded)

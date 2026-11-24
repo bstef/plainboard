@@ -2080,7 +2080,12 @@ def _session_lost(error: str | None) -> bool:
 
 async def _features(s: AsyncSession, project: Project) -> frozenset[str]:
     """What the project has of the tools that depend on something (``registry.tool(feature=...)``)."""
-    return frozenset({registry.SEARCH}) if await search_service.enabled(s, project) else frozenset()
+    from ..models import DocSite
+
+    found = {registry.SEARCH} if await search_service.enabled(s, project) else set()
+    if await s.scalar(select(DocSite.id).where(DocSite.project_id == project.id).limit(1)) is not None:
+        found.add(registry.DOCS)
+    return frozenset(found)
 
 
 async def _related_hint(s: AsyncSession, project: Project, assignment: Assignment) -> str:

@@ -206,6 +206,8 @@ async def for_user(s: AsyncSession, project: Project, query: str, limit: int = 8
             item["note_id"] = int(h.source_id)
         if h.kind == "idea" and h.source_id.isdigit():
             item["idea_id"] = int(h.source_id)
+        if h.kind == "doc" and h.source_id.isdigit():
+            item["doc_page_id"] = int(h.source_id)
         if h.kind == COMMIT:
             repo_id, _, sha = h.source_id.partition(":")
             repo = repos.get(int(repo_id)) if repo_id.isdigit() else None

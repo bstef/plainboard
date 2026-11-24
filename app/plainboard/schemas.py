@@ -385,6 +385,7 @@ class SearchHitOut(BaseModel):
     task_id: int | None = None  # the ticket it belongs to, to open it
     note_id: int | None = None
     idea_id: int | None = None
+    doc_page_id: int | None = None  # a doc page (#118): open it in its site
     repo: str | None = None
     sha: str | None = None  # a commit's whole hash
     url: str | None = None  # a commit's page, where its repository has one
@@ -911,6 +912,7 @@ class AttachmentOut(ORM):
     id: int
     task_id: int | None
     idea_id: int | None = None
+    doc_site_id: int | None = None
     filename: str
     content_type: str
     size: int
@@ -1634,3 +1636,135 @@ class IdeaTicketIn(BaseModel):
 class IdeaTicketOut(BaseModel):
     ticket: TaskOut
     idea: IdeaOut
+
+
+# --- doc sites (#118, services/docs.py) -----------------------------------------------------------------
+
+DocSlug = Annotated[str, Field(max_length=80, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")]
+
+
+class DocSiteCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    slug: DocSlug | None = None  # None: from the name
+    description: str = Field(default="", max_length=300)
+    spec: str = Field(default="", max_length=20000)
+    published: bool = False
+
+
+class DocSiteUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    slug: DocSlug | None = None
+    description: str | None = Field(default=None, max_length=300)
+    spec: str | None = Field(default=None, max_length=20000)
+    published: bool | None = None
+
+
+class DocDomainIn(BaseModel):
+    domain: str = Field(max_length=253)  # "" removes it
+
+
+class DocDomainOut(BaseModel):
+    """What the user sets up for the site's own domain (the UI words it): a CNAME, or a public hostname of a
+    Cloudflare tunnel, from ``domain`` to ``target``; PlainBoard then reads ``verify_url`` and expects ``token``."""
+
+    domain: str
+    target: str  # the host this PlainBoard is reached at (where the request came to)
+    verify_url: str
+    token: str
+    verified_at: UTCDateTime | None = None
+    cloudflare_token_set: bool = False
+
+
+class DocSiteOut(ORM):
+    id: int
+    project_id: int
+    name: str
+    slug: str
+    description: str
+    spec: str
+    published: bool
+    domain: str | None = None
+    domain_verified_at: UTCDateTime | None = None
+    cloudflare_token_set: bool = False
+    url: str  # its public address under this PlainBoard: /docs/<slug>/
+    pages: int = 0
+    stale_pages: int = 0  # flagged as possibly outdated
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+
+
+class DocPageItem(ORM):
+    """A page in the site's tree (without its text)."""
+
+    id: int
+    site_id: int
+    parent_id: int | None
+    position: int
+    title: str
+    slug: str
+    path: str  # under the site: parent-slug/slug ("" for none: the home page is the first page at the top)
+    paths: list[str]
+    edited_by: str
+    edited_at: UTCDateTime
+    drift: int
+    flagged_at: UTCDateTime | None = None
+    flag_reason: str = ""
+    updated_at: UTCDateTime
+
+
+class DocPageOut(DocPageItem):
+    body: str
+    versions: int = 0
+
+
+class DocPageCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=200000)
+    parent_id: int | None = None
+    position: int | None = Field(default=None, ge=0)  # None: last
+    slug: DocSlug | None = None
+    paths: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(default_factory=list, max_length=50)
+    reason: str = Field(default="", max_length=300)
+
+
+class DocPageUpdate(BaseModel):
+    """Only what is given changes. ``parent_id`` with ``move``: another place in the tree (None: the top)."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    body: str | None = Field(default=None, max_length=200000)
+    move: bool = False
+    parent_id: int | None = None
+    position: int | None = Field(default=None, ge=0)
+    slug: DocSlug | None = None
+    paths: list[Annotated[str, Field(min_length=1, max_length=300)]] | None = Field(default=None, max_length=50)
+    reason: str = Field(default="", max_length=300)
+
+
+class DocVersionOut(ORM):
+    id: int
+    page_id: int
+    title: str
+    body: str | None = None  # in the list: None
+    author: str
+    agent_id: int | None
+    reason: str
+    created_at: UTCDateTime
+
+
+class DocCloudflareIn(BaseModel):
+    token: str | None = Field(default=None, max_length=200)  # stored encrypted for this site; None: the one stored
+    target: str | None = Field(default=None, max_length=253)  # None: the host this request came to
+    proxied: bool = True
+
+
+class DocDnsOut(BaseModel):
+    zone: str
+    record: str
+    target: str
+    created: bool  # False: an existing record was changed
+
+
+class DocVerifyOut(BaseModel):
+    verified: bool
+    detail: str = ""
+    verified_at: UTCDateTime | None = None
