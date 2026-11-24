@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import JSON, BigInteger, Boolean, Column, Computed, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Table, Text, UniqueConstraint, cast, false, true
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, validates
 from sqlalchemy.types import UserDefinedType
 
 
@@ -898,6 +898,10 @@ class Message(Base):
     meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     run_id: Mapped[int | None] = mapped_column(Integer, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @validates("content")
+    def _no_nul(self, _key: str, value: str) -> str:
+        return value.replace("\x00", "") if value and "\x00" in value else value  # PostgreSQL text can't hold NUL (#120); meta: db._json
 
 
 class Run(Base):
