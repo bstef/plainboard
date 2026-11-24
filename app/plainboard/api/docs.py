@@ -12,11 +12,11 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Query, Request, UploadFile
 
 from ..schemas import (
-    AttachmentOut, DocCloudflareIn, DocCustomPageCreate, DocCustomPageOut, DocCustomPageUpdate, DocTheme, DocThemePreviewOut, DocCrumb, DocDnsOut, DocDomainIn, DocDomainOut, DocKeysIn, DocPageCreate, DocPageItem, DocPageOut, DocPagesOut,
+    AttachmentOut, DocApiKeyCreate, DocApiKeyCreated, DocApiKeyOut, DocCloudflareIn, DocCustomPageCreate, DocCustomPageOut, DocCustomPageUpdate, DocTheme, DocThemePreviewOut, DocCrumb, DocDnsOut, DocDomainIn, DocDomainOut, DocKeysIn, DocPageCreate, DocPageItem, DocPageOut, DocPagesOut,
     DocPageUpdate, DocReleaseCreate, DocReleaseOut, DocReleaseUpdate, DocSiteCreate, DocSiteOut, DocSiteUpdate, DocTranslationIn, DocTranslationItem, DocTranslationOut, DocVerifyOut, DocVersionOut,
 )  # fmt: skip
 from ..services import docs as docs_service
-from ..services import docs_custom, docs_domains, docs_releases, docs_theme, docs_translate
+from ..services import docs_api, docs_custom, docs_domains, docs_releases, docs_theme, docs_translate
 from ..services import projects as project_service
 from ..services.errors import NotFound
 from .deps import Session, Who
@@ -292,6 +292,27 @@ async def put_translation(project_id: int, page_id: int, lang: str, body: DocTra
     page = await docs_service.isolate(session, page, await docs_service.span_of(session, page.site_id, rel))
     await docs_translate.save(session, site, page, lang, body.title, body.body, who.name or "someone")
     return await docs_translate.get(session, site, page, lang)
+
+
+# --- the site's API keys (#131, services/docs_api.py) ------------------------------------------------------------
+
+
+@router.get("/sites/{site_id}/api-keys", response_model=list[DocApiKeyOut])
+async def list_api_keys(project_id: int, site_id: int, session: Session) -> list[DocApiKeyOut]:
+    return [DocApiKeyOut.model_validate(k) for k in await docs_api.keys(session, await docs_service.get_site(session, project_id, site_id))]
+
+
+@router.post("/sites/{site_id}/api-keys", response_model=DocApiKeyCreated, status_code=201)
+async def create_api_key(project_id: int, site_id: int, body: DocApiKeyCreate, session: Session, who: Who) -> DocApiKeyCreated:
+    """A read-only key for the site's API: shown this once."""
+    site = await docs_service.get_site(session, project_id, site_id)
+    key, secret = await docs_api.create_key(session, site, body.name, body.expires_at, who.name)
+    return DocApiKeyCreated(**DocApiKeyOut.model_validate(key).model_dump(), key=secret)
+
+
+@router.delete("/sites/{site_id}/api-keys/{key_id}", status_code=204)
+async def revoke_api_key(project_id: int, site_id: int, key_id: int, session: Session) -> None:
+    await docs_api.revoke_key(session, await docs_service.get_site(session, project_id, site_id), key_id)
 
 
 # --- versions of a site (#126) ------------------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import { Badge, Button, ErrorText, Field, FieldRow, Input, Modal, Segmented, Sel
 import { formatDateTime } from "../../lib/format";
 import { ModelSelect } from "../team/AgentEditor";
 import { CustomPages } from "./CustomPages";
+import { DocApi } from "./DocApi";
 import { languageLabel } from "./PageEditor";
 import { base, useDocDomain, useDocsRefresh } from "./queries";
 import { SiteLook } from "./SiteLook";
@@ -26,6 +27,7 @@ export function SiteSettings({ pid, site, isOwner, section, onSection, onDeleted
     { id: "languages", label: t("docs.settings.languages"), description: t("docs.settings.languagesHint"), content: <Languages pid={pid} site={site} isOwner={isOwner} /> },
     { id: "agent", label: t("docs.settings.agent"), description: t("docs.settings.agentHint"), content: <DocAgent pid={pid} site={site} /> },
     { id: "assistant", label: t("docs.assistant.section"), description: t("docs.assistant.sectionHint"), content: <AssistantSettings pid={pid} site={site} /> },
+    { id: "api", label: t("docs.api.section"), description: t("docs.api.sectionHint"), content: <DocApi pid={pid} site={site} /> },
     { id: "domain", label: t("docs.settings.domain"), description: t("docs.settings.domainHint"), content: <Domain pid={pid} site={site} isOwner={isOwner} /> },
     { id: "delete", label: t("docs.settings.delete"), description: t("docs.settings.deleteHint"), content: <Delete pid={pid} site={site} onDeleted={onDeleted} /> },
   ];

@@ -95,6 +95,7 @@ TABLES: tuple[Table, ...] = (
     Table("doc_translations", refs={"site_id": "doc_sites", "page_id": "doc_pages"}),
     Table("doc_custom_pages", refs={"site_id": "doc_sites"}),
     Table("doc_theme_versions", refs={"site_id": "doc_sites", "agent_id": "agents"}),
+    Table("doc_api_keys", refs={"site_id": "doc_sites"}),
     Table("ticket_states", ("task_id", "tasks"), {"task_id": "tasks", "until_assignment_id": "assignments"}, key="task_id"),
     # A chat goes on from its summary and its latest messages: the provider's own session stays behind.
     Table(
@@ -305,7 +306,7 @@ async def import_project(session: AsyncSession, source: IO[bytes], *, passphrase
                     values["slug"] = await docs_service.unique_site_slug(session, str(values.get("slug") or values.get("name") or "docs"))
                     if values.get("domain") and await session.scalar(select(table.c.id).where(table.c.domain == values["domain"])):
                         values["domain"] = None  # this installation serves that domain already (the project was copied, not moved)
-                elif spec.name == "public_api_keys" and await session.scalar(select(table.c.id).where(table.c.key_hash == values.get("key_hash"))):
+                elif spec.name in ("public_api_keys", "doc_api_keys") and await session.scalar(select(table.c.id).where(table.c.key_hash == values.get("key_hash"))):
                     continue  # this installation has the key already (the project was copied, not moved)
                 result = await session.execute(insert(table).values(**values))
                 if spec.key == "id":

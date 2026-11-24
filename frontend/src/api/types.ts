@@ -1298,6 +1298,20 @@ export interface DocTheme {
 }
 
 /** A page of a doc site outside its docs tree (imprint, privacy …), linked in its footer. */
+/** A doc site's read-only API key (#131): the key itself only once, when made. */
+export interface DocApiKey {
+  id: number;
+  site_id: number;
+  name: string;
+  /** its last characters */
+  hint: string;
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  key?: string;
+}
+
 export interface DocCustomPage {
   id: number;
   site_id: number;

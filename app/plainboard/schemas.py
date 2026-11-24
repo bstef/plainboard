@@ -2041,3 +2041,26 @@ class DocVerifyOut(BaseModel):
     verified: bool
     detail: str = ""
     verified_at: UTCDateTime | None = None
+
+
+class DocApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)  # where it is used
+    expires_at: datetime | None = None  # none: until revoked
+
+
+class DocApiKeyOut(BaseModel):
+    """A doc site's read-only API key (#131): never the key itself, only its last characters."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    site_id: int
+    name: str
+    hint: str
+    created_by: str
+    created_at: UTCDateTime
+    expires_at: UTCDateTime | None = None
+    last_used_at: UTCDateTime | None = None
+
+
+class DocApiKeyCreated(DocApiKeyOut):
+    key: str  # shown this once

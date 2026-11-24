@@ -8,15 +8,16 @@ and the manager sees it with the first look at a site in a turn.
 from __future__ import annotations
 
 from collections import OrderedDict
+from datetime import timedelta
 from typing import Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from ..models import Assignment, DocPage, DocSite
+from ..models import Assignment, DocPage, DocSite, utcnow
 from ..services import board as board_service
 from ..services import docs as docs_service
-from ..services import docs_public, docs_releases
+from ..services import docs_api, docs_public, docs_releases
 from ..services.util import truncate
 from .registry import ALL, DOC_AGENT, DOCS, MANAGER, ToolContext, ToolError, local_tool, tool
 
@@ -323,6 +324,33 @@ async def manage_doc_version(ctx: ToolContext, args: ManageDocVersionArgs) -> st
             await docs_releases.update(ctx.session, site, rel, **changes)
             done = f"Version {rel.name} of {site.slug} saved."
     return f"{done}\n{_versions_line(await docs_releases.outs(ctx.session, site))}"
+
+
+class DocApiKeysArgs(BaseModel):
+    site: str = Field(description="Site slug/id")
+    create: str | None = Field(default=None, max_length=200, description="Make a read-only API key with this name (shown once: pass it to the user)")
+    days: int | None = Field(default=None, ge=1, le=3650, description="It expires after this many days; none: until revoked")
+    revoke: str | None = Field(default=None, description="Revoke the key with this id or name")
+
+
+@tool("doc_api_keys", "A doc site's read-only API keys (the whole site as JSON/Markdown via /api/v1/docs/<slug>): list, create or revoke one.", DocApiKeysArgs, roles=(MANAGER,), feature=DOCS)
+async def doc_api_keys(ctx: ToolContext, args: DocApiKeysArgs) -> str:
+    site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
+    done = ""
+    if args.revoke:
+        key = await docs_api.find_key(ctx.session, site, args.revoke)
+        await docs_api.revoke_key(ctx.session, site, key.id)
+        done = f"Revoked key {key.name or key.id}.\n"
+    if args.create:
+        expires = utcnow() + timedelta(days=args.days) if args.days else None
+        _, secret = await docs_api.create_key(ctx.session, site, args.create, expires, ctx.agent.name)
+        done += f"Key {args.create!r}: {secret} (shown only now; use as Authorization: Bearer <key>, docs in the site's settings > API).\n"
+    keys = await docs_api.keys(ctx.session, site)
+    listed = "\n".join(
+        f"- {k.id} {k.name or '(no name)'} …{k.hint}" + (f", expires {k.expires_at:%Y-%m-%d}" if k.expires_at else "") + (f", last used {k.last_used_at:%Y-%m-%d}" if k.last_used_at else ", never used")
+        for k in keys
+    )
+    return done + (f"API keys of {site.slug}:\n{listed}" if keys else f"{site.slug} has no API keys.")
 
 
 class OrderDocsArgs(BaseModel):
