@@ -738,3 +738,13 @@ def test_linked_code_paths_follow_renames_and_dead_ones_go_to_the_doc_agent(clie
     assert {p for spec in fake.present_specs for p in spec.patterns} >= {"lib/old.py", "app/payments", "docs/*.md"}
     client.portal.call(watcher.tick, now + timedelta(days=3, hours=1))
     assert len([t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]) == 1
+
+
+def test_a_picture_for_one_mode_shows_only_in_that_mode():
+    from plainboard.services.docs_public import render
+
+    body = "![a](doc-file:1#light) ![b](doc-file:2#dark) ![c](x.png#gh-dark-mode-only) ![d](doc-file:3) [e](doc-file:4#dark)"
+    out = render(body, base="/docs/h", files_base="/f", page_paths={}).html
+    assert '<img src="/f/1" alt="a" data-mode="light" />' in out and '<img src="/f/2" alt="b" data-mode="dark" />' in out
+    assert '<img src="x.png" alt="c" data-mode="dark" />' in out and '<img src="/f/3" alt="d" />' in out
+    assert 'href="doc-file:4#dark"' in out  # only pictures have a mode
