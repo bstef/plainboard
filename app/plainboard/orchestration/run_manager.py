@@ -27,6 +27,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from plainboard_protocol import CompletionSpec, JobSpec, JobState, ResultEvent, RunEvent, RunSpec, ToolBridgeSpec, ToolCallResult, WorkspaceSpec
 from sqlalchemy import delete as sql_delete
@@ -129,6 +130,7 @@ class RunContext:
     assignment_id: int | None = None  # the piece of work this turn belongs to
     task_id: int | None = None
     tools: frozenset[str] | None = None  # the only tools it may call (a question, orchestration/questions.py); None: its role's
+    doc_chat: Any = None  # a visitor's question to a doc site's assistant (orchestration/docs_assistant.Chat): its tools only
 
 
 def _count_and_age(stats: tuple[int, datetime | None] | None) -> tuple[int, int]:
@@ -205,6 +207,9 @@ class RunManager:
         from .questions import Questions  # it builds on this module
 
         self.questions = Questions(self)  # people's questions beside the chat: no queue, read only
+        from .docs_assistant import DocsAssistant
+
+        self.docs_assistant = DocsAssistant(self)  # visitors' questions on doc sites: no queue, no built-in tools
         from .ideas import Ideas
 
         self.ideas = Ideas(self)  # sorting ideas and planning tickets from them: no queue, no tools

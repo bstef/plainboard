@@ -832,7 +832,7 @@ class ClaudeCodeProvider(Provider):
                 **common,
             )
         return ClaudeAgentOptions(
-            tools=READ_TOOLSET_BUILTINS if spec.toolset == "read" else BOARD_TOOLSET_BUILTINS,
+            tools=[] if spec.toolset == "none" else READ_TOOLSET_BUILTINS if spec.toolset == "read" else BOARD_TOOLSET_BUILTINS,
             system_prompt=spec.system_prompt,
             setting_sources=[],
             **common,

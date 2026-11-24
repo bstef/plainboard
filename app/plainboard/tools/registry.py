@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 MANAGER = "manager"
 WORKER = "worker"
 DOC_AGENT = "doc_agent"  # the agent of a doc site (Agent.doc_site_id): a worker that also writes its site's pages
+VISITOR = "doc_visitor"  # a doc site's assistant for visitors (orchestration/docs_assistant.py): nothing else, and no agent has it
 ALL = (MANAGER, WORKER)
 SEARCH = "search"  # a feature: tools of it go only to agents whose project has it (``RunManager`` names them)
 DOCS = "docs"  # the project has a doc site (services/docs.py)
@@ -142,7 +143,8 @@ async def execute(name: str, ctx: ToolContext, raw_args: dict[str, Any] | None) 
     tool_ = _TOOLS.get(name)
     if tool_ is None or tool_.handler is None:
         return ToolCallResult(text=f"Unknown tool: {name}", is_error=True)
-    if not roles_of(ctx.agent) & tool_.roles:
+    roles = frozenset((VISITOR,)) if getattr(ctx.run, "doc_chat", None) is not None else roles_of(ctx.agent)
+    if not roles & tool_.roles:
         return ToolCallResult(text=f"Tool {name} is not available to you", is_error=True)
     try:
         args = tool_.args_model.model_validate(raw_args or {})
@@ -159,7 +161,7 @@ async def execute(name: str, ctx: ToolContext, raw_args: dict[str, Any] | None) 
 
 
 def _load_modules() -> None:
-    from . import automation, board, docs, flow, ideas, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
+    from . import automation, board, docs, docs_assistant, flow, ideas, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
 
 
 _load_modules()
