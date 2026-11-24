@@ -21,6 +21,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { createPortal } from "react-dom";
+import { useAutoGrow } from "../lib/hooks";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -113,11 +114,27 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return <input ref={ref} data-part="field" className={clsx(fieldBase, "h-8 touch:h-11", className)} {...rest} />;
 });
 
+/** Multi-line field. Never resized by hand: it grows with its text from `rows` up to `max-h-[60vh]`
+ * (a `max-h-*` in `className` replaces that), then it scrolls. */
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
   { className, ...rest },
   ref,
 ) {
-  return <textarea ref={ref} data-part="field" className={clsx(fieldBase, "scroll-thin py-1.5 leading-relaxed", className)} {...rest} />;
+  const own = useRef<HTMLTextAreaElement | null>(null);
+  useAutoGrow(own, rest.value);
+  const setRef = (el: HTMLTextAreaElement | null) => {
+    own.current = el;
+    if (typeof ref === "function") ref(el);
+    else if (ref) ref.current = el;
+  };
+  return (
+    <textarea
+      ref={setRef}
+      data-part="field"
+      className={clsx(fieldBase, "scroll-thin resize-none py-1.5 leading-relaxed", !/(^|\s)max-h-/.test(className ?? "") && "max-h-[60vh]", className)}
+      {...rest}
+    />
+  );
 });
 
 const LIST_GUTTER = 8;

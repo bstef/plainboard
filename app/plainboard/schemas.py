@@ -842,6 +842,26 @@ class StatsOut(BaseModel):
     versions: list[StatsVersion] = Field(default_factory=list)  # PlainBoard's own updates in the period
 
 
+class TokenProject(BaseModel):
+    id: int
+    name: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cost_usd: float = 0.0
+    runs: int = 0
+    tokens: list[int] = Field(default_factory=list)  # input + output per day, as TokenUsageOut.days
+    costs: list[float] = Field(default_factory=list)  # per day
+
+
+class TokenUsageOut(BaseModel):
+    """Tokens and cost of the projects the user sees, per day (UTC) and in total, most expensive first."""
+
+    days: list[str]
+    projects: list[TokenProject]
+
+
 class PublicTask(BaseModel):
     number: int
     lang: str  # the language of title and description: the one asked for, else the default

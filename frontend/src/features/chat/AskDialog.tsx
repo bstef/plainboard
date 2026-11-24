@@ -1,10 +1,10 @@
 import { ArrowUp, Info } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { Markdown } from "../../components/Markdown";
 import { Modal, Spinner } from "../../components/ui";
-import { useDismiss, useInView } from "../../lib/hooks";
+import { useAutoGrow, useDismiss, useInView } from "../../lib/hooks";
 
 interface Entry {
   question: string;
@@ -133,12 +133,7 @@ export function AskDialog({ projectId, question, onClose }: { projectId: number;
     bottom.current?.scrollIntoView({ block: "end" });
   }, [entries]);
 
-  useLayoutEffect(() => {
-    const el = area.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [text]);
+  useAutoGrow(area, text);
 
   const close = () => {
     abort.current?.abort();

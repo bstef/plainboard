@@ -117,6 +117,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/runners", Need.ADMIN),  # external runners: their tokens and machines
     Rule("/api/runners/choices", Need.USER),  # names only: where the user's new project may start
     Rule("/api/usage", Need.ADMIN),  # disk and memory of the whole installation
+    Rule("/api/usage/tokens", Need.USER),  # tokens per project: the list holds the user's own projects only
     Rule("/api/search", Need.ADMIN),  # semantic search across all projects: how much is indexed
     Rule("/api/github", Need.ADMIN),  # lists what the installation's GitHub token sees
     Rule("/api/users", Need.ADMIN),

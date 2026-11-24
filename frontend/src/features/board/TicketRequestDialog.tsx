@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Paperclip, Send } from "lucide-react";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useAutoGrow } from "../../lib/hooks";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { qk } from "../../api/queries";
@@ -24,6 +25,7 @@ export function TicketRequestDialog({ manager, onClose, onSent }: { manager: Age
   const [error, setError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const area = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(area, text);
   useEffect(() => area.current?.focus(), []);
 
   const send = async () => {
@@ -100,7 +102,7 @@ export function TicketRequestDialog({ manager, onClose, onSent }: { manager: Age
           }}
           placeholder={t("board.request.placeholder")}
           aria-label={t("board.request.placeholder")}
-          className="scroll-thin min-h-56 w-full flex-1 resize-y rounded-sm bg-transparent px-3 py-2 ring-1 ring-line-2 outline-none ring-inset focus:ring-2 focus:ring-fg sm:min-h-64"
+          className="scroll-thin min-h-56 w-full flex-1 resize-none rounded-sm sm:max-h-[50vh] sm:flex-none bg-transparent px-3 py-2 ring-1 ring-line-2 outline-none ring-inset focus:ring-2 focus:ring-fg sm:min-h-64"
         />
         {files.length > 0 && (
           <div className="flex flex-wrap items-end gap-2">

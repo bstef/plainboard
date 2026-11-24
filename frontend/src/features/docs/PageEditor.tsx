@@ -31,7 +31,7 @@ import { api, errorMessage } from "../../api/client";
 import type { Attachment, DocPage, DocSite, DocTranslationItem } from "../../api/types";
 import { Button, ErrorText, Field, IconButton, Input, Modal, Segmented, Spinner, Textarea } from "../../components/ui";
 import { formatDateTime, timeAgo } from "../../lib/format";
-import { useDismiss, useMediaQuery } from "../../lib/hooks";
+import { useAutoGrow, useDismiss, useMediaQuery } from "../../lib/hooks";
 import { useDraft } from "../../lib/drafts";
 import { diffLines, type Row } from "../chat/ToolCode";
 import { DocMarkdown } from "./DocMarkdown";
@@ -322,6 +322,7 @@ export async function upload(pid: number, site: DocSite, files: File[]): Promise
 }
 
 export function MarkdownArea({ pid, site, area, value, onChange }: { pid: number; site: DocSite; area: RefObject<HTMLTextAreaElement | null>; value: string; onChange: (v: string) => void }) {
+  useAutoGrow(area, value);
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -370,7 +371,7 @@ export function MarkdownArea({ pid, site, area, value, onChange }: { pid: number
         spellCheck
         aria-label={t("docs.page.body")}
         placeholder={t("docs.page.bodyPlaceholder")}
-        className="block min-h-[60vh] w-full resize-none bg-transparent px-4 py-4 font-mono leading-relaxed text-fg outline-none [field-sizing:content] placeholder:text-fg-3 sm:px-5"
+        className="block min-h-[60vh] w-full resize-none bg-transparent px-4 py-4 font-mono leading-relaxed text-fg outline-none placeholder:text-fg-3 sm:px-5"
       />
       {(busy || error) && (
         <p role="status" className={clsx("absolute right-3 bottom-3 flex items-center gap-1.5 rounded-sm bg-bg px-2 py-1 shadow-lg ring-1 ring-line-2", error && "text-you-fg")}>

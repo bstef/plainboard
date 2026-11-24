@@ -24,6 +24,7 @@ import { RetentionConfirm } from "../projects/RetentionConfirm";
 import { RunnersEditor } from "./RunnersEditor";
 import { SearchEditor } from "./SearchEditor";
 import { SecretsEditor } from "./SecretsEditor";
+import { TokenUsage } from "./TokenUsage";
 import { UsageEditor } from "./UsageEditor";
 import { UsersEditor } from "./UsersEditor";
 import luchsApproved from "../../assets/luchs-approved.webp";
@@ -177,6 +178,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
             </div>
           ),
         },
+        { id: "tokens", label: t("tokens.title"), description: t("tokens.description"), content: <TokenUsage /> },
       ];
   const admin: SettingsSection[] = !me.is_admin || !settings.data
     ? []
@@ -354,8 +356,9 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
           label: t("usage.title"),
           description: t("usage.description"),
           content: (
-            <div className="space-y-6">
-              <UsageEditor />
+            <UsageEditor
+              cleanupSettings={
+            <div className="space-y-8">
               <section className="space-y-4">
                 <h3 className="caps rule-b pb-1.5">{t("cleanup.title")}</h3>
                 <FieldRow>
@@ -381,6 +384,7 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                 <SaveRow dirty={dirty(...CLEANUP)} onSave={() => save(CLEANUP)} />
               </section>
               <section className="space-y-3">
+                <h3 className="caps rule-b pb-1.5">{t("cleanup.retention")}</h3>
                 <Toggle
                   checked={Number(values.attachment_retention_days ?? 0) > 0}
                   onChange={(v) => set({ attachment_retention_days: v ? Number(stored.attachment_retention_days) || 90 : 0 })}
@@ -413,6 +417,8 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                 <RetentionConfirm preview={retention} busy={retentionBusy} error={retentionError} onCancel={() => setRetention(null)} onConfirm={confirmRetention} />
               </section>
             </div>
+              }
+            />
           ),
         },
         {

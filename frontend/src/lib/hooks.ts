@@ -94,6 +94,38 @@ export function useInView<T extends HTMLElement>(open: boolean) {
   return [ref, style] as const;
 }
 
+/** A textarea that grows with its text (#134): from its `rows` (or CSS min-height) up to its CSS
+ * max-height, then it scrolls. Measures again when the text or the field's width changes. Scroll
+ * positions of the page and the scrolling boxes around it stay put while it measures. */
+export function useAutoGrow(ref: RefObject<HTMLTextAreaElement | null>, value: unknown) {
+  const fit = useRef<() => void>(() => undefined);
+  fit.current = () => {
+    const el = ref.current;
+    if (!el) return;
+    const kept: [Element, number][] = [];
+    for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollTop) kept.push([p, p.scrollTop]);
+    const page = document.scrollingElement;
+    if (page?.scrollTop) kept.push([page, page.scrollTop]);
+    el.style.height = "auto";
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${el.scrollHeight + border}px`;
+    for (const [box, top] of kept) box.scrollTop = top;
+  };
+  useLayoutEffect(() => fit.current(), [value]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let width = el.clientWidth;
+    const watch = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit.current();
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [ref]);
+}
+
 /** The value once it has not changed for ``ms``. */
 export function useDebounced<T>(value: T, ms: number): T {
   const [out, setOut] = useState(value);

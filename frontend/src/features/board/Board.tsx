@@ -15,13 +15,13 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSo
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Archive, Check, ChevronDown, Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { qk, useTasks } from "../../api/queries";
 import type { Task, TaskStatus } from "../../api/types";
 import { Button, ChatPanelToggle, IconButton, Input, Spinner } from "../../components/ui";
-import { useMediaQuery, useStored } from "../../lib/hooks";
+import { useAutoGrow, useMediaQuery, useStored } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { ArchiveDialog } from "./ArchiveDialog";
 import { TaskCard } from "./TaskCard";
@@ -247,6 +247,8 @@ function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void 
   const { project, openTask } = useShell();
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
+  const field = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(field, title);
 
   const create = async (open: boolean) => {
     if (!title.trim()) return onDone();
@@ -270,6 +272,7 @@ function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void 
   return (
     <div data-part="new-ticket" className="border-b border-line bg-sunk px-4 py-2.5 ring-2 ring-fg ring-inset md:px-2.5">
       <textarea
+        ref={field}
         autoFocus
         rows={2}
         value={title}
@@ -278,7 +281,7 @@ function NewTicket({ status, onDone }: { status: TaskStatus; onDone: () => void 
         onBlur={() => !title.trim() && onDone()}
         placeholder={t("board.newTicketPlaceholder")}
         aria-label={t("board.newTicketPlaceholder")}
-        className="block w-full resize-none bg-transparent outline-none"
+        className="scroll-thin block max-h-48 w-full resize-none bg-transparent outline-none"
       />
       <p className="text-fg-3 touch:hidden">{t("board.newTicketKeys")}</p>
     </div>
