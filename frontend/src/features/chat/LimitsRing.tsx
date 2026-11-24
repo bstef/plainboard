@@ -1,4 +1,6 @@
 import clsx from "clsx";
+import type { TFunction } from "i18next";
+import { TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLimits } from "../../api/queries";
@@ -38,7 +40,9 @@ export function LimitsRing() {
   );
 }
 
-/** Every account's limits written out, for where there is room (the chat's context column). */
+/** Every account's limits in the chat's context column, one line each: name, the 5-hour window and
+ * a short bar of the fullest weekly one. An account that runs out before its reset is vermilion with a
+ * warning sign. The resets and forecasts are a click away on the rings under the composer. */
 export function LimitsList() {
   const { t } = useTranslation();
   const data = useProjectLimits();
@@ -48,15 +52,40 @@ export function LimitsList() {
   return (
     <>
       {known.map((account) => (
-        <div key={account.account_id} className="space-y-3 border-b border-line px-2.5 py-2.5">
-          {known.length > 1 && <p className="font-semibold">{account.label}</p>}
-          {account.windows.map((window) => (
-            <LimitRow key={window.name} window={window} forecast={account.forecasts.find((f) => f.name === window.name)} />
-          ))}
-          {account.updated_at && <p className="text-fg-3">{t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at)) })}</p>}
-        </div>
+        <LimitLine key={account.account_id} account={account} />
       ))}
     </>
+  );
+}
+
+function LimitLine({ account }: { account: AccountLimits }) {
+  const { t } = useTranslation();
+  const five = account.windows.find((w) => w.name.endsWith("five_hour"));
+  const weeks = account.windows.filter((w) => w !== five);
+  const week = weeks.length ? weeks.reduce((a, b) => (b.utilization > a.utilization ? b : a)) : undefined;
+  const forecast = week && account.forecasts.find((f) => f.name === week.name);
+  const risk = account.forecasts.some((f) => f.status === "over") || account.windows.some((w) => w.utilization >= 1);
+  const name = (w: LimitWindow) => t(`chat.limits.${w.name}`, { defaultValue: w.name });
+  return (
+    <div className="grid h-9 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 border-b border-line px-2.5" title={forecast ? forecastHeadline(t, forecast) : undefined}>
+      <span className={clsx("flex min-w-0 items-center gap-1.5", risk && "text-you-fg")}>
+        <span className="truncate font-medium">{account.label}</span>
+        {risk && <TriangleAlert className="size-3.5 shrink-0" aria-label={t("chat.limits.slowDown")} />}
+      </span>
+      <span className="text-fg-3" title={five && name(five)}>
+        {five && t("chat.limits.fiveHourShort", { percent: percent(five.utilization) })}
+      </span>
+      <span className="flex items-center gap-1.5" title={week && name(week)}>
+        {week && (
+          <>
+            <span className="block h-1 w-12 bg-line">
+              <span className={clsx("block h-full", risk ? "bg-you" : bar[tone(week.utilization)])} style={{ width: `${Math.min(percent(week.utilization), 100)}%` }} />
+            </span>
+            <span className={clsx("w-9 text-right", risk && "font-medium text-you-fg")}>{percent(week.utilization)}%</span>
+          </>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -111,14 +140,16 @@ const forecastTone = {
   over: "text-you-fg",
 };
 
+const forecastHeadline = (t: TFunction, forecast: LimitForecast) =>
+  forecast.status === "over"
+    ? forecast.runs_out_at
+      ? t("chat.limits.forecast.over", { percent: percent(forecast.projected), when: timeAgo(fromUnix(forecast.runs_out_at)) })
+      : t("chat.limits.forecast.reached")
+    : t(`chat.limits.forecast.${forecast.status}`, { percent: percent(forecast.projected) });
+
 function Forecast({ forecast }: { forecast: LimitForecast }) {
   const { t } = useTranslation();
-  const headline =
-    forecast.status === "over"
-      ? forecast.runs_out_at
-        ? t("chat.limits.forecast.over", { percent: percent(forecast.projected), when: timeAgo(fromUnix(forecast.runs_out_at)) })
-        : t("chat.limits.forecast.reached")
-      : t(`chat.limits.forecast.${forecast.status}`, { percent: percent(forecast.projected) });
+  const headline = forecastHeadline(t, forecast);
   return (
     <div className="mt-1.5 space-y-0.5">
       <p className={clsx("font-medium", forecastTone[forecast.status])}>{headline}</p>
