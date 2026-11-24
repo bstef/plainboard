@@ -49,7 +49,10 @@ export function ChatPanel({
   const people = usePeople();
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  const [loadingOlder, setLoadingOlder] = useState(false);
+  // Distance of the view from the top of the content, so new messages below don't move what one reads.
+  const fromTop = useRef(0);
+  const firstId = useRef<number | undefined>(undefined);
+  const fetchingOlder = useRef(false);
   const [details, setDetails] = useStored<boolean>("plainboard.chatDetails", false);
   const [files, setFiles] = useState<File[]>([]);
   const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
@@ -115,32 +118,56 @@ export function ChatPanel({
       </div>
     ));
 
+  // The scroller is reversed (column-reverse): its offset counts from the bottom, so older messages
+  // put on top keep the view still without touching scrollTop, which would stop touch momentum.
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [messages.length, streaming, queued.length, agentId, activeRuns.length]);
+    if (!el) return;
+    const prepended = firstId.current !== messages[0]?.id;
+    firstId.current = messages[0]?.id;
+    if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    else if (!prepended) {
+      const target = fromTop.current - (el.scrollHeight - el.clientHeight);
+      if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+    }
+    fromTop.current = el.scrollHeight - el.clientHeight + el.scrollTop;
+  }, [messages, streaming, queued.length, agentId, activeRuns.length]);
 
   useEffect(() => {
     stickToBottom.current = true;
   }, [agentId]);
 
-  const onScroll = () => {
+  // Older messages are fetched while the reader is still a few screens below the top, page after
+  // page, so scrolling up never runs into the end of what is loaded.
+  const loadOlder = () => {
     const el = scroller.current;
-    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const conv = conversation.data;
+    if (!el || !conv?.has_more || !conv.messages.length || fetchingOlder.current) return;
+    if (el.scrollHeight - el.clientHeight + el.scrollTop > Math.max(2000, 3 * el.clientHeight)) return;
+    fetchingOlder.current = true;
+    const id = agentId;
+    const before = conv.messages[0].id;
+    api
+      .get<Conversation>(`/agents/${id}/conversation?before_id=${before}&limit=100`)
+      .then((older) =>
+        qc.setQueryData<Conversation>(qk.conversation(id), (cur) =>
+          cur && cur.messages[0]?.id === before ? { ...cur, messages: [...older.messages, ...cur.messages], has_more: older.has_more } : cur,
+        ),
+      )
+      .catch(() => undefined)
+      .finally(() => {
+        fetchingOlder.current = false;
+      });
   };
 
-  const loadOlder = async () => {
-    const conv = conversation.data;
-    if (!conv?.messages.length) return;
-    setLoadingOlder(true);
-    try {
-      const older = await api.get<Conversation>(`/agents/${agentId}/conversation?before_id=${conv.messages[0].id}`);
-      qc.setQueryData<Conversation>(qk.conversation(agentId), (cur) =>
-        cur ? { ...cur, messages: [...older.messages, ...cur.messages], has_more: older.has_more } : cur,
-      );
-    } finally {
-      setLoadingOlder(false);
-    }
+  useEffect(loadOlder, [conversation.data]);
+
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el) return;
+    stickToBottom.current = -el.scrollTop < 80;
+    fromTop.current = el.scrollHeight - el.clientHeight + el.scrollTop;
+    loadOlder();
   };
 
   if (!agent) return null;
@@ -199,17 +226,17 @@ export function ChatPanel({
         {onClose && <ChatPanelToggle where="chat" />}
       </header>
 
-      <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <div className={column}>
+      <div ref={scroller} onScroll={onScroll} className="scroll-thin flex min-h-0 flex-1 flex-col-reverse overflow-x-hidden overflow-y-auto">
+        <div className={clsx(column, "mb-auto")}>
         {conversation.isLoading && (
           <div className="flex justify-center py-8">
             <Spinner />
           </div>
         )}
         {conversation.data?.has_more && (
-          <button type="button" onClick={loadOlder} className="block w-full border-b border-line px-4 py-2 text-center text-fg-2 hover:bg-sunk hover:text-fg" disabled={loadingOlder}>
-            {loadingOlder ? t("common.loading") : t("chat.loadOlder")}
-          </button>
+          <div className="flex justify-center py-3" aria-label={t("common.loading")}>
+            <Spinner />
+          </div>
         )}
         {!conversation.isLoading && messages.length === 0 && !queued.length && (
           <ChatIntro isManager={agent.is_manager} onPick={canWrite && agent.enabled ? (text) => setSeed((last) => ({ text, n: (last?.n ?? 0) + 1 })) : undefined} />
