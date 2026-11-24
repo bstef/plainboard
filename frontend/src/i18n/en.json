@@ -507,8 +507,7 @@
     "freshContext": "New context for the next piece of work ({{tokens}} tokens left behind)",
     "expand": "Open as full page",
     "conversations": "Conversations",
-    "showDetails": "Show activity & details",
-    "hideDetails": "Hide activity & details",
+    "details": "Activity & details",
     "code": {
       "truncated": "Cut off: {{count}} characters in all",
       "empty": "(empty)"
