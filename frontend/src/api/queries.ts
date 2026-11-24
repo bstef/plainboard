@@ -141,12 +141,22 @@ export const useTodos = (agentId: number, state: TodoState) =>
   });
 export const useOwnNotes = (agentId: number) =>
   useQuery({ queryKey: qk.ownNotes(agentId), queryFn: () => api.get<OwnNote[]>(`/agents/${agentId}/notes`) });
-export const useConversation =(agentId: number | null) =>
-  useQuery({
+export function useConversation(agentId: number | null) {
+  const qc = useQueryClient();
+  return useQuery({
     queryKey: qk.conversation(agentId ?? 0),
-    queryFn: () => api.get<Conversation>(`/agents/${agentId}/conversation`),
+    queryFn: async () => {
+      const fresh = await api.get<Conversation>(`/agents/${agentId}/conversation`);
+      // A refetch (reconnect, back to the chat) brings the newest page only: the older pages one has
+      // scrolled up to stay, or the message one reads would vanish from under one's eyes.
+      const cur = qc.getQueryData<Conversation>(qk.conversation(agentId ?? 0));
+      const first = fresh.messages[0]?.id;
+      if (!cur || cur.id !== fresh.id || first === undefined || !cur.messages.some((m) => m.id === first)) return fresh;
+      return { ...fresh, messages: [...cur.messages.filter((m) => m.id < first), ...fresh.messages], has_more: cur.has_more };
+    },
     enabled: agentId !== null,
   });
+}
 export const useRuns = (pid: number) =>
   useQuery({ queryKey: qk.runs(pid), queryFn: () => api.get<Run[]>(`/projects/${pid}/runs?limit=100`) });
 export const useAssignments = (pid: number) =>
