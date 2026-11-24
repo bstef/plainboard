@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Lightbulb } from "lucide-react";
 import { useIdeaQuestions, useTasks } from "../../api/queries";
-import { useDismiss } from "../../lib/hooks";
+import { useDismiss, useInView } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 
 /** The one vermilion element of a screen: how many tickets and questions about ideas wait for the user,
@@ -18,6 +18,7 @@ export function ForYou({ variant = "plate" }: { variant?: "plate" | "side" | "ra
   const questions = useIdeaQuestions(project.id, canWrite).data ?? [];
   const count = tasks.length + (canWrite ? questions.length : 0);
 
+  const [menuRef, inView] = useInView<HTMLDivElement>(open);
   useDismiss(ref, open, () => setOpen(false));
 
   if (!count) return null;
@@ -39,7 +40,7 @@ export function ForYou({ variant = "plate" }: { variant?: "plate" | "side" | "ra
         {variant === "rail" ? count : t("shell.forYou", { n: count })}
       </button>
       {open && (
-        <div role="menu" data-part="menu" className={clsx("absolute top-full z-40 mt-1 w-72 max-w-[calc(100vw-1.5rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2", variant === "plate" ? "right-0" : "left-0")}>
+        <div ref={menuRef} style={inView} role="menu" data-part="menu" className={clsx("absolute top-full z-40 mt-1 w-72 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2", variant === "plate" ? "right-0" : "left-0")}>
           {tasks.map((task) => (
             <button
               key={task.id}

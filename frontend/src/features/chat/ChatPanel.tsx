@@ -13,7 +13,7 @@ import { PendingFile } from "../../components/PendingFile";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, ChatPanelToggle, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
-import { useDismiss, useStored } from "../../lib/hooks";
+import { useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useShell } from "../layout/shell-context";
 import { AskDialog } from "./AskDialog";
@@ -356,6 +356,7 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const [menuRef, inView] = useInView<HTMLDivElement>(open);
   useDismiss(ref, open, () => setOpen(false));
 
   const action = async (name: "compress" | "reset-session") => {
@@ -379,7 +380,7 @@ function ChatMenu({ agentId, cost, context, disabled }: { agentId: number; cost:
         <MoreHorizontal className="size-4" />
       </IconButton>
       {open && (
-        <div data-part="menu" className="absolute top-full right-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
+        <div ref={menuRef} style={inView} data-part="menu" className="absolute top-full right-0 z-40 mt-1 w-64 max-w-[calc(100vw-1rem)] rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2">
           <MenuItem label={t("chat.compressNow")} hint={t("chat.compressHint")} busy={busy === "compress"} disabled={disabled} onClick={() => action("compress")} />
           <MenuItem label={t("chat.resetSession")} hint={t("chat.resetHint")} busy={busy === "reset-session"} disabled={disabled} onClick={() => action("reset-session")} />
           <div className="border-t border-line px-2 py-1.5 text-fg-3">{t("chat.context", { context })} · {t("chat.totalCost", { cost: formatCost(cost) })}</div>

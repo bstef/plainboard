@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
 
 /** State persisted in localStorage (JSON). */
 export function useStored<T>(key: string, initial: T) {
@@ -76,4 +76,20 @@ export function useDismiss(ref: RefObject<HTMLElement | null>, open: boolean, cl
       document.removeEventListener("keydown", onKey);
     };
   }, [ref, open]);
+}
+
+/** Keeps an open popover half a rem inside the screen: give it the returned ref and style. If it sticks
+ * out left or right (on a phone its anchor may sit anywhere in the bar), it moves sideways by that much. */
+export function useInView<T extends HTMLElement>(open: boolean) {
+  const ref = useRef<T>(null);
+  const [shift, setShift] = useState(0);
+  useLayoutEffect(() => {
+    if (!open || !ref.current) return setShift(0);
+    const r = ref.current.getBoundingClientRect();
+    // Not innerWidth: on a phone it grows with the very popover that sticks out.
+    const [edge, width] = [8, document.documentElement.clientWidth];
+    setShift(r.right > width - edge ? Math.max(edge - r.left, width - edge - r.right) : r.left < edge ? edge - r.left : 0);
+  }, [open]);
+  const style: CSSProperties | undefined = shift ? { transform: `translateX(${shift}px)` } : undefined;
+  return [ref, style] as const;
 }

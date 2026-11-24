@@ -4,7 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type K
 import { useTranslation } from "react-i18next";
 import { useMe } from "../../api/queries";
 import { Input } from "../../components/ui";
-import { useDismiss } from "../../lib/hooks";
+import { useDismiss, useInView } from "../../lib/hooks";
 import type { Project } from "../../api/types";
 
 /** From this many projects the menu gets a search field and lists the recently used ones first. */
@@ -71,6 +71,7 @@ export function ProjectSwitcher({
 
   const { list, recentCount } = useMemo(() => arrange(projects, many ? recentIds : [], query), [projects, many, recentIds, query]);
 
+  const [menuRef, inView] = useInView<HTMLDivElement>(open);
   useDismiss(ref, open, () => setOpen(false));
 
   // The menu never leaves the screen: the project list takes what room is below the button and scrolls.
@@ -160,7 +161,8 @@ export function ProjectSwitcher({
         <div
           role="menu"
           data-part="menu"
-          style={{ maxHeight }}
+          ref={menuRef}
+          style={{ maxHeight, ...inView }}
           className="absolute top-full left-0 z-40 mt-1 flex w-64 max-w-[calc(100vw-1rem)] flex-col rounded-sm bg-bg p-1 shadow-lg ring-1 ring-line-2"
         >
           {many && (

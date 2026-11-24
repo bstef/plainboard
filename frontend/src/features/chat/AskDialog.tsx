@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "../../api/client";
 import { Markdown } from "../../components/Markdown";
 import { Modal, Spinner } from "../../components/ui";
-import { useDismiss } from "../../lib/hooks";
+import { useDismiss, useInView } from "../../lib/hooks";
 
 interface Entry {
   question: string;
@@ -30,6 +30,7 @@ function InfoTip({ text, label }: { text: string; label: string }) {
   const box = useRef<HTMLSpanElement>(null);
   useDismiss(box, open, () => setOpen(false));
   const shown = open || hover;
+  const [tipRef, inView] = useInView<HTMLSpanElement>(shown);
   return (
     <span ref={box} className="relative inline-flex shrink-0" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <button
@@ -42,7 +43,7 @@ function InfoTip({ text, label }: { text: string; label: string }) {
         <Info className="size-4" />
       </button>
       {shown && (
-        <span role="tooltip" className="absolute top-full left-0 z-10 mt-1 w-72 rounded-sm max-sm:fixed max-sm:inset-x-4 max-sm:top-[calc(env(safe-area-inset-top)+3.25rem)] max-sm:mt-0 max-sm:w-auto bg-bg p-2.5 text-sm font-normal text-fg-2 shadow-lg ring-1 ring-line-2">
+        <span ref={tipRef} style={inView} role="tooltip" className="absolute top-full left-0 z-10 mt-1 w-72 max-w-[calc(100vw-1rem)] rounded-sm max-sm:fixed max-sm:inset-x-4 max-sm:top-[calc(env(safe-area-inset-top)+3.25rem)] max-sm:mt-0 max-sm:w-auto bg-bg p-2.5 text-sm font-normal text-fg-2 shadow-lg ring-1 ring-line-2">
           {text}
         </span>
       )}

@@ -18,7 +18,7 @@ import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import type { DocPageItem, DocPages, DocSite } from "../../api/types";
 import { Button, ErrorText, IconButton, Input, Modal, Spinner } from "../../components/ui";
-import { useDismiss } from "../../lib/hooks";
+import { useDismiss, useInView } from "../../lib/hooks";
 import { base, useDocChildren, useDocsRefresh, useFindPages } from "./queries";
 
 export interface TreeActions {
@@ -235,6 +235,7 @@ function RowMenu({ ctx, item, before, last, parentItem }: { ctx: Ctx; item: DocP
   const [error, setError] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const refresh = useDocsRefresh(ctx.pid);
+  const [menuRef, inView] = useInView<HTMLDivElement>(open);
   useDismiss(ref, open, () => {
     setOpen(false);
     setConfirm(false);
@@ -266,7 +267,7 @@ function RowMenu({ ctx, item, before, last, parentItem }: { ctx: Ctx; item: DocP
         </span>
       )}
       {open && (
-        <div role="menu" className="absolute top-full right-0 z-30 w-56 rounded-sm bg-bg py-1 font-normal shadow-lg ring-1 ring-line-2">
+        <div ref={menuRef} style={inView} role="menu" className="absolute top-full right-0 z-30 w-56 max-w-[calc(100vw-1rem)] rounded-sm bg-bg py-1 font-normal shadow-lg ring-1 ring-line-2">
           <button type="button" role="menuitem" className={entry} onClick={() => (setOpen(false), ctx.onNew(item))}>
             <FilePlus2 className="size-4 text-fg-3" /> {t("docs.tree.newBelow")}
           </button>
