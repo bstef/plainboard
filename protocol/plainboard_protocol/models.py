@@ -484,7 +484,8 @@ class GitCommit(BaseModel):
     author: str = ""
     date: str = ""  # ISO 8601 with offset, the commit date
     message: str = ""
-    files: list[str] = Field(default_factory=list)  # the first ones changed
+    files: list[str] = Field(default_factory=list)  # the first ones changed (a renamed file: its old and its new path)
+    renames: dict[str, str] = Field(default_factory=dict)  # old path -> new path, as git found them (-M)
     file_count: int = 0
     insertions: int = 0
     deletions: int = 0
@@ -505,11 +506,13 @@ class GitPresentSpec(BaseModel):
     base: str = Field(min_length=1, max_length=200)
     shas: list[Annotated[str, Field(pattern=r"^[0-9a-f]{7,64}$")]] = Field(default_factory=list, max_length=2000)  # also the index's sweep
     paths: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(default_factory=list, max_length=300)
+    patterns: list[Annotated[str, Field(min_length=1, max_length=500)]] = Field(default_factory=list, max_length=2000)  # prefixes or globs (doc pages' code paths)
 
 
 class GitPresentResult(BaseModel):
     on_base: list[str] = Field(default_factory=list)  # of the shas asked
     missing: list[str] = Field(default_factory=list)  # of the paths asked
+    unmatched: list[str] | None = None  # of the patterns asked: those that match no file at the tip (None: a runner from before it)
 
 
 class ProjectFiles(BaseModel):

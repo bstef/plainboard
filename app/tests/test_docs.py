@@ -689,3 +689,52 @@ def test_the_doc_agent_searches_its_own_site_by_meaning_and_words_outside_the_vi
     assert "Orders" not in found and "other site" not in found and str(foreign["id"]) + " /" not in found  # its own site only
     assert queries == ["retry_limit when is money paid"]  # searched by meaning although the budget was used up
     assert not public.VECTOR_SEARCHES.allow(str(s["id"]))  # and took nothing of it
+
+
+def test_linked_code_paths_follow_renames_and_dead_ones_go_to_the_doc_agent(client, project):
+    from plainboard.models import Assignment, Landing, LandingStatus, utcnow
+    from sqlalchemy import select
+
+    pid = project["id"]
+    client.patch(f"/api/projects/{pid}", json={"auto_wake_manager": False})
+    repo = client.post(f"/api/projects/{pid}/repositories", json={"name": "api", "url": "https://github.com/acme/api.git"}).json()
+    s = site(client, pid)
+    writer = s["agent"]["id"]
+    pay = page(client, pid, s["id"], title="Payments", body="How payments work.", paths=["app/pay/", "README.md", "docs/*.md", "app/keep"])
+    old = page(client, pid, s["id"], title="Legacy", body="Old things.", paths=["lib/old.py"])
+    fake = runner(client)
+    fake.commits = [GitCommit(sha="a" * 40, message="Start", files=["README.md"])]
+    watcher = client.app_ref.state.docs_watcher
+    now = utcnow()
+    client.portal.call(watcher.tick, now)
+
+    async def land(s):
+        s.add(Landing(project_id=pid, repository_id=repo["id"], branch="be/move", title="Move payments", status=LandingStatus.MERGED, merged_at=now + timedelta(minutes=1)))
+        await s.commit()
+
+    db(client, land)
+    renames = {"app/pay/a.py": "app/payments/a.py", "app/pay/b.py": "app/payments/b.py", "README.md": "docs/README.md", "app/keep/x.py": "app/other/x.py"}
+    fake.commits = [GitCommit(sha="c" * 40, message="Move payments", files=[f for pair in renames.items() for f in pair], renames=renames), *fake.commits]
+    fake.dead_patterns = {"app/pay"}  # app/pay is empty now, app/keep still has files
+    client.portal.call(watcher.tick, now + timedelta(minutes=20))
+    wait_for(lambda: idle(client, pid))
+    moved = client.get(f"/api/projects/{pid}/docs/pages/{pay['id']}").json()
+    assert moved["paths"] == ["app/payments", "docs/README.md", "docs/*.md", "app/keep"]
+    newest = client.get(f"/api/projects/{pid}/docs/pages/{pay['id']}/versions").json()[0]
+    assert newest["author"] == "PlainBoard" and newest["reason"] == "Linked code paths follow a rename: app/pay/ -> app/payments, README.md -> docs/README.md"
+    assert client.get(f"/api/projects/{pid}/docs/pages/{old['id']}").json()["paths"] == ["lib/old.py"]
+
+    async def orders(s):
+        return [a.instructions for a in await s.scalars(select(Assignment).where(Assignment.agent_id == writer).order_by(Assignment.id))]
+
+    # Daily: paths that match nothing in any repository are named, with the pages, once a week.
+    fake.dead_patterns = {"lib/old.py", "docs/*.md"}
+    client.portal.call(watcher.tick, now + timedelta(days=2))
+    wait_for(lambda: idle(client, pid))
+    stale = [t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]
+    assert len(stale) == 1, db(client, orders)
+    assert f'doc page {old["id"]} "Legacy" (/legacy): its code paths match no file any more: lib/old.py' in stale[0]
+    assert f'doc page {pay["id"]} "Payments" (/payments): its code paths match no file any more: docs/*.md' in stale[0] and "write_doc_page paths" in stale[0]
+    assert {p for spec in fake.present_specs for p in spec.patterns} >= {"lib/old.py", "app/payments", "docs/*.md"}
+    client.portal.call(watcher.tick, now + timedelta(days=3, hours=1))
+    assert len([t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]) == 1
