@@ -31,8 +31,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, Attachment, DocPage, DocPageVersion, DocSite, DocTranslation, utcnow
-from ..schemas import AgentCreate, AgentUpdate, AttachmentOut, DocAgentOut, DocPageItem, DocSiteOut
+from ..models import Agent, Attachment, DocCustomPage, DocPage, DocPageVersion, DocSite, DocTranslation, utcnow
+from ..schemas import AgentCreate, AgentUpdate, AttachmentOut, DocAgentOut, DocPageItem, DocSiteOut, DocTheme
 from . import board as board_service
 from .errors import NotFound, ServiceError
 from .util import slugify
@@ -87,7 +87,7 @@ def site_out(site: DocSite, pages: int = 0, stale: int = 0, agent: Agent | None 
         translator=site.translator, translate_provider=site.translate_provider, translate_model=site.translate_model,
         deepl_key_set=bool(site.deepl_key_enc), google_key_set=bool(site.google_key_enc),
         domain=site.domain, domain_verified_at=site.domain_verified_at,
-        cloudflare_token_set=bool(site.cloudflare_token_enc), **{k: getattr(site, k) for k in ASSISTANT_FIELDS}, assistant_warning=ASSISTANT_WARNING, url=f"/docs/{site.slug}/", pages=pages, stale_pages=stale,
+        cloudflare_token_set=bool(site.cloudflare_token_enc), **{k: getattr(site, k) for k in ASSISTANT_FIELDS}, assistant_warning=ASSISTANT_WARNING, theme=DocTheme(**(site.theme or {})), url=f"/docs/{site.slug}/", pages=pages, stale_pages=stale,
         agent=DocAgentOut(id=agent.id, slug=agent.slug, name=agent.name, provider=agent.provider, model=agent.model, effort=agent.effort, enabled=agent.enabled) if agent else None,
         created_at=site.created_at, updated_at=site.updated_at,
     )  # fmt: skip
@@ -241,6 +241,10 @@ async def update_site(session: AsyncSession, site: DocSite, **changes) -> DocSit
         raise ServiceError("The assistant runs on Claude only: other providers' runs always have a shell.")
     if changes.get("languages") is not None:
         site.languages = clean_languages(changes["languages"], site.language)
+    if changes.get("theme") is not None:
+        from . import docs_theme
+
+        site.theme = await docs_theme.clean(session, site, DocTheme.model_validate(changes["theme"]))
     domain = changes.get("domain")
     if domain is not None:
         new = clean_domain(domain) if domain.strip() else None
@@ -618,6 +622,13 @@ def _relink(text: str, files: dict[int, int], pages: dict[int, int]) -> str:
 async def after_import(session: AsyncSession, new: dict[str, dict[int, int]]) -> None:
     """Imported pages name their files and pages by the ids of the other side: by the new ones from now on."""
     files, page_ids = new.get("attachments", {}), new.get("doc_pages", {})
+    from . import docs_custom
+
+    for custom in await session.scalars(select(DocCustomPage).where(DocCustomPage.id.in_(list(new.get("doc_custom_pages", {}).values())))):
+        docs_custom.relink(custom, files, page_ids)
+    for site in await session.scalars(select(DocSite).where(DocSite.id.in_(list(new.get("doc_sites", {}).values())))):
+        if site.theme:  # its logos and favicon are files of the site
+            site.theme = {**site.theme, **{k: files.get(site.theme[k], site.theme[k]) for k in ("logo_light", "logo_dark", "favicon") if site.theme.get(k)}}
     if not page_ids:
         return
     ids = list(page_ids.values())

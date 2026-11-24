@@ -646,6 +646,9 @@ class DocSite(Timestamps, Base):
     assistant_daily_messages: Mapped[int] = mapped_column(Integer, default=300, server_default="300")  # of all visitors
     assistant_daily_cost: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")  # USD; 0: no cap
     assistant_max_tokens: Mapped[int] = mapped_column(Integer, default=1024, server_default="1024")  # per answer
+    # Its look (#121, services/docs_theme.py): logos, colours, font, corners, header links, custom CSS. Empty: the
+    # look every site has.
+    theme: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
 
 
 class DocPage(Timestamps, Base):
@@ -707,6 +710,24 @@ class DocTranslation(Base):
     translated_at: Mapped[datetime | None] = mapped_column(DateTime)
     error: Mapped[str] = mapped_column(Text, default="")  # the last attempt failed: tried again after a while
     attempted_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class DocCustomPage(Timestamps, Base):
+    """A page of a site outside its docs tree (#121, services/docs_custom.py): an imprint, a privacy policy, linked
+    in the site's footer at /p/<slug>. Written by people only (legal texts): no agent tool reaches it, the search
+    and the assistant leave it out. ``texts``: its title and text in the site's further languages, by hand."""
+
+    __tablename__ = "doc_custom_pages"
+    __table_args__ = (UniqueConstraint("site_id", "slug"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    slug: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text, default="")
+    texts: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")  # lang -> {title, body}
+    edited_by: Mapped[str] = mapped_column(String(100), default="")
 
 
 class DocWatch(Base):

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import DocPage, DocSite, DocTranslation, Project
 from . import docs as docs_service
+from . import docs_custom, docs_theme
 from .errors import NotFound, ServiceError
 from .util import slugify
 
@@ -167,7 +168,8 @@ async def site_view(session: AsyncSession, site: DocSite, base: str, lang: str) 
         "name": site.name, "slug": site.slug, "description": site.description, "public": site.public, "base": base, "api": api_base(site),
         "language": site.language, "languages": [site.language, *(site.languages or [])], "lang": lang, "lang_base": lang_base(site, base, lang),
         "project": project.name if project else "", "updated_at": site.updated_at, "home": first, "nav": top,
-        "assistant": site.assistant_enabled,
+        "assistant": site.assistant_enabled, "theme": docs_theme.public(site.theme or {}, f"{api_base(site)}/files"),
+        "footer": await docs_custom.footer(session, site, lang),
     }  # fmt: skip
 
 
@@ -364,8 +366,10 @@ def body_html(site_view_: dict, page: dict | None) -> str:
         if page
         else f"<article><h1>{e(site_view_['name'])}</h1><p>{e(site_view_['description'])}</p></article>"
     )
-    sidebar = page["sidebar"] if page else [site_view_["nav"]]
-    return f'<nav aria-label="{e(site_view_["name"])}"><a href="{e(_url(base, ""))}">{e(site_view_["name"])}</a>{_nav_html(sidebar, base, (page or {}).get("path", ""))}</nav><main>{article}</main>'
+    sidebar = page.get("sidebar") or [site_view_["nav"]] if page else [site_view_["nav"]]
+    footer = "".join(f'<a href="{e(_url(base, f["path"]))}">{e(f["title"])}</a> ' for f in site_view_.get("footer") or [])
+    footer = f"<footer>{footer}</footer>" if footer else ""
+    return f'<nav aria-label="{e(site_view_["name"])}"><a href="{e(_url(base, ""))}">{e(site_view_["name"])}</a>{_nav_html(sidebar, base, (page or {}).get("path", ""))}</nav><main>{article}{footer}</main>'
 
 
 SIGN_IN = """<article><h1>{name}</h1><p>This documentation is private. Sign in with your PlainBoard account.</p>
@@ -379,21 +383,30 @@ table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem}a
 <body><div id="docs-root"><!--pb-docs-body--></div></body></html>"""
 
 
-def document(template: str | None, state: dict, head: str, body: str, lang: str = "en") -> str:
+def document(template: str | None, state: dict, head: str, body: str, lang: str = "en", theme: str = "") -> str:
     """The HTML of a page: the frontend's ``docs.html`` (or a plain one without a build) with the page's head, the
-    rendered page in its body and the state for the script (``window.__PB_DOCS__``)."""
+    rendered page in its body and the state for the script (``window.__PB_DOCS__``); ``theme``: the site's own look
+    (services/docs_theme.head), at the end of the head, after the site's own styles."""
     data = json.dumps(state, default=str, ensure_ascii=False).replace("<", "\\u003c")
     head += f"<script>window.__PB_DOCS__={data}</script>"
     out = template or FALLBACK
     out = out.replace('<html lang="en">', f'<html lang="{html.escape(lang)}">', 1)
+    if theme:
+        if 'rel="icon"' in theme:
+            out = re.sub(r'<link rel="icon" href="[^"]*"\s*/?>', "", out, count=1)  # its href is an SVG with ">" in it
+        out = out.replace("</head>", theme + "</head>", 1)
     out = out.replace("<!--pb-docs-head-->", head, 1) if "<!--pb-docs-head-->" in out else out.replace("</head>", head + "</head>", 1)
     return out.replace("<!--pb-docs-body-->", body, 1)
+
+
+def theme_head(site: DocSite) -> str:
+    return docs_theme.head(site.theme or {}, f"{api_base(site)}/files")
 
 
 def sign_in_page(template: str | None, site: DocSite) -> str:
     state = {"site": {"name": site.name, "slug": site.slug, "public": False}, "page": None, "sign_in": True}
     head = f'<title>{html.escape(site.name)}</title><meta name="robots" content="noindex">'
-    return document(template, state, head, SIGN_IN.format(name=html.escape(site.name)), site.language)
+    return document(template, state, head, SIGN_IN.format(name=html.escape(site.name)), site.language, theme_head(site))
 
 
 # --- cache and limits -----------------------------------------------------------------------------------------

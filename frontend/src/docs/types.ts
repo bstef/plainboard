@@ -39,6 +39,41 @@ export interface SiteView {
   nav: Nav;
   /** Its AI assistant is on (#119): POST {api}/assistant. */
   assistant?: boolean;
+  /** Its own look (#121): null for the look every site has (the colours and font come with the page's head). */
+  theme?: SiteTheme | null;
+  /** Its own pages (imprint, privacy …) for the footer, in their order. */
+  footer?: FooterLink[];
+}
+
+export interface SiteTheme {
+  logo: string | null;
+  logo_dark: string | null;
+  /** The site's name beside the logo. */
+  show_name: boolean;
+  links: { label: string; url: string }[];
+}
+
+export interface FooterLink {
+  slug: string;
+  title: string;
+  /** Its title in each of the site's languages. */
+  titles: Record<string, string>;
+  /** p/<slug> */
+  path: string;
+}
+
+/** A page of the site's own, outside the docs tree (services/docs_custom.py). */
+export interface CustomView {
+  id: number;
+  slug: string;
+  path: string;
+  title: string;
+  lang: string;
+  fallback: boolean;
+  html: string;
+  toc: { level: number; id: string; text: string }[];
+  description: string;
+  updated_at: string;
 }
 
 export interface PageView {
@@ -71,6 +106,8 @@ export interface SearchHit {
 export interface DocsState {
   site: SiteView;
   page: PageView | null;
+  /** The page is one of the site's own (p/<slug>). */
+  custom?: CustomView | null;
   /** A private site and nobody signed in: the sign-in. */
   sign_in?: boolean;
 }

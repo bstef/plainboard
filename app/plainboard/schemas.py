@@ -1644,6 +1644,79 @@ class IdeaTicketOut(BaseModel):
 DocSlug = Annotated[str, Field(max_length=80, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")]
 
 
+Color = Annotated[str, Field(max_length=9, pattern=r"^(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8})?$")]
+
+
+class DocThemeColors(BaseModel):
+    """One mode (light or dark) of a site's theme; "" keeps the site's own colour."""
+
+    accent: Color = ""  # links, the marked page, the logo mark
+    page: Color = ""  # the background
+    surface: Color = ""  # cards, code, menus
+    text: Color = ""  # (lighter shades for secondary text and lines follow from it)
+
+
+class DocThemeLink(BaseModel):
+    label: str = Field(min_length=1, max_length=40)
+    url: str = Field(min_length=1, max_length=500)  # http(s), mailto: or an address on this host (/...)
+
+
+class DocTheme(BaseModel):
+    """A doc site's own look (#121, services/docs_theme.py). Every field at its default: the site as every site looks."""
+
+    logo_light: int | None = None  # a file of the site (an image)
+    logo_dark: int | None = None  # in dark mode; none: logo_light
+    favicon: int | None = None
+    show_name: bool = True  # the site's name beside the logo
+    light: DocThemeColors = Field(default_factory=DocThemeColors)
+    dark: DocThemeColors = Field(default_factory=DocThemeColors)
+    font_family: str = Field(default="", max_length=200)  # a CSS font-family list; "": the site's own (Inter)
+    font_url: str = Field(default="", max_length=500)  # https: a web font's stylesheet (e.g. Google Fonts)
+    radius: int | None = Field(default=None, ge=0, le=28)  # px of a card's corner, the rest in proportion; None: 14
+    links: list[DocThemeLink] = Field(default_factory=list, max_length=6)  # in the header (back to the website)
+    css: str = Field(default="", max_length=20000)  # applied on the public site only, after everything else
+
+
+class DocThemePreviewOut(BaseModel):
+    css: str
+
+
+DocPageSlug = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")]
+
+
+class DocCustomText(BaseModel):
+    title: str = Field(default="", max_length=200)
+    body: str = Field(default="", max_length=200000)
+
+
+class DocCustomPageCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    slug: DocPageSlug | None = None  # None: from the title
+    body: str = Field(default="", max_length=200000)
+    texts: dict[str, DocCustomText] = Field(default_factory=dict)  # the site's further languages
+
+
+class DocCustomPageUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    slug: DocPageSlug | None = None
+    body: str | None = Field(default=None, max_length=200000)
+    texts: dict[str, DocCustomText] | None = None  # replaces all of them
+    position: int | None = Field(default=None, ge=0)
+
+
+class DocCustomPageOut(BaseModel):
+    id: int
+    site_id: int
+    position: int
+    title: str
+    slug: str
+    body: str
+    texts: dict[str, DocCustomText]
+    path: str  # under the site: p/<slug>
+    edited_by: str
+    updated_at: UTCDateTime
+
+
 class DocSiteCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     slug: DocSlug | None = None  # None: from the name
@@ -1684,6 +1757,7 @@ class DocSiteUpdate(BaseModel):
     assistant_daily_messages: int | None = Field(default=None, ge=1, le=100000)
     assistant_daily_cost: float | None = Field(default=None, ge=0, le=100000)  # USD per day; 0: no cap
     assistant_max_tokens: int | None = Field(default=None, ge=128, le=8192)
+    theme: DocTheme | None = None  # its look (#121); DocTheme() as it is: none
 
 
 class DocKeysIn(BaseModel):
@@ -1767,6 +1841,7 @@ class DocSiteOut(ORM):
     assistant_daily_cost: float = 0.0
     assistant_max_tokens: int = 1024
     assistant_warning: str = ""  # what reading the code and the board risks: shown beside assistant_code
+    theme: DocTheme = Field(default_factory=DocTheme)
     agent: DocAgentOut | None = None  # its doc agent, the only agent that writes it
     url: str  # its address under this PlainBoard: /docs/<slug>/
     pages: int = 0

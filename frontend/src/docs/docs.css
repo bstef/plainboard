@@ -97,6 +97,31 @@
     letter-spacing: -0.01em;
     color: var(--fg);
   }
+  /* A site's own logo (#121): as high as the mark, as wide as it is. */
+  .doc-logo {
+    flex: none;
+    display: block;
+    height: 30px;
+    width: auto;
+    max-width: min(200px, 45vw);
+    object-fit: contain;
+  }
+  .doc-head-links {
+    align-items: center;
+    gap: 0.15rem;
+    margin-right: 0.35rem;
+  }
+  .doc-head-links a {
+    padding: 0.35rem 0.65rem;
+    border-radius: calc(9px * var(--doc-rf, 1));
+    font-weight: 600;
+    color: var(--fg-2);
+    white-space: nowrap;
+  }
+  .doc-head-links a:hover {
+    background: var(--sunk);
+    color: var(--fg);
+  }
   .doc-brand-name {
     font-weight: 700;
     overflow: hidden;
@@ -110,17 +135,17 @@
     justify-content: center;
     width: 30px;
     height: 30px;
-    border-radius: 9px;
+    border-radius: calc(9px * var(--doc-rf, 1));
     background: var(--grad);
     color: #fff;
     font-weight: 800;
     font-size: 15px;
-    box-shadow: 0 6px 18px -8px #ff3d8b;
+    box-shadow: 0 6px 18px -8px var(--doc-glow, #ff3d8b);
   }
   .doc-mark.is-big {
     width: 52px;
     height: 52px;
-    border-radius: 15px;
+    border-radius: calc(15px * var(--doc-rf, 1));
     font-size: 24px;
   }
   .doc-icon-btn {
@@ -130,7 +155,7 @@
     justify-content: center;
     width: 38px;
     height: 38px;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     color: var(--fg-2);
     transition:
       background 0.15s,
@@ -147,7 +172,7 @@
     height: 38px;
     width: min(320px, 34vw);
     padding: 0 0.5rem 0 0.9rem;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--sunk);
     color: var(--fg-3);
     border: 1px solid var(--line);
@@ -169,7 +194,7 @@
   .doc-search-btn-kbd {
     font: 500 11.5px/1 var(--font-sans);
     padding: 5px 7px;
-    border-radius: 6px;
+    border-radius: calc(6px * var(--doc-rf, 1));
     background: var(--bg);
     border: 1px solid var(--line);
     color: var(--fg-3);
@@ -198,7 +223,7 @@
     gap: 0.4rem;
     height: 38px;
     padding: 0 0.75rem;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     color: var(--fg-2);
     white-space: nowrap;
   }
@@ -213,7 +238,7 @@
     z-index: 50;
     min-width: 200px;
     padding: 6px;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     background: var(--bg);
     border: 1px solid var(--line-2);
     box-shadow: var(--shadow-lg);
@@ -228,7 +253,7 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.5rem 0.7rem;
-    border-radius: 9px;
+    border-radius: calc(9px * var(--doc-rf, 1));
     text-align: left;
     color: var(--fg-2);
   }
@@ -326,7 +351,7 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    border-radius: 10px;
+    border-radius: calc(10px * var(--doc-rf, 1));
     margin: 1px 0;
     color: var(--fg-2);
     transition:
@@ -357,7 +382,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 7px;
+    border-radius: calc(7px * var(--doc-rf, 1));
     color: var(--fg-3);
   }
   .doc-tree-toggle:hover {
@@ -368,7 +393,7 @@
     content: "";
     width: 4px;
     height: 4px;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--line-2);
   }
   .is-current .doc-tree-dot::before {
@@ -432,6 +457,25 @@
   .doc-drawer-langs {
     padding: 0.5rem 0.6rem 0;
   }
+  .doc-drawer-links {
+    display: flex;
+    flex-direction: column;
+    padding: 0.5rem 0.6rem 0;
+  }
+  .doc-drawer-links a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 0 0.7rem;
+    border-radius: calc(9px * var(--doc-rf, 1));
+    font-weight: 600;
+    color: var(--fg-2);
+  }
+  .doc-drawer-links a:hover {
+    background: var(--sunk);
+    color: var(--fg);
+  }
   .doc-drawer-tree {
     flex: 1;
     overflow-y: auto;
@@ -494,7 +538,7 @@
     align-items: flex-start;
     margin: 0 0 1.5rem;
     padding: 0.75rem 1rem;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     background: var(--sunk);
     color: var(--fg-2);
   }
@@ -504,7 +548,7 @@
   .doc-toc-mobile {
     margin: 0 0 1.75rem;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     background: var(--bg);
   }
   @media (min-width: 1280px) {
@@ -588,7 +632,7 @@
     vertical-align: middle;
     margin-left: 0.4rem;
     padding: 0.2rem;
-    border-radius: 6px;
+    border-radius: calc(6px * var(--doc-rf, 1));
     color: var(--fg-3);
     opacity: 0;
     transition: opacity 0.12s;
@@ -665,7 +709,7 @@
     font-family: var(--font-mono);
     font-size: 0.86em;
     padding: 0.15em 0.4em;
-    border-radius: 6px;
+    border-radius: calc(6px * var(--doc-rf, 1));
     background: var(--sunk);
     color: var(--fg);
     border: 1px solid var(--line);
@@ -675,7 +719,7 @@
   .doc-callout {
     --tone: var(--accent);
     padding: 0.85rem 1.1rem;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     border: 1px solid color-mix(in oklab, var(--tone) 35%, var(--line));
     background: color-mix(in oklab, var(--tone) 8%, var(--bg));
     color: var(--fg-2);
@@ -702,7 +746,7 @@
   }
 
   .doc-code {
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     border: 1px solid var(--line);
     background: var(--bg);
     overflow: hidden;
@@ -729,7 +773,7 @@
     gap: 0.35rem;
     height: 28px;
     padding: 0 0.6rem;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     color: var(--fg-3);
   }
   .doc-copy:hover {
@@ -796,7 +840,7 @@
   .doc-table {
     overflow-x: auto;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
   }
   .doc-table table {
     width: 100%;
@@ -827,19 +871,19 @@
     max-width: 100%;
     margin: 0.4rem 0;
     cursor: zoom-in;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
   }
   .doc-img img {
     max-width: 100%;
     height: auto;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     border: 1px solid var(--line);
   }
   .doc-diagram > div {
     margin: 0 !important;
   }
   .doc-diagram button[title] {
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     padding: 1rem;
   }
   .doc-file {
@@ -849,7 +893,7 @@
     max-width: 100%;
     padding: 0.45rem 0.85rem;
     margin: 0.1rem 0;
-    border-radius: 12px;
+    border-radius: calc(12px * var(--doc-rf, 1));
     border: 1px solid var(--line-2);
     background: var(--bg);
     color: var(--fg);
@@ -889,7 +933,7 @@
     align-items: center;
     gap: 0.6rem;
     padding: 0.85rem 1rem;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     border: 1px solid var(--line);
     background: var(--bg);
     color: var(--fg);
@@ -947,7 +991,7 @@
     flex-direction: column;
     gap: 0.25rem;
     padding: 0.95rem 1.15rem;
-    border-radius: 18px;
+    border-radius: calc(18px * var(--doc-rf, 1));
     border: 1px solid var(--line);
     background: var(--bg);
     transition:
@@ -996,6 +1040,29 @@
   }
   .doc-foot a:hover {
     color: var(--fg);
+  }
+  /* The site's own pages (imprint, privacy …: #121): a row of their own above the rest. */
+  .doc-foot-links {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.4rem;
+    padding-bottom: 0.9rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .doc-foot .doc-foot-links a {
+    font-weight: 500;
+  }
+  .doc-foot .doc-foot-links a[aria-current] {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  @media (max-width: 639px), (pointer: coarse) {
+    .doc-foot-links a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+    }
   }
   .doc-link-btn {
     display: inline-flex;
@@ -1067,7 +1134,7 @@
     gap: 0.5rem;
     height: 42px;
     padding: 0 1.25rem;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--btn-bg);
     color: var(--btn-fg);
     font-weight: 600;
@@ -1109,7 +1176,7 @@
     max-height: 72vh;
     display: flex;
     flex-direction: column;
-    border-radius: 22px;
+    border-radius: calc(22px * var(--doc-rf, 1));
     background: var(--bg);
     border: 1px solid var(--line-2);
     box-shadow: var(--shadow-lg);
@@ -1162,7 +1229,7 @@
     display: flex;
     gap: 0.75rem;
     padding: 0.7rem 0.8rem;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
   }
   .doc-hit.is-active {
     background: var(--accent-soft);
@@ -1193,7 +1260,7 @@
   .doc-hit mark {
     background: color-mix(in oklab, var(--accent) 22%, transparent);
     color: inherit;
-    border-radius: 3px;
+    border-radius: calc(3px * var(--doc-rf, 1));
     padding: 0 1px;
   }
   .doc-search-foot {
@@ -1214,7 +1281,7 @@
     min-width: 20px;
     margin-right: 2px;
     padding: 1px 5px;
-    border-radius: 5px;
+    border-radius: calc(5px * var(--doc-rf, 1));
     border: 1px solid var(--line-2);
     text-align: center;
     font-family: var(--font-sans);
@@ -1238,7 +1305,7 @@
     flex-direction: column;
     gap: 1rem;
     padding: 2.25rem 2rem 1.75rem;
-    border-radius: 28px;
+    border-radius: calc(28px * var(--doc-rf, 1));
     background: var(--bg);
     border: 1px solid var(--line);
     box-shadow: var(--shadow-lg);
@@ -1270,7 +1337,7 @@
     width: 100%;
     height: 44px;
     padding: 0 0.9rem;
-    border-radius: 12px;
+    border-radius: calc(12px * var(--doc-rf, 1));
     background: var(--page);
     border: 1px solid var(--line-2);
     color: var(--fg);
@@ -1285,7 +1352,7 @@
   }
   .doc-signin-error {
     padding: 0.6rem 0.8rem;
-    border-radius: 12px;
+    border-radius: calc(12px * var(--doc-rf, 1));
     background: var(--danger-soft);
     color: var(--danger);
   }
@@ -1319,11 +1386,11 @@
     justify-content: center;
     width: 56px;
     height: 56px;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--grad);
     color: #fff;
     box-shadow:
-      0 12px 30px -10px #ff3d8b,
+      0 12px 30px -10px var(--doc-glow, #ff3d8b),
       0 4px 12px -4px rgb(0 0 0 / 0.35);
     transition:
       transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -1332,7 +1399,7 @@
   .doc-ai-launcher:hover {
     transform: translateY(-2px) scale(1.04);
     box-shadow:
-      0 16px 36px -10px #ff3d8b,
+      0 16px 36px -10px var(--doc-glow, #ff3d8b),
       0 6px 16px -4px rgb(0 0 0 / 0.35);
   }
   .doc-ai-launcher:active {
@@ -1358,7 +1425,7 @@
     right: 3px;
     width: 13px;
     height: 13px;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--accent);
     border: 2px solid var(--page);
   }
@@ -1372,7 +1439,7 @@
     min-height: 360px;
     display: flex;
     flex-direction: column;
-    border-radius: 24px;
+    border-radius: calc(24px * var(--doc-rf, 1));
     background: var(--bg);
     border: 1px solid var(--line-2);
     box-shadow: var(--shadow-lg);
@@ -1435,15 +1502,15 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    border-radius: 10px;
+    border-radius: calc(10px * var(--doc-rf, 1));
     background: var(--grad);
     color: #fff;
-    box-shadow: 0 6px 18px -8px #ff3d8b;
+    box-shadow: 0 6px 18px -8px var(--doc-glow, #ff3d8b);
   }
   .doc-ai-mark.is-big {
     width: 52px;
     height: 52px;
-    border-radius: 16px;
+    border-radius: calc(16px * var(--doc-rf, 1));
   }
   .doc-ai-title {
     font-weight: 700;
@@ -1503,7 +1570,7 @@
     flex: 1;
     text-align: left;
     padding: 0.65rem 0.9rem;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     border: 1px solid var(--line-2);
     color: var(--fg);
     font-size: 0.94em;
@@ -1528,7 +1595,7 @@
     align-self: flex-end;
     max-width: 85%;
     padding: 0.55rem 0.9rem;
-    border-radius: 18px 18px 6px 18px;
+    border-radius: calc(18px * var(--doc-rf, 1)) calc(18px * var(--doc-rf, 1)) calc(6px * var(--doc-rf, 1)) calc(18px * var(--doc-rf, 1));
     background: var(--accent);
     color: #fff;
     white-space: pre-wrap;
@@ -1592,7 +1659,7 @@
   .doc-ai-dots i {
     width: 6px;
     height: 6px;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--fg-3);
     animation: doc-ai-bounce 1.1s ease-in-out infinite;
   }
@@ -1644,7 +1711,7 @@
     gap: 0.35rem;
     max-width: 100%;
     padding: 0.3rem 0.7rem;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     border: 1px solid var(--line-2);
     color: var(--fg);
     font-size: 0.86em;
@@ -1667,7 +1734,7 @@
     align-items: flex-start;
     gap: 0.55rem;
     padding: 0.7rem 0.9rem;
-    border-radius: 14px;
+    border-radius: calc(14px * var(--doc-rf, 1));
     background: var(--sunk);
     color: var(--fg-2);
     font-size: 0.93em;
@@ -1681,7 +1748,7 @@
     gap: 0.35rem;
     height: 32px;
     padding: 0 0.8rem;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--bg);
     border: 1px solid var(--line-2);
     color: var(--fg);
@@ -1704,7 +1771,7 @@
     align-items: flex-end;
     gap: 0.5rem;
     padding: 0.35rem 0.35rem 0.35rem 0.9rem;
-    border-radius: 20px;
+    border-radius: calc(20px * var(--doc-rf, 1));
     background: var(--sunk);
     border: 1px solid var(--line);
     transition:
@@ -1739,7 +1806,7 @@
     justify-content: center;
     width: 36px;
     height: 36px;
-    border-radius: 9999px;
+    border-radius: calc(9999px * var(--doc-rf, 1));
     background: var(--grad);
     color: #fff;
     transition: opacity 0.15s;

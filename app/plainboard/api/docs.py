@@ -1,18 +1,19 @@
 """A project's doc sites in the app (#118, services/docs.py). Viewers read, members write, owners set the domain and
 the translators' keys (services/access.py). Nothing returns a whole site: the tree comes page by page.
 Live updates: ``doc_site.upserted`` (DocSiteOut), ``doc_site.deleted`` ({id}), ``doc_page.upserted`` (DocPageItem),
-``doc_page.deleted`` ({id, site_id}), ``attachment.created`` for files."""
+``doc_page.deleted`` ({id, site_id}), ``attachment.created`` for files. A site's own pages for its footer and its
+theme (#121): services/docs_custom.py, services/docs_theme.py."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Query, Request, UploadFile
 
 from ..schemas import (
-    AttachmentOut, DocCloudflareIn, DocCrumb, DocDnsOut, DocDomainIn, DocDomainOut, DocKeysIn, DocPageCreate, DocPageItem, DocPageOut, DocPagesOut,
+    AttachmentOut, DocCloudflareIn, DocCustomPageCreate, DocCustomPageOut, DocCustomPageUpdate, DocTheme, DocThemePreviewOut, DocCrumb, DocDnsOut, DocDomainIn, DocDomainOut, DocKeysIn, DocPageCreate, DocPageItem, DocPageOut, DocPagesOut,
     DocPageUpdate, DocSiteCreate, DocSiteOut, DocSiteUpdate, DocTranslationIn, DocTranslationItem, DocTranslationOut, DocVerifyOut, DocVersionOut,
 )  # fmt: skip
 from ..services import docs as docs_service
-from ..services import docs_domains, docs_translate
+from ..services import docs_custom, docs_domains, docs_theme, docs_translate
 from ..services import projects as project_service
 from ..services.errors import NotFound
 from .deps import Session, Who
@@ -262,3 +263,41 @@ async def put_translation(project_id: int, page_id: int, lang: str, body: DocTra
     site = await session.get(docs_service.DocSite, page.site_id)
     await docs_translate.save(session, site, page, lang, body.title, body.body, who.name or "someone")
     return await docs_translate.get(session, site, page, lang)
+
+
+# --- the site's own pages and its theme (#121) ------------------------------------------------------------------
+
+
+@router.get("/sites/{site_id}/custom-pages", response_model=list[DocCustomPageOut])
+async def list_custom_pages(project_id: int, site_id: int, session: Session) -> list[DocCustomPageOut]:
+    """Its pages outside the docs tree (imprint, privacy), in the footer's order, with their texts."""
+    await docs_service.get_site(session, project_id, site_id)
+    return [docs_custom.out(p) for p in await docs_custom.pages(session, site_id)]
+
+
+@router.post("/sites/{site_id}/custom-pages", response_model=DocCustomPageOut, status_code=201)
+async def create_custom_page(project_id: int, site_id: int, body: DocCustomPageCreate, session: Session, who: Who) -> DocCustomPageOut:
+    site = await docs_service.get_site(session, project_id, site_id)
+    return docs_custom.out(await docs_custom.create(session, site, who.name or "someone", **body.model_dump(exclude={"texts"}), texts=body.texts))
+
+
+@router.patch("/custom-pages/{page_id}", response_model=DocCustomPageOut)
+async def update_custom_page(project_id: int, page_id: int, body: DocCustomPageUpdate, session: Session, who: Who) -> DocCustomPageOut:
+    page = await docs_custom.get(session, project_id, page_id)
+    site = await docs_service.get_site(session, project_id, page.site_id)
+    changes = body.model_dump(exclude_unset=True, exclude={"texts"})
+    page = await docs_custom.update(session, site, page, who.name or "someone", **changes, texts=body.texts)
+    return docs_custom.out(page)
+
+
+@router.delete("/custom-pages/{page_id}", status_code=204)
+async def delete_custom_page(project_id: int, page_id: int, session: Session) -> None:
+    page = await docs_custom.get(session, project_id, page_id)
+    await docs_custom.delete(session, await docs_service.get_site(session, project_id, page.site_id), page)
+
+
+@router.post("/sites/{site_id}/theme/preview", response_model=DocThemePreviewOut)
+async def preview_theme(project_id: int, site_id: int, body: DocTheme, session: Session) -> DocThemePreviewOut:
+    """The CSS of a theme not saved yet, for the preview in the settings (scoped to .doc-tp[data-design]); an error as on saving."""
+    site = await docs_service.get_site(session, project_id, site_id)
+    return DocThemePreviewOut(css=docs_theme.css(await docs_theme.clean(session, site, body), docs_theme.PREVIEW_SCOPE))

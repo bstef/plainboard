@@ -1860,7 +1860,9 @@
         "long": "This conversation is long already. Start a new one to ask more.",
         "still": "The answer to your last question is still coming."
       }
-    }
+    },
+    "links": "Links",
+    "legal": "About this site"
   },
   "docs": {
     "assistant": {
@@ -2146,6 +2148,97 @@
       "check": "Check now",
       "checkOk": "Verified: the site answers at its domain.",
       "checkFailed": "Not reachable yet. DNS can take a while; try again in a few minutes."
+    },
+    "look": {
+      "section": "Appearance",
+      "sectionHint": "Your own logo, colours, font and links, so the site matches your product's website. Nothing set: it keeps PlainBoard's look.",
+      "preview": "Preview",
+      "isDefault": "PlainBoard's look",
+      "mode": "Show in",
+      "light": "Light",
+      "dark": "Dark",
+      "logo": "Logo",
+      "logoHint": "Shown top left instead of the initial. PNG or SVG, about 30 px high; the favicon is the icon in the browser tab.",
+      "logoLight": "For light mode",
+      "logoDark": "For dark mode",
+      "logoDarkEmpty": "Optional: else the logo",
+      "favicon": "Favicon",
+      "upload": "Upload",
+      "replace": "Replace",
+      "showName": "Show “{{name}}” beside the logo",
+      "colors": "Colours",
+      "colorsHint": "Empty fields keep the site's own colour. Lighter text, lines and the soft accent follow from these.",
+      "color": {
+        "accent": "Accent",
+        "page": "Background",
+        "surface": "Surface",
+        "text": "Text"
+      },
+      "useDefault": "Use the site's own colour",
+      "font": "Font",
+      "fontHint": "For a web font, give its name and the address of its stylesheet (e.g. from Google Fonts). Visitors' browsers load it from there.",
+      "fonts": {
+        "default": "Inter (the site's own)",
+        "system": "System font",
+        "serif": "Serif",
+        "mono": "Monospace",
+        "custom": "Web font …"
+      },
+      "fontFamily": "Font name",
+      "fontUrl": "Stylesheet address",
+      "corners": "Corners",
+      "cornersHint": "How round cards, buttons and fields are.",
+      "radius": {
+        "0": "Square",
+        "6": "Subtle",
+        "default": "Round",
+        "24": "Very round"
+      },
+      "links": "Links in the header",
+      "linksHint": "E.g. back to your website. On phones they are in the menu.",
+      "linkLabel": "Label",
+      "linkUrl": "Address",
+      "linkWebsite": "Website",
+      "addLink": "Add a link",
+      "advanced": "Advanced: custom CSS",
+      "css": "Custom CSS",
+      "cssHint": "Applied only on the public doc site, after its own styles. The site's class names can change with updates.",
+      "reset": "Back to PlainBoard's look",
+      "sample": {
+        "search": "Search",
+        "intro": "Introduction",
+        "start": "Getting started",
+        "guides": "Guides",
+        "api": "API reference",
+        "text": "Install it in a minute, then",
+        "link": "connect your account",
+        "next": "Next",
+        "imprint": "Imprint",
+        "privacy": "Privacy"
+      }
+    },
+    "custom": {
+      "section": "Footer pages",
+      "sectionHint": "Pages of their own outside the docs, such as the imprint and the privacy policy, linked in the site's footer in this order.",
+      "empty": "No footer pages yet. Add an imprint and a privacy policy, or any page you want to link at the bottom of every page.",
+      "imprint": "Imprint",
+      "privacy": "Privacy policy",
+      "newTitle": "New page",
+      "addImprint": "Add imprint",
+      "addPrivacy": "Add privacy policy",
+      "add": "Add a page",
+      "rules": "Only people write these pages, never the doc agent. They are not in the site's search and the assistant does not use them. Files you add stay with the site.",
+      "up": "Move up",
+      "down": "Move down",
+      "all": "All footer pages",
+      "title": "Title",
+      "titleIn": "Title in {{language}}",
+      "address": "Address",
+      "language": "Language",
+      "noText": "No text in this language yet: the original is shown.",
+      "byHand": "Footer pages are not translated automatically. Without a text here, readers of this language see the {{language}} original.",
+      "deleteTitle": "Delete “{{title}}”?",
+      "deleteText": "The page and its link in the footer go; its address shows “not found”. Files it uses stay with the site."
     }
   }
 }

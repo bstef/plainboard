@@ -1,4 +1,4 @@
-import type { Nav, PageView, SearchHit, SiteView } from "./types";
+import type { CustomView, Nav, PageView, SearchHit, SiteView } from "./types";
 
 export class NotFoundError extends Error {}
 
@@ -60,7 +60,9 @@ export function knownPage(page: PageView, path: string) {
 
 export function prefetch(site: SiteView, href: string) {
   const target = parseUrl(site, new URL(href, location.href));
-  if (target) loadPage(site, target.lang, target.path).catch(() => undefined);
+  if (!target) return;
+  const slug = customSlug(site, target.path);
+  (slug ? loadCustom(site, target.lang, slug) : loadPage(site, target.lang, target.path)).catch(() => undefined);
 }
 
 export const loadNav = (site: SiteView, lang: string, parent: number | null, offset = 0) =>
@@ -77,4 +79,26 @@ export function search(site: SiteView, lang: string, query: string): Promise<Sea
     searches.set(key, found);
   }
   return found;
+}
+
+/** The slug of the site's own page at this address (p/<slug>), or null for a docs page. */
+export function customSlug(site: SiteView, path: string): string | null {
+  return site.footer?.find((f) => f.path === path)?.slug ?? null;
+}
+
+const customs = new Map<string, Promise<CustomView>>();
+
+export function loadCustom(site: SiteView, lang: string, slug: string): Promise<CustomView> {
+  const key = `${lang}\n${slug}`;
+  let found = customs.get(key);
+  if (!found) {
+    found = getJson<CustomView>(`${site.api}/custom/${encodeURIComponent(slug)}?lang=${encodeURIComponent(lang)}`);
+    found.catch(() => customs.delete(key));
+    customs.set(key, found);
+  }
+  return found;
+}
+
+export function knownCustom(page: CustomView) {
+  customs.set(`${page.lang}\n${page.slug}`, Promise.resolve(page));
 }
