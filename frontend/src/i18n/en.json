@@ -440,6 +440,7 @@
     "send": "Send",
     "attachFiles": "Attach files",
     "removeFile": "Remove {{name}}",
+    "viewFile": "Show {{name}} large",
     "fileCount_one": "{{count}} file",
     "fileCount_other": "{{count}} files",
     "stop": "Stop",
