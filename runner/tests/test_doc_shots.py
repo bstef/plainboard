@@ -57,6 +57,8 @@ def test_the_preview_shoots_each_page_mode_and_device_and_returns_the_pictures(m
         yield FakePage(shown)
 
     monkeypatch.setattr(doc_shots, "OPEN", fake)
+    # The app's service name "app" is a TLD on Chromium's HSTS preload list: the browser goes by its IP address.
+    monkeypatch.setattr(doc_shots.socket, "getaddrinfo", lambda host, port, **kw: [(doc_shots.socket.AF_INET6, 1, 6, "", ("fd00::5", port, 0, 0)), (doc_shots.socket.AF_INET, 1, 6, "", ("172.18.0.5", port))] if host == "app" else [])
     plan = {"site": "guide", "paths": ["/docs/guide/", "/docs/guide/broken"], "modes": ["light", "dark"], "devices": ["desktop", "phone"], "cookie": "pb_doc_preview", "token": "tok", "draft": True, "task_number": 7}
     uploads: list = []
     bridge = bridge_with({"preview_doc_site": ToolCallResult(text=json.dumps(plan))}, uploads)
@@ -68,8 +70,8 @@ def test_the_preview_shoots_each_page_mode_and_device_and_returns_the_pictures(m
     assert lines[1:5] == ["1. /docs/guide/ light desktop 1440x900", "2. /docs/guide/ light phone 390x844", "3. /docs/guide/ dark desktop 1440x900", "4. /docs/guide/ dark phone 390x844"]
     assert "- /docs/guide/broken light desktop 1440x900: failed, net::ERR_FAILED" in lines
     assert lines[-1] == "Attached to #7: guide-home-light-desktop.jpg, guide-home-light-phone.jpg, guide-home-dark-desktop.jpg, guide-home-dark-phone.jpg."
-    assert shown[0] == ("Network.setCookie", {"name": "pb_doc_preview", "value": "tok", "url": "http://app:8080/", "httpOnly": True})
-    assert ("http://app:8080/docs/guide/", 390, 844, True, True) in shown and [u[0] for u in uploads] == [7, 7, 7, 7]
+    assert shown[0] == ("Network.setCookie", {"name": "pb_doc_preview", "value": "tok", "url": "http://172.18.0.5:8080/", "httpOnly": True})
+    assert ("http://172.18.0.5:8080/docs/guide/", 390, 844, True, True) in shown and [u[0] for u in uploads] == [7, 7, 7, 7]
 
     content = asyncio.run(_mcp_content(result))
     assert [c.type for c in content] == ["text", "image", "image", "image", "image"] and content[1].mime_type == "image/jpeg"

@@ -426,6 +426,9 @@ def test_preview_opens_a_server_in_the_runner_through_plainboard(client, project
     assert client.get("/api/health", headers=part).status_code == 200
     assert client.get("/static/app.js", headers={"sec-fetch-site": "same-origin", "sec-fetch-dest": "document"}, follow_redirects=False).status_code != 307
     assert client.get("/static/app.js", headers=part | {"referer": "http://testserver/some/page"}, follow_redirects=False).status_code != 307
+    # A doc site opened in a tab that PlainBoard's service worker controls: it fetches the page again, as "empty" (#142).
+    from_worker = {"sec-fetch-site": "same-origin", "sec-fetch-mode": "navigate", "sec-fetch-dest": "empty"}
+    assert client.get("/docs/guide/", headers=from_worker, follow_redirects=False).status_code != 307
 
     # A server that was told its base path gets the path as it is.
     assert client.get("/preview-base/5173/about?x=1").json() == {"page": "based"}
