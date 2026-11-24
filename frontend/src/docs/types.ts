@@ -37,6 +37,8 @@ export interface SiteView {
   updated_at: string;
   home: string | null;
   nav: Nav;
+  /** Its AI assistant is on (#119): POST {api}/assistant. */
+  assistant?: boolean;
 }
 
 export interface PageView {

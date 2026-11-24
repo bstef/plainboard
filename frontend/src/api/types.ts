@@ -1178,6 +1178,18 @@ export interface DocSite {
   domain: string | null;
   domain_verified_at: string | null;
   cloudflare_token_set: boolean;
+  /** Its AI assistant for visitors (#119). Provider "" = Claude, model "" = its small one, effort "" = default. */
+  assistant_enabled: boolean;
+  assistant_provider: string;
+  assistant_model: string;
+  assistant_effort: string;
+  /** It may read the project's code and the tickets' public texts: a risk, see assistant_warning. */
+  assistant_code: boolean;
+  assistant_daily_messages: number;
+  /** USD per day; 0: no cap. */
+  assistant_daily_cost: number;
+  assistant_max_tokens: number;
+  assistant_warning: string;
   agent: DocAgent | null;
   /** Its address under this PlainBoard: /docs/<slug>/ */
   url: string;
