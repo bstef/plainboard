@@ -29,7 +29,7 @@ SETTINGS: dict[str, SettingDef] = {
     "git_ssh_key": SettingDef(None, secret=True, managed=True),
     "git_ssh_public_key": SettingDef("", managed=True),
     "git_author_name": SettingDef("PlainBoard Agent"),
-    "git_author_email": SettingDef("agent@plainboard.local"),
+    "git_author_email": SettingDef("agent@slop2gether.com"),
     "default_provider": SettingDef("claude_code"),
     "default_manager_model": SettingDef("claude-sonnet-5-5"),
     "default_worker_model": SettingDef("claude-sonnet-5-5"),
@@ -161,6 +161,6 @@ def credentials(
         github_token=github_token_override or values.get("github_token"),
         git_ssh_key=values.get("git_ssh_key"),
         git_author_name=values.get("git_author_name") or "PlainBoard Agent",
-        git_author_email=values.get("git_author_email") or "agent@plainboard.local",
+        git_author_email=values.get("git_author_email") or "agent@slop2gether.com",
         secrets=secrets or {},
     )
