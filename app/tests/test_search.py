@@ -175,7 +175,7 @@ def test_the_history_is_indexed_once_and_found_by_meaning_and_by_words(client, p
     status = client.get("/api/search/status").json()
     assert status["available"] and status["documents"] == status["embedded"] == 4
     assert {k: (v["items"], v["total"], v["embedded"]) for k, v in status["by_kind"].items()} == {
-        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1)
+        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1), "idea": (0, 0, 0)
     }  # fmt: skip
     assert status["errors"] == []
     embedded = len(embedder.embedded)
@@ -452,3 +452,36 @@ def test_each_search_and_each_hint_is_a_flow_event_with_its_scores(client, proje
     assert event.agent_id == manager and event.data["query"] == "stripe webhook" and event.data["filters"]["kinds"] == ["ticket"]
     (hit,) = event.data["hits"]
     assert hit["ref"].startswith("#") and hit["vector_rank"] == 1 and hit["word_rank"] == 1 and hit["vector"] > 0.5 and event.data["model"] == "fake"
+
+
+@pg_only
+def test_ideas_are_searchable_and_their_neighbours_are_found_by_their_vectors(client, project, embedder, monkeypatch):
+    from test_ideas import add, answer, board, ideas_of, lines_in, settled, sort_all
+
+    from plainboard.orchestration import ideas as idea_orchestration
+    from plainboard.services import idea_neighbours
+    from plainboard.services import ideas as idea_service
+
+    monkeypatch.setattr(idea_orchestration, "SORT_DELAY", 0.0)
+    monkeypatch.setattr(idea_service, "BOARD_WHOLE", 3)
+    monkeypatch.setattr(idea_service, "NEIGHBOURS", 2)
+    pid = project["id"]
+    board(client, pid, {"Payment": ["Pay by credit card at checkout", "Credit card refunds"], "Look": ["Dark theme at night", "Bigger fonts everywhere"]})
+    index(client)
+    assert client.get("/api/search/status").json()["by_kind"]["idea"]["embedded"] == 4
+    monkeypatch.setattr(idea_neighbours.Words, "nearest", lambda self, *args, **kwargs: [])  # by meaning alone
+
+    asked = answer(client, sort=[sort_all])
+    new = add(client, pid, "Save the credit card for the next payment")
+    settled(client, pid)
+    assert "Save the credit card for the next payment" in embedder.embedded[-1]  # embedded at once, not with the indexer's next look
+    texts = {i["id"]: i["text"] for i in ideas_of(client, pid)["ideas"]}
+    assert {texts[i] for i in lines_in(asked["sort"][0].prompt, "Ideas closest to these")} == {"Pay by credit card at checkout", "Credit card refunds"}
+
+    # Found in the search (Ctrl+K), to be opened; a closed idea leaves the index.
+    hits = client.get(f"/api/projects/{pid}/search", params={"q": "save credit card"}).json()["hits"]
+    hit = next(h for h in hits if h["kind"] == "idea" and h["idea_id"] == new["id"])
+    assert hit["ref"] == f"idea i{new['id']}"
+    assert client.delete(f"/api/projects/{pid}/ideas/{new['id']}").status_code in (200, 204)
+    index(client)
+    assert client.get("/api/search/status").json()["by_kind"]["idea"]["items"] == 4

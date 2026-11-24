@@ -375,7 +375,7 @@ class SearchStatusOut(BaseModel):
 
 
 class SearchHitOut(BaseModel):
-    kind: str  # ticket, report, decision, comment, note, commit
+    kind: str  # ticket, report, decision, comment, note, commit, idea
     ref: str
     title: str
     snippet: str  # the part of its text around the words searched for
@@ -384,6 +384,7 @@ class SearchHitOut(BaseModel):
     ticket_number: int | None = None
     task_id: int | None = None  # the ticket it belongs to, to open it
     note_id: int | None = None
+    idea_id: int | None = None
     repo: str | None = None
     sha: str | None = None  # a commit's whole hash
     url: str | None = None  # a commit's page, where its repository has one
@@ -1533,6 +1534,7 @@ class IdeaUpdate(BaseModel):
 class IdeaOption(BaseModel):
     label: str
     description: str = ""
+    resolve: str = ""  # an option of a conflict question, done without the model: keep:<kept>:<left out> | both:<a>:<b>
 
 
 class IdeaOut(ORM):
@@ -1552,8 +1554,9 @@ class IdeaOut(ORM):
     x: float | None
     y: float | None
     votes: int
-    similar: list[int] = Field(default_factory=list)  # open ideas the model found similar (either way round)
-    duplicate_of: int | None = None
+    similar: list[int] = Field(default_factory=list)  # open ideas kept apart from it on purpose (not merged although close)
+    duplicate_of: int | None = None  # to be merged into this one
+    conflicts: list[int] = Field(default_factory=list)  # open ideas it contradicts, until the person decides
     question: str  # the model's question to the person; "" none
     question_options: list[IdeaOption]  # the first is recommended; a free answer is possible too
     question_status: str  # "" | open | answered | withdrawn
@@ -1603,7 +1606,7 @@ class IdeaChangeOut(ORM):
 
     id: int
     project_id: int
-    kind: str  # new | several | amend | merge | question | edit | reorder
+    kind: str  # new | several | amend | merge | split | resolve | question | edit | reorder
     source: str  # input | answer | user | auto | button
     author: str
     summary: dict[str, Any]

@@ -1032,7 +1032,7 @@ export interface FlowTicketBranch {
 
 /** A hit of the project's search by meaning (the command palette). */
 export interface SearchHit {
-  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit";
+  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit" | "idea";
   ref: string;
   title: string;
   snippet: string;
@@ -1041,6 +1041,7 @@ export interface SearchHit {
   ticket_number: number | null;
   task_id: number | null;
   note_id: number | null;
+  idea_id: number | null;
   repo: string | null;
   sha: string | null;
   url: string | null;
@@ -1056,6 +1057,8 @@ export interface ProjectSearch {
 export interface IdeaOption {
   label: string;
   description: string;
+  /** Set on the options of a conflict question: decided without the AI, nothing is recommended. */
+  resolve?: string;
 }
 
 export interface Idea {
@@ -1076,8 +1079,11 @@ export interface Idea {
   x: number | null;
   y: number | null;
   votes: number;
+  /** Open ideas kept apart from it on purpose although close. */
   similar: number[];
   duplicate_of: number | null;
+  /** Open ideas it contradicts, until the person decides. */
+  conflicts: number[];
   question: string;
   /** The first is recommended; a free answer is possible too. */
   question_options: IdeaOption[];
@@ -1106,7 +1112,7 @@ export interface IdeaTopic {
 export interface IdeaChange {
   id: number;
   project_id: number;
-  kind: "new" | "several" | "amend" | "merge" | "question" | "edit" | "reorder";
+  kind: "new" | "several" | "amend" | "merge" | "split" | "resolve" | "question" | "edit" | "reorder";
   source: "input" | "answer" | "user" | "auto" | "button";
   author: string;
   summary: Record<string, any>;

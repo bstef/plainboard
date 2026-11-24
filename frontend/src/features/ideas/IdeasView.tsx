@@ -507,6 +507,8 @@ function noticeText(change: IdeaChange, t: (key: string, o?: Record<string, unkn
   if (change.kind === "merge" && s.duplicates) return t("ideas.notice.duplicates", { title });
   if (change.kind === "merge") return t("ideas.notice.merge", { title, count: (s.merged?.length ?? 0) + 1 });
   if (change.kind === "several") return t("ideas.notice.several", { count: s.created?.length ?? 2 });
+  if (change.kind === "split") return t("ideas.notice.split", { title: s.before?.title || title, count: (s.created?.length ?? 1) + 1 });
+  if (change.kind === "resolve") return s.dropped?.length ? t("ideas.notice.dropped", { count: s.dropped.length }) : t("ideas.notice.resolved");
   if (change.kind === "question") return t("ideas.notice.question");
   if (s.similar?.length) return t("ideas.notice.newSimilar", { title });
   return t("ideas.notice.new", { title });

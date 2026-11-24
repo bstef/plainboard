@@ -2,10 +2,16 @@
 only when the user asks the manager (tools/ideas.py) or takes one idea over by hand.
 
 A model (``orchestration/ideas.py``) reads what a person types (a new idea, an addition to one, several,
-merging, or a question back), sorts ideas into topics (islands on the board) with similar ones (``IdeaLink``),
-merges ideas that say the same into one (``merge_request``/``apply_merge``), and rearranges the topics now and then. What a person placed or named by hand stays (``manual``).
+merging, or a question back), sorts ideas into topics (islands on the board), merges ideas that say the same or
+belong in one (``merge_request``/``apply_merge``), splits one that holds several independent ideas, reports
+ideas that contradict each other to the person as a question (a conflict; never resolved on its own), and
+rearranges the topics now and then. What a person placed or named by hand stays (``manual``).
 Every step is an ``IdeaChange`` that can be undone, every replaced text an ``IdeaVersion``: no idea and no text
 is ever lost. Only a person deletes an idea, on purpose.
+
+Hundreds of ideas never go to the model whole: above ``BOARD_WHOLE`` open ideas it is shown the neighbourhood
+of what it works on (services/idea_neighbours.py: by meaning through the search index, else by shared words),
+and the topics are rearranged group by group of related topics (``reorder_groups``).
 """
 
 from __future__ import annotations
@@ -15,25 +21,41 @@ import re
 from datetime import datetime
 from typing import Any, BinaryIO
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, Attachment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Project, Task, TaskStatus, utcnow
+from ..models import Agent, Attachment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Project, SearchDocument, Task, TaskStatus, utcnow
 from ..schemas import AttachmentOut, IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
 from . import board as board_service
+from . import idea_neighbours as neighbours
+from .search import schema as search_schema
 from .errors import NotFound, ServiceError
 from .util import format_bytes, truncate
 
 COLORS = 10  # the design's --chart-1..10
 PENDING, SORTED, FAILED = "pending", "sorted", "failed"
-# Links: similar; duplicate (to be merged, or left out as one by the manager); kept (were merged or asked
-# about once: never merged on their own again, shown as similar).
-SIMILAR, DUPLICATE, KEPT = "similar", "duplicate", "kept"
+# Links: duplicate (to be merged, or left out as one by the manager); kept (were merged or asked about once:
+# never merged on their own again, shown as similar); split (parts of one idea); conflict (they contradict
+# each other: the person decides, shown on both); resolved (the person decided a conflict). Only kept, split,
+# conflict and resolved keep two ideas from being merged on their own. similar: made by earlier versions
+# (every close pair), no longer made nor shown: ideas that belong together are merged now, related ones share a topic.
+SIMILAR, DUPLICATE, KEPT, SPLIT, CONFLICT, RESOLVED = "similar", "duplicate", "kept", "split", "conflict", "resolved"
+APART = (KEPT, SPLIT, CONFLICT, RESOLVED)
 SORT_TEXT = 600  # what the sorting model reads of an idea
+NEAR_TEXT = 400  # ... of an idea near those it sorts
 MERGE_TEXT = 8000  # what the model reads of an idea it merges with another
 MERGE_GROUP = 6  # ideas merged into one at most at a time
-CONTEXT_IDEAS = 300  # other ideas the model is shown
+SPLIT_PARTS = 6  # parts an idea is split into at most
+SPLIT_KEEPS = 0.7  # the parts together keep at least this share of the idea's text, else it is not split
+# Up to this many open ideas the model sees all of them; above, the neighbourhood of what it works on.
+BOARD_WHOLE = 50
+NEIGHBOURS = 6  # closest ideas per idea it sorts
+NEARBY_MAX = 60  # ideas shown near those it sorts, at most
+INTENT_NEAR = 25  # ideas closest to what a person typed
+INTENT_RECENT = 10  # and the newest ones (an addition is often to what was just written)
+REORDER_IDEAS = 80  # ideas per rearranging call: related topics go together up to this
+OTHER_TOPICS = 100  # topics outside a group named in its call, at most
 QUESTION_OPEN, QUESTION_ANSWERED, QUESTION_WITHDRAWN = "open", "answered", "withdrawn"
 IDEA_FIELDS = (
     "title", "text", "status", "topic_id", "topic_manual", "task_id", "hint", "sort_state", "merged_into_id", "closed_at", "closed_reason",
@@ -98,7 +120,8 @@ async def changes(session: AsyncSession, project_id: int, limit: int = 20) -> li
 
 
 async def outs(session: AsyncSession, ideas: list[Idea]) -> list[IdeaOut]:
-    """The ideas as the API shows them: with their ticket's number and the open ideas they are linked to."""
+    """The ideas as the API shows them: with their ticket's number and the open ideas they are linked to: the one
+    it is to be merged into, those kept apart from it on purpose (similar), those it contradicts."""
     if not ideas:
         return []
     ids = [i.id for i in ideas]
@@ -110,20 +133,28 @@ async def outs(session: AsyncSession, ideas: list[Idea]) -> list[IdeaOut]:
     files: dict[int, list[AttachmentOut]] = {}
     for a in await session.scalars(select(Attachment).where(Attachment.idea_id.in_(ids)).order_by(Attachment.id)):
         files.setdefault(a.idea_id, []).append(AttachmentOut.model_validate(a))
+    resolved = {frozenset((link.idea_id, link.other_id)) for link in links if link.kind == RESOLVED}
     result = []
     for idea in ideas:
         out = IdeaOut.model_validate(idea)
         out.task_number = numbers.get(idea.task_id) if idea.task_id else None
         out.attachments = files.get(idea.id, [])
-        similar: list[int] = []
+        similar: set[int] = set()
+        conflicts: set[int] = set()
         for link in links:
-            if link.idea_id == idea.id and link.kind == DUPLICATE and link.other_id in still_open:
-                out.duplicate_of = link.other_id
-            elif link.idea_id == idea.id and link.other_id in still_open:
-                similar.append(link.other_id)
-            elif link.other_id == idea.id and link.idea_id in still_open:
-                similar.append(link.idea_id)
-        out.similar = sorted(set(similar) - {out.duplicate_of})
+            if idea.id not in (link.idea_id, link.other_id):
+                continue
+            other = link.other_id if link.idea_id == idea.id else link.idea_id
+            if other == idea.id or other not in still_open:
+                continue
+            if link.kind == DUPLICATE and link.idea_id == idea.id:
+                out.duplicate_of = other
+            elif link.kind == KEPT:
+                similar.add(other)
+            elif link.kind == CONFLICT and frozenset((idea.id, other)) not in resolved:
+                conflicts.add(other)
+        out.similar = sorted(similar - {out.duplicate_of} - conflicts)
+        out.conflicts = sorted(conflicts)
         result.append(out)
     return result
 
@@ -346,6 +377,8 @@ async def remove(session: AsyncSession, idea: Idea) -> None:
     for attachment in await attachments(session, idea):
         board_service.storage_path(attachment).unlink(missing_ok=True)
         await session.delete(attachment)
+    if await search_schema.available(session):  # out of the search at once, not with the indexer's sweep
+        await session.execute(delete(SearchDocument).where(SearchDocument.project_id == project_id, SearchDocument.kind == "idea", SearchDocument.source_id == str(idea_id)))
     await session.delete(idea)
     await session.commit()
     bus.publish(project_id, "idea.deleted", {"id": idea_id})
@@ -376,6 +409,61 @@ async def take_answer(session: AsyncSession, idea: Idea, option_index: int | Non
     await session.commit()
     await publish(session, idea.project_id, [idea])
     return answer
+
+
+def conflict_choice(idea: Idea, option_index: int | None) -> tuple[str, int, int] | None:
+    """What an option of a conflict question does (``_conflict``): ("keep", kept, left out) or ("both", a, b)."""
+    if idea.question_status != QUESTION_OPEN or option_index is None or not 0 <= option_index < len(idea.question_options):
+        return None
+    action, *ids = str(idea.question_options[option_index].get("resolve") or "").split(":")
+    numbers = [n for n in (_int(i) for i in ids) if n is not None]
+    return (action, numbers[0], numbers[1]) if action in ("keep", "both") and len(numbers) == 2 else None
+
+
+async def _settle_conflicts(session: AsyncSession, idea: Idea) -> list[int]:
+    """The person answered about ``idea``: its conflicts are decided (``RESOLVED``). Flushed; the new links' ids."""
+    query = select(IdeaLink).where(or_(IdeaLink.idea_id == idea.id, IdeaLink.other_id == idea.id), IdeaLink.kind.in_((CONFLICT, RESOLVED)))
+    links = list((await session.scalars(query)).all())
+    decided = {frozenset((link.idea_id, link.other_id)) for link in links if link.kind == RESOLVED}
+    made: list[IdeaLink] = []
+    for link in links:
+        if link.kind == CONFLICT and (pair := frozenset((link.idea_id, link.other_id))) not in decided:
+            decided.add(pair)
+            made.append(IdeaLink(project_id=idea.project_id, idea_id=link.idea_id, other_id=link.other_id, kind=RESOLVED))
+    session.add_all(made)
+    await session.flush()
+    return [link.id for link in made]
+
+
+async def resolve_conflict(session: AsyncSession, idea: Idea, option_index: int, author: str) -> IdeaChange:
+    """A conflict question answered with one of its options, without the model: keep one (the other is left out,
+    kept with the reason) or both (they no longer count as a contradiction). One change: undone, the question is
+    open again and so is the idea left out."""
+    choice = conflict_choice(idea, option_index)
+    if choice is None:
+        raise ServiceError("This option decides no conflict.")
+    action, first, second = choice
+    project_id = idea.project_id
+    snap = Snap()
+    snap.idea(idea)
+    idea.question_status, idea.question_answer = QUESTION_ANSWERED, idea.question_options[option_index]["label"]
+    summary: dict[str, Any] = {"idea_id": idea.id, "choice": action, "ideas": sorted({idea.id, first, second})}
+    gone: list[int] = []
+    if action == "keep" and (dropped := await session.get(Idea, second)) is not None and dropped.project_id == project_id and dropped.status == IdeaStatus.OPEN:
+        snap.idea(dropped)
+        dropped.status, dropped.closed_at, dropped.closed_reason = IdeaStatus.DISMISSED, utcnow(), f"contradicted i{first}: the person kept that one"
+        summary.update(kept=first, dropped=[second])
+        await session.flush()
+        gone = await _drop_empty_topics(session, project_id, snap)
+    snap.new_links += await _settle_conflicts(session, idea)
+    change = _record(session, project_id, "resolve", "answer", author, summary, snap)
+    await session.commit()
+    for topic_id in gone:
+        bus.publish(project_id, "idea_topic.deleted", {"id": topic_id})
+    await publish(session, project_id, list((await session.scalars(select(Idea).where(Idea.id.in_(summary["ideas"])))).all()))
+    await _publish_linked(session, project_id, summary["ideas"])
+    await _publish_change(session, change)
+    return change
 
 
 async def _free_color(session: AsyncSession, project_id: int) -> int:
@@ -502,7 +590,8 @@ def _set_text(session: AsyncSession, snap: Snap, idea: Idea, title: str, text: s
 
 async def _merge_into(session: AsyncSession, snap: Snap, ideas: list[Idea], target: Idea) -> None:
     """``ideas`` merged into ``target`` (which has the text of all of them by now): kept, closed, pointing to it.
-    Their files go to ``target``, and so do their links to other open ideas. Not committed."""
+    Their files go to ``target``, and so do their links to other open ideas, each of its kind (to be merged,
+    kept apart, a conflict). Not committed."""
     ids = [i.id for i in ideas if i.id != target.id]
     if not ids:
         return
@@ -514,10 +603,18 @@ async def _merge_into(session: AsyncSession, snap: Snap, ideas: list[Idea], targ
     for attachment in await session.scalars(select(Attachment).where(Attachment.idea_id.in_(ids))):
         snap.files.setdefault(attachment.id, attachment.idea_id)
         attachment.idea_id = target.id
-    links = (await session.scalars(select(IdeaLink).where(or_(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids))))).all()
-    others = {link.other_id if link.idea_id in ids else link.idea_id for link in links} - {target.id, *ids} - await _linked(session, [target.id])
+    links = (await session.scalars(select(IdeaLink).where(or_(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids)), IdeaLink.kind != SIMILAR))).all()
+    others = {link.other_id if link.idea_id in ids else link.idea_id for link in links} - {target.id, *ids}
     still_open = set((await session.scalars(select(Idea.id).where(Idea.id.in_(others), Idea.status == IdeaStatus.OPEN))).all()) if others else set()
-    made = [IdeaLink(project_id=target.project_id, idea_id=other, other_id=target.id, kind=SIMILAR) for other in sorted(still_open)]
+    query = select(IdeaLink.idea_id, IdeaLink.other_id, IdeaLink.kind).where(or_(IdeaLink.idea_id == target.id, IdeaLink.other_id == target.id))
+    have = {(frozenset((a, b)), kind) for a, b, kind in (await session.execute(query)).all()}
+    made: list[IdeaLink] = []
+    for link in links:
+        other = link.other_id if link.idea_id in ids else link.idea_id
+        if other in still_open and (frozenset((other, target.id)), link.kind) not in have:
+            have.add((frozenset((other, target.id)), link.kind))
+            pair = (target.id, other) if link.idea_id in ids else (other, target.id)  # a duplicate keeps its direction
+            made.append(IdeaLink(project_id=target.project_id, idea_id=pair[0], other_id=pair[1], kind=link.kind))
     session.add_all(made)
     await session.flush()
     snap.new_links += [link.id for link in made]
@@ -538,9 +635,9 @@ You read what a person typed into the board of ideas of a software project and d
 change nothing yourself; ideas are only collected here, nothing is built.
 
 Answer with one JSON object and nothing else, one of:
-{"action": "new", "ideas": [{"title": "...", "text": "..."}], "similar": [5]}
-  A new idea. Several entries in "ideas" if the text holds several independent ideas. "similar": ids of \
-existing ideas about nearly the same thing.
+{"action": "new", "ideas": [{"title": "...", "text": "..."}]}
+  A new idea. Several entries in "ideas" if the text holds several independent ideas, each with the \
+person's words for it.
 {"action": "amend", "target": 12, "title": "...", "text": "..."}
   The text changes or adds to idea 12: its whole new title and text. Keep everything it said unless the \
 person asks to drop it.
@@ -549,25 +646,37 @@ person asks to drop it.
 {"action": "question", "question": "...", "options": [{"label": "...", "description": "..."}]}
   Only if you cannot tell at all what is meant: a short question with 2-4 options, the recommended first.
 
-Only amend or merge when the person clearly means that existing idea. When in doubt, make it a new idea and \
-name the close ones in "similar": never overwrite an idea silently. Keep the person's words and language. A \
-title has 2-6 words. Ideas are named by id (i12).
+Only amend or merge when the person clearly means that existing idea. When in doubt, make it a new idea: \
+never overwrite an idea silently; a new idea that belongs to an existing one is merged with it later. Keep the \
+person's words and language: take their text over nearly as written. A title has 2-6 words. Ideas are named \
+by id (i12).
 """
 
 RESOLVE_NOTE = """\
 Idea i{id} was unclear, so the person was asked: {question}
 Their answer: {answer}
 Work the answer into the ideas: "amend" i{id} with it, or "merge" it with the idea it belongs to (ids \
-including {id}), or "new" with several ideas if it splits up (the first replaces i{id}). Do not ask again."""
+including {id}), or "new" with several ideas if it splits up (the first replaces i{id}), or, only if the \
+answer says to leave ideas out (e.g. of two that contradict each other, keep one), \
+{{"action": "drop", "ids": [7], "reason": "..."}}. Do not ask again."""
 
 
 async def intent_prompt(session: AsyncSession, project: Project, text: str, draft: Idea | None = None, answer: str = "") -> str:
+    """All open ideas on a small board; on a big one (``BOARD_WHOLE``) those closest to the text, the newest ones
+    and, for an answer, the ideas linked to the one asked about."""
     ideas = await open_ideas(session, project.id)
     names = {t.id: t.name for t in await topics(session, project.id)}
     whole = ({draft.id} | await _linked(session, [draft.id])) if draft is not None else set()  # e.g. asked whether to merge: nothing may get lost
     parts = [_project_head(project)]
+    head = "Ideas:"
+    if len(ideas) > BOARD_WHOLE:
+        about = text if draft is None else f"{draft.title}\n{draft.text}\n{draft.question}\n{answer}"
+        near, _how = await neighbours.near_text(session, project, about, ideas, INTENT_NEAR)
+        shown = set(near) | {i.id for i in ideas[-INTENT_RECENT:]} | whole
+        head = f"Ideas (of {len(ideas)}: the closest to it and the newest):"
+        ideas = [i for i in ideas if i.id in shown]
     if ideas:
-        parts.append("Ideas:\n" + "\n".join(f"{_idea_line(i, MERGE_TEXT if i.id in whole else 300)} [{names.get(i.topic_id, 'no topic')}]" for i in ideas[-CONTEXT_IDEAS:]))
+        parts.append(head + "\n" + "\n".join(f"{_idea_line(i, MERGE_TEXT if i.id in whole else 300)} [{names.get(i.topic_id, 'no topic')}]" for i in ideas))
     if draft is not None:
         parts.append(RESOLVE_NOTE.format(id=draft.id, question=draft.question, answer=answer))
     else:
@@ -616,13 +725,18 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
                     made.append(draft)
                 else:
                     made.append(await _new_idea(session, snap, project_id, item_title, item_text, author))
-            similar = [i for i in dict.fromkeys(_ints(data.get("similar"))) if i in by_id]
-            for idea in made:
-                for other in similar:
-                    if other != idea.id:
-                        session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=other, kind=SIMILAR))
-            summary.update(created=snap.new_ideas[:], similar=similar)
+            summary.update(created=snap.new_ideas[:])
             kind = "several" if len(made) > 1 else "new"
+    elif action == "drop" and draft is not None:
+        dropped = [by_id[i] for i in dict.fromkeys(_ints(data.get("ids"))) if i in by_id]
+        reason = _str(data.get("reason"), 200) or "left out after the person's answer"
+        now = utcnow()
+        for idea in dropped:
+            snap.idea(idea)
+            idea.status, idea.closed_at, idea.closed_reason = IdeaStatus.DISMISSED, now, truncate(f"{reason} (answer to i{draft.id})", 300)
+        if dropped:
+            summary.update(idea_id=draft.id, dropped=[i.id for i in dropped], ideas=sorted({draft.id, *(i.id for i in dropped)}))
+            kind = "resolve"
     elif action == "question" and draft is None and (question := _str(data.get("question"), 500)) and (options := _options(data.get("options"))):
         idea = await _new_idea(session, snap, project_id, "", text, author)
         idea.question, idea.question_options, idea.question_status, idea.question_at = question, options, QUESTION_OPEN, utcnow()
@@ -639,9 +753,12 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
             idea = await _new_idea(session, snap, project_id, "", text, author)
             summary["created"] = [idea.id]
             kind = "new"
+    if draft is not None:  # answered: what it contradicted is decided
+        snap.new_links += await _settle_conflicts(session, draft)
     change = _record(session, project_id, kind, "answer" if draft is not None else "input", author, summary, snap)
     await session.commit()
     touched = [i for i in (await session.scalars(select(Idea).where(Idea.id.in_(change.summary["ideas"])))).all()]
+    await _publish_linked(session, project_id, [i.id for i in touched])
     await publish(session, project_id, touched)
     await _publish_change(session, change)
     return change
@@ -650,38 +767,61 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
 # --- sorting -----------------------------------------------------------------------------------
 
 SORT_SYSTEM = """\
-You sort the ideas of a software project into topics, for a board of ideas. You only sort: you plan and \
-start nothing.
+You sort the ideas of a software project into topics, for a board of ideas, and keep the ideas themselves \
+clear: one idea per card, nothing said twice, contradictions shown. You only sort: you plan and start nothing.
 
 Answer with one JSON object and nothing else:
 {"topics": [{"name": "...", "hint": "..."}],
- "ideas": [{"id": 12, "topic": "...", "similar": [5], "duplicate_of": null, "hint": "...", "unsure": false}]}
+ "ideas": [{"id": 12, "topic": "...", "merge_with": null, "split": [], "conflict": null, "hint": "...", "unsure": false}]}
 
 - "ideas": one entry for every idea under "Sort these", by its id.
 - "topic": the name of an existing topic if the idea fits it (exactly as written), else a new one: one to \
 three words, in the language of the ideas.
-- "similar": ids of other ideas about nearly the same thing. "duplicate_of": the id of an idea that says the \
-same, if there is one: the two are then merged into one. Only ids from this message.
-- "hint": a few words for the person, only where there is something to say, e.g. "similar to i5". Else "".
+- "merge_with": the id of another idea that says substantially the same, or that this one only adds to or \
+details, so that both belong in one idea. They are then merged into one, nothing of either is lost. Not for \
+ideas that only touch the same area: those share a topic. Else null.
+- "split": only if the idea holds several independent ideas, each of which could be planned on its own: its \
+parts, [{"title": "...", "text": "..."}], with every word of the idea in one of them, as written. The first \
+part stays this idea. Else [].
+- "conflict": if the idea contradicts another one (they want opposite things, both cannot be built as they \
+are): {"with": 5, "question": "..."}, a short question to the person about what they want, in the language \
+of the ideas. The person decides; never merge such ideas. Else null.
+- "hint": a few words for the person, only where there is something to say, e.g. an open point. Else "".
 - "unsure": true if the idea fits no topic well or the topics should be rearranged.
 - "question": rarely, only if an idea is so unclear that it can neither be sorted nor later planned: \
 {"question": "...", "options": [{"label": "...", "description": "..."}]}, 2-4 options, the recommended \
 first. At most one question per answer.
 - "topics": every topic you used, with a short hint about it, e.g. "3 ideas about payment".
+- Ids: only ids from this message.
 """
 
 
-def sort_prompt(project: Project, existing: list[IdeaTopic], ideas: list[Idea], batch: list[Idea]) -> str:
+def sort_prompt(project: Project, existing: list[IdeaTopic], others: list[Idea], batch: list[Idea], *, total: int | None = None) -> str:
+    """``others``: all other open ideas, or (``total``: how many the board has) those near the batch."""
     names = {t.id: t.name for t in existing}
-    batch_ids = {i.id for i in batch}
     parts = [_project_head(project)]
     if existing:
         parts.append("Topics:\n" + "\n".join(f"- {t.name}" + (f" ({t.hint})" if t.hint else "") for t in existing))
-    others = [i for i in ideas if i.id not in batch_ids]
-    if others:
-        parts.append("Ideas already sorted:\n" + "\n".join(f"{_idea_line(i, 200)} [{names.get(i.topic_id, 'no topic')}]" for i in others[-CONTEXT_IDEAS:]))
+    if others and total is None:
+        parts.append("Ideas already sorted:\n" + "\n".join(f"{_idea_line(i, 200)} [{names.get(i.topic_id, 'no topic')}]" for i in others))
+    elif others:
+        parts.append(f"Ideas closest to these (of {total} on the board):\n" + "\n".join(f"{_idea_line(i, NEAR_TEXT)} [{names.get(i.topic_id, 'no topic')}]" for i in others))
     parts.append("Sort these:\n" + "\n".join(_idea_line(i, SORT_TEXT) + (" [asked before: no question]" if i.question_status else "") for i in batch))
     return "\n\n".join(parts)
+
+
+async def sort_request(session: AsyncSession, project: Project, ideas: list[Idea], batch: list[Idea]) -> str:
+    """The prompt to sort ``batch`` of the open ``ideas``: with all others on a small board, else with the
+    closest ones of each (``NEIGHBOURS``, ``NEARBY_MAX`` in all), so its size does not grow with the board."""
+    batch_ids = {i.id for i in batch}
+    others = [i for i in ideas if i.id not in batch_ids]
+    existing = await topics(session, project.id)
+    if len(ideas) <= BOARD_WHOLE:
+        return sort_prompt(project, existing, others, batch)
+    near, _how = await neighbours.around(session, project, batch, others, NEIGHBOURS)
+    by_id = {i.id: i for i in others}
+    shown = neighbours.spread([near.get(i.id, []) for i in batch], NEARBY_MAX)
+    return sort_prompt(project, existing, [by_id[i] for i in sorted(shown)], batch, total=len(ideas))
 
 
 async def sort_failed(session: AsyncSession, project_id: int, ids: list[int]) -> None:
@@ -693,9 +833,10 @@ async def sort_failed(session: AsyncSession, project_id: int, ids: list[int]) ->
 
 
 async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], data: dict[str, Any]) -> tuple[int, bool]:
-    """Store what the model answered for the ideas ``ids``. What it got wrong is left out: an idea it did not
-    sort stays unsorted (failed), a link to an id it made up is not made, an idea a person placed keeps its
-    topic. Returns how many it sorted and whether it was unsure."""
+    """Store what the model answered for the ideas ``ids``: topics, ideas to merge (``merge_request`` merges
+    them), conflicts (a question to the person, both marked), splits (each an undoable change). What it got wrong
+    is left out: an idea it did not sort stays unsorted (failed), a link to an id it made up is not made, an
+    idea a person placed keeps its topic. Returns how many it sorted and whether it was unsure."""
     batch = {i.id: i for i in (await session.scalars(select(Idea).where(Idea.id.in_(ids), Idea.status == IdeaStatus.OPEN))).all()}
     valid = set((await session.scalars(select(Idea.id).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN))).all())
     by_name = {t.name.casefold(): t for t in await topics(session, project_id)}
@@ -712,6 +853,8 @@ async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], dat
         return topic
 
     done: set[int] = set()
+    splits: list[tuple[Idea, list[tuple[str, str]]]] = []
+    conflicts: list[tuple[Idea, int, str]] = []
     items = data.get("ideas")
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict) or (idea := batch.get(_int(item.get("id")) or -1)) is None or idea.id in done:
@@ -729,14 +872,19 @@ async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], dat
         if not asked and not idea.question_status and isinstance(question, dict) and (text := _str(question.get("question"), 500)) and (options := _options(question.get("options"))):
             idea.question, idea.question_options, idea.question_status, idea.question_at = text, options, QUESTION_OPEN, utcnow()
             asked = True
-        await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id, IdeaLink.kind != KEPT))
-        duplicate = _int(item.get("duplicate_of"))
-        kept = await _kept_apart(session, [idea.id])
-        if duplicate in valid and duplicate != idea.id and frozenset((idea.id, duplicate)) not in kept:
-            session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=duplicate, kind=DUPLICATE))
-        for other in dict.fromkeys(_ints(item.get("similar"))):
-            if other in valid and other not in (idea.id, duplicate) and frozenset((idea.id, other)) not in kept:
-                session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=other, kind=SIMILAR))
+        await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id, IdeaLink.kind.in_((SIMILAR, DUPLICATE))))
+        conflict = item.get("conflict")
+        against = _int(conflict.get("with")) if isinstance(conflict, dict) else None
+        if against in valid and against != idea.id:
+            conflicts.append((idea, against, _str(conflict.get("question"), 500)))
+        merge = _int(item.get("merge_with")) or _int(item.get("duplicate_of"))  # duplicate_of: what earlier prompts asked for
+        if merge in valid and merge not in (idea.id, against) and frozenset((idea.id, merge)) not in await _kept_apart(session, [idea.id]):
+            session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=merge, kind=DUPLICATE))
+        if len(parts := _parts(item.get("split"))) >= 2:
+            splits.append((idea, parts))
+    for idea, other, question in conflicts:
+        await _conflict(session, project_id, idea, other, question)
+    split_changes = [c for idea, parts in splits if (c := await _split(session, project_id, idea, parts)) is not None]
     for idea in batch.values():
         if idea.id not in done and idea.sort_state == PENDING:
             idea.sort_state = FAILED
@@ -748,9 +896,77 @@ async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], dat
     await session.commit()
     for topic in touched.values():
         publish_topic(topic)
-    await publish(session, project_id, list(batch.values()))
+    parts = [i for c in split_changes for i in c.summary["created"]]
+    await publish(session, project_id, list(batch.values()) + list((await session.scalars(select(Idea).where(Idea.id.in_(parts)))).all()))
     await _publish_linked(session, project_id, list(done))
+    for change in split_changes:
+        await _publish_change(session, change)
     return len(done), unsure
+
+
+def _parts(value: Any) -> list[tuple[str, str]]:
+    items = value if isinstance(value, list) else []
+    return [(_str(p.get("title"), 200), p["text"].strip()) for p in items if isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip()]
+
+
+def _title(idea: Idea) -> str:
+    return idea.title.strip() or truncate(" ".join(idea.text.split()), 60)
+
+
+async def _conflict(session: AsyncSession, project_id: int, idea: Idea, other_id: int, question: str) -> None:
+    """The model found ``idea`` to contradict another one: both marked (``CONFLICT``), and a question to the person
+    on one of them, with what to do as options (``resolve_conflict``) and room for an own answer. Never asked twice
+    about the same pair, never resolved without the person. A pending merge of the two is called off. Not committed."""
+    pair = select(IdeaLink).where(or_(and_(IdeaLink.idea_id == idea.id, IdeaLink.other_id == other_id), and_(IdeaLink.idea_id == other_id, IdeaLink.other_id == idea.id)))
+    links = list((await session.scalars(pair)).all())
+    other = await session.get(Idea, other_id)
+    if other is None or any(link.kind in (CONFLICT, RESOLVED) for link in links):
+        return
+    for link in links:
+        if link.kind == DUPLICATE:
+            await session.delete(link)
+    session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=other_id, kind=CONFLICT))
+    asked = idea if idea.question_status != QUESTION_OPEN else other if other.question_status != QUESTION_OPEN else None
+    if asked is None:
+        return  # both have an open question already: the marker shows the conflict
+    partner = other if asked is idea else idea
+    a, b = _title(asked), _title(partner)
+    asked.question = question or truncate(f"“{a}” and “{b}” contradict each other. Which one applies?", 500)
+    asked.question_options = [
+        {"label": truncate(f"Keep “{a}”", 100), "description": truncate(f"“{b}” is left out", 300), "resolve": f"keep:{asked.id}:{partner.id}"},
+        {"label": truncate(f"Keep “{b}”", 100), "description": truncate(f"“{a}” is left out", 300), "resolve": f"keep:{partner.id}:{asked.id}"},
+        {"label": "Both, in different contexts", "description": "Both stay; they no longer count as a contradiction", "resolve": f"both:{asked.id}:{partner.id}"},
+    ]
+    asked.question_status, asked.question_answer, asked.question_at = QUESTION_OPEN, "", utcnow()
+
+
+async def _split(session: AsyncSession, project_id: int, idea: Idea, parts: list[tuple[str, str]]) -> IdeaChange | None:
+    """The idea holds several independent ideas: the first part stays it (its files stay with it), the others
+    become new ideas in its topic, sorted next; one undoable change. Not split: an idea a person wrote or placed by
+    hand, one with an open question, one whose split was undone, or parts that leave much of its text out."""
+    if idea.question_status == QUESTION_OPEN or await _fixed(session, [idea]):
+        return None
+    if sum(len(text) for _, text in parts) < SPLIT_KEEPS * len(idea.text):
+        return None
+    undone = await session.scalars(select(IdeaChange.summary).where(IdeaChange.project_id == project_id, IdeaChange.kind == "split", IdeaChange.undone_at.is_not(None)))
+    if any(summary.get("idea_id") == idea.id for summary in undone):
+        return None
+    snap = Snap()
+    before = {"title": idea.title, "text": idea.text}
+    (title, text), rest = parts[0], parts[1:SPLIT_PARTS]
+    _set_text(session, snap, idea, title or idea.title, text, "ai")
+    idea.sort_state = SORTED  # what it says now was sorted just now
+    made = []
+    for part_title, part_text in rest:
+        part = await _new_idea(session, snap, project_id, part_title, part_text, idea.author)
+        part.topic_id = idea.topic_id
+        made.append(part)
+    links = [IdeaLink(project_id=project_id, idea_id=part.id, other_id=idea.id, kind=SPLIT) for part in made]
+    session.add_all(links)
+    await session.flush()
+    snap.new_links += [link.id for link in links]
+    summary = {"idea_id": idea.id, "created": [p.id for p in made], "before": before, "after": {"title": idea.title, "text": idea.text}}
+    return _record(session, project_id, "split", "auto", "", summary, snap)
 
 
 # --- rearranging the topics --------------------------------------------------------------------
@@ -767,17 +983,74 @@ Answer with one JSON object and nothing else:
 you leave out are removed.
 - Names have one to three words, in the language of the ideas; "hint" is a short note, e.g. "3 ideas about \
 payment". Usually 3 to 10 topics, with 2 or more ideas each.
-- "duplicates" (optional, else leave it out): groups of ideas that say the same, e.g. [[5, 9]]. Each group is \
-merged into one idea afterwards, nothing of them is lost. Not for ideas that only touch the same thing.
+- "duplicates" (optional, else leave it out): groups of ideas that say the same or belong in one idea, e.g. \
+[[5, 9]]. Each group is merged into one idea afterwards, nothing of them is lost. Not for ideas that only \
+touch the same thing.
+- If "Other topics" are listed, you see only a part of the board: rearrange the topics and ideas shown; you may \
+move an idea into one of the other topics by its id; leave the other topics out of your answer otherwise.
 """
 
 
-def reorder_prompt(project: Project, existing: list[IdeaTopic], ideas: list[Idea]) -> str:
+def _topic_line(t: IdeaTopic) -> str:
+    return f"- id {t.id}: {t.name}" + (" (fixed)" if t.manual else "") + (f" - {t.hint}" if t.hint else "")
+
+
+def reorder_prompt(project: Project, existing: list[IdeaTopic], ideas: list[Idea], outside: list[IdeaTopic] | None = None) -> str:
+    """``outside``: on a big board, the topics not in this group (``reorder_groups``)."""
     parts = [_project_head(project)]
     if existing:
-        parts.append("Topics:\n" + "\n".join(f"- id {t.id}: {t.name}" + (" (fixed)" if t.manual else "") + (f" - {t.hint}" if t.hint else "") for t in existing))
+        parts.append("Topics:\n" + "\n".join(_topic_line(t) for t in existing))
+    if outside:
+        parts.append("Other topics:\n" + "\n".join(_topic_line(t) for t in outside[:OTHER_TOPICS]))
     parts.append("Ideas [topic id]:\n" + "\n".join(f"{_idea_line(i, 250)} [{i.topic_id or 'none'}]" + (" (fixed)" if i.topic_manual else "") for i in ideas))
     return "\n\n".join(parts)
+
+
+async def reorder_groups(session: AsyncSession, project: Project, focus: set[int | None] | None = None) -> list[tuple[list[int], list[int]]]:
+    """What is rearranged together: (topic ids, idea ids) per call. A small board (``BOARD_WHOLE``) at once.
+    A big one by groups of related topics of up to ``REORDER_IDEAS`` ideas: two topics are related by how many
+    of their ideas are each other's neighbours (services/idea_neighbours.py), the most related join first; a
+    topic bigger than that goes alone, its ideas in parts. ``focus``: only the groups around these topics (None:
+    the ideas without a topic), after new ideas were sorted in; else all of them (the button)."""
+    ideas = await open_ideas(session, project.id)
+    if len(ideas) <= BOARD_WHOLE:
+        return [([t.id for t in await topics(session, project.id)], [i.id for i in ideas])] if ideas else []
+    members: dict[int | None, list[int]] = {}
+    for idea in ideas:
+        members.setdefault(idea.topic_id, []).append(idea.id)
+    topic_of = {i.id: i.topic_id for i in ideas}
+    near, _how = await neighbours.around(session, project, ideas, ideas, 3)
+    weight: dict[tuple[int | None, int | None], int] = {}
+    for idea_id, others in near.items():
+        for other in others:
+            a, b = topic_of[idea_id], topic_of[other]
+            if a != b:
+                weight[(a, b)] = weight.get((a, b), 0) + 1
+                weight[(b, a)] = weight.get((b, a), 0) + 1
+    order = sorted(members, key=lambda t: (-len(members[t]), t or 0))
+    seeds = order if focus is None else [t for t in order if t in focus]
+    taken: set[int | None] = set()
+    groups: list[tuple[list[int], list[int]]] = []
+    for seed in seeds:
+        if seed in taken:
+            continue
+        group, size = [seed], len(members[seed])
+        taken.add(seed)
+        while True:
+            fits = [t for t in order if t not in taken and size + len(members[t]) <= REORDER_IDEAS]
+            related = [t for t in fits if sum(weight.get((g, t), 0) for g in group)]
+            pick = max(related, key=lambda t: sum(weight.get((g, t), 0) for g in group), default=None)
+            if pick is None and focus is None and fits:
+                pick = fits[-1]  # the button: small unrelated topics go together too, fewer calls
+            if pick is None:
+                break
+            group.append(pick)
+            taken.add(pick)
+            size += len(members[pick])
+        ids = [i for t in group for i in members[t]]
+        for start in range(0, len(ids), REORDER_IDEAS):
+            groups.append(([t for t in group if t is not None], ids[start : start + REORDER_IDEAS]))
+    return groups
 
 
 async def apply_reorder(session: AsyncSession, project_id: int, data: dict[str, Any], source: str) -> IdeaChange | None:
@@ -865,13 +1138,14 @@ async def apply_reorder(session: AsyncSession, project_id: int, data: dict[str, 
 # --- merging duplicates -----------------------------------------------------------------------
 
 MERGE_SYSTEM = """\
-Some ideas on the board of ideas of a software project say the same thing. You put them together into one \
-idea. You only write the idea: you plan and start nothing.
+Some ideas on the board of ideas of a software project say the same thing or belong in one idea. You put \
+them together into one idea. You only write the idea: you plan and start nothing.
 
 Answer with one JSON object and nothing else, one of:
 {"title": "...", "text": "..."}
   The merged idea: a title of 2-6 words and its whole text. The text keeps everything each of them says \
-(every detail, wish, example, reason and open point) and says it once. Keep the persons' words and language.
+(every detail, wish, example, reason and open point) and says it once. Keep the persons' own words and \
+language: take their sentences over as written and leave out only what is said twice.
 {"question": "...", "options": [{"label": "...", "description": "..."}]}
   Instead, if the message says to ask first, or if they turn out to mean different things: a short question \
 to the person whether to merge them, with 2-4 options, the recommended first.
@@ -879,8 +1153,9 @@ to the person whether to merge them, with 2-4 options, the recommended first.
 
 
 async def _kept_apart(session: AsyncSession, ids: list[int]) -> set[frozenset[int]]:
-    """Pairs among links of these ideas that were merged or asked about once: not merged on their own again."""
-    query = select(IdeaLink.idea_id, IdeaLink.other_id).where(IdeaLink.kind == KEPT, or_(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids)))
+    """Pairs among links of these ideas that were merged or asked about once, split from one, or contradict each
+    other: not merged on their own (again)."""
+    query = select(IdeaLink.idea_id, IdeaLink.other_id).where(IdeaLink.kind.in_(APART), or_(IdeaLink.idea_id.in_(ids), IdeaLink.other_id.in_(ids)))
     return {frozenset(pair) for pair in (await session.execute(query)).all()}
 
 
@@ -930,7 +1205,7 @@ async def merge_request(session: AsyncSession, project: Project, ids: list[int])
     ideas = list((await session.scalars(select(Idea).where(Idea.id.in_(ids), Idea.project_id == project.id, Idea.status == IdeaStatus.OPEN).order_by(Idea.id))).all())
     if len(ideas) < 2:
         return None
-    parts = [_project_head(project), "These ideas say the same:\n" + "\n\n".join(f"i{i.id} {i.title.strip() or '(no title)'}\n{truncate(i.text, MERGE_TEXT)}" for i in ideas)]
+    parts = [_project_head(project), "These ideas say the same or belong in one:\n" + "\n\n".join(f"i{i.id} {i.title.strip() or '(no title)'}\n{truncate(i.text, MERGE_TEXT)}" for i in ideas)]
     if fixed := await _fixed(session, ideas):
         parts.append(f"A person wrote or placed {', '.join(f'i{i.id}' for i in fixed)} by hand: do not merge, ask first.")
     return "\n\n".join(parts), {i.id: (i.title, i.text) for i in ideas}
@@ -1091,6 +1366,7 @@ async def manager_list(session: AsyncSession, project_id: int, *, topic: str | N
         out = outs_by_id[idea.id]
         marks = [f"similar {', '.join(f'i{s}' for s in out.similar)}"] if out.similar else []
         marks += [f"duplicate of i{out.duplicate_of}"] if out.duplicate_of else []
+        marks += [f"contradicts {', '.join(f'i{c}' for c in out.conflicts)}"] if out.conflicts else []
         marks += [idea.status + (f" #{out.task_number}" if out.task_number else "")] if idea.status != IdeaStatus.OPEN else []
         marks += [f"open question: {idea.question}"] if idea.question_status == QUESTION_OPEN else []
         marks += [f"answered: {idea.question} → {idea.question_answer}"] if idea.question_status == QUESTION_ANSWERED else []
@@ -1112,8 +1388,9 @@ async def manager_detail(session: AsyncSession, idea: Idea) -> str:
     topic = await session.get(IdeaTopic, idea.topic_id) if idea.topic_id else None
     lines = [f"i{idea.id} {idea.title or '(no title)'} — {idea.status}" + (f" into #{out.task_number}" if out.task_number else "") + (f" (into i{idea.merged_into_id})" if idea.merged_into_id else "")]
     lines.append(f"Topic: {topic.name if topic else '-'}" + (f"; by {idea.author}" if idea.author else ""))
-    if out.similar or out.duplicate_of:
-        lines.append("Links: " + ", ".join([f"similar i{s}" for s in out.similar] + ([f"duplicate of i{out.duplicate_of}"] if out.duplicate_of else [])))
+    if out.similar or out.duplicate_of or out.conflicts:
+        links = [f"similar i{s}" for s in out.similar] + ([f"duplicate of i{out.duplicate_of}"] if out.duplicate_of else []) + [f"contradicts i{c}" for c in out.conflicts]
+        lines.append("Links: " + ", ".join(links))
     if idea.closed_reason:
         lines.append(f"Reason: {idea.closed_reason}")
     if idea.question_status:

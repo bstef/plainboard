@@ -520,7 +520,7 @@ class IdeaLink(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     idea_id: Mapped[int] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
     other_id: Mapped[int] = mapped_column(ForeignKey("ideas.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(10), default="similar")  # similar | duplicate
+    kind: Mapped[str] = mapped_column(String(10), default="similar")  # services/ideas.py: duplicate | kept | split | conflict | resolved (similar: no longer made)
 
 
 class IdeaVersion(Base):
@@ -543,7 +543,7 @@ class IdeaChange(Base):
     __tablename__ = "idea_changes"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(20))  # new | several | amend | merge | question | edit | reorder
+    kind: Mapped[str] = mapped_column(String(20))  # new | several | amend | merge | split | resolve | question | edit | reorder
     source: Mapped[str] = mapped_column(String(10), default="input")  # input | answer | user | auto | button
     author: Mapped[str] = mapped_column(String(100), default="")
     summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

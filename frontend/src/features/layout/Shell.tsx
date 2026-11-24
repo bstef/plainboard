@@ -694,6 +694,7 @@ function ProjectWorkspace({
           setNoteRequest((last) => ({ id, n: last.n + 1 }));
           setView("notes");
         }}
+        onOpenIdea={api.openIdea}
       />
       <LookDialog open={lookOpen} onClose={() => setLookOpen(false)} />
       {openTaskId !== null && (
