@@ -2261,6 +2261,30 @@
         "privacy": "Privacy"
       }
     },
+    "api": {
+      "section": "API",
+      "sectionHint": "Fetch the whole documentation with a key: for scripts, imports and other systems. Read-only, works for public and private sites.",
+      "keys": "API keys",
+      "keysHint": "Each key reads this site only. It is shown once when made; give it a name saying where it is used. Personal tokens of people in this project work too.",
+      "namePlaceholder": "Name, e.g. Wiki import",
+      "expiry": "Expires",
+      "never": "Never expires",
+      "days_one": "In {{count}} day",
+      "days_other": "In {{count}} days",
+      "create": "Create key",
+      "copy": "Copy this key now: it is not shown again.",
+      "copied": "Copied",
+      "created": "Created {{when}} by {{who}}",
+      "expires": "expires {{when}}",
+      "noExpiry": "no expiry",
+      "used": "last used {{when}}",
+      "neverUsed": "never used",
+      "revoke": "Revoke key",
+      "confirmRevoke": "Revoke the key \"{{name}}\"? Whatever uses it can no longer read the site.",
+      "endpoints": "Endpoints",
+      "endpointsHint": "Send the key as Authorization: Bearer <key>. Answers are JSON; a page comes as Markdown with its files (download addresses) and links; the export streams a whole version as JSON lines or as a zip of Markdown files with the files.",
+      "params": "Parameters: version (a version's slug, only with versions; default: the site's default version), lang (one of the site's languages; untranslated pages come in the original with fallback: true), since (ISO time: only pages changed since then). The page list goes on with next_cursor. 300 requests a minute per key."
+    },
     "custom": {
       "section": "Footer pages",
       "sectionHint": "Pages of their own outside the docs, such as the imprint and the privacy policy, linked in the site's footer in this order.",

@@ -96,6 +96,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/api/health", Need.PUBLIC),
     Rule("/api/internal", Need.PUBLIC),
     Rule("/api/public", Need.PUBLIC),
+    Rule("/api/v1/docs", Need.PUBLIC),  # a doc site's API (#131): its own keys, checked by services/docs_api.reader
     Rule("/api/runners/connect", Need.PUBLIC),  # an external runner's socket: its own token
     # --- the installation
     Rule("/api/auth/me", Need.USER),
@@ -134,6 +135,7 @@ RULES: tuple[Rule, ...] = (
     _project("/ideas", write=Need.MEMBER),
     _project("/docs", write=Need.MEMBER),  # doc sites (#118): viewers read, members write
     _project("/docs/sites/{site_id}/domain", write=Need.OWNER),  # its own domain and the Cloudflare token: the owner's
+    _project("/docs/sites/{site_id}/api-keys", read=Need.MEMBER, write=Need.MEMBER),  # a site's API keys (#131): who writes the site
     _project("/docs/sites/{site_id}/translator-keys", write=Need.OWNER),  # DeepL and Google keys: the owner's  # collecting and planning starts nothing (services/ideas.py)
     _project("/schedules", write=Need.MEMBER),
     _project("/browser", read=Need.MEMBER),  # the browser window is driven, not only watched

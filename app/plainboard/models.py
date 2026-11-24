@@ -776,6 +776,22 @@ class DocCustomPage(Timestamps, Base):
     edited_by: Mapped[str] = mapped_column(String(100), default="")
 
 
+class DocApiKey(Timestamps, Base):
+    """A read-only key for a doc site's API (#131, services/docs_api.py): it reads that one site, public or private,
+    and nothing else. Only the hash is stored: a key is shown once, when it is made."""
+
+    __tablename__ = "doc_api_keys"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    site_id: Mapped[int] = mapped_column(ForeignKey("doc_sites.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200), default="")
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    hint: Mapped[str] = mapped_column(String(8), default="")  # last characters, to recognise the key
+    created_by: Mapped[str] = mapped_column(String(100), default="")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class DocWatch(Base):
     """How far the docs watcher read a repository of a project: its last commit, and the last landing it took in."""
 

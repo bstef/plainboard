@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import accounts, auth, browser, chat, docs, docs_public, ideas, internal, knowledge, mcp_server, preview, projects, public, questions, repositories, runners, secrets, system, tasks, todos, tokens, users, ws
+from .api import accounts, auth, browser, chat, docs, docs_api, docs_public, ideas, internal, knowledge, mcp_server, preview, projects, public, questions, repositories, runners, secrets, system, tasks, todos, tokens, users, ws
 from .api.deps import authorize
 from .api.guard import Guard
 from .config import get_config
@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
 
 
 # Every route of these is checked against its rule in services/access.py before it runs.
-API_MODULES = (auth, system, accounts, users, tokens, projects, public, docs_public, repositories, runners, secrets, tasks, todos, chat, questions, ideas, docs, knowledge, internal)
+API_MODULES = (auth, system, accounts, users, tokens, projects, public, docs_public, docs_api, repositories, runners, secrets, tasks, todos, chat, questions, ideas, docs, knowledge, internal)
 
 
 def create_app() -> FastAPI:
