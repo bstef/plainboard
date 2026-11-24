@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useLimits } from "../../api/queries";
 import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types";
 import { timeAgo } from "../../lib/format";
-import { useDismiss } from "../../lib/hooks";
+import { useDismiss, useInView } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { useUsableAccounts } from "../projects/ProjectAccounts";
 
@@ -65,6 +65,7 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  const [popRef, inView] = useInView<HTMLDivElement>(open);
   useDismiss(ref, open, () => setOpen(false));
 
   const windows = account?.windows ?? [];
@@ -91,7 +92,7 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
         {account && <span className="max-w-24 truncate">{account.label}</span>}
       </button>
       {open && (
-        <div data-part="menu" className="absolute right-0 bottom-full z-20 mb-2 w-64 max-w-[calc(100vw-1.5rem)] space-y-3 rounded-sm bg-bg p-3 shadow-lg ring-1 ring-line-2">
+        <div ref={popRef} style={inView} data-part="menu" className="absolute right-0 bottom-full z-20 mb-2 w-64 max-w-[calc(100vw-1rem)] space-y-3 rounded-sm bg-bg p-3 shadow-lg ring-1 ring-line-2">
           {account && <p className="font-semibold">{account.label}</p>}
           {windows.map((window) => (
             <LimitRow key={window.name} window={window} forecast={forecasts.find((f) => f.name === window.name)} />
