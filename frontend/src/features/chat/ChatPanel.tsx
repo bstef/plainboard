@@ -49,10 +49,12 @@ export function ChatPanel({
   const copying = useCopying(project.id);
   const people = usePeople();
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
-  // Distance of the view from the top of the content, so new messages below don't move what one reads.
-  const fromTop = useRef(0);
-  const firstId = useRef<number | undefined>(undefined);
+  // The row at the top of the view and its distance from the end of the content, so what changes
+  // below it (live text, new messages, a picture that loads) doesn't move what one reads.
+  const anchor = useRef<{ row: Element; fromEnd: number } | null>(null);
+  const rest = useRef(0);
   const fetchingOlder = useRef(false);
   const [details, setDetails] = useStored<boolean>("plainboard.chatDetails", false);
   const [files, setFiles] = useDraftFiles(`chat:${agentId}`);
@@ -119,20 +121,46 @@ export function ChatPanel({
       </div>
     ));
 
-  // The scroller is reversed (column-reverse): its offset counts from the bottom, so older messages
-  // put on top keep the view still without touching scrollTop, which would stop touch momentum.
-  useLayoutEffect(() => {
+  // The scroller is reversed (column-reverse): its offset counts from the end, so older messages put
+  // on top keep the view still by themselves. Only a change below the anchor row moves the view; it is
+  // measured against the content, not against the scroll offset, so a scroll whose event has not
+  // arrived yet (touch momentum) is never undone, and scrollTop is only touched when something moved.
+  const keepView = () => {
     const el = scroller.current;
-    if (!el) return;
-    const prepended = firstId.current !== messages[0]?.id;
-    firstId.current = messages[0]?.id;
-    if (stickToBottom.current) el.scrollTop = el.scrollHeight;
-    else if (!prepended) {
-      const target = fromTop.current - (el.scrollHeight - el.clientHeight);
-      if (Math.abs(el.scrollTop - target) > 1) el.scrollTop = target;
+    const inner = content.current;
+    if (!el || !inner) return;
+    if (stickToBottom.current) {
+      if (el.scrollTop !== 0) el.scrollTop = 0;
+      anchor.current = null;
+      rest.current = 0;
+      return;
     }
-    fromTop.current = el.scrollHeight - el.clientHeight + el.scrollTop;
-  }, [messages, streaming, queued.length, agentId, activeRuns.length]);
+    if (anchor.current?.row.isConnected) {
+      // Some browsers keep whole pixels only: what is left over is made up next time.
+      const moved = inner.getBoundingClientRect().bottom - anchor.current.row.getBoundingClientRect().top - anchor.current.fromEnd + rest.current;
+      rest.current = 0;
+      if (Math.abs(moved) >= 1) {
+        const before = el.scrollTop;
+        el.scrollTop = before - moved;
+        const left = moved - (before - el.scrollTop);
+        rest.current = Math.abs(left) < 1 ? left : 0;
+      } else rest.current = moved;
+    }
+    const top = el.getBoundingClientRect().top;
+    const row = Array.from(inner.querySelectorAll("[data-part]")).find((r) => r.getBoundingClientRect().bottom > top);
+    anchor.current = row ? { row, fromEnd: inner.getBoundingClientRect().bottom - row.getBoundingClientRect().top } : null;
+  };
+
+  useLayoutEffect(keepView, [messages, streaming, queued.length, agentId, activeRuns.length]);
+
+  // Heights also change on their own: pictures load, diagrams render, details open.
+  useEffect(() => {
+    const inner = content.current;
+    if (!inner) return;
+    const observer = new ResizeObserver(() => keepView());
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [!!agent]);
 
   useEffect(() => {
     stickToBottom.current = true;
@@ -171,7 +199,8 @@ export function ChatPanel({
     const conv = conversation.data;
     if (stickToBottom.current && conv && conv.messages.length > 400 && !fetchingOlder.current)
       qc.setQueryData<Conversation>(qk.conversation(agentId), { ...conv, messages: conv.messages.slice(-100), has_more: true });
-    fromTop.current = el.scrollHeight - el.clientHeight + el.scrollTop;
+    // A change that came in since the last look still counts: scrolling itself doesn't move the anchor.
+    keepView();
     loadOlder();
   };
 
@@ -223,8 +252,8 @@ export function ChatPanel({
         {onClose && <ChatPanelToggle where="chat" />}
       </header>
 
-      <div ref={scroller} onScroll={onScroll} className="scroll-thin flex min-h-0 flex-1 flex-col-reverse overflow-x-hidden overflow-y-auto">
-        <div className={clsx(column, "mb-auto")}>
+      <div ref={scroller} onScroll={onScroll} className="scroll-thin flex min-h-0 flex-1 flex-col-reverse overflow-x-hidden overflow-y-auto [overflow-anchor:none]">
+        <div ref={content} className={clsx(column, "mb-auto")}>
         {conversation.isLoading && (
           <div className="flex justify-center py-8">
             <Spinner />
