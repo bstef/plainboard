@@ -359,6 +359,8 @@
     "customerSection": "For customers",
     "customerTitle": "Title",
     "customerDescription": "Description",
+    "customerTitleIn": "Title in {{language}}",
+    "customerDescriptionIn": "Description in {{language}}",
     "customerHint": "Public on your website, in simple words. Without a title, customers don't see this ticket.",
     "customerLanguage": "Customer language",
     "customerMissing": "Missing in: {{languages}}",
