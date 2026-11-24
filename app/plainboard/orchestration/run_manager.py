@@ -1068,9 +1068,10 @@ class RunManager:
                 *(self.runner.limits(a.provider, settings_service.credentials(values, account=account_service.fields(a))) for a in accounts)
             )
             for account, report in zip(accounts, found):
-                if report.windows:
-                    await limits_service.record(s, account.key, report.windows, complete=report.complete)
+                # The plan first: a changed one forgets the old plan's limits, not the ones just read.
                 await limits_service.record_plan(s, account.key, report.plan, report.plan_size)
+                if report.windows:
+                    await limits_service.record(s, account.key, report.windows, complete=report.complete, covers=report.covers)
                 if account_service.record_models(account, report.models):
                     await s.commit()
             if any(account_service.kept_login(a) for a in accounts):
@@ -1758,7 +1759,7 @@ class RunManager:
                     await s.commit()
                     bus.publish(ctx.project_id, "conversation.updated", {"agent_id": ctx.agent_id, "context_tokens": event.context_tokens})
                 elif event.type == "limits" and ctx.account_key:
-                    await limits_service.record(s, ctx.account_key, event.windows, complete=event.complete)
+                    await limits_service.record(s, ctx.account_key, event.windows, complete=event.complete, covers=event.covers)
                     outcome.limited = outcome.limited or any(w.status == "rejected" for w in event.windows)
                 elif event.type == "compaction":
                     marker = self.context.provider_compacted(conv, event.tokens_before)

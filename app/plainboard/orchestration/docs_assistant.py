@@ -246,7 +246,7 @@ class DocsAssistant:
                     chat.session_id = event.session_id
                 elif event.type == "limits" and ctx.account_key:
                     async with self.runs._sm() as s:
-                        await limits_service.record(s, ctx.account_key, event.windows, complete=event.complete)
+                        await limits_service.record(s, ctx.account_key, event.windows, complete=event.complete, covers=event.covers)
                 elif event.type == "result":
                     result = event
                 elif event.type == "error":

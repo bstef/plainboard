@@ -62,6 +62,10 @@ class Provider(ABC):
         """The account's plan limits, without using the model. Empty if it has none or they are unknown."""
         return []
 
+    async def limits_report(self, credentials: Credentials) -> tuple[list[LimitWindow], list[str]]:
+        """Like :meth:`limits`, with the windows the read speaks for in full (LimitsEvent.covers)."""
+        return await self.limits(credentials), []
+
     async def offered(self, credentials: Credentials) -> list[ModelInfo] | None:
         """The models the account in ``credentials`` may use, as its last read of the limits found them (only once).
         None: not known, or the provider lists the same models for every account."""

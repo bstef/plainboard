@@ -100,17 +100,19 @@ async def fresh(session: AsyncSession) -> set[str]:
     return {key for key, stored in accounts.items() if now - (stored.get("updated_at") or 0) < FRESH_SECONDS}
 
 
-async def record(session: AsyncSession, account_key: str, windows: list[LimitWindow], complete: bool = False) -> None:
+async def record(session: AsyncSession, account_key: str, windows: list[LimitWindow], complete: bool = False, covers: list[str] | None = None) -> None:
     """Store a report of an account's limits. ``complete``: the report lists every window the
     account has, so one it leaves out is gone (a plan that dropped its 5-hour limit) and is
-    forgotten, instead of being shown as an empty window for ever."""
+    forgotten, instead of being shown with its old number until it ages out. ``covers``: the same
+    for these windows only; the others stay as they were."""
     row, accounts = await _stored(session)
     stored = accounts.setdefault(account_key, {})
     known, growth = stored.get("windows", {}), stored.get("growth", {})
-    if complete:
-        reported = {w.name for w in windows}
-        known = {name: w for name, w in known.items() if name in reported}
-        growth = {name: g for name, g in growth.items() if name in reported}
+    reported, covered = {w.name for w in windows}, set(covers or ())
+    if complete or covered:
+        gone = {name for name in known if name not in reported and (complete or name in covered)}
+        known = {name: w for name, w in known.items() if name not in gone}
+        growth = {name: g for name, g in growth.items() if name not in gone}
     now = time.time()
     for window in windows:
         if WEEKLY_MARK in window.name:
@@ -136,12 +138,20 @@ async def _plans(session: AsyncSession) -> tuple[Setting, dict]:
 
 
 async def record_plan(session: AsyncSession, account_key: str, name: str | None, size: float | None) -> None:
-    """Store what the provider said about the account's plan; nothing known keeps what was known."""
+    """Store what the provider said about the account's plan; nothing known keeps what was known.
+    A plan that changed (Max to Ultra) forgets the limits reported under the old one: their windows
+    and numbers no longer apply, and the next read reports the new ones."""
     row, plans = await _plans(session)
     known = plans.get(account_key) or {}
+    changed = (name and known.get("name") and name != known["name"]) or (size and known.get("size") and size != known["size"])
     plans[account_key] = {"name": name or known.get("name"), "size": size or known.get("size"), "checked_at": int(time.time())}
     row.value = json.dumps(plans)
     session.add(row)
+    if changed:
+        limits_row, accounts = await _stored(session)
+        if accounts.pop(account_key, None) is not None:
+            limits_row.value = json.dumps({"accounts": accounts})
+            session.add(limits_row)
     await session.commit()
 
 

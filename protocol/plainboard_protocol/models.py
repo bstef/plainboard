@@ -721,6 +721,9 @@ class LimitsEvent(BaseModel):
     # These are all the windows the account has: one that is missing no longer exists (a plan that
     # dropped a limit). False: only the windows that changed, the others stay as they were.
     complete: bool = False
+    # The windows this report speaks for in full: one of these it leaves out no longer exists, the
+    # others stay as they were (a provider that reports some windows only with requests touching them).
+    covers: list[str] = Field(default_factory=list)
     # The account's plan where the provider can tell (only in the answer to a read of the limits): its
     # name, and its size as a multiple of the provider's smallest plan, for comparing what is left in
     # absolute terms. None: not known.
