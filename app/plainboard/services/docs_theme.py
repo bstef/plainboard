@@ -1,6 +1,6 @@
 """A doc site's own look (#121): logos, favicon, colours for light and dark, font, corners, links in the header and
 custom CSS, so a site matches the website of its product. Stored as ``DocSite.theme``; empty is the look every site
-has, and nothing of this reaches such a site's page.
+has, and only the tab's icon (the site's mark, ``icon``) reaches such a site's page.
 
 The theme becomes a few CSS custom properties over slop2gether's tokens (designs/slop2gether.css), set in the served
 page's head (no flash of the default look): the colours given, and what follows from them (lighter text, lines,
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import quote
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,16 +119,40 @@ def custom_css(theme: dict) -> str:
     return (theme.get("css") or "").replace("<", "\\3c ")
 
 
-def head(theme: dict, files_base: str) -> str:
-    """What a served page of the site gets at the end of its head: font, favicon, the theme, the custom CSS."""
-    if not theme:
-        return ""
+ACCENT = {"light": "#6741d9", "dark": "#7c4dff"}  # slop2gether's --accent (designs/slop2gether.css)
+
+
+def icon(theme: dict, name: str) -> str:
+    """The tab's icon of a site without a favicon of its own (#152): the header's mark (docs.css ``.doc-mark``), the
+    name's first letter on the accent in one colour, light or dark as the browser; a data: URL of an SVG."""
+    fills = {}
+    for mode in ("light", "dark"):
+        accent = (theme.get(mode) or {}).get("accent") or ACCENT[mode]
+        fills[mode] = (accent, _on(accent) if accent != ACCENT[mode] else "#fff")
+    rx = round(min(16, 9.6 * (theme["radius"] / BASE_RADIUS if theme.get("radius") is not None else 1)), 2)
+    letter = html.escape(name.strip()[:1].upper())
+    (bg, fg), (dbg, dfg) = fills["light"], fills["dark"]
+    svg = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+        f"<style>.b{{fill:{bg}}}.t{{fill:{fg}}}@media (prefers-color-scheme:dark){{.b{{fill:{dbg}}}.t{{fill:{dfg}}}}}</style>"
+        f"<rect class='b' width='32' height='32' rx='{rx}'/>"
+        "<text class='t' x='16' y='16.5' text-anchor='middle' dominant-baseline='central' "
+        f"font-family='system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='21' font-weight='800'>{letter}</text></svg>"
+    )
+    return "data:image/svg+xml," + quote(svg, safe="")
+
+
+def head(theme: dict, files_base: str, name: str = "") -> str:
+    """What a served page of the site gets at the end of its head: font, favicon (or the site's mark, ``icon``), the
+    theme, the custom CSS."""
     e = html.escape
     out = ""
     if url := theme.get("font_url"):
         out += f'<link rel="stylesheet" href="{e(url)}">'
     if favicon := theme.get("favicon"):
         out += f'<link rel="icon" href="{e(files_base)}/{int(favicon)}">'
+    else:
+        out += f'<link rel="icon" href="{e(icon(theme, name))}">'
     if rules := css(theme):
         out += f'<style id="pb-docs-theme">{rules}</style>'
     if extra := custom_css(theme):
