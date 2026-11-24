@@ -2063,7 +2063,10 @@
       "table": "Table",
       "pageLink": "Link to a page",
       "pageLinkHint": "The link follows the page when it moves or is renamed.",
-      "attach": "Attach pictures or files"
+      "attach": "Attach pictures or files",
+      "attachBoth": "Pictures or files, for both modes",
+      "attachLight": "Pictures for light mode only",
+      "attachDark": "Pictures for dark mode only"
     },
     "translator": {
       "none": "None",

@@ -4,7 +4,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Lightbox } from "../../components/Lightbox";
 import { MermaidBlock } from "../../components/MermaidBlock";
-import { Callout, CodeBlock, type CalloutKind } from "../../docs/Content";
+import { Callout, CodeBlock, pictureMode, type CalloutKind } from "../../docs/Content";
 import "../../docs/docs.css";
 import { useLook } from "../../lib/theme";
 
@@ -68,12 +68,15 @@ export const DocMarkdown = memo(function DocMarkdown({ text, onOpenPage }: { tex
           </a>
         );
       },
-      img: ({ src, alt }) =>
-        typeof src === "string" ? (
-          <button type="button" className="doc-img" onClick={() => setZoom({ src, alt: alt ?? "" })}>
+      img: ({ src: url, alt }) => {
+        if (typeof url !== "string") return null;
+        const { src, mode } = pictureMode(url);
+        return (
+          <button type="button" className="doc-img" data-mode={mode} onClick={() => setZoom({ src, alt: alt ?? "" })}>
             <img src={src} alt={alt ?? ""} loading="lazy" />
           </button>
-        ) : null,
+        );
+      },
       pre: ({ node }) => {
         const code = node?.children[0] as { properties?: { className?: string[] } } | undefined;
         const lang = code?.properties?.className?.find((c) => c.startsWith("language-"))?.slice(9).toLowerCase() ?? "";
@@ -113,8 +116,8 @@ export const DocMarkdown = memo(function DocMarkdown({ text, onOpenPage }: { tex
 
 /** The page's own references, then react-markdown's safe rule for the rest (no javascript: and the like). */
 function docUrl(url: string): string {
-  const file = url.match(/^doc-file:(\d+)$/);
-  if (file) return `/api/attachments/${file[1]}`;
+  const file = url.match(/^doc-file:(\d+)(#[\w-]+)?$/);
+  if (file) return `/api/attachments/${file[1]}${file[2] ?? ""}`;
   const page = url.match(/^doc-page:(\d+)(#[\w-]+)?$/);
   if (page) return `#doc-page-${page[1]}${page[2] ?? ""}`;
   return /^(https?:|mailto:|#|\/)/i.test(url) || !/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : "";

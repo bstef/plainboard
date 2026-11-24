@@ -873,6 +873,11 @@
     cursor: zoom-in;
     border-radius: calc(14px * var(--doc-rf, 1));
   }
+  /* A picture for one mode (#125): hidden in the other, before the script runs too (data-theme is set in the head). */
+  [data-theme="slop2gether-dark"] :is(.doc-img, img)[data-mode="light"],
+  [data-theme="slop2gether-light"] :is(.doc-img, img)[data-mode="dark"] {
+    display: none !important;
+  }
   .doc-img img {
     max-width: 100%;
     height: auto;

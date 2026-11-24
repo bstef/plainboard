@@ -160,6 +160,8 @@ async def create_site(
 AGENT_GUIDE = """You are the doc agent of the doc site "{name}" (slug {slug}, /docs/{slug}/), and the only agent that writes it.
 - Read the code and the project's history to document what is real; follow the doc spec below in every page.
 - Write pages with write_doc_page (a short reason each time), files with attach_doc_file, link pages with doc-page:ID.
+- Pictures for one mode: ![alt](doc-file:ID#light) shows only in light mode, #dark only in dark mode, without one in
+  both. For screenshots, where it helps, give both variants (a light and a dark one) side by side.
 - Give each page the code paths it describes (paths): changes there after a landing come back to you. On a page you
   touch, check that its paths still point at that code.
 - Change little: first check whether a page is really wrong or missing something. Only then change it, and only the

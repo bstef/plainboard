@@ -16,8 +16,11 @@ import {
   ListOrdered,
   Loader2,
   MessageSquareQuote,
+  Moon,
   Paperclip,
   RotateCcw,
+  Sun,
+  SunMoon,
   Table,
   X,
 } from "lucide-react";
@@ -27,7 +30,7 @@ import { api, errorMessage } from "../../api/client";
 import type { Attachment, DocPage, DocSite, DocTranslationItem } from "../../api/types";
 import { Button, ErrorText, Field, IconButton, Input, Modal, Segmented, Spinner, Textarea } from "../../components/ui";
 import { formatDateTime, timeAgo } from "../../lib/format";
-import { useMediaQuery } from "../../lib/hooks";
+import { useDismiss, useMediaQuery } from "../../lib/hooks";
 import { diffLines, type Row } from "../chat/ToolCode";
 import { DocMarkdown } from "./DocMarkdown";
 import { base, siteHref, useDocPage, useDocsRefresh, useDocTranslation, useDocVersion, useDocVersions, useFindPages } from "./queries";
@@ -292,9 +295,11 @@ function prefixLines(area: HTMLTextAreaElement, setBody: (v: string) => void, pr
   });
 }
 
-function fileMarkdown(file: Attachment): string {
+/** ``mode``: a picture shown only in light or dark mode (#125); files are the same in both. */
+function fileMarkdown(file: Attachment, mode?: "light" | "dark"): string {
   const name = file.filename.replace(/[[\]]/g, "");
-  return `${file.content_type.startsWith("image/") ? "!" : ""}[${name}](doc-file:${file.id})`;
+  const image = file.content_type.startsWith("image/");
+  return `${image ? "!" : ""}[${name}](doc-file:${file.id}${image && mode ? `#${mode}` : ""})`;
 }
 
 export async function upload(pid: number, site: DocSite, files: File[]): Promise<Attachment[]> {
@@ -313,7 +318,7 @@ export function MarkdownArea({ pid, site, area, value, onChange }: { pid: number
     setError("");
     try {
       const done = await upload(pid, site, files);
-      insertBlock(area.current, onChange, done.map(fileMarkdown).join("\n"));
+      insertBlock(area.current, onChange, done.map((f) => fileMarkdown(f)).join("\n"));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -369,6 +374,10 @@ export function Toolbar({ pid, site, area, setBody }: { pid: number; site: DocSi
   const file = useRef<HTMLInputElement>(null);
   const [linking, setLinking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const mode = useRef<"light" | "dark" | undefined>(undefined);
+  const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
+  useDismiss(menuRef, !!menu, () => setMenu(null));
   const run = (f: (el: HTMLTextAreaElement) => void) => () => area.current && f(area.current);
   const tool = (label: string, icon: ReactNode, onClick: () => void) => (
     <IconButton key={label} label={label} onClick={onClick}>
@@ -388,9 +397,45 @@ export function Toolbar({ pid, site, area, setBody }: { pid: number; site: DocSi
       {tool(t("docs.tool.table"), <Table className="size-4" />, run((el) => insertBlock(el, setBody, "| Column | Column |\n| --- | --- |\n| Value | Value |")))}
       <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line-2" />
       {tool(t("docs.tool.pageLink"), <FileSymlink className="size-4" />, () => setLinking(true))}
-      <IconButton label={t("docs.tool.attach")} onClick={() => file.current?.click()} disabled={busy}>
+      <div ref={menuRef} className="contents">
+      <IconButton
+        label={t("docs.tool.attach")}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu(menu ? null : { top: r.bottom + 4, left: Math.max(8, Math.min(r.left, document.documentElement.clientWidth - 264)) });
+        }}
+        aria-expanded={!!menu}
+        disabled={busy}
+      >
         {busy ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
       </IconButton>
+      {menu && (
+        <div role="menu" style={menu} className="fixed z-40 w-64 rounded-sm bg-bg py-1 shadow-lg ring-1 ring-line-2">
+          {(
+            [
+              [undefined, SunMoon, "docs.tool.attachBoth"],
+              ["light", Sun, "docs.tool.attachLight"],
+              ["dark", Moon, "docs.tool.attachDark"],
+            ] as const
+          ).map(([m, Icon, label]) => (
+            <button
+              key={label}
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-sunk touch:py-2.5"
+              onClick={() => {
+                mode.current = m;
+                setMenu(null);
+                file.current?.click();
+              }}
+            >
+              <Icon className="size-4 shrink-0 text-fg-3" />
+              {t(label)}
+            </button>
+          ))}
+        </div>
+      )}
+      </div>
       <input
         ref={file}
         type="file"
@@ -403,7 +448,7 @@ export function Toolbar({ pid, site, area, setBody }: { pid: number; site: DocSi
           setBusy(true);
           try {
             const done = await upload(pid, site, files);
-            insertBlock(area.current, setBody, done.map(fileMarkdown).join("\n"));
+            insertBlock(area.current, setBody, done.map((f) => fileMarkdown(f, mode.current)).join("\n"));
           } finally {
             setBusy(false);
           }

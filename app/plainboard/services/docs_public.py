@@ -2,7 +2,8 @@
 
 Markdown is rendered with markdown-it (CommonMark, tables, strikethrough), raw HTML off: whatever an agent writes,
 no script reaches the site. ``doc-file:<id>`` and ``doc-page:<id>`` become the file's and the page's address, every
-heading gets an id for the table of contents. Only pages of a served site, only its own files; a private site only for
+heading gets an id for the table of contents. A picture whose address ends in ``#light`` or ``#dark`` (or GitHub's
+``#gh-light-mode-only``/``#gh-dark-mode-only``) shows only in that mode: ``data-mode`` on the ``img``, hidden by CSS (#125). Only pages of a served site, only its own files; a private site only for
 people with a role in its project (``may_read``).
 
 Scales with the site: nothing reads all its pages. The navigation comes as the top level and, per page, the children
@@ -35,6 +36,7 @@ from .util import slugify
 
 _md = MarkdownIt("commonmark", {"html": False, "linkify": False, "typographer": False}).enable(["table", "strikethrough"])
 _WORDS = re.compile(r"[^\W_]+")
+_MODE = re.compile(r"#(?:gh-)?(light|dark)(?:-mode-only)?$")
 CANDIDATES = 200
 SITEMAP_LIMIT = 50000
 
@@ -66,6 +68,10 @@ def render(body: str, *, base: str, files_base: str, page_paths: dict[int, str])
             token.attrSet("id", anchor)
             toc.append({"level": int(token.tag[1]), "id": anchor, "text": text})
         for child in token.children or []:
+            src = child.attrGet("src") if child.type == "image" else None
+            if isinstance(src, str) and (mode := _MODE.search(src)):
+                child.attrSet("src", src[: mode.start()])
+                child.attrSet("data-mode", mode.group(1))
             for attr in ("href", "src"):
                 value = child.attrGet(attr)
                 if isinstance(value, str):
@@ -379,7 +385,8 @@ SIGN_IN = """<article><h1>{name}</h1><p>This documentation is private. Sign in w
 FALLBACK = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <!--pb-docs-head--><style>body{font:16px/1.6 system-ui,sans-serif;margin:0;display:flex;gap:2rem;color:#1f2328}nav{min-width:15rem;padding:1.5rem;border-right:1px solid #ddd}
 nav ul{list-style:none;padding-left:1rem}main{max-width:48rem;padding:1.5rem}pre{background:#f6f8fa;padding:1rem;overflow:auto}img{max-width:100%}
-table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem}a[aria-current]{font-weight:600}</style></head>
+table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:.3rem .6rem}a[aria-current]{font-weight:600}
+@media (prefers-color-scheme:dark){img[data-mode=light]{display:none}}@media not (prefers-color-scheme:dark){img[data-mode=dark]{display:none}}</style></head>
 <body><div id="docs-root"><!--pb-docs-body--></div></body></html>"""
 
 

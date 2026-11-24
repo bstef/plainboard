@@ -4,6 +4,7 @@ import { createElement, Fragment, memo, useMemo, useRef, useState, type ReactNod
 import { useTranslation } from "react-i18next";
 import { Lightbox, type LightboxImage } from "../components/Lightbox";
 import { MermaidBlock } from "../components/MermaidBlock";
+import { useLook } from "../lib/theme";
 import { highlight } from "./highlight";
 
 /** The elements the server's Markdown (markdown-it, raw HTML off) makes; anything else is shown as its text. */
@@ -22,6 +23,20 @@ const CALLOUTS = {
 } as const;
 export type CalloutKind = keyof typeof CALLOUTS;
 
+/** A picture for one mode (#125): its address ends in #light or #dark (or GitHub's #gh-light-mode-only …). */
+const MODE = /#(?:gh-)?(light|dark)(?:-mode-only)?$/;
+export type PictureMode = "light" | "dark";
+export function pictureMode(src: string): { src: string; mode?: PictureMode } {
+  const m = src.match(MODE);
+  return m ? { src: src.slice(0, m.index), mode: m[1] as PictureMode } : { src };
+}
+
+/** The pictures the lightbox steps through: those of the mode in use; ``start`` in them for ``index`` of all. */
+export function shownPictures(images: (LightboxImage & { mode?: PictureMode })[], index: number, dark: boolean) {
+  const shown = images.filter((i) => !i.mode || i.mode === (dark ? "dark" : "light"));
+  return { shown, start: Math.max(0, shown.indexOf(images[index])) };
+}
+
 export interface ContentProps {
   html: string;
   /** Where the site's files are: links there are files to download (or pictures). */
@@ -35,23 +50,31 @@ export interface ContentProps {
  * files as downloads, headings with their anchor, tables that scroll. */
 export const Content = memo(function Content({ html, filesBase, onNavigate, onPrefetch }: ContentProps) {
   const [open, setOpen] = useState<number | null>(null);
+  const look = useLook();
   const { nodes, images } = useMemo(() => {
     const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
-    const images: LightboxImage[] = [];
+    const images: Picture[] = [];
     const ctx: Ctx = { filesBase, images, onNavigate, onPrefetch, zoom: setOpen };
     return { nodes: children(doc.body, ctx, "c"), images };
   }, [html, filesBase, onNavigate, onPrefetch]);
   return (
     <>
       {nodes}
-      {open !== null && images.length > 0 && <Lightbox images={images} start={open} onClose={() => setOpen(null)} />}
+      {open !== null && images.length > 0 && <Zoomed images={images} index={open} dark={look.dark} onClose={() => setOpen(null)} />}
     </>
   );
 });
 
+function Zoomed({ images, index, dark, onClose }: { images: Picture[]; index: number; dark: boolean; onClose: () => void }) {
+  const { shown, start } = shownPictures(images, index, dark);
+  return shown.length > 0 ? <Lightbox images={shown} start={start} onClose={onClose} /> : null;
+}
+
+type Picture = LightboxImage & { mode?: PictureMode };
+
 interface Ctx {
   filesBase: string;
-  images: LightboxImage[];
+  images: Picture[];
   onNavigate: (href: string) => void;
   onPrefetch: (href: string) => void;
   zoom: (index: number) => void;
@@ -106,9 +129,10 @@ function node(n: Node, ctx: Ctx, key: string): ReactNode {
     case "img": {
       const src = el.getAttribute("src") ?? "";
       const alt = el.getAttribute("alt") ?? "";
-      const index = ctx.images.push({ src, alt }) - 1;
+      const mode = (el.getAttribute("data-mode") as PictureMode | null) ?? undefined;
+      const index = ctx.images.push({ src, alt, mode }) - 1;
       return (
-        <button key={key} type="button" className="doc-img" onClick={() => ctx.zoom(index)} aria-label={alt || undefined}>
+        <button key={key} type="button" className="doc-img" data-mode={mode} onClick={() => ctx.zoom(index)} aria-label={alt || undefined}>
           <img src={src} alt={alt} loading="lazy" decoding="async" />
         </button>
       );
