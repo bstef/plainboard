@@ -15,6 +15,7 @@ import { AgentSquare, ChatPanelToggle, IconButton, Select, Spinner } from "../..
 import { formatCost, formatTokens } from "../../lib/format";
 import { useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
+import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
 import { AskDialog } from "./AskDialog";
 import { LimitsRing } from "./LimitsRing";
@@ -54,7 +55,7 @@ export function ChatPanel({
   const firstId = useRef<number | undefined>(undefined);
   const fetchingOlder = useRef(false);
   const [details, setDetails] = useStored<boolean>("plainboard.chatDetails", false);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useDraftFiles(`chat:${agentId}`);
   const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
 
   const activeRuns = (runs.data ?? []).filter((r) => r.agent_id === agentId && (r.status === "queued" || r.status === "running"));
@@ -442,7 +443,7 @@ function Composer({
   const { t } = useTranslation();
   const { project } = useShell();
   const qc = useQueryClient();
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft(`chat:${agentId}`);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   // A question instead of a message (Ctrl+Enter or the ? button): answered in a window of its own.
