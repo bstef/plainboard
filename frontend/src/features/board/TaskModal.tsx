@@ -17,6 +17,7 @@ import { STATUSES } from "./Board";
 import { Decisions, isMedia, reviewAttachmentIds } from "./Decisions";
 import { FlowTicket } from "../flow/Integrations";
 import { Label } from "./TaskCard";
+import { languageName } from "../projects/CustomerLanguages";
 
 const PRIORITIES: Priority[] = ["low", "medium", "high", "urgent"];
 
@@ -291,7 +292,8 @@ type CustomerBody = { customer_title?: string; customer_description?: string; cu
 /** The ticket's public texts, one tab per customer language of the project (the default first). With one
  * language there are no tabs. Tabs without a title are marked: customers get the default language there. */
 function CustomerTexts({ task, languages, onSave, canWrite }: { task: TaskDetail; languages: string[]; onSave: (body: CustomerBody) => void; canWrite: boolean }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const name = (code: string) => languageName(code, i18n.language);
   const [lang, setLang] = useState(languages[0]);
   const active = languages.includes(lang) ? lang : languages[0];
   const textsOf = (code: string) => (code === languages[0] ? { title: task.customer_title, description: task.customer_description } : { title: task.customer_texts?.[code]?.title ?? "", description: task.customer_texts?.[code]?.description ?? "" });
@@ -299,11 +301,29 @@ function CustomerTexts({ task, languages, onSave, canWrite }: { task: TaskDetail
   const save = (field: "title" | "description", value: string) =>
     onSave(active === languages[0] ? { [`customer_${field}`]: value } : { customer_texts: { [active]: { [field]: value } } });
   const { title, description } = textsOf(active);
-  if (!canWrite && !languages.some((code) => textsOf(code).title || textsOf(code).description)) return null;
+  const written = languages.some((code) => textsOf(code).title || textsOf(code).description);
+  const [expanded, setExpanded] = useState(written);
+  const open = expanded || written;
+  if (!canWrite && !written) return null;
   return (
     <section className="space-y-2" data-part="customer-texts">
-      <SectionTitle>{t("ticket.customerSection")}</SectionTitle>
-      {languages.length > 1 && (
+      <SectionTitle
+        right={
+          (languages.length === 1 || !open) && (
+            <span className="flex min-w-0 flex-wrap justify-end gap-1">
+              {languages.map((code) => (
+                <Badge key={code}>{name(code)}</Badge>
+              ))}
+            </span>
+          )
+        }
+      >
+        <button type="button" aria-expanded={open} disabled={written} onClick={() => setExpanded(!expanded)} className="caps inline-flex items-center gap-1 text-fg-2 hover:text-fg disabled:hover:text-fg-2">
+          {!written && (open ? <ChevronDown className="size-3.5 text-fg-3" /> : <ChevronRight className="size-3.5 text-fg-3" />)}
+          {t("ticket.customerSection")}
+        </button>
+      </SectionTitle>
+      {open && languages.length > 1 && (
         <div className="scroll-thin -mx-1 overflow-x-auto px-1">
           <Segmented
             aria-label={t("ticket.customerLanguage")}
@@ -312,8 +332,9 @@ function CustomerTexts({ task, languages, onSave, canWrite }: { task: TaskDetail
             options={languages.map((code) => ({
               value: code,
               label: (
-                <span className="inline-flex items-center gap-1" title={missing.includes(code) ? t("ticket.customerMissingTab") : undefined}>
-                  {code.toUpperCase()}
+                <span className="inline-flex items-center gap-1 whitespace-nowrap" title={missing.includes(code) ? t("ticket.customerMissingTab") : undefined}>
+                  {name(code)}
+                  {code === languages[0] && <span className="opacity-70">· {t("customerLanguages.default")}</span>}
                   {missing.includes(code) && <CircleDashed className="size-3" aria-label={t("ticket.customerMissingTab")} />}
                 </span>
               ),
@@ -321,14 +342,14 @@ function CustomerTexts({ task, languages, onSave, canWrite }: { task: TaskDetail
           />
         </div>
       )}
-      <CustomerFields key={active} title={title} description={description} onSave={save} canWrite={canWrite} />
-      {missing.length > 0 && languages.length > 1 && <p className="text-fg-3">{t("ticket.customerMissing", { languages: missing.map((code) => code.toUpperCase()).join(", ") })}</p>}
-      {canWrite && <p className="text-fg-3">{t(languages.length > 1 && active === languages[0] ? "ticket.customerDefaultHint" : "ticket.customerHint")}</p>}
+      {open && <CustomerFields key={active} language={name(active)} title={title} description={description} onSave={save} canWrite={canWrite} />}
+      {open && missing.length > 0 && languages.length > 1 && <p className="text-fg-3">{t("ticket.customerMissing", { languages: missing.map(name).join(", ") })}</p>}
+      {open && canWrite && <p className="text-fg-3">{t(languages.length > 1 && active === languages[0] ? "ticket.customerDefaultHint" : "ticket.customerHint")}</p>}
     </section>
   );
 }
 
-function CustomerFields({ title, description, onSave, canWrite }: { title: string; description: string; onSave: (field: "title" | "description", value: string) => void; canWrite: boolean }) {
+function CustomerFields({ language, title, description, onSave, canWrite }: { language: string; title: string; description: string; onSave: (field: "title" | "description", value: string) => void; canWrite: boolean }) {
   const { t } = useTranslation();
   const [draftTitle, setDraftTitle] = useState(title);
   const [draftDescription, setDraftDescription] = useState(description);
@@ -346,7 +367,7 @@ function CustomerFields({ title, description, onSave, canWrite }: { title: strin
     <>
       <Input
         aria-label={t("ticket.customerTitle")}
-        placeholder={t("ticket.customerTitle")}
+        placeholder={t("ticket.customerTitleIn", { language })}
         maxLength={150}
         value={draftTitle}
         onChange={(e) => setDraftTitle(e.target.value)}
@@ -354,7 +375,7 @@ function CustomerFields({ title, description, onSave, canWrite }: { title: strin
       />
       <Textarea
         aria-label={t("ticket.customerDescription")}
-        placeholder={t("ticket.customerDescription")}
+        placeholder={t("ticket.customerDescriptionIn", { language })}
         rows={2}
         maxLength={400}
         value={draftDescription}
