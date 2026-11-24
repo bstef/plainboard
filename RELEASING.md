@@ -36,6 +36,8 @@ chosen branch.
   Settings; an `:edge` or local build shows `edge-<commit>`.
 - The update notice: a release asks GitHub for newer tags `vX.Y.Z` and names the newest; an edge build
   counts the newer commits on main, as before.
-- Settings → Runners hands out `plainboard-runner:latest` on a release, `:edge` otherwise. Runners
-  update their code from the app themselves, independent of tags; `docker compose pull` is only needed
-  when a new image is (other system tools or Python packages).
+- Settings → Runners hands out `plainboard-runner:${RUNNER_TAG:-latest}` on a release, `:-edge` otherwise
+  (`deploy/runner-compose.yml` takes `RUNNER_TAG` too, default `latest`). Runners update their code from
+  the app themselves, independent of tags; a new image is only needed when the runner's Dockerfile,
+  launcher or packages changed. Then the app tells the user which tag matches: `latest` (or `X.Y.Z`) for
+  a release, `edge` for a PlainBoard on `:edge` or built from source (`git pull && docker compose up -d --build`).

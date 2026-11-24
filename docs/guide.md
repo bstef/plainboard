@@ -327,7 +327,10 @@ projects wait, running turns finish, running jobs, previews and check runs get u
 still runs then ends, and the project's manager hears it), and the runner restarts with it (Settings >
 Runners shows "Updating…"). If the new version does not start, the runner goes back to its old one. When
 an update needs a new image (other system tools or Python packages), or fails, the project's manager
-hears it once; then update it by hand: `docker compose pull && docker compose up -d` in its folder.
+hears it once; then update it by hand: `docker compose pull && docker compose up -d` in its folder. Its
+image must match PlainBoard: `plainboard-runner:latest` for a release, `:edge` for a PlainBoard on `:edge`
+or built from source; set it with `RUNNER_TAG=edge` in the `.env` next to the runner's `docker-compose.yml`
+(PlainBoard names the right one).
 
 Everything of the project then runs there: its agents' turns, background jobs, check runs of its
 branches, previews and the browser window (both reach PlainBoard through the runner's connection).
