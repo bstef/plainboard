@@ -467,6 +467,19 @@ def session_file(cwd: str | Path, session_id: str) -> Path:
     return Path.home() / ".claude" / "projects" / re.sub(r"[^a-zA-Z0-9]", "-", str(cwd)) / f"{session_id}.jsonl"
 
 
+# The windows Claude Code reads from the headers of every model response (unifiedWindows): a response
+# lists each of them the plan has, so one it leaves out is gone (Ultra has no 5-hour window). Windows
+# for certain models come only with requests that touch them.
+HEADER_WINDOWS = ["five_hour", "seven_day", "seven_day_overage_included", "overage"]
+# The windows of Claude Code's usage answer, each of them null where the plan has none.
+USAGE_WINDOWS = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"]
+
+
+def limit_covers(info: RateLimitInfo) -> list[str]:
+    """The windows a rate limit event speaks for in full (LimitsEvent.covers)."""
+    return list(HEADER_WINDOWS) if info.raw.get("unifiedWindows") else []
+
+
 def limit_windows(info: RateLimitInfo) -> list[LimitWindow]:
     """The plan's limit windows. Only the window that changed may be known, usually the one getting tight."""
     windows = {
@@ -484,7 +497,7 @@ def limit_windows(info: RateLimitInfo) -> list[LimitWindow]:
 def usage_windows(rate_limits: dict[str, Any] | None) -> list[LimitWindow]:
     """Limit windows from Claude Code's usage answer, which has percentages and ISO dates."""
     windows = []
-    for name in ("five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"):
+    for name in USAGE_WINDOWS:
         window = (rate_limits or {}).get(name) or {}
         if window.get("utilization") is not None:
             resets = window.get("resets_at")
@@ -638,7 +651,7 @@ class EventMapper:
         elif isinstance(message, RateLimitEvent):
             if windows := limit_windows(message.rate_limit_info):
                 self.rejected = self.rejected or any(w.status == "rejected" for w in windows)
-                events.append(LimitsEvent(windows=windows))
+                events.append(LimitsEvent(windows=windows, covers=limit_covers(message.rate_limit_info)))
         elif isinstance(message, SystemMessage):
             if message.subtype == "init" and message.data.get("session_id"):
                 events.append(SessionEvent(session_id=message.data["session_id"]))
@@ -887,17 +900,22 @@ class ClaudeCodeProvider(Provider):
             yield paused or ResultEvent(is_error=True, error="Claude Code ended without a result", context_tokens=mapper.context_tokens)
 
     async def limits(self, credentials: Credentials) -> list[LimitWindow]:
+        return (await self.limits_report(credentials))[0]
+
+    async def limits_report(self, credentials: Credentials) -> tuple[list[LimitWindow], list[str]]:
         if credentials.claude_auth_mode == "api_key" or (credentials.claude_auth_mode == "own_login" and not credentials.login_files):
-            return []
+            return [], []
         if credentials.claude_auth_mode == "runner_login" and signins.taken(HOME_SIGN_IN, DEFAULT_ACCOUNT):
-            return []
+            return [], []
         async with self._home(credentials) as home:
             try:
                 windows = await self._usage(credentials, home)
             except Exception as exc:
                 log.info("Claude's usage could not be read, asking with a minimal turn: %s", str(exc)[:200])
                 windows = []
-            return windows or await self._limits_of_a_turn(credentials, home)
+            if windows:  # the usage answer names every window of the plan
+                return windows, list(USAGE_WINDOWS)
+            return await self._limits_of_a_turn(credentials, home)
 
     async def _usage(self, credentials: Credentials, home: Path | None = None) -> list[LimitWindow]:
         options = ClaudeAgentOptions(tools=[], setting_sources=[], cwd="/tmp", env=self.auth_env(credentials, home=home))
@@ -949,7 +967,7 @@ class ClaudeCodeProvider(Provider):
             return None, None
         return organization.get("organization_type"), organization.get("rate_limit_tier")
 
-    async def _limits_of_a_turn(self, credentials: Credentials, home: Path | None = None) -> list[LimitWindow]:
+    async def _limits_of_a_turn(self, credentials: Credentials, home: Path | None = None) -> tuple[list[LimitWindow], list[str]]:
         """The limits as a turn reports them. A subscription that is signed in with a token
         (``claude setup-token``) answers the usage request with nothing: the token is for model
         requests only. Every model request reports the limits, though, so the smallest one there
@@ -959,6 +977,7 @@ class ClaudeCodeProvider(Provider):
             model=PROBE_MODEL, tools=[], system_prompt="Reply with the single word: ok", setting_sources=[], max_turns=1, cwd="/tmp", env=self.auth_env(credentials, home=home)
         )
         windows: dict[str, LimitWindow] = {}
+        covers: set[str] = set()
 
         async def ask() -> None:
             async with ClaudeSDKClient(options) as client:
@@ -966,12 +985,13 @@ class ClaudeCodeProvider(Provider):
                 async for message in client.receive_response():
                     if isinstance(message, RateLimitEvent):
                         windows.update({w.name: w for w in limit_windows(message.rate_limit_info)})
+                        covers.update(limit_covers(message.rate_limit_info))
 
         try:
             await asyncio.wait_for(ask(), timeout=60)
         except Exception as exc:  # a subscription that is used up refuses the request, after reporting that
             log.info("Minimal turn for Claude's limits ended early: %s", str(exc)[:200])
-        return list(windows.values())
+        return list(windows.values()), sorted(covers)
 
     async def complete(self, spec: CompletionSpec) -> CompletionResult:
         async with self._home(spec.credentials) as home:

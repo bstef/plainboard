@@ -598,3 +598,45 @@ def test_a_turn_without_a_single_step_is_not_a_finished_assignment(client, proje
     assert second["status"] == "failed"
     run = next(r for r in client.get(f"/api/projects/{pid}/runs").json() if r["assignment_id"] == second["id"])
     assert run["status"] == "failed" and "without a single step" in run["error"]
+
+
+def test_a_window_the_provider_no_longer_reports_is_gone_at_once(client):
+    """Production, 2026-11-24 (#149): a subscription moved from Max to Ultra, which has no 5-hour
+    window. Every report after that named only the weekly window, and the 5-hour window of the old
+    plan (99 %) stayed for hours: the subscription counted as nearly used up."""
+    import time
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Account
+    from plainboard.services import limits as limits_service
+    from sqlalchemy import select
+
+    first = accounts(client)["Claude"]
+    later = int(time.time()) + 3600
+
+    def names() -> dict[str, float]:
+        return {w["name"]: w["utilization"] for w in limits_of(client, first["id"])["windows"]}
+
+    async def report(windows: list[tuple[str, float]], covers: list[str] | None = None, plan: tuple | None = None) -> None:
+        async with sessionmaker()() as s:
+            key = await s.scalar(select(Account.key).where(Account.label == "Claude"))
+            if plan:
+                await limits_service.record_plan(s, key, *plan)
+            if windows:
+                await limits_service.record(s, key, [LimitWindow(name=n, utilization=u, resets_at=later) for n, u in windows], covers=covers)
+
+    client.portal.call(report, [("five_hour", 0.99), ("seven_day", 0.5), ("seven_day_opus", 0.3)], None, ("Max", 5.0))
+    # A report of the changed window only keeps the others.
+    client.portal.call(report, [("seven_day", 0.6)])
+    assert names() == {"five_hour": 0.99, "seven_day": 0.6, "seven_day_opus": 0.3}
+    # A report that speaks for the header windows drops the 5-hour one it leaves out, not the Opus one.
+    client.portal.call(report, [("seven_day", 0.6)], ["five_hour", "seven_day", "seven_day_overage_included", "overage"])
+    assert names() == {"seven_day": 0.6, "seven_day_opus": 0.3}
+    # A window it still reports stays.
+    client.portal.call(report, [("five_hour", 0.2), ("seven_day", 0.6)], ["five_hour", "seven_day"])
+    assert names() == {"five_hour": 0.2, "seven_day": 0.6, "seven_day_opus": 0.3}
+    # The same plan again changes nothing; a new plan forgets the old plan's limits.
+    client.portal.call(report, [], None, ("Max", None))
+    assert names() == {"five_hour": 0.2, "seven_day": 0.6, "seven_day_opus": 0.3}
+    client.portal.call(report, [], None, ("Ultra", 10.0))
+    assert names() == {} and limits_of(client, first["id"])["plan"] == "Ultra"

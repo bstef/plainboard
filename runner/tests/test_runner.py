@@ -577,7 +577,7 @@ def test_lists_the_turns_it_runs():
 def test_rate_limit_events_become_limit_windows():
     from claude_agent_sdk.types import RateLimitInfo
 
-    from plainboard_runner.providers.claude_code import limit_windows
+    from plainboard_runner.providers.claude_code import limit_covers, limit_windows
 
     raw = {"unifiedWindows": {"five_hour": {"utilization": 0.4, "resetsAt": 100}, "seven_day": {"utilization": 0.1, "resetsAt": 200}}}
     windows = limit_windows(RateLimitInfo(status="allowed", raw=raw))
@@ -588,6 +588,8 @@ def test_rate_limit_events_become_limit_windows():
     assert [(w.name, w.utilization, w.status) for w in hit] == [("seven_day", 1.0, "rejected")]
     assert limit_windows(RateLimitInfo(status="allowed")) == []
     assert limit_windows(RateLimitInfo(status="rejected", rate_limit_type="overage")) == []
+    # A response's headers name every header window of the plan (Ultra has no 5-hour one); a lone type doesn't.
+    assert "five_hour" in limit_covers(RateLimitInfo(status="allowed", raw=raw)) and limit_covers(RateLimitInfo(status="rejected", rate_limit_type="five_hour")) == []
 
 
 def test_usage_answer_becomes_limit_windows():
@@ -904,12 +906,14 @@ async def test_the_limits_of_a_token_subscription_come_from_a_minimal_turn(monke
     FakeUsageClient.usage = {"seven_day": {"utilization": 23, "resets_at": "2026-11-20T03:00:00+00:00"}}
     (window,) = await provider.limits(token)
     assert (window.name, window.utilization) == ("seven_day", 0.23) and FakeUsageClient.asked == []
+    assert (await provider.limits_report(token))[1] == ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"]  # the answer names them all
 
     # It answers with nothing (the token is for model requests only): one word to the small model shows them.
     FakeUsageClient.usage = None
     windows = {w.name: w for w in await provider.limits(token)}
     assert windows["seven_day"].utilization == 0.41 and windows["seven_day"].resets_at == 1795143600 and "seven_day_overage_included" in windows
     assert FakeUsageClient.asked == ["claude-haiku-5-5: ok"]
+    assert "five_hour" in (await provider.limits_report(token))[1]  # the turn's headers had no 5-hour window: it is gone
 
     assert await provider.limits(Credentials(claude_auth_mode="api_key", anthropic_api_key="k")) == []  # an API key has no plan
 
