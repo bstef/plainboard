@@ -129,8 +129,9 @@ export function ChatPanel({
     const el = scroller.current;
     const inner = content.current;
     if (!el || !inner) return;
+    // At the end the reversed scroller keeps the end in view by itself. Setting scrollTop here would
+    // pull every scroll that starts upwards back down while it is still within reach of the end.
     if (stickToBottom.current) {
-      if (el.scrollTop !== 0) el.scrollTop = 0;
       anchor.current = null;
       rest.current = 0;
       return;
@@ -162,8 +163,9 @@ export function ChatPanel({
     return () => observer.disconnect();
   }, [!!agent]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     stickToBottom.current = true;
+    if (scroller.current) scroller.current.scrollTop = 0;
   }, [agentId]);
 
   // Older messages are fetched while the reader is still a few screens below the top, page after
