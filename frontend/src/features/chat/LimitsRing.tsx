@@ -3,12 +3,13 @@ import type { TFunction } from "i18next";
 import { TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLimits } from "../../api/queries";
+import { useAccounts, useLimits } from "../../api/queries";
 import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types";
 import { timeAgo } from "../../lib/format";
 import { useDismiss, useInView } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { useUsableAccounts } from "../projects/ProjectAccounts";
+import { StatusMark, useApiUse } from "../settings/AccountStatus";
 
 const tone = (used: number) => (used >= 0.9 ? "red" : used >= 0.75 ? "amber" : "indigo");
 const stroke = { red: "text-you", amber: "text-fg", indigo: "text-fg-2" };
@@ -107,6 +108,7 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
 
   const [popRef, inView] = useInView<HTMLDivElement>(open);
   useDismiss(ref, open, () => setOpen(false));
+  const use = useApiUse(useAccounts().data?.find((a) => a.id === account?.account_id && !account.available)); // #140: when an API access runs
 
   const windows = account?.windows ?? [];
   const forecasts = account?.forecasts ?? [];
@@ -140,6 +142,12 @@ function Ring({ account, available = true }: { account?: AccountLimits; availabl
             <LimitRow key={window.name} window={window} forecast={forecasts.find((f) => f.name === window.name)} />
           ))}
           {!windows.length && <p className="text-fg-3">{t(!account ? (available ? "chat.limits.unknown" : "chat.limits.noPlan") : account.available ? "chat.limits.unknown" : "chat.limits.apiExplain")}</p>}
+          {use && (
+            <p className="flex items-start gap-1.5">
+              <StatusMark tone={use.tone} className="mt-[0.4lh]" />
+              <span>{use.text}</span>
+            </p>
+          )}
           {account?.updated_at && <p className="text-fg-3">{t("chat.limits.updated", { when: timeAgo(fromUnix(account.updated_at)) })}</p>}
         </div>
       )}

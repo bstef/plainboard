@@ -756,6 +756,61 @@
       "hint": "Their projects may run on it. They see its name and how much is used, never its token or key."
     }
   },
+  "accountStatus": {
+    "label": {
+      "login": "Sign-in",
+      "share": "Shared with",
+      "projects": "Runs in",
+      "limits": "Limits",
+      "use": "When used"
+    },
+    "login": {
+      "off": "Switched off",
+      "signedIn": "Signed in",
+      "keySet": "Key saved",
+      "signedOut": "Not signed in yet",
+      "keyMissing": "No key yet",
+      "unknown": "Not checked yet",
+      "noKeyNeeded": "No key needed"
+    },
+    "share": {
+      "you": "you",
+      "installation": "Everyone (installation)",
+      "everyone": "Everyone here",
+      "nobodyChosen": "Nobody chosen yet",
+      "private": "Only {{name}}",
+      "installationHint": "It belongs to the installation: everyone here may use it, unless People limits someone to other subscriptions."
+    },
+    "projects": {
+      "none": "No project yet",
+      "notYet": "None until it is signed in",
+      "more": "{{names}} and {{count}} more",
+      "installationHint": "Every project may use it, unless its settings limit it to others (Project settings → Team → Subscriptions this project may use).",
+      "ownHint": "The projects of everyone it is shared with run on it too."
+    },
+    "limits": {
+      "known": "Read {{when}}",
+      "pending": "Not read yet",
+      "hint": "PlainBoard reads the limits of every subscription every 15 minutes. Until the first read, its ring under the chat input stays empty, but agents can already run on it."
+    },
+    "step": {
+      "login": "Sign in",
+      "share": "Share",
+      "projects": "Projects",
+      "limits": "Limits",
+      "connect": "Connect"
+    },
+    "progress": "{{done}} of {{of}} steps done",
+    "use": {
+      "agents_one": "By 1 agent on {{provider}}",
+      "agents_other": "By {{count}} agents on {{provider}}",
+      "noAgents": "No agent runs on {{provider}} yet",
+      "pinned": "Always in {{names}}",
+      "standby": "Standby: once every {{provider}} subscription is full",
+      "only": "Always: the only {{provider}} access",
+      "hint": "An API access has no plan limits, so its ring under the chat input stays empty. An endpoint runs the agents set to its provider (Team → an agent's model). An API key of Claude or Codex is used once every subscription of its provider is full, unless a project or an agent is set to it."
+    }
+  },
   "projectAccounts": {
     "label": "Subscriptions this project may use",
     "hint": "Nothing ticked: any of the installation's. Tick some, and this project's agents run on those only, whatever anyone chooses for an agent. For a project you share with others, when another subscription is meant for your own work.",
@@ -2399,7 +2454,6 @@
     "output": "Output",
     "cacheRead": "Cache read",
     "cacheWrite": "Cache write",
-   
     "detailsHint": "Cache tokens are read again from the provider's prompt cache or written to it; they are cheaper and not counted in the tokens above."
   }
 }
