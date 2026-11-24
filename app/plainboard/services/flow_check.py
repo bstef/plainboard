@@ -403,15 +403,21 @@ async def _tool_errors(session, project_id, agents, since, now) -> list[Finding]
     names = {tool.name for tool in all_tools()}
     rows = (
         await session.execute(
-            select(Message.content, Message.meta["result"].as_string())
+            # The whole meta, read in Python: on PostgreSQL any ->/->> fails on a row whose JSON holds a \u0000 (#120).
+            select(Message.content, Message.meta)
             .join(Conversation, Conversation.id == Message.conversation_id)
-            .where(Conversation.agent_id.in_(list(agents)), Message.kind == "tool", Message.created_at >= since, Message.meta["is_error"].as_boolean().is_(True))
+            .where(
+                Conversation.agent_id.in_(list(agents)),
+                Message.kind == "tool",
+                Message.created_at >= since,
+                Message.content.in_(names | {"mcp__plainboard__" + n for n in names}),
+            )
         )
     ).all()
     refused: dict[str, Counter] = {}
-    for name, result in rows:
-        name = name.removeprefix("mcp__plainboard__")
-        if name in names and not str(result or "").startswith("Not handed over: the quick check"):  # that is the quick check doing its work
+    for name, meta in rows:
+        name, result = name.removeprefix("mcp__plainboard__"), (meta or {}).get("result")
+        if (meta or {}).get("is_error") and not str(result or "").startswith("Not handed over: the quick check"):  # that is the quick check doing its work
             refused.setdefault(name, Counter())[truncate(str(result or "").split("\n")[0], 110)] += 1
     often = sorted(((name, reasons) for name, reasons in refused.items() if sum(reasons.values()) >= 5), key=lambda item: -sum(item[1].values()))
     if not often:

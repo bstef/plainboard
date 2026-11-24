@@ -17,6 +17,7 @@ SQLite as before and says why (`plainboard.db.move-failed`).
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -31,6 +32,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import JSON, Integer, String, Table, Text, bindparam, cast, create_engine, func, insert, inspect, select, text, update
 from sqlalchemy.engine import Connection
 
+from .db import without_nul
 from .models import Base
 
 log = logging.getLogger("plainboard.db_move")
@@ -166,6 +168,8 @@ def _writing(table: Table):
 def _value(column, value: Any) -> Any:
     if value is None:
         return None
+    if isinstance(column.type, JSON) and "\\u0000" in value:
+        return json.dumps(without_nul(json.loads(value)))  # PostgreSQL stores it, but every ->/->> on the row fails then (#120)
     if isinstance(column.type, String):
         # SQLite keeps what it was given (a number in a text column); PostgreSQL text takes no NUL character.
         return (value if isinstance(value, str) else str(value)).replace("\x00", "")
