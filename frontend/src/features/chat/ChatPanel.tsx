@@ -11,7 +11,7 @@ import { Avatar } from "../../components/Avatar";
 import { Markdown } from "../../components/Markdown";
 import { PendingFile } from "../../components/PendingFile";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
-import { AgentSquare, ChatPanelToggle, IconButton, Select, Spinner } from "../../components/ui";
+import { AgentSquare, ChatPanelToggle, SwitchTrack, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
 import { useAutoGrow, useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
@@ -398,9 +398,7 @@ function ChatMenu({
           >
             {details ? <Eye className="size-4 shrink-0" /> : <EyeOff className="size-4 shrink-0 text-fg-3" />}
             <span className="flex-1">{t("chat.details")}</span>
-            <span className={clsx("relative h-5 w-9 shrink-0 rounded-sm ring-1 ring-inset", details ? "bg-fg ring-fg" : "ring-line-2")}>
-              <span className={clsx("absolute top-1 size-3 rounded-[1px]", details ? "left-5 bg-bg" : "left-1 bg-fg-3")} />
-            </span>
+            <SwitchTrack checked={details} />
           </button>
           <div className="my-1 border-t border-line" />
           <MenuItem label={t("chat.compressNow")} hint={t("chat.compressHint")} busy={busy === "compress"} disabled={disabled} onClick={() => action("compress")} />
