@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ArrowUp, FileText, Info, RotateCcw, Search, SquarePen, Square, Sparkles, X } from "lucide-react";
+import { ArrowUp, FileText, Info, RotateCcw, Search, SquarePen, Sparkle, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -278,7 +278,7 @@ export default function AssistantPanel({
     <section id="doc-ai-panel" role="dialog" aria-modal="false" aria-label={t("docsSite.assistant.title")} className="doc-ai-panel" hidden={!open}>
       <header className="doc-ai-head">
         <span className="doc-ai-mark" aria-hidden>
-          <Sparkles className="size-4" />
+          <Sparkle className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="doc-ai-title">{t("docsSite.assistant.title")}</p>
@@ -306,7 +306,7 @@ export default function AssistantPanel({
         {messages.length === 0 ? (
           <div className="doc-ai-hello">
             <span className="doc-ai-mark is-big" aria-hidden>
-              <Sparkles className="size-6" />
+              <Sparkle className="size-6" />
             </span>
             <p className="doc-ai-hello-title">{t("docsSite.assistant.hello")}</p>
             <p className="doc-ai-hello-text">{t("docsSite.assistant.helloText", { name: site.name })}</p>

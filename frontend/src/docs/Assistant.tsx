@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Sparkles, X } from "lucide-react";
+import { Sparkle, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDismiss } from "../lib/hooks";
@@ -56,8 +56,8 @@ export function Assistant({ site, lang, page, onNavigate }: { site: SiteView; la
         aria-label={t(open ? "docsSite.assistant.close" : "docsSite.assistant.open")}
         title={t(open ? "docsSite.assistant.close" : "docsSite.assistant.open")}
       >
-        <Sparkles className={clsx("doc-ai-launcher-icon size-6", open && "is-gone")} aria-hidden />
-        <X className={clsx("doc-ai-launcher-icon size-6", !open && "is-gone")} aria-hidden />
+        <Sparkle className={clsx("doc-ai-launcher-icon size-[22px]", open && "is-gone")} aria-hidden />
+        <X className={clsx("doc-ai-launcher-icon size-[22px]", !open && "is-gone")} aria-hidden />
         {unread && <span className="doc-ai-dot" aria-hidden />}
       </button>
     </div>

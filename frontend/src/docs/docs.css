@@ -1389,23 +1389,22 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 56px;
-    height: 56px;
+    width: 52px;
+    height: 52px;
     border-radius: calc(9999px * var(--doc-rf, 1));
-    background: var(--grad);
-    color: #fff;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--line-2);
     box-shadow:
-      0 12px 30px -10px var(--doc-glow, #ff3d8b),
-      0 4px 12px -4px rgb(0 0 0 / 0.35);
+      0 8px 24px -10px rgb(0 0 0 / 0.45),
+      0 2px 6px -2px rgb(0 0 0 / 0.25);
     transition:
       transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
-      box-shadow 0.18s;
+      background 0.15s;
   }
   .doc-ai-launcher:hover {
-    transform: translateY(-2px) scale(1.04);
-    box-shadow:
-      0 16px 36px -10px var(--doc-glow, #ff3d8b),
-      0 6px 16px -4px rgb(0 0 0 / 0.35);
+    transform: translateY(-1px);
+    background: var(--sunk);
   }
   .doc-ai-launcher:active {
     transform: scale(0.96);
@@ -1438,7 +1437,7 @@
   .doc-ai-panel {
     position: fixed;
     right: max(1.25rem, env(safe-area-inset-right));
-    bottom: calc(max(1.25rem, env(safe-area-inset-bottom)) + 56px + 14px);
+    bottom: calc(max(1.25rem, env(safe-area-inset-bottom)) + 52px + 12px);
     width: min(410px, calc(100vw - 2.5rem));
     height: min(660px, calc(100dvh - var(--doc-header) - 120px));
     min-height: 360px;
@@ -1508,9 +1507,8 @@
     width: 32px;
     height: 32px;
     border-radius: calc(10px * var(--doc-rf, 1));
-    background: var(--grad);
-    color: #fff;
-    box-shadow: 0 6px 18px -8px var(--doc-glow, #ff3d8b);
+    color: var(--fg-2);
+    border: 1px solid var(--line-2);
   }
   .doc-ai-mark.is-big {
     width: 52px;
