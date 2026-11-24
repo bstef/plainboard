@@ -36,11 +36,11 @@
   width: 22px;
   height: 22px;
   border-radius: calc(7px * var(--r));
-  background: var(--grad);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
   font-weight: 800;
   font-size: 11px;
-  box-shadow: 0 5px 14px -7px var(--doc-glow, #ff3d8b);
+  box-shadow: 0 5px 14px -7px var(--doc-glow, var(--accent));
 }
 .doc-tp .tp-logo {
   height: 22px;
@@ -154,7 +154,7 @@
   padding: 3px 10px;
   border-radius: calc(9999px * var(--r));
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent, #fff);
   font-weight: 600;
   white-space: nowrap;
 }

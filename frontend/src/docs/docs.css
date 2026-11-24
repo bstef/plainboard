@@ -25,7 +25,7 @@
   }
   html[data-docs] ::selection {
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent, #fff);
   }
 
   /* What the server rendered, until the script takes over (and for readers without it). */
@@ -50,7 +50,7 @@
     inset: 0 0 auto;
     height: 2px;
     z-index: 60;
-    background: var(--grad);
+    background: var(--accent);
     transform: scaleX(0);
     transform-origin: left;
     opacity: 0;
@@ -136,11 +136,11 @@
     width: 30px;
     height: 30px;
     border-radius: calc(9px * var(--doc-rf, 1));
-    background: var(--grad);
-    color: #fff;
+    background: var(--accent);
+    color: var(--on-accent, #fff);
     font-weight: 800;
     font-size: 15px;
-    box-shadow: 0 6px 18px -8px var(--doc-glow, #ff3d8b);
+    box-shadow: 0 6px 18px -8px var(--doc-glow, var(--accent));
   }
   .doc-mark.is-big {
     width: 52px;
@@ -1655,7 +1655,7 @@
     padding: 0.55rem 0.9rem;
     border-radius: calc(18px * var(--doc-rf, 1)) calc(18px * var(--doc-rf, 1)) calc(6px * var(--doc-rf, 1)) calc(18px * var(--doc-rf, 1));
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent, #fff);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     line-height: 1.5;
@@ -1865,8 +1865,8 @@
     width: 36px;
     height: 36px;
     border-radius: calc(9999px * var(--doc-rf, 1));
-    background: var(--grad);
-    color: #fff;
+    background: var(--accent);
+    color: var(--on-accent, #fff);
     transition: opacity 0.15s;
   }
   .doc-ai-send:disabled {
