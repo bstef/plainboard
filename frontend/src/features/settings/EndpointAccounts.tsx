@@ -4,7 +4,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { checks, qk, useAccounts, useMe, useMeta } from "../../api/queries";
+import { checks, qk, useAccounts, useMe, useMeta, useSettings } from "../../api/queries";
 import type { Account, CheckResult, ProviderInfo } from "../../api/types";
 import { Button, ErrorText, Field, IconButton, Input, Select, Textarea, Toggle } from "../../components/ui";
 import { Sharing } from "./AccountsEditor";
@@ -24,7 +24,8 @@ export function EndpointAccounts({ own = false }: { own?: boolean }) {
   const [error, setError] = useState<unknown>(null);
   const [choice, setChoice] = useState("");
   const endpoints = meta.data?.endpoints ?? [];
-  const adds = !own || !me?.is_admin;
+  const allowed = useSettings().data?.values.own_accounts ?? true;
+  const adds = !own || (!me?.is_admin && allowed);
   const mine = (accounts.data ?? []).filter((a) => (own ? a.owner_id != null && a.can_manage : a.owner_id == null) && endpoints.some((p) => p.name === a.provider));
   const chosen = endpoints.find((p) => p.name === choice) ?? endpoints[0];
 

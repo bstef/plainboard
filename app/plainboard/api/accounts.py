@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ..orchestration.runner_client import RunnerError
 from ..schemas import AccountCreate, AccountOut, AccountUpdate, CheckOut
 from ..services import accounts as account_service
+from ..services import permissions
 from ..services import settings as settings_service
 from ..services.errors import ServiceError
 from .deps import Runner, Session, Who
@@ -98,6 +99,8 @@ async def _signin(session: Session, runner: Runner, who: Who, account_id: int, a
     forgets them. Signed out: they are gone here too. One still in the runner's home (``home_login``) that is
     signed in anew is kept from then on."""
     account = await account_service.managed(session, account_id, who.user)
+    if action == "login" and account.owner_id is not None and who.user is not None and not who.user.is_admin and account.id in await permissions.switched_off(session):
+        raise ServiceError(account_service.OWN_SWITCHED_OFF, 403)
     if action in ("login", "logout") and account.home_login and account.auth_mode in account_service.LOGIN_MODES:
         account.home_login, account.secret_enc = False, None  # the home's copy stays as it is, unused
         await session.commit()

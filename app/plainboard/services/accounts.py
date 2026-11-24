@@ -53,6 +53,8 @@ CACHE_SECONDS = 3600
 MARGIN = 1.25
 HOUR = 3600
 WEEK_HOURS = 7 * 24
+OWN_OFF = "Your admin has turned off adding your own subscriptions."
+OWN_SWITCHED_OFF = "Your admin has switched off people's own subscriptions."
 
 
 log = logging.getLogger(__name__)
@@ -198,6 +200,8 @@ async def create(session: AsyncSession, data: AccountCreate, name: str = "", use
     """``name``: what the provider is called, for the label of an account that got none. ``user``: who
     adds it; an admin's is the installation's, anyone else's their own (``Account.owner_id``)."""
     own = user is not None and not user.is_admin
+    if own and not await permissions.own_allowed(session):
+        raise ServiceError(OWN_OFF, 403)
     _check_mode(data.provider, data.auth_mode)
     if data.auth_mode in LOGIN_MODES and data.secret:
         raise ServiceError("This subscription is signed in in the browser, not with a token.")
@@ -288,6 +292,16 @@ async def release(session: AsyncSession, account: Account, gone: bool = False, w
             session.add(InboxItem(agent_id=manager.id, text=f"The subscription '{account.label}' {what}. What ran on it{who} now chooses a subscription automatically."))
         out.append(project)
     return out
+
+
+async def switch_off_own(session: AsyncSession) -> None:
+    """After the admin changed ``own_accounts``: if people's own subscriptions are switched off now, what was
+    pinned to one of them chooses automatically again and its project's manager is told (``release``)."""
+    off = await permissions.switched_off(session)
+    for account in await list_accounts(session):
+        if account.id in off:
+            await release(session, account, why="was switched off by an admin (people's own subscriptions are off)")
+    await session.commit()
 
 
 async def delete(session: AsyncSession, account: Account) -> None:
@@ -454,7 +468,8 @@ async def _cache_warm(session: AsyncSession, agent: Agent | None) -> bool:
 async def _candidates(session: AsyncSession, provider: str, agent: Agent | None, model: str | None = None, where: Where | None = None) -> list[Account]:
     """The accounts the agent's turn may run on: the one it or its project chose, else all it may use. ``where``:
     only those with a working sign-in on that runner; a chosen one without counts as not chosen."""
-    accounts = [a for a in await list_accounts(session, provider) if a.enabled and (where is None or not unusable(a, where))]
+    off = await permissions.switched_off(session)
+    accounts = [a for a in await list_accounts(session, provider) if a.enabled and a.id not in off and (where is None or not unusable(a, where))]
     project = await session.get(Project, agent.project_id) if agent else None
     if (allowed := await permissions.account_ids(session, project)) is not None:  # a project limited to some accounts never gets another one
         accounts = [a for a in accounts if a.id in allowed]
