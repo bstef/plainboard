@@ -26,7 +26,7 @@ import { useTasks } from "../../api/queries";
 import type { Project, ProjectSearch, SearchHit } from "../../api/types";
 import { IconButton, Spinner } from "../../components/ui";
 import { timeAgo } from "../../lib/format";
-import { useDismiss, useInView } from "../../lib/hooks";
+import { useDebounced, useDismiss, useInView } from "../../lib/hooks";
 
 export interface NavEntry {
   id: string;
@@ -195,18 +195,9 @@ interface Item {
   run?: () => void;
 }
 
-/** How long the palette waits after the last key before it asks the search by meaning. */
-const DEBOUNCE_MS = 250;
-const MIN_SEMANTIC = 3;
-
-function useDebounced(value: string, ms: number) {
-  const [out, setOut] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setOut(value), ms);
-    return () => clearTimeout(id);
-  }, [value, ms]);
-  return out;
-}
+/** How long the palette (and the board's filter) waits after the last key before it asks the search by meaning. */
+export const DEBOUNCE_MS = 250;
+export const MIN_SEMANTIC = 3;
 
 /** One search over the areas, the tickets of this project, its history by meaning and the projects. Titles
  * match at once; the history follows a moment after the last key. Off or not ready: a quiet line, no error. */

@@ -93,3 +93,13 @@ export function useInView<T extends HTMLElement>(open: boolean) {
   const style: CSSProperties | undefined = shift ? { transform: `translateX(${shift}px)` } : undefined;
   return [ref, style] as const;
 }
+
+/** The value once it has not changed for ``ms``. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [out, setOut] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setOut(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return out;
+}
