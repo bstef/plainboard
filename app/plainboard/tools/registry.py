@@ -29,8 +29,10 @@ log = logging.getLogger(__name__)
 
 MANAGER = "manager"
 WORKER = "worker"
+DOC_AGENT = "doc_agent"  # the agent of a doc site (Agent.doc_site_id): a worker that also writes its site's pages
 ALL = (MANAGER, WORKER)
 SEARCH = "search"  # a feature: tools of it go only to agents whose project has it (``RunManager`` names them)
+DOCS = "docs"  # the project has a doc site (services/docs.py)
 
 
 @dataclass
@@ -80,9 +82,9 @@ def tool(name: str, description: str, args: type[BaseModel] = NoArgs, roles: tup
     return register
 
 
-def local_tool(name: str, description: str, args: type[BaseModel], roles: tuple[str, ...] = ALL) -> None:
+def local_tool(name: str, description: str, args: type[BaseModel], roles: tuple[str, ...] = ALL, feature: str | None = None) -> None:
     """Declare a tool that the runner executes itself (needs the agent's filesystem)."""
-    tool(name, description, args, roles, local=True)(None)
+    tool(name, description, args, roles, local=True, feature=feature)(None)
 
 
 def clean_schema(node: Any, mapping: bool = False) -> Any:
@@ -117,9 +119,15 @@ def role_of(agent: Agent) -> str:
     return MANAGER if agent.is_manager else WORKER
 
 
+def roles_of(agent: Agent) -> frozenset[str]:
+    if getattr(agent, "doc_site_id", None) is not None:
+        return frozenset((WORKER, DOC_AGENT))
+    return frozenset((role_of(agent),))
+
+
 def tools_for(agent: Agent, features: frozenset[str] = frozenset()) -> list[Tool]:
-    role = role_of(agent)
-    return [t for t in _TOOLS.values() if role in t.roles and (t.feature is None or t.feature in features)]
+    roles = roles_of(agent)
+    return [t for t in _TOOLS.values() if roles & t.roles and (t.feature is None or t.feature in features)]
 
 
 def tool_defs_for(agent: Agent, features: frozenset[str] = frozenset()) -> list[ToolDef]:
@@ -134,7 +142,7 @@ async def execute(name: str, ctx: ToolContext, raw_args: dict[str, Any] | None) 
     tool_ = _TOOLS.get(name)
     if tool_ is None or tool_.handler is None:
         return ToolCallResult(text=f"Unknown tool: {name}", is_error=True)
-    if role_of(ctx.agent) not in tool_.roles:
+    if not roles_of(ctx.agent) & tool_.roles:
         return ToolCallResult(text=f"Tool {name} is not available to you", is_error=True)
     try:
         args = tool_.args_model.model_validate(raw_args or {})
@@ -151,7 +159,7 @@ async def execute(name: str, ctx: ToolContext, raw_args: dict[str, Any] | None) 
 
 
 def _load_modules() -> None:
-    from . import automation, board, flow, ideas, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
+    from . import automation, board, docs, flow, ideas, integrations, jobs, knowledge, project, repos, search, skills, storage, team, todos, scratchpad  # noqa: F401
 
 
 _load_modules()

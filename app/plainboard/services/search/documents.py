@@ -25,7 +25,7 @@ OVERLAP_CHARS = 150
 MAX_CHUNKS = 50  # ~50 000 characters: only a pasted log or dump is longer; of it the first part (the limit keeps one item from flooding the index)
 MIN_CHARS = 12  # shorter is noise ("ok", "+1")
 
-KIND_NAMES = {"ticket": "Ticket", "report": "Report", "decision": "Decision", "comment": "Comment", "note": "Note", "commit": "Commit", "idea": "Idea"}
+KIND_NAMES = {"ticket": "Ticket", "report": "Report", "decision": "Decision", "comment": "Comment", "note": "Note", "commit": "Commit", "idea": "Idea", "doc": "Doc page"}
 
 
 @dataclass

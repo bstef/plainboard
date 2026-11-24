@@ -385,6 +385,7 @@ class SearchHitOut(BaseModel):
     task_id: int | None = None  # the ticket it belongs to, to open it
     note_id: int | None = None
     idea_id: int | None = None
+    doc_page_id: int | None = None  # a doc page (#118): open it in its site
     repo: str | None = None
     sha: str | None = None  # a commit's whole hash
     url: str | None = None  # a commit's page, where its repository has one
@@ -663,6 +664,7 @@ class AgentOut(ORM):
     slug: str
     role: str
     is_manager: bool
+    doc_site_id: int | None = None  # the doc agent of this doc site: hidden from team and board, set up in the site's settings
     description: str
     instructions: str
     provider: str
@@ -911,6 +913,7 @@ class AttachmentOut(ORM):
     id: int
     task_id: int | None
     idea_id: int | None = None
+    doc_site_id: int | None = None
     filename: str
     content_type: str
     size: int
@@ -1634,3 +1637,214 @@ class IdeaTicketIn(BaseModel):
 class IdeaTicketOut(BaseModel):
     ticket: TaskOut
     idea: IdeaOut
+
+
+# --- doc sites (#118, services/docs.py) -----------------------------------------------------------------
+
+DocSlug = Annotated[str, Field(max_length=80, pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")]
+
+
+class DocSiteCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    slug: DocSlug | None = None  # None: from the name
+    description: str = Field(default="", max_length=300)
+    spec: str = Field(default="", max_length=20000)
+    published: bool = False
+    public: bool = False  # published and public: everyone; published and private: people with a role in the project
+    language: str = Field(default="en", max_length=20)
+    languages: list[str] = Field(default_factory=list, max_length=30)
+    agent_provider: str | None = Field(default=None, max_length=50)  # its doc agent; None: the installation's defaults
+    agent_model: str | None = Field(default=None, max_length=100)
+    agent_effort: str | None = Field(default=None, max_length=20)
+
+
+Translator = Literal["", "llm", "deepl", "google"]
+
+
+class DocSiteUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    slug: DocSlug | None = None
+    description: str | None = Field(default=None, max_length=300)
+    spec: str | None = Field(default=None, max_length=20000)
+    published: bool | None = None
+    public: bool | None = None
+    languages: list[str] | None = Field(default=None, max_length=30)  # further languages, translated
+    translator: Translator | None = None
+    translate_provider: str | None = Field(default=None, max_length=50)  # llm: "" = the project's default provider
+    translate_model: str | None = Field(default=None, max_length=100)  # llm: "" = the provider's small model
+    agent_provider: str | None = Field(default=None, max_length=50)  # its doc agent
+    agent_model: str | None = Field(default=None, max_length=100)
+    agent_effort: str | None = Field(default=None, max_length=20)  # "": the installation's default
+
+
+class DocKeysIn(BaseModel):
+    """Write-only; "" removes a key, None keeps it."""
+
+    deepl: str | None = Field(default=None, max_length=200)
+    google: str | None = Field(default=None, max_length=200)
+
+
+class DocTranslationItem(BaseModel):
+    lang: str
+    title: str
+    state: Literal["current", "outdated", "missing", "failed"]
+    translated_by: str = ""
+    translated_at: UTCDateTime | None = None
+    error: str = ""
+
+
+class DocTranslationOut(DocTranslationItem):
+    body: str
+
+
+class DocTranslationIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(max_length=200000)
+
+
+class DocDomainIn(BaseModel):
+    domain: str = Field(max_length=253)  # "" removes it
+
+
+class DocDomainOut(BaseModel):
+    """What the user sets up for the site's own domain (the UI words it): a CNAME, or a public hostname of a
+    Cloudflare tunnel, from ``domain`` to ``target``; PlainBoard then reads ``verify_url`` and expects ``token``."""
+
+    domain: str
+    target: str  # the host this PlainBoard is reached at (where the request came to)
+    verify_url: str
+    token: str
+    verified_at: UTCDateTime | None = None
+    cloudflare_token_set: bool = False
+
+
+class DocAgentOut(BaseModel):
+    """The hidden agent of a doc site (#118): configured in the site's settings."""
+
+    id: int
+    slug: str
+    name: str
+    provider: str
+    model: str
+    effort: str | None = None
+    enabled: bool = True
+
+
+class DocSiteOut(ORM):
+    id: int
+    project_id: int
+    name: str
+    slug: str
+    description: str
+    spec: str
+    published: bool
+    public: bool = False
+    language: str = "en"
+    languages: list[str] = []
+    translator: str = ""
+    translate_provider: str = ""
+    translate_model: str = ""
+    deepl_key_set: bool = False
+    google_key_set: bool = False
+    domain: str | None = None
+    domain_verified_at: UTCDateTime | None = None
+    cloudflare_token_set: bool = False
+    agent: DocAgentOut | None = None  # its doc agent, the only agent that writes it
+    url: str  # its address under this PlainBoard: /docs/<slug>/
+    pages: int = 0
+    stale_pages: int = 0  # flagged as possibly outdated
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
+
+
+class DocPageItem(ORM):
+    """A page in the site's tree (without its text)."""
+
+    id: int
+    site_id: int
+    parent_id: int | None
+    position: int
+    title: str
+    slug: str
+    path: str  # under the site: parent-slug/slug (the home page is the first page at the top, also at "")
+    depth: int = 0
+    children: int = 0  # pages directly below it
+    paths: list[str]
+    edited_by: str
+    edited_at: UTCDateTime
+    drift: int
+    flagged_at: UTCDateTime | None = None
+    flag_reason: str = ""
+    updated_at: UTCDateTime
+
+
+class DocCrumb(BaseModel):
+    id: int
+    title: str
+    path: str
+
+
+class DocPageOut(DocPageItem):
+    body: str
+    versions: int = 0
+    ancestors: list[DocCrumb] = []  # from the top down: what to open in the tree
+    translations: list[DocTranslationItem] = []
+
+
+class DocPagesOut(BaseModel):
+    items: list[DocPageItem]
+    total: int  # children of that parent
+    offset: int
+
+
+class DocPageCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=200000)
+    parent_id: int | None = None
+    position: int | None = Field(default=None, ge=0)  # None: last
+    slug: DocSlug | None = None
+    paths: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(default_factory=list, max_length=50)
+    reason: str = Field(default="", max_length=300)
+
+
+class DocPageUpdate(BaseModel):
+    """Only what is given changes. ``parent_id`` with ``move``: another place in the tree (None: the top)."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    body: str | None = Field(default=None, max_length=200000)
+    move: bool = False
+    parent_id: int | None = None
+    position: int | None = Field(default=None, ge=0)
+    slug: DocSlug | None = None
+    paths: list[Annotated[str, Field(min_length=1, max_length=300)]] | None = Field(default=None, max_length=50)
+    reason: str = Field(default="", max_length=300)
+
+
+class DocVersionOut(ORM):
+    id: int
+    page_id: int
+    title: str
+    body: str | None = None  # in the list: None
+    author: str
+    agent_id: int | None
+    reason: str
+    created_at: UTCDateTime
+
+
+class DocCloudflareIn(BaseModel):
+    token: str | None = Field(default=None, max_length=200)  # stored encrypted for this site; None: the one stored
+    target: str | None = Field(default=None, max_length=253)  # None: the host this request came to
+    proxied: bool = True
+
+
+class DocDnsOut(BaseModel):
+    zone: str
+    record: str
+    target: str
+    created: bool  # False: an existing record was changed
+
+
+class DocVerifyOut(BaseModel):
+    verified: bool
+    detail: str = ""
+    verified_at: UTCDateTime | None = None

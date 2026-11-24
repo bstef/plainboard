@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models import SearchDocument, SearchVector
 from .documents import Doc, prepare
 
-LINKS = ("task_id", "assignment_id", "decision_id", "comment_id", "note_id", "repository_id")  # SearchDocument's sources
+LINKS = ("task_id", "assignment_id", "decision_id", "comment_id", "note_id", "repository_id", "doc_page_id")  # SearchDocument's sources
 
 # Reciprocal rank fusion: a hit's score is the sum of 1 / (K + its rank) in each list. K = 60 is the usual
 # value: the top places count, but a hit that both lists rank fairly high beats one that only one ranks first.
@@ -179,6 +179,7 @@ async def search(
     since: datetime | None = None,
     until: datetime | None = None,
     repo: str | None = None,
+    source_ids: list[str] | None = None,
     limit: int = 8,
 ) -> list[Hit]:
     """Hybrid: the nearest chunks by meaning (cosine, exact within the project) and the best by words
@@ -205,6 +206,9 @@ async def search(
     if repo:
         where.append("d.repo = :repo")
         params["repo"] = repo
+    if source_ids is not None:
+        where.append("d.source_id = ANY(:sources)")
+        params["sources"] = list(source_ids)
     scope = " AND ".join(where)
     if vector is not None:
         params["vector"] = vector_literal(vector)
@@ -248,5 +252,21 @@ async def nearest(s: AsyncSession, project_id: int, vector: list[float], model: 
         if key in seen:
             continue
         seen.add(key)
+        hits.append(_hit(row, float(row.sim)))
+    return hits[:limit]
+
+
+async def nearest_of_kind(s: AsyncSession, project_id: int, vector: list[float], model: str, kind: str, limit: int) -> list[Hit]:
+    """By meaning only, among one kind (the doc pages a landed change may concern): one hit per item, its best chunk."""
+    params = {"project": project_id, "model": model, "vector": vector_literal(vector), "limit": limit * 4, "kind": kind}
+    sql = f"""SELECT {_HIT}, 1 - (v.embedding <=> CAST(:vector AS vector)) AS sim
+        FROM search_documents d JOIN search_vectors v ON v.document_id = d.id AND v.model = :model
+        WHERE d.project_id = :project AND d.kind = :kind
+        ORDER BY v.embedding <=> CAST(:vector AS vector) LIMIT :limit"""
+    hits, seen = [], set()
+    for row in await s.execute(text(sql), params):
+        if row.source_id in seen:
+            continue
+        seen.add(row.source_id)
         hits.append(_hit(row, float(row.sim)))
     return hits[:limit]

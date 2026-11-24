@@ -17,7 +17,7 @@ from sqlalchemy import Select, String, and_, cast, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from ...models import Agent, Assignment, Comment, Decision, Idea, IdeaStatus, Note, Repository, SearchDocument, Task, TicketState, utcnow
+from ...models import Agent, Assignment, Comment, Decision, DocPage, DocSite, Idea, IdeaStatus, Note, Repository, SearchDocument, Task, TicketState, utcnow
 from .documents import Doc
 
 
@@ -196,7 +196,31 @@ class Ideas(Indexer):
         return select(cast(Idea.id, String)).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN)
 
 
-INDEXERS: tuple[Indexer, ...] = (Tickets(), Reports(), Decisions(), Comments(), Notes(), Ideas())
+DOC = "doc"
+
+
+class DocPages(Indexer):
+    """The pages of the project's doc sites (services/docs.py): found by agents and people, and the neighbours of
+    a landed change that may make one outdated (orchestration/docs_watcher.py)."""
+
+    kind = DOC
+
+    def query(self, project_id: int):
+        query = select(DocPage, DocSite.name.label("site"), DocSite.slug.label("site_slug")).join(DocSite, DocSite.id == DocPage.site_id).where(DocPage.project_id == project_id)
+        return query, DocPage.updated_at, DocPage.id
+
+    def doc(self, row: Any) -> Doc | None:
+        page: DocPage = row.DocPage
+        return Doc(
+            kind=DOC, source_id=str(page.id), ref=f"doc page {page.id}", title=page.title, body=page.body, at=page.created_at,
+            facts=_facts(f"site {row.site} ({row.site_slug})", f"edited by {page.edited_by}" if page.edited_by else None), links={"doc_page_id": page.id},
+        )  # fmt: skip
+
+    def existing(self, project_id: int) -> Select:
+        return select(cast(DocPage.id, String)).where(DocPage.project_id == project_id)
+
+
+INDEXERS: tuple[Indexer, ...] = (Tickets(), Reports(), Decisions(), Comments(), Notes(), Ideas(), DocPages())
 COMMIT = "commit"
 KINDS = tuple(i.kind for i in INDEXERS) + (COMMIT,)
 

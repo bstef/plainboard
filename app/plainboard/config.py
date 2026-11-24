@@ -36,6 +36,7 @@ class Config(BaseSettings):
     landing_interval_seconds: float = 30.0  # how often trains of finished branches are looked at
     tidy_interval_seconds: float = 600.0  # how often it is looked whether a repository is due for removing merged branches
     cleanup_interval_seconds: float = 3600.0  # how often disk and memory are looked at for an automatic cleanup (statvfs: cheap)
+    docs_interval_seconds: float = 300.0  # how often the docs watcher looks for landed changes that concern doc pages (orchestration/docs_watcher.py)
     search_interval_seconds: float = 30.0  # how often the semantic search index looks for changes (orchestration/search_indexer.py)
     # Threads that embed for semantic search, at lowered priority (services/search/embedding.py). 0: up to 8, two cores left free.
     search_threads: int = 0

@@ -93,7 +93,8 @@ class ContextManager:
     ) -> Turn:
         """``scratchpad``: that of the agent's open assignment. A fresh session (after compression) gets
         it verbatim, so it survives every compression."""
-        team = await agent_service.list_for_project(session, project.id)
+        # The doc sites' agents are hidden: each sees only itself of them.
+        team = [a for a in await agent_service.list_for_project(session, project.id) if a.doc_site_id is None or a.id == agent.id]
         pinned = await notes_service.pinned(session, project.id)
         own_notes = await own_note_service.for_agent(session, agent.id)
         workspace = workspace_path(project, agent)
