@@ -69,7 +69,7 @@ def render(body: str, *, base: str, files_base: str, page_paths: dict[int, str])
                 value = child.attrGet(attr)
                 if isinstance(value, str):
                     child.attrSet(attr, _resolve(value, base, files_base, page_paths))
-            if child.type == "text":
+            if child.type in ("text", "code_inline"):
                 words.append(child.content)
         if token.type == "inline":
             words.append("\n")
@@ -229,10 +229,12 @@ async def search(session: AsyncSession, site: DocSite, query: str, base: str, la
     return (await search_hits(session, site, query, base, lang, limit))[0]
 
 
-async def search_hits(session: AsyncSession, site: DocSite, query: str, base: str, lang: str, limit: int = 10) -> tuple[list[dict], bool]:
-    """By words in the pages of this language (the database finds at most ``CANDIDATES``, title words count three
-    times) and, where semantic search runs, by meaning over the site's pages; fused by rank. Each hit: title, path,
-    snippet. Also whether the site's vector searches were used up (``VECTOR_SEARCHES``), so it searched by words only."""
+async def search_hits(session: AsyncSession, site: DocSite, query: str, base: str, lang: str, limit: int = 10, *, budget: bool = True) -> tuple[list[dict], bool]:
+    """By words in the pages of this language (title, address and text; the database finds at most ``CANDIDATES``,
+    those with all the words first; title words count three times) and, where semantic search runs, by meaning over
+    the site's pages; fused by rank. Each hit: id, title, path, url, snippet. Also whether the site's vector searches
+    were used up (``VECTOR_SEARCHES``), so it searched by words only. ``budget=False`` (the site's own doc agent)
+    neither counts against nor is limited by the visitors' budget."""
     terms = _terms(query) or [query.lower().strip()[:50]]
     if lang == site.language:
         q = select(DocPage.id, DocPage.title, DocPage.body, DocPage.path).where(DocPage.site_id == site.id)
@@ -241,14 +243,21 @@ async def search_hits(session: AsyncSession, site: DocSite, query: str, base: st
         q = select(DocTranslation.page_id, DocTranslation.title, DocTranslation.body, DocPage.path).join(DocPage, DocPage.id == DocTranslation.page_id)
         q = q.where(DocTranslation.site_id == site.id, DocTranslation.lang == lang)
         title_col, body_col = DocTranslation.title, DocTranslation.body
-    q = q.where(or_(*(or_(func.lower(title_col).like(f"%{t}%"), func.lower(body_col).like(f"%{t}%")) for t in terms))).limit(CANDIDATES)
-    found = {row[0]: row for row in (await session.execute(q)).all()}
+    has = [or_(func.lower(title_col).like(f"%{t}%"), func.lower(body_col).like(f"%{t}%"), DocPage.path.like(f"%{t}%")) for t in terms]
+    order = (DocPage.depth, DocPage.position, DocPage.id)
+    found = {row[0]: row for row in (await session.execute(q.where(*has).order_by(*order).limit(CANDIDATES))).all()}
+    if len(terms) > 1 and len(found) < CANDIDATES:  # then those with some of the words
+        rest = q.where(or_(*has)).order_by(*order).limit(CANDIDATES)
+        for row in (await session.execute(rest)).all():
+            if len(found) >= CANDIDATES:
+                break
+            found.setdefault(row[0], row)
     scored = []
-    for pid, title, body, _path in found.values():
+    for pid, title, body, path in found.values():
         t, b = title.lower(), (body or "").lower()
-        scored.append((sum(3 * t.count(w) + min(b.count(w), 10) for w in terms), pid))
+        scored.append((sum(3 * t.count(w) + min(b.count(w), 10) + (2 if w in path else 0) + 5 * (w in t or w in b or w in path) for w in terms), pid))
     by_words = [pid for _, pid in sorted(scored, key=lambda x: -x[0])]
-    by_meaning = await _by_meaning(session, site, query)
+    by_meaning = await _by_meaning(session, site, query, budget=budget)
     words_only = by_meaning is None
     by_meaning = by_meaning or []
     fused: dict[int, float] = {}
@@ -271,11 +280,11 @@ async def search_hits(session: AsyncSession, site: DocSite, query: str, base: st
         if pid not in found:
             continue
         _, title, body, path = found[pid]
-        out.append({"title": title, "path": path, "url": _url(here, path), "snippet": _snippet(render(body, base=here, files_base="", page_paths={}).text, terms)})
+        out.append({"id": pid, "title": title, "path": path, "url": _url(here, path), "snippet": _snippet(render(body, base=here, files_base="", page_paths={}).text, terms)})
     return out, words_only
 
 
-async def _by_meaning(session: AsyncSession, site: DocSite, query: str) -> list[int] | None:
+async def _by_meaning(session: AsyncSession, site: DocSite, query: str, *, budget: bool = True) -> list[int] | None:
     """The site's pages nearest in meaning (the index holds the pages in the site's own language; the models are
     multilingual, so a query in another language finds them too). None when the site's vector searches of this
     minute are used up (public search and the doc assistant together): then words alone must do."""
@@ -288,7 +297,7 @@ async def _by_meaning(session: AsyncSession, site: DocSite, query: str) -> list[
     model = await search_service.embedder(session)
     if model.state != "ready":
         return []
-    if not VECTOR_SEARCHES.allow(str(site.id)):
+    if budget and not VECTOR_SEARCHES.allow(str(site.id)):
         return None
     vector = await model.query(query)
     hits = await store.nearest_of_kind(session, project.id, vector, model.name, "doc", 30)

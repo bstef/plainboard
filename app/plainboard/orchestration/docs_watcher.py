@@ -11,9 +11,13 @@ A page is concerned when
   is close in meaning to one of the page's chunks: at least ``ModelCard.hint_similarity`` less ``NEAR_MARGIN``
   (the hint's threshold is calibrated for ticket against ticket; a change against prose reads a little lower).
 Such a page is marked (``flagged_at``, ``flag_reason``) until someone edits it or confirms it is still right.
+The message also sums up what landed (tickets, report excerpts, commit subjects; bounded): the terms the doc agent
+searches its site for (list_docs query) to find the places nobody marked.
 
 Once a day per project it also reads the commits of each repository that did not come through a landing (direct
-pushes): they count into the pages' ``drift``. The doc agent hears, at most once a week per page, of pages whose
+pushes): they count into the pages' ``drift``. The pages' code paths follow what git saw renamed in the commits read
+(a file, or a folder whose files all moved and that is empty now; a page version says so), and once a day the paths
+that match no file in any repository any more are named to the doc agent with the stale pages. The doc agent hears, at most once a week per page, of pages whose
 linked code changed a lot since their last edit (``DRIFT_STALE`` commits) or that stayed marked for ``STALE_DAYS``.
 Each look also translates what is missing or outdated in the sites' further languages (services/docs_translate.py):
 at most ``docs_translate.BATCH`` pages per site and ``TRANSLATE_SECONDS`` per look; ``translate_soon`` looks at once.
@@ -30,11 +34,11 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from plainboard_protocol import CompletionResult, CompletionSpec, GitCommit, GitLogSpec
+from plainboard_protocol import CompletionResult, CompletionSpec, GitCommit, GitLogSpec, GitPresentSpec
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..models import Assignment, AssignmentStatus, DocPage, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
+from ..models import Assignment, AssignmentStatus, DocPage, DocPageVersion, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
 from ..services import accounts as account_service
 from ..services import docs as docs_service
 from ..services import docs_translate
@@ -58,6 +62,11 @@ TEXTS = 8  # landed changes embedded at most per look
 NEAR = 3  # nearest pages per landed change
 NEAR_MARGIN = 0.05
 PAGES_NAMED = 12  # in one message
+CHANGES = 12  # landings summed up in one message
+PATTERNS = 2000  # code paths checked per repository and day
+REPORT_CHARS = 300  # of each landing's report
+COMMIT_SUBJECTS = 15  # per repository
+CHANGE_CHARS = 4000  # the whole summary
 DAILY = timedelta(days=1)
 DRIFT_STALE = 10
 STALE_DAYS = 7
@@ -97,6 +106,7 @@ class DocsWatcher:
         self._interval = interval
         self._task: asyncio.Task[None] | None = None
         self._daily: dict[int, datetime] = {}  # project -> its last daily look
+        self._bases: dict[int, str] = {}  # repository -> its base branch, as its commits were last read
         self._soon = asyncio.Event()
 
     def start(self) -> None:
@@ -139,8 +149,10 @@ class DocsWatcher:
     async def _project(self, s: AsyncSession, project: Project, now: datetime) -> None:
         concerns: dict[int, Concern] = {}
         landed: list[str] = []
+        changes: list[str] = []  # what landed, in short: the terms the doc agent searches for
         daily = now - self._daily.get(project.id, datetime.min) >= DAILY
-        for repo in list(await s.scalars(select(Repository).where(Repository.project_id == project.id).order_by(Repository.id))):
+        repos = list(await s.scalars(select(Repository).where(Repository.project_id == project.id).order_by(Repository.id)))
+        for repo in repos:
             watch = await s.get(DocWatch, (project.id, repo.id))
             if watch is None:  # from now on: what landed before the docs existed concerns none of them
                 watch = DocWatch(project_id=project.id, repository_id=repo.id, head="", landed_at=now, checked_at=now)
@@ -161,19 +173,20 @@ class DocsWatcher:
             if not landings and not daily:
                 continue
             commits = await self._commits(s, project, repo, watch, now)
+            await self._follow_renames(s, project, repo, commits)
             await self._drift(s, project, commits)
             if not landings:
                 continue
             watch = await s.get(DocWatch, (project.id, repo.id))
             watch.landed_at = landings[-1].merged_at
             await s.commit()
-            labels = await self._concerned(s, project, repo, landings, commits, concerns)
+            labels = await self._concerned(s, project, repo, landings, commits, concerns, changes)
             landed.append(f"{repo.name}: {'; '.join(labels)}")
         if concerns:
-            await self._tell(s, project, landed, list(concerns.values()), now)
+            await self._tell(s, project, landed, list(concerns.values()), now, changes)
         if daily:
             self._daily[project.id] = now
-            await self._remind(s, project, now)
+            await self._remind(s, project, now, await self._dead_paths(s, project, repos))
         await self.translate(s, project, now)
 
     # --- translations ------------------------------------------------------------------------------------------
@@ -261,10 +274,86 @@ class DocsWatcher:
             log.info("Docs watcher: the commits of repository %s could not be read: %s", repo.id, exc)
             return []
         watch = await s.get(DocWatch, (project.id, repo.id))
+        if result.branch:
+            self._bases[repo.id] = result.branch
         if watch is not None and result.head:
             watch.head, watch.checked_at = result.head, now
             await s.commit()
         return [] if first else result.commits
+
+    async def _unmatched(self, s: AsyncSession, project: Project, repo: Repository, patterns: list[str]) -> set[str] | None:
+        """Which of these patterns match no file at the tip of the repository's base branch (None: unknown)."""
+        base = self._bases.get(repo.id)
+        if not patterns or not base or not self._runs.runners.ready(project.id):
+            return None
+        await s.commit()
+        try:
+            result = await self._runs.runners.of(project.id).git_present(GitPresentSpec(key=landing_service.train_key(repo), base=base, patterns=patterns[:PATTERNS]))
+        except (RunnerError, AttributeError) as exc:
+            log.info("Docs watcher: the paths of repository %s could not be checked: %s", repo.id, exc)
+            return None
+        return None if result.unmatched is None else set(result.unmatched)
+
+    async def _follow_renames(self, s: AsyncSession, project: Project, repo: Repository, commits: list[GitCommit]) -> None:
+        """Pages' code paths follow what these commits renamed, without a model: a file to its new name, a folder
+        whose files all moved to one new folder (once it holds nothing any more). Each change is a page version."""
+        renames: dict[str, str] = {}
+        for c in reversed(commits):  # oldest first: what was renamed twice ends at its last name
+            for old, new in c.renames.items():
+                for k, v in list(renames.items()):
+                    if v == old:
+                        renames[k] = new
+                renames.setdefault(old, new)
+        if not renames:
+            return
+        plans: dict[int, list[tuple[str, str]]] = {}  # page -> (pattern, new pattern)
+        folders: set[str] = set()
+        pages = {p.id: p for p in await s.scalars(select(DocPage).where(DocPage.project_id == project.id, linked()))}
+        for page in pages.values():
+            for pattern in page.paths or []:
+                clean = pattern.strip().lstrip("./").rstrip("/")
+                if not clean or any(ch in clean for ch in "*?["):
+                    continue
+                if clean in renames:
+                    plans.setdefault(page.id, []).append((pattern, renames[clean]))
+                    continue
+                moved = [(old[len(clean) :], new) for old, new in renames.items() if old.startswith(clean + "/")]
+                to = {new[: -len(rest)] for rest, new in moved if new.endswith(rest)}
+                if moved and len(to) == 1 and all(new.endswith(rest) for rest, new in moved) and (target := to.pop()) and target != clean:
+                    plans.setdefault(page.id, []).append((pattern, target))
+                    folders.add(clean)
+        if folders:  # a folder moves only when nothing is left in it
+            empty = await self._unmatched(s, project, repo, sorted(folders)) or set()
+            plans = {pid: [(p, n) for p, n in plan if p.strip().lstrip("./").rstrip("/") not in folders or p.strip().lstrip("./").rstrip("/") in empty] for pid, plan in plans.items()}
+        done = []
+        for page_id, plan in plans.items():
+            if not plan:
+                continue
+            page = await s.get(DocPage, page_id)
+            if page is None:
+                continue
+            swap = dict(plan)
+            page.paths = list(dict.fromkeys(swap.get(p, p) for p in page.paths or []))
+            reason = "Linked code paths follow a rename: " + ", ".join(f"{p} -> {n}" for p, n in plan)
+            s.add(DocPageVersion(project_id=page.project_id, page_id=page.id, title=page.title, body=page.body, author="PlainBoard", reason=truncate(reason, 300), created_at=utcnow()))
+            done.append({"page": page.id, "renamed": plan})
+        if done:
+            await s.commit()
+            await flow_log.record(s, project.id, "docs.paths_renamed", pages=done[:50])
+
+    async def _dead_paths(self, s: AsyncSession, project: Project, repos: list[Repository]) -> dict[int, list[str]]:
+        """Pages whose code paths match no file in any of the project's repositories (as last read), by page."""
+        rows = (await s.execute(select(DocPage.id, DocPage.paths).where(DocPage.project_id == project.id, linked()))).all()
+        patterns = sorted({p for _, paths in rows for p in paths or [] if p.strip()})
+        if not patterns or not repos:
+            return {}
+        dead = set(patterns[:PATTERNS])
+        for repo in repos:
+            unmatched = await self._unmatched(s, project, repo, patterns)
+            if unmatched is None:
+                return {}  # a repository that cannot tell: nothing is called dead
+            dead &= unmatched
+        return {pid: [p for p in paths if p in dead] for pid, paths in rows if any(p in dead for p in paths or [])}
 
     async def _drift(self, s: AsyncSession, project: Project, commits: list[GitCommit]) -> None:
         if not commits:
@@ -274,8 +363,10 @@ class DocsWatcher:
                 page.drift += n
         await s.commit()
 
-    async def _concerned(self, s: AsyncSession, project: Project, repo: Repository, landings: list[Landing], commits: list[GitCommit], concerns: dict[int, Concern]) -> list[str]:
-        """Adds the pages these landings concern; returns how the landings are named."""
+    async def _concerned(
+        self, s: AsyncSession, project: Project, repo: Repository, landings: list[Landing], commits: list[GitCommit], concerns: dict[int, Concern], changes: list[str]
+    ) -> list[str]:
+        """Adds the pages these landings concern and to ``changes`` what landed, in short; returns how the landings are named."""
         labels, texts = [], []
         for landing in landings:
             task = await s.get(Task, landing.task_id) if landing.task_id else None
@@ -284,10 +375,18 @@ class DocsWatcher:
             labels.append(label)
             parts = [landing.title or landing.branch, f"#{task.number} {task.title}\n{truncate(task.description, 800)}" if task else "", truncate(report.result, 1200) if report and report.result else ""]
             texts.append((label, "\n\n".join(p for p in parts if p)))
+            if len(changes) < CHANGES:
+                said = f"#{task.number} {task.title}" if task else landing.title or landing.branch
+                excerpt = " ".join(report.result.split()) if report and report.result else ""
+                changes.append(f"- {repo.name} {said}" + (f": {truncate(excerpt, REPORT_CHARS)}" if excerpt else ""))
         if commits:
             changed = sorted({f for c in commits for f in c.files})
             messages = "\n".join(c.message.split("\n", 1)[0] for c in commits[:40])
             texts.append((f"the commits in {repo.name}", f"{messages}\n\nChanged: {', '.join(changed[:80])}"))
+            subjects = list(dict.fromkeys(c.message.split("\n", 1)[0].strip() for c in commits if c.message.strip()))
+            if subjects:
+                more = f" (and {len(subjects) - COMMIT_SUBJECTS} more)" if len(subjects) > COMMIT_SUBJECTS else ""
+                changes.append(f"- commits in {repo.name}: " + "; ".join(truncate(m, 120) for m in subjects[:COMMIT_SUBJECTS]) + more)
         for page in await s.scalars(select(DocPage).where(DocPage.project_id == project.id, linked())):
             if not page.paths:
                 continue
@@ -318,7 +417,7 @@ class DocsWatcher:
                         concerns.setdefault(page.id, Concern(page)).reasons.append(f"close in meaning to {label} ({hit.similarity:.2f})")
         await flow_log.record(s, project.id, "docs.near", model=model.name, threshold=threshold, nearest=found)
 
-    async def _tell(self, s: AsyncSession, project: Project, landed: list[str], concerns: list[Concern], now: datetime) -> None:
+    async def _tell(self, s: AsyncSession, project: Project, landed: list[str], concerns: list[Concern], now: datetime, changes: list[str] | None = None) -> None:
         sites = {site.id: site for site in await s.scalars(select(DocSite).where(DocSite.project_id == project.id))}
         for c in concerns:
             if c.page.flagged_at is None:
@@ -332,13 +431,22 @@ class DocsWatcher:
             more = f"\n(and {len(mine) - PAGES_NAMED} more marked pages: list_docs marked=true)" if len(mine) > PAGES_NAMED else ""
             text = (
                 f"Pages of your doc site may be outdated after what landed ({' | '.join(landed)}). Pages to check:\n" + "\n".join(lines) + more + "\n"
-                "Update what the change made wrong (write_doc_page with a reason), or confirm a page that is still right (write_doc_page still_current)."
+                "Check whether each is really wrong or missing something; only then change it, and only the sentences or sections concerned "
+                "(write_doc_page with a reason, no rewording or restructuring), else confirm it (write_doc_page still_current).\n"
+                "Then search your site yourself (list_docs query, a few searches: the change's meaning and its terms: settings, commands, endpoints, "
+                "UI labels) for other pages that now describe what changed wrongly and fix just that, add a page for a new feature that has none, "
+                "check the code paths of the pages you touch, and keep your site overview in your notes current."
             )
+            if changes:
+                text += "\n\n" + truncate("What landed:\n" + "\n".join(changes), CHANGE_CHARS)
             await self._send(s, sites[site_id], "Update docs after landings", text)
 
-    async def _remind(self, s: AsyncSession, project: Project, now: datetime) -> None:
+    async def _remind(self, s: AsyncSession, project: Project, now: datetime, dead: dict[int, list[str]] | None = None) -> None:
+        dead = dead or {}
         due = (DocPage.reminded_at.is_(None)) | (DocPage.reminded_at < now - REMIND_EVERY)
         stale = (DocPage.drift >= DRIFT_STALE) | (DocPage.flagged_at < now - timedelta(days=STALE_DAYS))
+        if dead:
+            stale = stale | DocPage.id.in_(list(dead)[:PATTERNS])
         sites = {site.id: site for site in await s.scalars(select(DocSite).where(DocSite.project_id == project.id))}
         for site in sites.values():
             pages = list(await s.scalars(select(DocPage).where(DocPage.site_id == site.id, due, stale).order_by(DocPage.drift.desc(), DocPage.id).limit(PAGES_NAMED + 1)))
@@ -352,13 +460,17 @@ class DocsWatcher:
                     why.append(f"{page.drift} commits changed its linked code since its last edit {page.edited_at:%Y-%m-%d}")
                 if page.flagged_at and page.flagged_at < now - timedelta(days=STALE_DAYS):
                     why.append(f"marked as possibly outdated since {page.flagged_at:%Y-%m-%d}: {truncate(page.flag_reason, 200)}")
+                if page.id in dead:
+                    more_dead = f" and {len(dead[page.id]) - 5} more" if len(dead[page.id]) > 5 else ""
+                    why.append(f"its code paths match no file any more: {', '.join(dead[page.id][:5])}{more_dead}")
                 lines.append(_line(page, "; ".join(why)))
             await s.commit()
             total = int(await s.scalar(select(func.count()).select_from(DocPage).where(DocPage.site_id == site.id, stale)) or 0)
             more = f"\n(of {total} such pages: list_docs marked=true)" if total > len(lines) else ""
             text = (
                 "Pages of your doc site that are probably stale:\n" + "\n".join(lines) + more + "\n"
-                "Bring them up to date per the doc spec, or confirm them with write_doc_page still_current."
+                "Bring them up to date per the doc spec, or confirm them with write_doc_page still_current. A page whose code paths "
+                "match nothing: link it to where that code is now (write_doc_page paths), or change the page if the feature is gone."
             )
             await self._send(s, site, "Bring stale doc pages up to date", text)
 

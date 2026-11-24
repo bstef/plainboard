@@ -317,6 +317,7 @@ def test_the_doc_agent_gets_once_per_burst_the_pages_a_landing_may_have_made_out
 
     texts = db(client, orders)
     assert len(texts) == 1, texts
+    assert "What landed:\n- api Retry webhooks\n- api Retry webhooks\n- commits in api: Retry webhooks; Doc" in texts[0] and "list_docs query" in texts[0]
     assert "api: be/retries; be/more" in texts[0] and f'doc page {pay["id"]} "Payments" (/payments): its linked code changed: app/pay/webhooks.py, app/pay/x.py, docs/pay.md (2 commits)' in texts[0]
     assert "Orders" not in texts[0] and fake.git_log_specs[-1].since == "a" * 40
     assert not db(client, manager_inbox)  # the manager is not involved, not even by the report
@@ -638,3 +639,102 @@ def test_a_site_makes_at_most_ten_vector_searches_a_minute_then_searches_by_word
         public.VECTOR_SEARCHES._seen[key] = type(seen)(t - 61 for t in seen)
     resp = client.get("/api/public/docs/handbook/search", params={"q": "webhooks"})
     assert "x-search-words-only" not in resp.headers and len(queries) == 11
+
+
+def test_the_doc_agent_searches_its_own_site_by_meaning_and_words_outside_the_visitors_budget(client, project, monkeypatch):
+    from types import SimpleNamespace
+
+    from plainboard.services import docs_public as public
+    from plainboard.services import search as search_service
+    from plainboard.services.search import store
+
+    pid = project["id"]
+    s = site(client, pid)  # a draft: not served, still searched
+    other = site(client, pid, name="Other")
+    hooks = page(client, pid, s["id"], title="Webhooks", body="Stripe retries webhooks. Set `RETRY_LIMIT` to change it.")
+    payouts = page(client, pid, s["id"], title="Payouts", body="Money reaches your bank account every Friday.")
+    page(client, pid, s["id"], title="Orders", body="Orders arrive here.")
+    foreign = page(client, pid, other["id"], title="Retry limit", body="RETRY_LIMIT in the other site.")
+    queries = []
+
+    class Model:
+        state, name = "ready", "fake"
+
+        async def query(self, text):
+            queries.append(text)
+            return [0.0]
+
+    async def enabled(session, project):
+        return True
+
+    async def embedder(session):
+        return Model()
+
+    async def nearest(*args):  # by meaning: the payouts page, and one of the other site
+        return [SimpleNamespace(source_id=str(payouts["id"])), SimpleNamespace(source_id=str(foreign["id"]))]
+
+    monkeypatch.setattr(search_service, "enabled", enabled)
+    monkeypatch.setattr(search_service, "embedder", embedder)
+    monkeypatch.setattr(store, "nearest_of_kind", nearest)
+    monkeypatch.setattr(public, "VECTOR_SEARCHES", public.RateLimit(public.VECTOR_SEARCHES_PER_MINUTE))
+    for _ in range(public.VECTOR_SEARCHES_PER_MINUTE):
+        assert public.VECTOR_SEARCHES.allow(str(s["id"]))  # the visitors used up this minute's budget
+
+    chat(client, s["agent"]["id"], "TOOL list_docs " + json.dumps({"site": "handbook", "query": "retry_limit when is money paid"}))
+    wait_for(lambda: idle(client, pid))
+    found = tool_results(client, s["agent"]["id"])[-1]
+    assert found.startswith("Pages of handbook found for"), found
+    assert f'- {hooks["id"]} /webhooks "Webhooks"' in found and "Set RETRY_LIMIT to change it." in found  # by words, with a snippet
+    assert f'- {payouts["id"]} /payouts "Payouts"' in found  # by meaning only
+    assert "Orders" not in found and "other site" not in found and str(foreign["id"]) + " /" not in found  # its own site only
+    assert queries == ["retry_limit when is money paid"]  # searched by meaning although the budget was used up
+    assert not public.VECTOR_SEARCHES.allow(str(s["id"]))  # and took nothing of it
+
+
+def test_linked_code_paths_follow_renames_and_dead_ones_go_to_the_doc_agent(client, project):
+    from plainboard.models import Assignment, Landing, LandingStatus, utcnow
+    from sqlalchemy import select
+
+    pid = project["id"]
+    client.patch(f"/api/projects/{pid}", json={"auto_wake_manager": False})
+    repo = client.post(f"/api/projects/{pid}/repositories", json={"name": "api", "url": "https://github.com/acme/api.git"}).json()
+    s = site(client, pid)
+    writer = s["agent"]["id"]
+    pay = page(client, pid, s["id"], title="Payments", body="How payments work.", paths=["app/pay/", "README.md", "docs/*.md", "app/keep"])
+    old = page(client, pid, s["id"], title="Legacy", body="Old things.", paths=["lib/old.py"])
+    fake = runner(client)
+    fake.commits = [GitCommit(sha="a" * 40, message="Start", files=["README.md"])]
+    watcher = client.app_ref.state.docs_watcher
+    now = utcnow()
+    client.portal.call(watcher.tick, now)
+
+    async def land(s):
+        s.add(Landing(project_id=pid, repository_id=repo["id"], branch="be/move", title="Move payments", status=LandingStatus.MERGED, merged_at=now + timedelta(minutes=1)))
+        await s.commit()
+
+    db(client, land)
+    renames = {"app/pay/a.py": "app/payments/a.py", "app/pay/b.py": "app/payments/b.py", "README.md": "docs/README.md", "app/keep/x.py": "app/other/x.py"}
+    fake.commits = [GitCommit(sha="c" * 40, message="Move payments", files=[f for pair in renames.items() for f in pair], renames=renames), *fake.commits]
+    fake.dead_patterns = {"app/pay"}  # app/pay is empty now, app/keep still has files
+    client.portal.call(watcher.tick, now + timedelta(minutes=20))
+    wait_for(lambda: idle(client, pid))
+    moved = client.get(f"/api/projects/{pid}/docs/pages/{pay['id']}").json()
+    assert moved["paths"] == ["app/payments", "docs/README.md", "docs/*.md", "app/keep"]
+    newest = client.get(f"/api/projects/{pid}/docs/pages/{pay['id']}/versions").json()[0]
+    assert newest["author"] == "PlainBoard" and newest["reason"] == "Linked code paths follow a rename: app/pay/ -> app/payments, README.md -> docs/README.md"
+    assert client.get(f"/api/projects/{pid}/docs/pages/{old['id']}").json()["paths"] == ["lib/old.py"]
+
+    async def orders(s):
+        return [a.instructions for a in await s.scalars(select(Assignment).where(Assignment.agent_id == writer).order_by(Assignment.id))]
+
+    # Daily: paths that match nothing in any repository are named, with the pages, once a week.
+    fake.dead_patterns = {"lib/old.py", "docs/*.md"}
+    client.portal.call(watcher.tick, now + timedelta(days=2))
+    wait_for(lambda: idle(client, pid))
+    stale = [t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]
+    assert len(stale) == 1, db(client, orders)
+    assert f'doc page {old["id"]} "Legacy" (/legacy): its code paths match no file any more: lib/old.py' in stale[0]
+    assert f'doc page {pay["id"]} "Payments" (/payments): its code paths match no file any more: docs/*.md' in stale[0] and "write_doc_page paths" in stale[0]
+    assert {p for spec in fake.present_specs for p in spec.patterns} >= {"lib/old.py", "app/payments", "docs/*.md"}
+    client.portal.call(watcher.tick, now + timedelta(days=3, hours=1))
+    assert len([t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]) == 1

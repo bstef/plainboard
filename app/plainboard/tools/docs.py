@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from ..models import Assignment, DocPage, DocSite
 from ..services import board as board_service
 from ..services import docs as docs_service
+from ..services import docs_public
 from ..services.util import truncate
 from .registry import ALL, DOC_AGENT, DOCS, MANAGER, ToolContext, ToolError, local_tool, tool
 
@@ -56,6 +57,7 @@ def _site_line(site, pages: int, stale: int) -> str:  # noqa: ANN001
 
 LISTED = 50  # pages per call
 MARKED = 15
+FOUND = 10  # pages per search
 
 
 def _page_line(p: DocPage, children: int) -> str:
@@ -68,7 +70,7 @@ def _page_line(p: DocPage, children: int) -> str:
 class ListDocsArgs(BaseModel):
     site: str | None = Field(default=None, description="Site slug/id: its doc spec and pages; empty = all sites")
     parent: int | None = Field(default=None, description="Pages below this page id; empty = the top level")
-    query: str | None = Field(default=None, max_length=200, description="Find pages by words in title or address instead")
+    query: str | None = Field(default=None, max_length=200, description="Search the site's pages by meaning and words instead (best 10, with a snippet)")
     marked: bool = Field(default=False, description="Only pages marked as possibly outdated")
     offset: int = Field(default=0, ge=0)
 
@@ -89,8 +91,12 @@ async def list_docs(ctx: ToolContext, args: ListDocsArgs) -> str:
     site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
     head = [_spec(site), ""] if ctx.agent.is_manager and not _saw(ctx.run.run_id, site.id) else []
     if args.query:
-        rows = await docs_service.search_titles(ctx.session, site.id, args.query, LISTED)
-        title, total = f"Pages of {site.slug} matching {args.query!r}:", len(rows)
+        hits, _ = await docs_public.search_hits(ctx.session, site, args.query, f"/docs/{site.slug}", site.language, FOUND, budget=False)
+        if not hits:
+            return "\n".join(head + [f"No pages of {site.slug} found for {args.query!r}."])
+        pages = {p.id: p for p in await ctx.session.scalars(select(DocPage).where(DocPage.id.in_([h["id"] for h in hits])))}
+        found = [f"{_page_line(pages[h['id']], 0)}\n  {h['snippet']}" for h in hits if h["id"] in pages]
+        return "\n".join(head + [f"Pages of {site.slug} found for {args.query!r} (by meaning and words, best first):", *found])
     elif args.marked:
         q = select(DocPage).where(DocPage.site_id == site.id, DocPage.flagged_at.is_not(None))
         total = int(await ctx.session.scalar(select(func.count()).select_from(q.subquery())) or 0)
@@ -102,7 +108,7 @@ async def list_docs(ctx: ToolContext, args: ListDocsArgs) -> str:
         title = f"Pages of {site.slug} {where} ({args.offset + 1}-{args.offset + len(rows)} of {total}):" if rows else f"No pages {where}."
     counts = await docs_service.child_counts(ctx.session, [p.id for p in rows])
     lines = head + [title] + [_page_line(p, counts.get(p.id, 0)) for p in rows]
-    if not args.query and args.offset + len(rows) < total:
+    if args.offset + len(rows) < total:
         lines.append(f"(more: offset={args.offset + len(rows)})")
     return "\n".join(lines)
 

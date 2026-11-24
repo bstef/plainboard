@@ -414,8 +414,11 @@ class FakeRunner:
         """Every commit asked is on the base branch and every path there, except ``self.gone`` (shas whose files went too)."""
         from plainboard_protocol import GitPresentResult
 
+        self.present_specs = getattr(self, "present_specs", []) + [spec]
         gone = getattr(self, "gone", set())
-        return GitPresentResult(on_base=[sha for sha in spec.shas if sha not in gone], missing=list(spec.paths) if gone else [])
+        dead = getattr(self, "dead_patterns", set())  # patterns that match no file
+        unmatched = [p for p in spec.patterns if p in dead] if spec.patterns else None
+        return GitPresentResult(on_base=[sha for sha in spec.shas if sha not in gone], missing=list(spec.paths) if gone else [], unmatched=unmatched)
 
     async def tidy_branches(self, spec):
         self.tidy_specs = getattr(self, "tidy_specs", []) + [spec]
