@@ -32,6 +32,7 @@ import type { Attachment, DocPage, DocSite, DocTranslationItem } from "../../api
 import { Button, ErrorText, Field, IconButton, Input, Modal, Segmented, Spinner, Textarea } from "../../components/ui";
 import { formatDateTime, timeAgo } from "../../lib/format";
 import { useAutoGrow, useDismiss, useMediaQuery } from "../../lib/hooks";
+import { useDraft } from "../../lib/drafts";
 import { diffLines, type Row } from "../chat/ToolCode";
 import { DocMarkdown } from "./DocMarkdown";
 import { base, rel, releaseHref, releaseOf, useDocPage, useDocsRefresh, useDocTranslation, useDocVersion, useDocVersions, useFindPages, useRelease } from "./queries";
@@ -67,8 +68,9 @@ function Editor({ pid, site, page, canWrite, onBack, onOpenPage }: { pid: number
   const refresh = useDocsRefresh(pid);
   const release = useRelease();
   const version = releaseOf(site, release);
-  const [title, setTitle] = useState(page.title);
-  const [body, setBody] = useState(page.body);
+  const draftKey = canWrite ? `doc:${page.id}:${release ?? ""}` : null;
+  const [title, setTitle] = useDraft(draftKey && `${draftKey}:title`, page.title);
+  const [body, setBody] = useDraft(draftKey, page.body);
   const [reason, setReason] = useState("");
   const [seen, setSeen] = useState(page.updated_at);
   const [mode, setMode] = useState<Mode>(canWrite ? (wide ? "split" : "write") : "preview");

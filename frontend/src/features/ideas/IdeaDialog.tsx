@@ -9,13 +9,14 @@ import { Lightbox } from "../../components/Lightbox";
 import { Button, ErrorText, Field, Input, Modal, Select, Spinner, Textarea } from "../../components/ui";
 import { timeAgo } from "../../lib/format";
 import { isMediaFile, isVideoFile } from "../../lib/media";
+import { useDraft } from "../../lib/drafts";
 import { IdeaQuestion, ideaTitle } from "./IdeaCard";
 
 /** An idea opened: its title and text to edit in place, its topic, and its earlier versions to restore. */
 export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; topics: IdeaTopic[]; canWrite: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(idea.title);
-  const [text, setText] = useState(idea.text);
+  const [text, setText, clearText] = useDraft(canWrite ? `idea-edit:${idea.id}` : null, idea.text);
   const [topic, setTopic] = useState(idea.topic_id === null ? "" : String(idea.topic_id));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -44,7 +45,7 @@ export function IdeaDialog({ idea, topics, canWrite, onClose }: { idea: Idea; to
       if (title.trim() !== idea.title) body.title = title.trim();
       if (text.trim() !== idea.text) body.text = text.trim();
       if (topicId !== idea.topic_id) body.topic_id = topicId;
-      return api.patch(base, body);
+      return api.patch(base, body).then(clearText);
     });
   const restore = (versionId: number) =>
     run(async () => {

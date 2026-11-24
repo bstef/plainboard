@@ -9,6 +9,7 @@ import type { Agent, Attachment } from "../../api/types";
 import { PendingFile } from "../../components/PendingFile";
 import { Button, Modal } from "../../components/ui";
 import { useShell } from "../layout/shell-context";
+import { useDraft, useDraftFiles } from "../../lib/drafts";
 
 /** The manager knows a chat message by this start as a request for a ticket (prompts.py, "How work flows"). */
 const PREFIX = "Ticket request:";
@@ -18,8 +19,8 @@ export function TicketRequestDialog({ manager, onClose, onSent }: { manager: Age
   const { t } = useTranslation();
   const { project } = useShell();
   const qc = useQueryClient();
-  const [text, setText] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const [text, setText, clearText] = useDraft(`ticket-request:${project.id}`);
+  const [files, setFiles] = useDraftFiles(`ticket-request:${project.id}`);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -41,6 +42,8 @@ export function TicketRequestDialog({ manager, onClose, onSent }: { manager: Age
       }
       await api.post(`/agents/${manager.id}/messages`, { text: `${PREFIX}\n\n${value}`, attachment_ids });
       qc.invalidateQueries({ queryKey: qk.runs(project.id) });
+      clearText();
+      setFiles([]);
       onSent();
     } catch (err) {
       setError(errorMessage(err));

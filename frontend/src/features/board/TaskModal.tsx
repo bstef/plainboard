@@ -12,6 +12,7 @@ import { Markdown, TicketText } from "../../components/Markdown";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, AgentDot, Badge, Button, ErrorText, IconButton, Input, Modal, Segmented, Select, Spinner, Textarea } from "../../components/ui";
 import { formatDateTime, timeAgo } from "../../lib/format";
+import { useDraft } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
 import { STATUSES } from "./Board";
 import { Decisions, isMedia, reviewAttachmentIds } from "./Decisions";
@@ -126,7 +127,7 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
       <div className="grid gap-6 md:grid-cols-[1fr_220px]" onPaste={canWrite ? onPaste : undefined}>
         <div className="min-w-0 space-y-6">
           <FlowTicket taskId={taskId} />
-          <DescriptionEditor value={data.description} onSave={(description) => patch({ description })} canWrite={canWrite} />
+          <DescriptionEditor draftKey={`description:${taskId}`} value={data.description} onSave={(description) => patch({ description })} canWrite={canWrite} />
           <CustomerTexts task={data} languages={project.customer_languages?.length ? project.customer_languages : ["en"]} onSave={patch} canWrite={canWrite} />
           <AttachmentGrid
             attachments={data.attachments}
@@ -215,7 +216,7 @@ function UserAction({ taskId, action }: { taskId: number; action: string }) {
   const { t } = useTranslation();
   const { project } = useShell();
   const qc = useQueryClient();
-  const [note, setNote] = useState("");
+  const [note, setNote, clearNote] = useDraft(`user-action:${taskId}`);
   const [error, setError] = useState<unknown>(null);
 
   const [busy, setBusy] = useState(false);
@@ -226,6 +227,7 @@ function UserAction({ taskId, action }: { taskId: number; action: string }) {
     setBusy(true);
     try {
       await api.post(`/tasks/${taskId}/user-action/done`, { note });
+      clearNote();
       // The ticket no longer waits: shown at once, not after the ticket has been loaded again.
       qc.setQueryData<TaskDetail>(qk.task(taskId), (old) => (old ? { ...old, user_action: "" } : old));
       qc.invalidateQueries({ queryKey: qk.task(taskId) });
@@ -386,11 +388,14 @@ function CustomerFields({ language, title, description, onSave, canWrite }: { la
   );
 }
 
-function DescriptionEditor({ value, onSave, canWrite }: { value: string; onSave: (v: string) => void; canWrite: boolean }) {
+function DescriptionEditor({ draftKey, value, onSave, canWrite }: { draftKey: string; value: string; onSave: (v: string) => void; canWrite: boolean }) {
   const { t } = useTranslation();
-  const [editing, setEditing] = useState(!value);
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  const [draft, setDraft] = useDraft(canWrite ? draftKey : null, value);
+  // A draft left from before opens the editor again.
+  const [editing, setEditing] = useState(!value || draft !== value);
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing, setDraft]);
 
   return (
     <section>
@@ -553,7 +558,7 @@ function Comments({ taskId, comments, total, canWrite }: { taskId: number; comme
   const { t } = useTranslation();
   const { agentById, project } = useShell();
   const qc = useQueryClient();
-  const [body, setBody] = useState("");
+  const [body, setBody, clearBody] = useDraft(`comment:${taskId}`);
   const field = useRef<HTMLTextAreaElement>(null);
   const picker = useMentionPicker(project.id, body, setBody, field);
   useReadMentionsOf({ taskId });
@@ -583,7 +588,7 @@ function Comments({ taskId, comments, total, canWrite }: { taskId: number; comme
     if (!body.trim()) return;
     try {
       await api.post(`/tasks/${taskId}/comments`, { body });
-      setBody("");
+      clearBody();
       qc.invalidateQueries({ queryKey: qk.task(taskId) });
     } catch (err) {
       setError(errorMessage(err));

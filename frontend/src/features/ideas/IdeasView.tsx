@@ -10,6 +10,7 @@ import type { Idea, IdeaChange, IdeasData, IdeaTopic } from "../../api/types";
 import { PendingFile } from "../../components/PendingFile";
 import { Button, IconButton, Input, PageHead, Spinner } from "../../components/ui";
 import { useIsDesktop } from "../../lib/hooks";
+import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
 import { IdeaCard, ideaTitle } from "./IdeaCard";
 import { IdeaDialog } from "./IdeaDialog";
@@ -29,8 +30,8 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const data = ideas.data;
   const isDesktop = useIsDesktop();
   const [openId, setOpenId] = useState<number | null>(null);
-  const [text, setText] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
+  const [text, setText] = useDraft(`idea:${pid}`);
+  const [files, setFiles] = useDraftFiles(`idea:${pid}`);
   const [reading, setReading] = useState<string | null>(null);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
