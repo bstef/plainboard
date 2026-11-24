@@ -454,7 +454,7 @@ def document(template: str | None, state: dict, head: str, body: str, lang: str 
 
 
 def theme_head(site: DocSite, theme: dict | None = None) -> str:
-    return docs_theme.head(site.theme or {} if theme is None else theme, f"{api_base(site)}/files")
+    return docs_theme.head(site.theme or {} if theme is None else theme, f"{api_base(site)}/files", site.name)
 
 
 # --- previews for the agents' screenshots (#128) --------------------------------------------------------------
