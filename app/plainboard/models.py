@@ -55,6 +55,7 @@ class RunTrigger(StrEnum):
     QUESTION = "question"  # a person's question (orchestration/questions.py): stored when it ends, for the statistics only
     IDEAS = "ideas"  # sorting ideas or planning tickets from them (orchestration/ideas.py): for the statistics only
     DOCS = "docs"  # translating doc pages (services/docs_translate.py): for the statistics only
+    DOC_ASSISTANT = "doc_assistant"  # a visitor's question to a doc site's assistant (orchestration/docs_assistant.py): statistics only
 
 
 class AssignmentStatus(StrEnum):
@@ -635,6 +636,16 @@ class DocSite(Timestamps, Base):
     domain_token: Mapped[str] = mapped_column(String(64), default="")  # answered at /.well-known/plainboard-docs on that host
     domain_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
     cloudflare_token_enc: Mapped[str | None] = mapped_column(Text)  # write-only: creates the DNS record
+    # Its assistant for visitors (#119, orchestration/docs_assistant.py): off by default; its own model ("": the
+    # provider's small one); ``assistant_code`` lets it read the code and the board's public texts (a risk: see there).
+    assistant_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    assistant_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
+    assistant_model: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    assistant_effort: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    assistant_code: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    assistant_daily_messages: Mapped[int] = mapped_column(Integer, default=300, server_default="300")  # of all visitors
+    assistant_daily_cost: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")  # USD; 0: no cap
+    assistant_max_tokens: Mapped[int] = mapped_column(Integer, default=1024, server_default="1024")  # per answer
 
 
 class DocPage(Timestamps, Base):

@@ -87,7 +87,7 @@ def site_out(site: DocSite, pages: int = 0, stale: int = 0, agent: Agent | None 
         translator=site.translator, translate_provider=site.translate_provider, translate_model=site.translate_model,
         deepl_key_set=bool(site.deepl_key_enc), google_key_set=bool(site.google_key_enc),
         domain=site.domain, domain_verified_at=site.domain_verified_at,
-        cloudflare_token_set=bool(site.cloudflare_token_enc), url=f"/docs/{site.slug}/", pages=pages, stale_pages=stale,
+        cloudflare_token_set=bool(site.cloudflare_token_enc), **{k: getattr(site, k) for k in ASSISTANT_FIELDS}, assistant_warning=ASSISTANT_WARNING, url=f"/docs/{site.slug}/", pages=pages, stale_pages=stale,
         agent=DocAgentOut(id=agent.id, slug=agent.slug, name=agent.name, provider=agent.provider, model=agent.model, effort=agent.effort, enabled=agent.enabled) if agent else None,
         created_at=site.created_at, updated_at=site.updated_at,
     )  # fmt: skip
@@ -200,7 +200,18 @@ async def ensure_agent(session: AsyncSession, site: DocSite, *, provider: str | 
     return await agent_service.update(session, agent, AgentUpdate(**fields)) if fields else agent
 
 
-SITE_FIELDS = ("name", "description", "spec", "published", "public", "translator", "translate_provider", "translate_model")
+ASSISTANT_FIELDS = (
+    "assistant_enabled", "assistant_provider", "assistant_model", "assistant_effort", "assistant_code", "assistant_daily_messages",
+    "assistant_daily_cost", "assistant_max_tokens",
+)  # fmt: skip
+SITE_FIELDS = ("name", "description", "spec", "published", "public", "translator", "translate_provider", "translate_model", *ASSISTANT_FIELDS)
+ASSISTANT_PROVIDERS = ("", "claude_code")  # a provider whose runs can go without any built-in tool (toolset "none")
+ASSISTANT_WARNING = (
+    "With this on, the assistant reads the project's code and the public texts of its tickets to answer visitors. "
+    "Secrets are kept from it (files like .env and keys are never opened, anything shaped like a key or password is "
+    "hidden, it is told to refuse internal details), but this is not a guarantee: whatever stands in the code, in a "
+    "comment or in a ticket's public text can reach any visitor of the site. Use it only for code you could publish."
+)
 
 
 async def update_site(session: AsyncSession, site: DocSite, **changes) -> DocSite:
@@ -217,6 +228,8 @@ async def update_site(session: AsyncSession, site: DocSite, **changes) -> DocSit
             setattr(site, key, value.strip() if isinstance(value, str) else value)
     if site.translator not in ("", "llm", "deepl", "google"):
         raise ServiceError("Translator: llm, deepl, google or none.")
+    if site.assistant_provider not in ASSISTANT_PROVIDERS:
+        raise ServiceError("The assistant runs on Claude only: other providers' runs always have a shell.")
     if changes.get("languages") is not None:
         site.languages = clean_languages(changes["languages"], site.language)
     domain = changes.get("domain")
