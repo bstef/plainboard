@@ -301,11 +301,29 @@ function CustomerTexts({ task, languages, onSave, canWrite }: { task: TaskDetail
   const save = (field: "title" | "description", value: string) =>
     onSave(active === languages[0] ? { [`customer_${field}`]: value } : { customer_texts: { [active]: { [field]: value } } });
   const { title, description } = textsOf(active);
-  if (!canWrite && !languages.some((code) => textsOf(code).title || textsOf(code).description)) return null;
+  const written = languages.some((code) => textsOf(code).title || textsOf(code).description);
+  const [expanded, setExpanded] = useState(written);
+  const open = expanded || written;
+  if (!canWrite && !written) return null;
   return (
     <section className="space-y-2" data-part="customer-texts">
-      <SectionTitle right={languages.length === 1 && <Badge>{name(languages[0])}</Badge>}>{t("ticket.customerSection")}</SectionTitle>
-      {languages.length > 1 && (
+      <SectionTitle
+        right={
+          (languages.length === 1 || !open) && (
+            <span className="flex min-w-0 flex-wrap justify-end gap-1">
+              {languages.map((code) => (
+                <Badge key={code}>{name(code)}</Badge>
+              ))}
+            </span>
+          )
+        }
+      >
+        <button type="button" aria-expanded={open} disabled={written} onClick={() => setExpanded(!expanded)} className="caps inline-flex items-center gap-1 text-fg-2 hover:text-fg disabled:hover:text-fg-2">
+          {!written && (open ? <ChevronDown className="size-3.5 text-fg-3" /> : <ChevronRight className="size-3.5 text-fg-3" />)}
+          {t("ticket.customerSection")}
+        </button>
+      </SectionTitle>
+      {open && languages.length > 1 && (
         <div className="scroll-thin -mx-1 overflow-x-auto px-1">
           <Segmented
             aria-label={t("ticket.customerLanguage")}
@@ -324,9 +342,9 @@ function CustomerTexts({ task, languages, onSave, canWrite }: { task: TaskDetail
           />
         </div>
       )}
-      <CustomerFields key={active} language={name(active)} title={title} description={description} onSave={save} canWrite={canWrite} />
-      {missing.length > 0 && languages.length > 1 && <p className="text-fg-3">{t("ticket.customerMissing", { languages: missing.map(name).join(", ") })}</p>}
-      {canWrite && <p className="text-fg-3">{t(languages.length > 1 && active === languages[0] ? "ticket.customerDefaultHint" : "ticket.customerHint")}</p>}
+      {open && <CustomerFields key={active} language={name(active)} title={title} description={description} onSave={save} canWrite={canWrite} />}
+      {open && missing.length > 0 && languages.length > 1 && <p className="text-fg-3">{t("ticket.customerMissing", { languages: missing.map(name).join(", ") })}</p>}
+      {open && canWrite && <p className="text-fg-3">{t(languages.length > 1 && active === languages[0] ? "ticket.customerDefaultHint" : "ticket.customerHint")}</p>}
     </section>
   );
 }
