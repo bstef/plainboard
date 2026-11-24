@@ -22,6 +22,7 @@ is orchestration/docs_watcher.py.
 from __future__ import annotations
 
 import hashlib
+import posixpath
 import re
 import secrets
 from dataclasses import dataclass
@@ -166,7 +167,10 @@ async def create_site(
 
 AGENT_GUIDE = """You are the doc agent of the doc site "{name}" (slug {slug}, /docs/{slug}/), and the only agent that writes it.
 - Read the code and the project's history to document what is real; follow the doc spec below in every page.
-- Write pages with write_doc_page (a short reason each time), files with attach_doc_file, link pages with doc-page:ID.
+- Write pages with write_doc_page (a short reason each time), files with attach_doc_file.
+- Link related pages of your site where it helps readers, in new pages and when you revise one: in the running text
+  and with a short "See also" line at the end of a section. Always as [text](doc-page:ID) (ids from list_docs), never
+  an address or path: such links survive moves and renames. The doc spec decides over this.
 - Pictures for one mode: ![alt](doc-file:ID#light) shows only in light mode, #dark only in dark mode, without one in
   both. For screenshots, where it helps, give both variants (a light and a dark one) side by side.
 - Give each page the code paths it describes (paths): changes there after a landing come back to you. On a page you
@@ -720,6 +724,121 @@ async def confirm_page(session: AsyncSession, page: DocPage, author: Author, rea
     return page
 
 
+# --- links between pages (#154) ---------------------------------------------------------------------------------
+# A doc agent writes links to other pages as doc-page:<id>. write_doc_page checks every link that names a page of the
+# site (doc-page:, a relative path, /docs/<slug>/..., the site's own domain) and writes path links as doc-page:<id>;
+# a link to no page is refused. A deleted page's linkers are marked (``DEAD_LINK``): the watcher's daily look names
+# them to the doc agent at once.
+
+LINK_TARGET = r"(\]\(\s*<?|^[ ]{{0,3}}\[[^\]\n]+\]:[ \t]*<?){}(?=[\s>)])"
+SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:|^//")
+DEAD_LINK = "links to a deleted page"
+
+
+def _hrefs(body: str) -> list[str]:
+    """The targets of the text's links (not pictures, nothing in code), in order, once each."""
+    from markdown_it import MarkdownIt
+
+    found: dict[str, None] = {}
+    for token in MarkdownIt("commonmark").parse(body or ""):
+        for child in token.children or []:
+            if child.type == "link_open" and isinstance(href := child.attrGet("href"), str):
+                found[href] = None
+    return list(found)
+
+
+def _candidates(site: DocSite, href: str, folder: str, prefixes_: set[str]) -> list[str] | None:
+    """The page addresses a link may mean, the likeliest first; None: it names no page of this site."""
+    target = re.split(r"[?#]", href, maxsplit=1)[0]
+    if site.domain and (m := re.match(rf"^https?://{re.escape(site.domain)}(?=/|$)", target, re.I)):
+        target = target[m.end() :] or "/"
+    if SCHEME.match(target) or not target:
+        return None
+    if target.startswith("/"):
+        if m := re.match(rf"^/docs/{re.escape(site.slug)}(?=/|$)", target):
+            target = target[m.end() :]
+        elif not site.domain:
+            return None
+        starts = [""]
+    else:
+        starts = [folder, ""] if folder else [""]
+    out: list[str] = []
+    for start in starts:
+        parts: list[str] = []
+        for part in posixpath.join(start, target.lstrip("/")).split("/"):
+            if part == "..":
+                parts = parts[:-1]
+            elif part and part != ".":
+                parts.append(part)
+        if parts and parts[-1].endswith(".md"):
+            parts[-1] = parts[-1][:-3]
+        if parts and parts[-1] == "index":
+            parts.pop()
+        out.append("/".join(parts))
+        if parts and parts[0] in prefixes_:  # a language or a version in the address
+            out.append("/".join(parts[1:]))
+    return list(dict.fromkeys(out))
+
+
+@dataclass
+class Links:
+    body: str
+    unknown: list[str]  # links that name no page of the site
+    rewritten: int  # path links now doc-page:<id>
+
+
+async def check_links(session: AsyncSession, site: DocSite, body: str, *, folder: str = "", rel: DocRelease | None = None) -> Links:
+    """``folder``: the address of the page's parent (relative links start there, else at the site's top)."""
+    unknown: list[str] = []
+    paths: dict[str, list[str]] = {}
+    keys: dict[str, int] = {}
+    prefixes_ = set(site.languages or []) | {r for r in await session.scalars(select(DocRelease.slug).where(DocRelease.site_id == site.id))}
+    for href in _hrefs(body):
+        if m := re.fullmatch(r"doc-page:(\d+)(#[\w-]+)?", href):
+            keys[href] = int(m.group(1))
+        elif href.startswith("doc-page:"):
+            unknown.append(href)
+        elif not href.startswith(("#", "doc-file:")) and (found := _candidates(site, href, folder, prefixes_)) is not None:
+            paths[href] = found
+    if keys:
+        q = select(DocPage.page_key).where(DocPage.site_id == site.id, DocPage.page_key.in_(set(keys.values())), visible(rel))
+        known = set(await session.scalars(q))
+        unknown += [href for href, key in keys.items() if key not in known]
+    rewritten = 0
+    for href, found in paths.items():
+        page = None
+        for path in found:
+            if (page := await by_path(session, site.id, path, rel)) is not None:
+                break
+        if page is None:
+            unknown.append(href)
+            continue
+        anchor = href[href.index("#") :] if "#" in href else ""
+        new = f"doc-page:{page.page_key}" + (anchor if re.fullmatch(r"#[\w-]+", anchor) else "")
+        body, n = re.subn(LINK_TARGET.format(re.escape(href)), lambda m: m.group(1) + new, body, flags=re.M)
+        rewritten += 1 if n else 0
+    return Links(body, unknown, rewritten)
+
+
+async def _mark_linkers(session: AsyncSession, site_id: int, gone: dict[int, str], rel: DocRelease | None) -> None:
+    """Pages that link to a deleted one are marked for their doc agent (not the ones that went with it)."""
+    if not gone:
+        return
+    pattern = re.compile(r"doc-page:(" + "|".join(str(k) for k in gone) + r")(?!\d)")
+    keys, rows = list(gone), dict[int, DocPage]()
+    for i in range(0, len(keys), 100):  # a few conditions per query (SQLite's limit of an expression's depth)
+        q = select(DocPage).where(DocPage.site_id == site_id, visible(rel), or_(*(DocPage.body.contains(f"doc-page:{k}") for k in keys[i : i + 100])))
+        rows.update((row.id, row) for row in await session.scalars(q))
+    now = utcnow()
+    for row in rows.values():
+        names = list(dict.fromkeys(f'"{gone[int(k)]}" (doc-page:{k})' for k in pattern.findall(row.body or "")))
+        if not names:
+            continue
+        reason = f"{DEAD_LINK}: {', '.join(names)}; change or remove the link"
+        row.flag_reason = (reason + ("; " + row.flag_reason if row.flag_reason else ""))[:2000]
+        row.flagged_at, row.reminded_at = row.flagged_at or now, None
+
+
 async def delete_page(session: AsyncSession, page: DocPage, rel: DocRelease | None = None) -> None:
     """With the pages below it, from this version (None: the working one); the other versions keep theirs. Gone from
     every version, a page goes with all its versions and translations."""
@@ -731,10 +850,13 @@ async def delete_page(session: AsyncSession, page: DocPage, rel: DocRelease | No
         if not below:
             break
         tree.append(below)
+    gone = {row.page_key: row.title for level in tree for row in level}
     for level in reversed(tree):  # the deepest first: nothing goes by a cascade before its turn
         for row in level:
             await drop(session, row, span)
     await _shift(session, site_id, parent_id, rel, span, DocPage.position > position, -1, None)
+    await session.flush()
+    await _mark_linkers(session, site_id, gone, rel)
     await touch(session, site_id)
     await session.commit()
     bus.publish(project_id, "doc_page.deleted", {"id": key, "site_id": site_id, "release_id": rel.id if rel is not None and not rel.working else None})

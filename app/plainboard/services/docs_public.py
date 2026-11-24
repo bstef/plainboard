@@ -67,6 +67,8 @@ def render(body: str, *, base: str, files_base: str, page_paths: dict[int, str])
             used.add(anchor)
             token.attrSet("id", anchor)
             toc.append({"level": int(token.tag[1]), "id": anchor, "text": text})
+        if token.children:
+            token.children = _unlink(token.children, page_paths)
         for child in token.children or []:
             src = child.attrGet("src") if child.type == "image" else None
             if isinstance(src, str) and (mode := _MODE.search(src)):
@@ -81,6 +83,20 @@ def render(body: str, *, base: str, files_base: str, page_paths: dict[int, str])
         if token.type == "inline":
             words.append("\n")
     return Rendered(_md.renderer.render(tokens, _md.options, {}), toc, re.sub(r"\s+\n", "\n", " ".join(words)).strip())
+
+
+def _unlink(children: list, page_paths: dict[int, str]) -> list:
+    """A link to a page that is not there (deleted, of another site, not in this version) stays as its text, no dead link."""
+    out, dropping = [], False
+    for child in children:
+        if child.type == "link_open" and (m := re.fullmatch(r"doc-page:(\d+)(#[\w-]+)?", str(child.attrGet("href") or ""))) and int(m.group(1)) not in page_paths:
+            dropping = True
+            continue
+        if dropping and child.type == "link_close":
+            dropping = False
+            continue
+        out.append(child)
+    return out
 
 
 def _resolve(value: str, base: str, files_base: str, page_paths: dict[int, str]) -> str:
