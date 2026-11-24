@@ -18,7 +18,8 @@ Once a day per project it also reads the commits of each repository that did not
 pushes): they count into the pages' ``drift``. The pages' code paths follow what git saw renamed in the commits read
 (a file, or a folder whose files all moved and that is empty now; a page version says so), and once a day the paths
 that match no file in any repository any more are named to the doc agent with the stale pages. The doc agent hears, at most once a week per page, of pages whose
-linked code changed a lot since their last edit (``DRIFT_STALE`` commits) or that stayed marked for ``STALE_DAYS``.
+linked code changed a lot since their last edit (``DRIFT_STALE`` commits) or that stayed marked for ``STALE_DAYS``, and at
+once of pages that link to a deleted page (``docs.DEAD_LINK``, marked by services/docs.delete_page).
 Each look also translates what is missing or outdated in the sites' further languages (services/docs_translate.py):
 at most ``docs_translate.BATCH`` pages per site and ``TRANSLATE_SECONDS`` per look; ``translate_soon`` looks at once.
 Everything is bounded: commits read, texts embedded, pages named and pages translated. Only pages with linked
@@ -423,7 +424,8 @@ class DocsWatcher:
         for c in concerns:
             if c.page.flagged_at is None:
                 c.page.flagged_at = now
-            c.page.flag_reason = truncate("; ".join(c.reasons), 500)
+            dead = c.page.flag_reason.split("; change or remove the link")[0] + "; change or remove the link" if docs_service.DEAD_LINK in c.page.flag_reason else ""
+            c.page.flag_reason = truncate("; ".join([*([dead] if dead else []), *c.reasons]), 1000)
         await s.commit()
         await flow_log.record(s, project.id, "docs.outdated", pages=[c.page.id for c in concerns], landed=landed)
         for site_id, mine in _by_site([c.page for c in concerns]).items():
@@ -445,7 +447,8 @@ class DocsWatcher:
     async def _remind(self, s: AsyncSession, project: Project, now: datetime, dead: dict[int, list[str]] | None = None) -> None:
         dead = dead or {}
         due = (DocPage.reminded_at.is_(None)) | (DocPage.reminded_at < now - REMIND_EVERY)
-        stale = (DocPage.drift >= DRIFT_STALE) | (DocPage.flagged_at < now - timedelta(days=STALE_DAYS))
+        dead_link = DocPage.flag_reason.contains(docs_service.DEAD_LINK)  # at once: its link goes nowhere (#154)
+        stale = (DocPage.drift >= DRIFT_STALE) | (DocPage.flagged_at < now - timedelta(days=STALE_DAYS)) | dead_link
         if dead:
             stale = stale | DocPage.id.in_(list(dead)[:PATTERNS])
         stale = and_(stale, DocPage.until_seq.is_(None))  # the working version's
@@ -460,7 +463,9 @@ class DocsWatcher:
                 why = []
                 if page.drift >= DRIFT_STALE:
                     why.append(f"{page.drift} commits changed its linked code since its last edit {page.edited_at:%Y-%m-%d}")
-                if page.flagged_at and page.flagged_at < now - timedelta(days=STALE_DAYS):
+                if docs_service.DEAD_LINK in page.flag_reason:
+                    why.append(truncate(page.flag_reason, 300))
+                elif page.flagged_at and page.flagged_at < now - timedelta(days=STALE_DAYS):
                     why.append(f"marked as possibly outdated since {page.flagged_at:%Y-%m-%d}: {truncate(page.flag_reason, 200)}")
                 if page.id in dead:
                     more_dead = f" and {len(dead[page.id]) - 5} more" if len(dead[page.id]) > 5 else ""
@@ -472,7 +477,8 @@ class DocsWatcher:
             text = (
                 "Pages of your doc site that are probably stale:\n" + "\n".join(lines) + more + "\n"
                 "Bring them up to date per the doc spec, or confirm them with write_doc_page still_current. A page whose code paths "
-                "match nothing: link it to where that code is now (write_doc_page paths), or change the page if the feature is gone."
+                "match nothing: link it to where that code is now (write_doc_page paths), or change the page if the feature is gone. A page that "
+                "links to a deleted page: link the page that covers it now (doc-page:ID) or remove the link."
             )
             await self._send(s, site, "Bring stale doc pages up to date", text)
 

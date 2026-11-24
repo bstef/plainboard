@@ -748,3 +748,56 @@ def test_a_picture_for_one_mode_shows_only_in_that_mode():
     assert '<img src="/f/1" alt="a" data-mode="light" />' in out and '<img src="/f/2" alt="b" data-mode="dark" />' in out
     assert '<img src="x.png" alt="c" data-mode="dark" />' in out and '<img src="/f/3" alt="d" />' in out
     assert 'href="doc-file:4#dark"' in out  # only pictures have a mode
+
+
+def test_the_doc_agent_links_pages_by_id_and_no_link_goes_nowhere(client, project):
+    from plainboard.models import Assignment
+    from plainboard.services.docs_public import render
+    from sqlalchemy import select
+
+    pid = project["id"]
+    client.patch(f"/api/projects/{pid}", json={"auto_wake_manager": False})
+    s = site(client, pid)
+    writer = s["agent"]["id"]
+    assert "\"See also\" line" in agents_by_slug(client, pid)["docs-handbook"]["instructions"]
+    guide = page(client, pid, s["id"], title="Guide", body="Start.")
+    setup = page(client, pid, s["id"], title="Setup", body="Install.", parent_id=guide["id"])
+    billing = page(client, pid, s["id"], title="Billing", body="Fees.")
+
+    # Path links to its own pages are written as doc-page:<id>; links to no page refuse the write.
+    body = (
+        "See [setup](setup), [fees](/docs/handbook/billing#fees), [home](../guide) and [again](doc-page:%d).\n\n"
+        "[ext](https://example.com/x) [top](#top) `[code](nowhere)`\n\n[ref]: setup.md\n\nA [reference][ref]." % billing["id"]
+    )
+    chat(client, writer, "\n".join([
+        "TOOL write_doc_page " + json.dumps({"site": "handbook", "title": "FAQ", "parent": guide["id"], "body": body, "reason": "faq"}),
+        "TOOL write_doc_page " + json.dumps({"site": "handbook", "title": "Bad", "body": "[a](doc-page:99999) [b](nowhere/at-all) [c](doc-page:%d)" % setup["id"], "reason": "bad"}),
+    ]))  # fmt: skip
+    wait_for(lambda: idle(client, pid))
+    created, refused = tool_results(client, writer)[-2:]
+    assert created.endswith("4 path link(s) written as doc-page:ID."), created
+    faq = int(created.split()[3])
+    saved = client.get(f"/api/projects/{pid}/docs/pages/{faq}").json()["body"]
+    sid, bid, gid = setup["id"], billing["id"], guide["id"]
+    assert f"[setup](doc-page:{sid}), [fees](doc-page:{bid}#fees), [home](doc-page:{gid}) and [again](doc-page:{bid})" in saved
+    assert f"[ref]: doc-page:{sid}" in saved and "(https://example.com/x)" in saved and "`[code](nowhere)`" in saved
+    assert refused == "Not saved: these links name no page of handbook: doc-page:99999, nowhere/at-all. Link pages as [text](doc-page:ID) (ids from list_docs), write a missing page first, or leave the link out."
+    assert [p["title"] for p in client.get(f"/api/projects/{pid}/docs/sites/{s['id']}/pages").json()["items"]].count("Bad") == 0
+
+    # A deleted page: the pages that link to it are marked and go to the doc agent with the next daily look.
+    assert client.delete(f"/api/projects/{pid}/docs/pages/{bid}").status_code == 204
+    marked = client.get(f"/api/projects/{pid}/docs/pages/{faq}").json()
+    assert marked["flagged_at"] and marked["flag_reason"] == f'links to a deleted page: "Billing" (doc-page:{bid}); change or remove the link'
+    assert not client.get(f"/api/projects/{pid}/docs/pages/{sid}").json()["flagged_at"]
+    client.portal.call(client.app_ref.state.docs_watcher.tick)
+    wait_for(lambda: idle(client, pid))
+
+    async def orders(s):
+        return [a.instructions for a in await s.scalars(select(Assignment).where(Assignment.agent_id == writer))]
+
+    stale = [t for t in db(client, orders) if t.startswith("Pages of your doc site that are probably stale")]
+    assert len(stale) == 1 and f'doc page {faq} "FAQ" (/guide/faq): links to a deleted page: "Billing"' in stale[0] and "remove the link" in stale[0]
+
+    # Served, a link to a page that is not there is its text, no dead link.
+    out = render(saved, base="/docs/handbook", files_base="/f", page_paths={sid: "guide/setup", gid: "guide"}).html
+    assert '<a href="/docs/handbook/guide/setup">setup</a>' in out and ", fees, " in out and "and again." in out and 'href="#"' not in out

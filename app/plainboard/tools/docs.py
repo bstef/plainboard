@@ -183,6 +183,18 @@ class WriteDocPageArgs(BaseModel):
     version: str | None = Field(default=None, max_length=80, description="A released version to correct (name); empty = the working version")
 
 
+async def _links(ctx: ToolContext, site: DocSite, body: str, folder: str, rel) -> tuple[str, str]:  # noqa: ANN001
+    """The text with its path links to pages as doc-page:<id>, and what to tell; a link to no page refuses the write."""
+    links = await docs_service.check_links(ctx.session, site, body, folder=folder, rel=rel)
+    if links.unknown:
+        named = ", ".join(links.unknown[:20]) + (f" and {len(links.unknown) - 20} more" if len(links.unknown) > 20 else "")
+        raise ToolError(
+            f"Not saved: these links name no page of {site.slug}{_in(rel)}: {named}. Link pages as [text](doc-page:ID) (ids from list_docs), "
+            "write a missing page first, or leave the link out."
+        )
+    return links.body, f" {links.rewritten} path link(s) written as doc-page:ID." if links.rewritten else ""
+
+
 @tool(
     "write_doc_page",
     "Create, change or move a page of your doc site; every change of title or text is kept as a version. Follow the doc spec.",
@@ -197,11 +209,13 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         site = await docs_service.find_site(ctx.session, ctx.project.id, args.site)
         _own(ctx, site)
         rel = await _version(ctx, site, args.version)
+        parent = await docs_service.row_of(ctx.session, args.parent, rel) if args.parent else None
+        body, fixed = await _links(ctx, site, args.body or "", parent.path if parent else "", rel)
         page = await docs_service.create_page(
-            ctx.session, site, author, title=args.title, body=args.body or "", parent_id=args.parent or None, position=args.position,
+            ctx.session, site, author, title=args.title, body=body, parent_id=args.parent or None, position=args.position,
             slug=args.slug, paths=args.paths, reason=args.reason, rel=rel,
         )  # fmt: skip
-        done = f"Created doc page {page.page_key} /{page.path} in {site.slug}{_in(rel)}."
+        done = f"Created doc page {page.page_key} /{page.path} in {site.slug}{_in(rel)}.{fixed}"
     else:
         rel = await _page_version(ctx, args.page, args.version)
         page = await docs_service.get_page(ctx.session, ctx.project.id, args.page, rel)
@@ -211,13 +225,18 @@ async def write_doc_page(ctx: ToolContext, args: WriteDocPageArgs) -> str:
         if args.still_current and args.body is None and args.title is None:
             await docs_service.confirm_page(ctx.session, page, author, args.reason, rel)
             return f"Doc page {page.page_key}{_in(rel)} confirmed as current."
+        body, fixed = args.body, ""
+        if body is not None:
+            parent = await docs_service.row_of(ctx.session, args.parent, rel) if args.move and args.parent else None
+            folder = (parent.path if parent else "") if args.move else page.path.rpartition("/")[0]
+            body, fixed = await _links(ctx, site, body, folder, rel)
         versions = await docs_service.count_versions(ctx.session, page.page_key)
         page = await docs_service.update_page(
-            ctx.session, page, author, title=args.title, body=args.body, move=args.move, parent_id=args.parent or None, position=args.position,
+            ctx.session, page, author, title=args.title, body=body, move=args.move, parent_id=args.parent or None, position=args.position,
             slug=args.slug, paths=args.paths, reason=args.reason, rel=rel,
         )  # fmt: skip
         changed = await docs_service.count_versions(ctx.session, page.page_key) > versions
-        done = f"Doc page {page.page_key} /{page.path}{_in(rel)} {'saved as a new version' if changed else 'updated (text unchanged)'}."
+        done = f"Doc page {page.page_key} /{page.path}{_in(rel)} {'saved as a new version' if changed else 'updated (text unchanged)'}.{fixed}"
     return done
 
 
