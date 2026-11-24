@@ -22,6 +22,7 @@ from ..services import db_read as db_read_service
 from ..services import limits as limits_service
 from ..services import pause as pause_service
 from ..services import retention as retention_service
+from ..services import runners as runner_service
 from ..services import search as search_service
 from ..services import settings as settings_service
 from ..services import usage as usage_service
@@ -65,6 +66,8 @@ async def meta(runner: Runner, session: Session) -> dict[str, Any]:
         # The running commit and how far it is behind the newest PlainBoard; None: not known or not wanted.
         "version": version_service.current() if await settings_service.get(session, "update_check") else None,
         "database": "postgresql" if get_config().postgres else "sqlite",
+        # The runner image tag that matches this PlainBoard: latest (release) or edge (:edge, built from source).
+        "runner_tag": runner_service.tag(),
     }
 
 
