@@ -6,6 +6,7 @@ half-way with the provider's limit message. So PlainBoard starts no new turn of 
 still starts), the turns that run wrap up at a safe point, and its open assignments stay open and wait
 in the queue. As soon as one subscription has room again (its window reset, or a new reading says so),
 it goes on. A project that may also use an API key or an endpoint has no plan limit and never pauses.
+A project whose owner switched it off (``Project.limit_pause``) never pauses so.
 This pause is PlainBoard's own (``Project.limit_paused_at``): a person's pause (``paused_at``) is not touched.
 """
 
@@ -33,7 +34,10 @@ def _resets(windows: list[LimitWindow]) -> int | None:
 
 async def nearly_used_up(session: AsyncSession, project: Project, found: dict[str, list[LimitWindow]] | None = None) -> tuple[bool, datetime | None]:
     """Whether every account the project's agents may run on is a subscription that is nearly used up,
-    and when the first of them is expected to have room again (naive UTC; None: unknown)."""
+    and when the first of them is expected to have room again (naive UTC; None: unknown). Always False
+    for a project that does not pause so."""
+    if not project.limit_pause:
+        return False, None
     providers = set(await session.scalars(select(Agent.provider).where(Agent.project_id == project.id)))
     allowed = await permissions.account_ids(session, project)
     accounts = [a for a in await account_service.list_accounts(session) if a.enabled and a.provider in providers and (allowed is None or a.id in allowed)]

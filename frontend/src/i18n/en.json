@@ -203,6 +203,8 @@
     "pausedSince": "Paused by {{by}} since {{when}}.",
     "pausedBanner": "This project is paused by {{by}}. Nothing of it starts, and messages wait, until it is resumed.",
     "resume": "Resume",
+    "limitPause": "Pause before the subscriptions run out",
+    "limitPauseHint": "When every subscription this project may use is nearly used up, no new turn starts, running ones wrap up and open work waits. It goes on by itself as soon as one has room again. Not with an API key or an endpoint, which have no plan limit.",
     "limitPaused": "Paused by PlainBoard: every subscription of this project is nearly used up. It goes on by itself around {{when}}; open work stays open.",
     "limitPausedUnknown": "Paused by PlainBoard: every subscription of this project is nearly used up. It goes on by itself as soon as one has room again; open work stays open.",
     "parallelHint": "How many members of this project work at once. Empty: the number from the PlainBoard settings ({{count}}). 0 pauses them; the manager still answers.",

@@ -1375,7 +1375,7 @@ class RunManager:
             # a turn for one of them (a chat, a schedule, a report), it does not start.
             resting = set(await s.scalars(select(Project.id).where(Project.paused_at.is_not(None)))) if queued else set()
             # Projects whose subscriptions are all nearly used up (services/limit_pause.py): a chat with the user still starts.
-            limited = set(await s.scalars(select(Project.id).where(Project.limit_paused_at.is_not(None)))) if queued else set()
+            limited = set(await s.scalars(select(Project.id).where(Project.limit_paused_at.is_not(None), Project.limit_pause))) if queued else set()
             # A paused agent keeps its assignments in the queue; only its turn to wrap up still runs.
             paused = set(await s.scalars(select(Agent.id).where(~Agent.enabled))) if queued else set()
             # An agent finishes its open assignment before it starts another one.
