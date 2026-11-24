@@ -8,6 +8,7 @@ in their project.
   (``sign_in``: true in the state). ``/docs/<slug>/sitemap.xml`` and ``robots.txt``.
 - JSON under ``/api/public/docs/<slug>``: the site with its top level (``?lang=``), ``/nav?parent=&offset=&limit=``
   (children, page by page), ``/page?path=&lang=``, ``/search?q=&lang=``, ``/files/<id>``. ETag on every view.
+- ``/custom/<page>?lang=``: a page of the site's own (#121, services/docs_custom.py), at ``p/<page>`` in the HTML.
 - ``POST /api/public/docs/<slug>/assistant`` {text, conversation?, lang?}: the site's assistant (#119, where
   ``assistant`` is true in the site's view), the answer streamed as NDJSON (``DocsAssistant.stream``); refused with
   {detail} (404 off, 413 too long, 429 a limit, 503 cannot run). ``DELETE .../assistant/<conversation>``: closed.
@@ -33,7 +34,7 @@ from ..models import DocSite
 from ..security import SESSION_COOKIE
 from ..services import board as board_service
 from ..services import docs as docs_service
-from ..services import docs_domains
+from ..services import docs_custom, docs_domains
 from ..services import docs_public as public
 from ..services.errors import NotFound, ServiceError
 from .deps import Runs, Session
@@ -118,6 +119,16 @@ async def page(slug: str, request: Request, session: Session, path: str = Query(
     found = await _site(session, request, slug)
     language = public.lang_of(found, lang)
     return await _view(request, found, ("page", language, path.strip("/")), lambda: public.page_view(session, found, path, _base(request, found), language))
+
+
+@router.get("/{slug}/custom/{page_slug}")
+async def custom_page(slug: str, page_slug: str, request: Request, session: Session, lang: str | None = Query(default=None, max_length=20)) -> Response:
+    """A page of the site's own (#121: imprint, privacy …, its address p/<page_slug>): {id, slug, path, title, lang,
+    fallback, html, toc, description, updated_at}."""
+    _limit(PAGES, request)
+    found = await _site(session, request, slug)
+    language = public.lang_of(found, lang)
+    return await _view(request, found, ("custom", language, page_slug), lambda: docs_custom.view(session, found, page_slug, _base(request, found), language))
 
 
 @router.get("/{slug}/search")
@@ -233,16 +244,22 @@ async def html_page(slug: str, path: str, request: Request, session: Session) ->
         return HTMLResponse(done, headers=cache)
     view = jsonable_encoder(await public.site_view(session, found, base, lang))
     here = public.lang_base(found, base, lang)
+    theme = public.theme_head(found)
+    custom = None
+    if (m := path.strip("/")).startswith("p/") and "/" not in m[2:] and any(f["path"] == m for f in view["footer"]):  # a page of its own (#121)
+        custom = jsonable_encoder(await docs_custom.view(session, found, m[2:], base, lang))
     try:
-        page_view = jsonable_encoder(await public.page_view(session, found, path, base, lang)) if view["nav"]["items"] else None
+        page_view = jsonable_encoder(await public.page_view(session, found, path, base, lang)) if view["nav"]["items"] and custom is None else None
     except NotFound:
-        return HTMLResponse(public.document(template, {"site": view, "page": None}, public.head_html(view, None, site_url + "/", {}), public.body_html(view, None), lang), status_code=404)
-    page_path = page_view["path"] if page_view and path.strip("/") else ""
+        return HTMLResponse(public.document(template, {"site": view, "page": None}, public.head_html(view, None, site_url + "/", {}), public.body_html(view, None), lang, theme), status_code=404)
+    shown = custom or page_view
+    page_path = shown["path"] if shown and path.strip("/") else ""
     canonical = f"{_origin(request)}{here}/{page_path}"
     alternates = {code: f"{site_url}{'' if code == found.language else '/' + code}/{page_path}" for code in view["languages"]}
     if len(alternates) > 1:
         alternates["x-default"] = alternates[found.language]
-    out = public.document(template, {"site": view, "page": page_view}, public.head_html(view, page_view, canonical, alternates), public.body_html(view, page_view), lang)
+    state = {"site": view, "page": page_view, "custom": custom}
+    out = public.document(template, state, public.head_html(view, shown, canonical, alternates), public.body_html(view, shown), lang, theme)
     return HTMLResponse(public.CACHE.put(key, out), headers=cache)
 
 

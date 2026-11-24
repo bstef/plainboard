@@ -1,15 +1,15 @@
 import clsx from "clsx";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Globe, ListTree, LogOut, Menu, Moon, Search, Sun, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronDown, ChevronRight, Globe, ListTree, LogOut, Menu, Moon, Search, Sun, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useDismiss } from "../lib/hooks";
 import { setAppearance, useLook } from "../lib/theme";
 import { Assistant } from "./Assistant";
-import { knownPage, langBase, loadNav, loadPage, NotFoundError, pageUrl, parseUrl, prefetch } from "./api";
+import { customSlug, knownCustom, knownPage, langBase, loadCustom, loadNav, loadPage, NotFoundError, pageUrl, parseUrl, prefetch } from "./api";
 import { Content } from "./Content";
 import { SearchDialog } from "./Search";
 import { levelKey, Tree } from "./Sidebar";
-import type { Nav, NavItem, PageView, SiteView } from "./types";
+import type { CustomView, Nav, NavItem, PageView, SiteView } from "./types";
 
 /** The name of a language in that language ("Deutsch", "Français"), as a language switcher shows it. */
 export function languageName(code: string): string {
@@ -61,12 +61,14 @@ interface Where {
   path: string;
 }
 
-export function DocsSite({ site, initial }: { site: SiteView; initial: PageView | null }) {
+export function DocsSite({ site, initial, initialCustom = null }: { site: SiteView; initial: PageView | null; initialCustom?: CustomView | null }) {
   const { t } = useTranslation();
   const start = useMemo(() => parseUrl(site, new URL(location.href)) ?? { lang: site.lang, path: "", hash: "" }, [site]);
   const [where, setWhere] = useState<Where>({ lang: site.lang, path: start.path });
   const [page, setPage] = useState<PageView | null>(initial);
-  const [missing, setMissing] = useState(!initial && site.nav.items.length > 0);
+  // A page of the site's own (imprint, privacy …: #121) instead of a docs page.
+  const [custom, setCustom] = useState<CustomView | null>(initialCustom);
+  const [missing, setMissing] = useState(!initial && !initialCustom && site.nav.items.length > 0);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [levels, setLevels] = useState<Map<string, Nav>>(() => {
@@ -83,12 +85,14 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
 
   useEffect(() => {
     if (initial) knownPage(initial, start.path);
+    if (initialCustom) knownCustom(initialCustom);
     history.scrollRestoration = "manual";
     if (start.hash) requestAnimationFrame(() => document.getElementById(start.hash)?.scrollIntoView());
-  }, [initial, start]);
+  }, [initial, initialCustom, start]);
 
   const showPage = useCallback((found: PageView, lang: string) => {
     setPage(found);
+    setCustom(null);
     setMissing(false);
     setLevels((old) => {
       const next = new Map(old);
@@ -125,16 +129,23 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
       const n = ++counter.current;
       const slow = window.setTimeout(() => n === counter.current && setLoading(true), 120);
       if (!how.pop) history.replaceState({ ...history.state, scroll: window.scrollY }, "");
-      loadPage(site, target.lang, target.path)
+      const slug = customSlug(site, target.path);
+      (slug ? loadCustom(site, target.lang, slug) : loadPage(site, target.lang, target.path))
         .then((found) => {
           if (n !== counter.current) return;
-          showPage(found, target.lang);
+          if ("breadcrumbs" in found) showPage(found, target.lang);
+          else {
+            setCustom(found);
+            setPage(null);
+            setMissing(false);
+          }
           setFailed(false);
         })
         .catch((e: unknown) => {
           if (n !== counter.current) return;
           if (e instanceof NotFoundError) {
             setPage(null);
+            setCustom(null);
             setMissing(true);
           } else setFailed(true);
         })
@@ -174,10 +185,11 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
 
   // Title, description and language of the document follow the page, as the server wrote them for the first.
   useEffect(() => {
-    document.title = page ? `${page.title} – ${site.name}` : missing ? `${t("docsSite.notFound")} – ${site.name}` : site.name;
+    const shown = custom ?? page;
+    document.title = shown ? `${shown.title} – ${site.name}` : missing ? `${t("docsSite.notFound")} – ${site.name}` : site.name;
     document.documentElement.lang = where.lang;
-    document.querySelector('meta[name="description"]')?.setAttribute("content", page?.description || site.description);
-  }, [page, missing, site, where.lang, t]);
+    document.querySelector('meta[name="description"]')?.setAttribute("content", shown?.description || site.description);
+  }, [page, custom, missing, site, where.lang, t]);
 
   useEffect(() => {
     document.body.style.overflow = drawer ? "hidden" : "";
@@ -227,6 +239,10 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
   }, [lang]);
 
   const home = `${langBase(site, lang)}/`;
+  const theme = site.theme ?? null;
+  const logo = theme ? (look.dark ? theme.logo_dark : theme.logo) : null;
+  const links = theme?.links ?? [];
+  const footer = site.footer ?? [];
   const tree = (
     <Tree
       site={site}
@@ -269,12 +285,25 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
               go(home);
             }}
           >
-            <span className="doc-mark" aria-hidden>
-              {site.name.charAt(0).toUpperCase()}
-            </span>
-            <span className="doc-brand-name">{site.name}</span>
+            {logo ? (
+              <img src={logo} alt={theme?.show_name ? "" : site.name} className="doc-logo" />
+            ) : (
+              <span className="doc-mark" aria-hidden>
+                {site.name.charAt(0).toUpperCase()}
+              </span>
+            )}
+            {(!logo || theme?.show_name) && <span className="doc-brand-name">{site.name}</span>}
           </a>
           <div className="flex-1" />
+          {links.length > 0 && (
+            <nav className="doc-head-links hidden lg:flex" aria-label={t("docsSite.links")}>
+              {links.map((l) => (
+                <a key={l.url + l.label} href={l.url}>
+                  {l.label}
+                </a>
+              ))}
+            </nav>
+          )}
           <button type="button" className="doc-search-btn" onClick={() => setSearching(true)} aria-haspopup="dialog" aria-label={t("docsSite.search")}>
             <Search className="size-4 shrink-0" />
             <span className="doc-search-btn-label">{t("docsSite.searchShort")}</span>
@@ -307,6 +336,16 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
                 </button>
               </div>
               {languages && <div className="doc-drawer-langs">{languages}</div>}
+              {links.length > 0 && (
+                <nav className="doc-drawer-links" aria-label={t("docsSite.links")}>
+                  {links.map((l) => (
+                    <a key={l.url + l.label} href={l.url}>
+                      {l.label}
+                      <ArrowUpRight className="size-3.5" aria-hidden />
+                    </a>
+                  ))}
+                </nav>
+              )}
               <div className="doc-drawer-tree" data-scroll>
                 {tree}
               </div>
@@ -332,12 +371,36 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
                 </>
               }
             />
+          ) : custom ? (
+            <CustomArticle site={site} page={custom} lang={lang} home={home} onNavigate={onNavigate} onPrefetch={onPrefetch} />
           ) : !page ? (
             <Message title={site.name} text={site.description || t("docsSite.empty")} />
           ) : (
             <Article site={site} page={page} lang={lang} home={home} onNavigate={onNavigate} onPrefetch={onPrefetch} />
           )}
           <footer className="doc-foot">
+            {footer.length > 0 && (
+              <nav className="doc-foot-links" aria-label={t("docsSite.legal")}>
+                {footer.map((f) => {
+                  const href = pageUrl(site, lang, f.path);
+                  return (
+                    <a
+                      key={f.slug}
+                      href={href}
+                      aria-current={custom?.slug === f.slug ? "page" : undefined}
+                      onPointerEnter={() => onPrefetch(href)}
+                      onClick={(e) => {
+                        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+                        e.preventDefault();
+                        go(href);
+                      }}
+                    >
+                      {f.titles[lang] ?? f.title}
+                    </a>
+                  );
+                })}
+              </nav>
+            )}
             <span>
               {site.project ? `${site.project} · ` : ""}
               {t("docsSite.madeWith")}{" "}
@@ -357,7 +420,7 @@ export function DocsSite({ site, initial }: { site: SiteView; initial: PageView 
           </footer>
         </main>
 
-        <aside className="doc-toc">{page && <Toc page={page} />}</aside>
+        <aside className="doc-toc">{(custom ?? page) && <Toc page={(custom ?? page)!} />}</aside>
       </div>
       {/* The place for the site's assistant (#119): bottom right, kept free by everything else. */}
       <div id="pb-docs-assistant" data-part="docs-assistant" className="doc-assistant-slot">
@@ -447,8 +510,43 @@ function Article({ site, page, lang, home, onNavigate, onPrefetch }: { site: Sit
   );
 }
 
+/** A page of the site's own (imprint, privacy …): its text, without the docs' tree around it. */
+function CustomArticle({ site, page, lang, home, onNavigate, onPrefetch }: { site: SiteView; page: CustomView; lang: string; home: string; onNavigate: (href: string) => void; onPrefetch: (href: string) => void }) {
+  const { t } = useTranslation();
+  return (
+    <article key={`${page.id}-${page.lang}`} className="doc-article">
+      <nav aria-label={t("docsSite.breadcrumbs")} className="doc-crumbs">
+        <a
+          href={home}
+          onClick={(e) => {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+            e.preventDefault();
+            onNavigate(home);
+          }}
+        >
+          {site.name}
+        </a>
+      </nav>
+      <h1 className="doc-title">{page.title}</h1>
+      {page.fallback && (
+        <p className="doc-fallback" role="note">
+          <Globe className="size-4 shrink-0" />
+          {t("docsSite.fallback", { language: languageName(lang), original: languageName(site.language) })}
+        </p>
+      )}
+      {page.toc.filter((h) => h.level <= 3).length > 2 && <MobileToc page={page} />}
+      <div className="doc-prose">
+        <Content html={page.html} filesBase={`${site.api}/files`} onNavigate={onNavigate} onPrefetch={onPrefetch} />
+      </div>
+      <p className="doc-updated">{t("docsSite.updated", { date: dateIn(lang, page.updated_at) })}</p>
+    </article>
+  );
+}
+
+type Headings = Pick<PageView, "toc">;
+
 /** "On this page": the headings of the page, the one being read marked. */
-function Toc({ page }: { page: PageView }) {
+function Toc({ page }: { page: Headings }) {
   const { t } = useTranslation();
   const heads = page.toc.filter((h) => h.level >= 2 && h.level <= 3);
   const active = useActiveHeading(heads.map((h) => h.id));
@@ -482,7 +580,7 @@ function Toc({ page }: { page: PageView }) {
   );
 }
 
-function MobileToc({ page }: { page: PageView }) {
+function MobileToc({ page }: { page: Headings }) {
   const { t } = useTranslation();
   const heads = page.toc.filter((h) => h.level >= 2 && h.level <= 3);
   return (

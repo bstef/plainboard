@@ -1195,7 +1195,46 @@ export interface DocSite {
   url: string;
   pages: number;
   stale_pages: number;
+  /** Its own look (#121): every field at its default is the look every site has. */
+  theme: DocTheme;
   created_at: string;
+  updated_at: string;
+}
+
+export interface DocThemeColors {
+  accent: string;
+  page: string;
+  surface: string;
+  text: string;
+}
+
+export interface DocTheme {
+  logo_light: number | null;
+  logo_dark: number | null;
+  favicon: number | null;
+  show_name: boolean;
+  light: DocThemeColors;
+  dark: DocThemeColors;
+  font_family: string;
+  font_url: string;
+  radius: number | null;
+  links: { label: string; url: string }[];
+  css: string;
+}
+
+/** A page of a doc site outside its docs tree (imprint, privacy …), linked in its footer. */
+export interface DocCustomPage {
+  id: number;
+  site_id: number;
+  position: number;
+  title: string;
+  slug: string;
+  body: string;
+  /** Title and text in the site's further languages. */
+  texts: Record<string, { title: string; body: string }>;
+  /** p/<slug> under the site */
+  path: string;
+  edited_by: string;
   updated_at: string;
 }
 

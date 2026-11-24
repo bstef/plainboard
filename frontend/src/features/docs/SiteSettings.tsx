@@ -9,8 +9,10 @@ import { SaveRow, SettingsLayout, type SettingsSection } from "../../components/
 import { Badge, Button, ErrorText, Field, FieldRow, Input, Modal, Segmented, Select, Toggle } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { ModelSelect } from "../team/AgentEditor";
+import { CustomPages } from "./CustomPages";
 import { languageLabel } from "./PageEditor";
 import { base, useDocDomain, useDocsRefresh } from "./queries";
+import { SiteLook } from "./SiteLook";
 
 /** Further languages offered first; any other code can be typed. */
 const COMMON = ["de", "fr", "es", "it", "pt", "nl", "pl", "sv", "da", "fi", "nb", "cs", "tr", "uk", "ru", "ja", "zh", "ko", "ar", "hi"];
@@ -19,6 +21,8 @@ export function SiteSettings({ pid, site, isOwner, section, onSection, onDeleted
   const { t } = useTranslation();
   const sections: SettingsSection[] = [
     { id: "general", label: t("docs.settings.general"), description: t("docs.settings.generalHint"), content: <General pid={pid} site={site} /> },
+    { id: "look", label: t("docs.look.section"), description: t("docs.look.sectionHint"), content: <SiteLook pid={pid} site={site} /> },
+    { id: "footer", label: t("docs.custom.section"), description: t("docs.custom.sectionHint"), content: <CustomPages pid={pid} site={site} /> },
     { id: "languages", label: t("docs.settings.languages"), description: t("docs.settings.languagesHint"), content: <Languages pid={pid} site={site} isOwner={isOwner} /> },
     { id: "agent", label: t("docs.settings.agent"), description: t("docs.settings.agentHint"), content: <DocAgent pid={pid} site={site} /> },
     { id: "assistant", label: t("docs.assistant.section"), description: t("docs.assistant.sectionHint"), content: <AssistantSettings pid={pid} site={site} /> },

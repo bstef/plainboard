@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
-import type { Attachment, DocDomain, DocPage, DocPageItem, DocPages, DocSite, DocTranslation, DocVersion } from "../../api/types";
+import type { Attachment, DocCustomPage, DocDomain, DocPage, DocPageItem, DocPages, DocSite, DocTranslation, DocVersion } from "../../api/types";
 
 /** Every key starts with ["docs", project]: one live event of a site or page refreshes what is shown. */
 export const dk = {
@@ -14,6 +14,7 @@ export const dk = {
   files: (pid: number, site: number) => ["docs", pid, "files", site] as const,
   domain: (pid: number, site: number) => ["docs", pid, "domain", site] as const,
   find: (pid: number, site: number, q: string) => ["docs", pid, "find", site, q] as const,
+  custom: (pid: number, site: number) => ["docs", pid, "custom", site] as const,
 };
 
 export const base = (pid: number) => `/projects/${pid}/docs`;
@@ -63,6 +64,9 @@ export const useFindPages = (pid: number, site: number, q: string) =>
     enabled: q.length > 0,
     placeholderData: (prev) => prev,
   });
+
+export const useDocCustomPages = (pid: number, site: number) =>
+  useQuery({ queryKey: dk.custom(pid, site), queryFn: () => api.get<DocCustomPage[]>(`${base(pid)}/sites/${site}/custom-pages`) });
 
 /** After a change: everything of the project's docs is fetched again (it is small: only what is open). */
 export function useDocsRefresh(pid: number) {

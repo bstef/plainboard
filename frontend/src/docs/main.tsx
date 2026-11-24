@@ -15,6 +15,6 @@ const state = window.__PB_DOCS__;
 const root = document.getElementById("docs-root");
 if (state && root) {
   createRoot(root).render(
-    <StrictMode>{state.sign_in ? <SignIn name={state.site.name} /> : <DocsSite site={state.site} initial={state.page} />}</StrictMode>,
+    <StrictMode>{state.sign_in ? <SignIn name={state.site.name} /> : <DocsSite site={state.site} initial={state.page} initialCustom={state.custom ?? null} />}</StrictMode>,
   );
 }

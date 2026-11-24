@@ -297,13 +297,13 @@ function fileMarkdown(file: Attachment): string {
   return `${file.content_type.startsWith("image/") ? "!" : ""}[${name}](doc-file:${file.id})`;
 }
 
-async function upload(pid: number, site: DocSite, files: File[]): Promise<Attachment[]> {
+export async function upload(pid: number, site: DocSite, files: File[]): Promise<Attachment[]> {
   const form = new FormData();
   for (const f of files) form.append("files", f);
   return api.post<Attachment[]>(`${base(pid)}/sites/${site.id}/files`, form);
 }
 
-function MarkdownArea({ pid, site, area, value, onChange }: { pid: number; site: DocSite; area: RefObject<HTMLTextAreaElement | null>; value: string; onChange: (v: string) => void }) {
+export function MarkdownArea({ pid, site, area, value, onChange }: { pid: number; site: DocSite; area: RefObject<HTMLTextAreaElement | null>; value: string; onChange: (v: string) => void }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -364,7 +364,7 @@ function MarkdownArea({ pid, site, area, value, onChange }: { pid: number; site:
   );
 }
 
-function Toolbar({ pid, site, area, setBody }: { pid: number; site: DocSite; area: RefObject<HTMLTextAreaElement | null>; setBody: (v: string) => void }) {
+export function Toolbar({ pid, site, area, setBody }: { pid: number; site: DocSite; area: RefObject<HTMLTextAreaElement | null>; setBody: (v: string) => void }) {
   const { t } = useTranslation();
   const file = useRef<HTMLInputElement>(null);
   const [linking, setLinking] = useState(false);
