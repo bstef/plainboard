@@ -580,7 +580,7 @@ def test_a_long_tool_call_is_answered_pending_and_asked_for_again(client, projec
     monkeypatch.setattr(internal, "TOOL_ANSWER_SECONDS", 5.0)
     assert client.post(f"/api/internal/runs/1/tools/pending/{first['pending']}", headers=auth).json()["text"] == "merge_when_green done"
     assert client.post(f"/api/internal/runs/1/tools/pending/{first['pending']}", headers=auth).json()["is_error"]  # given once
-    assert client.post("/api/internal/runs/1/tools/x", headers=auth, json={}).json() == {"text": "x done", "is_error": False, "pending": ""}  # an older runner waits
+    assert client.post("/api/internal/runs/1/tools/x", headers=auth, json={}).json() == {"text": "x done", "is_error": False, "pending": "", "images": []}  # an older runner waits
 
 
 def test_a_ticket_whose_branch_waits_to_land_says_so_and_the_board_hears_when_that_ends(client, project):
