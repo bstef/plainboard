@@ -1497,7 +1497,8 @@
       "decision": "decisions",
       "comment": "comments",
       "note": "notes",
-      "commit": "commits"
+      "commit": "commits",
+      "idea": "ideas"
     },
     "switching": "Switching to",
     "rebuilt": "{{done}} of {{total}} chunks embedded; search uses the current model until all are",
@@ -1648,7 +1649,8 @@
       "decision": "Decision",
       "comment": "Comment",
       "note": "Note",
-      "commit": "Commit"
+      "commit": "Commit",
+      "idea": "Idea"
     },
     "state": {
       "off": "Search by meaning is off for this project; it is switched on in the project settings.",
@@ -1681,6 +1683,7 @@
     "duplicateOf": "Duplicate of “{{title}}”",
     "duplicateHere": "Duplicate: “{{title}}”",
     "similarTo": "Similar to “{{title}}”",
+    "contradicts": "Contradicts “{{title}}”",
     "merged": "merged",
     "undo": "Undo",
     "managerHint": "Tickets from these ideas? Write to the manager, e.g. “turn the ideas into tickets”.",
@@ -1694,6 +1697,11 @@
       "duplicates": "Duplicates merged into “{{title}}”",
       "several_one": "Split into {{count}} idea",
       "several_other": "Split into {{count}} ideas",
+      "split_one": "“{{title}}” split into {{count}} idea",
+      "split_other": "“{{title}}” split into {{count}} ideas",
+      "resolved": "Both kept: no longer a contradiction",
+      "dropped_one": "Decided: {{count}} idea left out",
+      "dropped_other": "Decided: {{count}} ideas left out",
       "question": "The AI has a question about it",
       "reorder": "The AI rearranged the topics",
       "moved_one": "{{count}} idea moved",

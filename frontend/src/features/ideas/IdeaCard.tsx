@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ArrowRight, Copy, GripVertical, MessageCircleQuestion, Paperclip, Send, Sparkles, X } from "lucide-react";
+import { ArrowRight, Copy, GripVertical, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -44,6 +44,7 @@ export function IdeaCard({
   const original = idea.duplicate_of !== null ? byId.get(idea.duplicate_of) : undefined;
   const twins = [...byId.values()].filter((i) => i.duplicate_of === idea.id && i.status === "open");
   const similar = idea.similar.map((id) => byId.get(id)).filter((i): i is Idea => !!i && i.id !== idea.duplicate_of && !twins.includes(i));
+  const conflicts = (idea.conflicts ?? []).map((id) => byId.get(id)).filter((i): i is Idea => !!i);
   return (
     <div
       data-idea={idea.id}
@@ -71,6 +72,7 @@ export function IdeaCard({
         className={clsx(
           "group relative flex cursor-pointer flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 text-left shadow-[var(--shadow-card,none)] ring-1 ring-line transition-shadow hover:ring-line-2",
           original && "opacity-75",
+          conflicts.length > 0 && "ring-you-fg/60",
         )}
       >
         {draggable && <GripVertical aria-hidden className="absolute top-3 left-0.5 size-3.5 text-fg-3 opacity-0 group-hover:opacity-100 max-sm:hidden" />}
@@ -90,13 +92,19 @@ export function IdeaCard({
             </Link>
           </AiLine>
         ))}
+        {conflicts.map((other) => (
+          <p key={other.id} data-part="idea-conflict" className="flex items-start gap-1.5 text-[0.92em] text-you-fg">
+            <TriangleAlert aria-hidden className="mt-[3px] size-3.5 shrink-0" />
+            <Link onClick={() => onShow(other.id)}>{t("ideas.contradicts", { title: ideaTitle(other) })}</Link>
+          </p>
+        ))}
         {similar.map((other) => (
           <AiLine key={other.id} className="text-[0.92em]">
             <Link onClick={() => onShow(other.id)}>{t("ideas.similarTo", { title: ideaTitle(other) })}</Link>
           </AiLine>
         ))}
         {!idea.title && idea.sort_state === "pending" && <AiLine className="text-[0.92em]">{t("ideas.reading")}</AiLine>}
-        {idea.hint && !similar.length && !original && <AiLine className="text-[0.92em]">{idea.hint}</AiLine>}
+        {idea.hint && !similar.length && !original && !conflicts.length && <AiLine className="text-[0.92em]">{idea.hint}</AiLine>}
         {idea.attachments?.length > 0 && (
           <span data-part="idea-files" title={t("ideas.files", { count: idea.attachments.length })} className="inline-flex items-center gap-1 self-start text-[0.92em] text-fg-3">
             <Paperclip aria-hidden className="size-3.5" />
@@ -175,7 +183,7 @@ export function IdeaQuestion({ idea, canWrite }: { idea: Idea; canWrite: boolean
             onClick={() => send({ option_index: n })}
             className="flex flex-col rounded-sm bg-bg px-2 py-1.5 text-left ring-1 ring-line-2 ring-inset enabled:hover:bg-sunk disabled:cursor-default touch:min-h-11"
           >
-            {n === 0 && <span className="caps text-fg-3">{t("ideas.question.recommended")}</span>}
+            {n === 0 && !option.resolve && <span className="caps text-fg-3">{t("ideas.question.recommended")}</span>}
             <span className="font-medium text-fg">{option.label}</span>
             {option.description && <span className="text-fg-2">{option.description}</span>}
           </button>

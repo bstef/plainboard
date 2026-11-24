@@ -1,4 +1,4 @@
-"""Semantic search over a project's history (tickets, reports, decisions, comments, notes, commits).
+"""Semantic search over a project's history (tickets, reports, decisions, comments, notes, commits) and its open ideas.
 
 Only with PostgreSQL and pgvector (``schema``), and while the setting ``semantic_search`` and the
 project's own switch are on. ``indexers`` read the sources, ``documents`` prepares their texts, the
@@ -204,6 +204,8 @@ async def for_user(s: AsyncSession, project: Project, query: str, limit: int = 8
         }  # fmt: skip
         if h.kind == "note" and h.source_id.isdigit():
             item["note_id"] = int(h.source_id)
+        if h.kind == "idea" and h.source_id.isdigit():
+            item["idea_id"] = int(h.source_id)
         if h.kind == COMMIT:
             repo_id, _, sha = h.source_id.partition(":")
             repo = repos.get(int(repo_id)) if repo_id.isdigit() else None

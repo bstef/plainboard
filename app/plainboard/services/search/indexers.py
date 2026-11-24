@@ -17,7 +17,7 @@ from sqlalchemy import Select, String, and_, cast, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from ...models import Agent, Assignment, Comment, Decision, Note, Repository, SearchDocument, Task, TicketState, utcnow
+from ...models import Agent, Assignment, Comment, Decision, Idea, IdeaStatus, Note, Repository, SearchDocument, Task, TicketState, utcnow
 from .documents import Doc
 
 
@@ -170,7 +170,33 @@ class Notes(Indexer):
         return select(cast(Note.id, String)).where(Note.project_id == project_id)
 
 
-INDEXERS: tuple[Indexer, ...] = (Tickets(), Reports(), Decisions(), Comments(), Notes())
+IDEA = "idea"
+
+
+def idea_doc(idea: Idea) -> Doc | None:
+    """An open idea (services/ideas.py); a closed one leaves the index. Its topic is left out: rearranging the
+    topics changes no vector."""
+    if idea.status != IdeaStatus.OPEN:
+        return None
+    return Doc(kind=IDEA, source_id=str(idea.id), ref=f"idea i{idea.id}", title=idea.title, body=idea.text, at=idea.created_at, changed=idea.updated_at)
+
+
+class Ideas(Indexer):
+    """The open ideas: found in the search and by services/idea_neighbours.py, which finds their neighbours."""
+
+    kind = IDEA
+
+    def query(self, project_id: int):
+        return select(Idea).where(Idea.project_id == project_id), Idea.updated_at, Idea.id
+
+    def doc(self, row: Any) -> Doc | None:
+        return idea_doc(row.Idea)
+
+    def existing(self, project_id: int) -> Select:
+        return select(cast(Idea.id, String)).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN)
+
+
+INDEXERS: tuple[Indexer, ...] = (Tickets(), Reports(), Decisions(), Comments(), Notes(), Ideas())
 COMMIT = "commit"
 KINDS = tuple(i.kind for i in INDEXERS) + (COMMIT,)
 

@@ -8,10 +8,13 @@ ideas (``Project.idea_*``; default: the provider's small model), stored as a ``R
 
 - Sorting runs in the background after a short pause, so that ideas that come quickly go together. If it
   fails or answers nonsense, the ideas stay unsorted (``sort_state`` failed).
-- After a few newly sorted ideas, or when the sorting was unsure, the topics are rearranged (also in the
-  background; ``reorder`` for the button). Each rearrangement is an undoable change.
-- Ideas that sorting or rearranging found to say the same are then merged into one, one call per group with
-  their whole texts: an undoable change each (``_merge_duplicates``).
+- Sorting also splits an idea that holds several, marks ideas to merge and reports contradictions to the
+  person (services/ideas.apply_sort). On a big board it sees only the neighbourhood of what it sorts.
+- After a few newly sorted ideas, or when the sorting was unsure, the topics around them are rearranged (also
+  in the background; ``reorder`` for the button: all of them, group by group on a big board). Each
+  rearrangement is an undoable change.
+- Ideas that sorting or rearranging found to say the same or to belong in one are then merged into one, one
+  call per group with their whole texts: an undoable change each (``_merge_duplicates``).
 - Reading an input and an answer happen while the person waits: a few seconds of a small model.
 """
 
@@ -41,10 +44,11 @@ log = logging.getLogger(__name__)
 
 DEFAULT_PROVIDER = "claude_code"
 SORT_DELAY = 3.0  # seconds to wait for more ideas before sorting
-SORT_BATCH = 60  # ideas sorted with one call; more wait for the next
+SORT_BATCH = 30  # ideas sorted with one call; more wait for the next
 REORDER_AFTER = 3  # newly sorted ideas after which the topics are rearranged
 REORDER_MIN_IDEAS = 3  # fewer open ideas need no rearranging
 MERGE_BATCH = 10  # groups of duplicates merged in one go; more wait for the next
+REORDER_CALLS = 20  # rearranging calls in one go (a board of 1600 ideas)
 
 
 class Ideas:
@@ -54,6 +58,7 @@ class Ideas:
         self._again: set[int] = set()  # more ideas came while sorting
         self._reorder: dict[int, str] = {}  # project -> why the topics are rearranged next: auto | button
         self._fresh: dict[int, int] = {}  # project -> ideas sorted since its topics were last rearranged
+        self._focus: dict[int, set[int | None]] = {}  # project -> the topics they went into
 
     # --- in the background ---------------------------------------------------------------------
 
@@ -105,7 +110,7 @@ class Ideas:
             if not batch:
                 return False
             ids = [i.id for i in batch]
-            prompt = idea_service.sort_prompt(project, await idea_service.topics(s, project_id), ideas, batch)
+            prompt = await idea_service.sort_request(s, project, ideas, batch)
             data, error = await self._ask(s, project, idea_service.SORT_SYSTEM, prompt)
         async with self.runs._sm() as s:
             if data is None:
@@ -114,25 +119,36 @@ class Ideas:
                 return False  # no retry loop over a broken model: "rearrange" retries
             count, unsure = await idea_service.apply_sort(s, project_id, ids, data)
             self._fresh[project_id] = self._fresh.get(project_id, 0) + count
+            self._focus.setdefault(project_id, set()).update((await s.scalars(select(Idea.topic_id).where(Idea.id.in_(ids)))).all())
             if (unsure or self._fresh[project_id] >= REORDER_AFTER) and len(ideas) >= REORDER_MIN_IDEAS:
                 self._reorder.setdefault(project_id, "auto")
             left = (await s.scalars(select(Idea.id).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN, Idea.sort_state == idea_service.PENDING))).first()
             return left is not None
 
-    async def _rearrange(self, project_id: int, source: str) -> IdeaChange | None:
+    async def _rearrange(self, project_id: int, source: str) -> None:
+        """All topics at once on a small board; on a big one group by group (``reorder_groups``): after sorting
+        only the groups around the topics new ideas went into, with the button all of them. A change per call."""
         self._fresh[project_id] = 0
+        focus = self._focus.pop(project_id, set())
         async with self.runs._sm() as s:
             project = await s.get(Project, project_id)
-            ideas = await idea_service.open_ideas(s, project_id) if project else []
-            if not ideas:
-                return None
-            prompt = idea_service.reorder_prompt(project, await idea_service.topics(s, project_id), ideas)
-            data, error = await self._ask(s, project, idea_service.REORDER_SYSTEM, prompt)
-        if data is None:
-            bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300)})
-            return None
-        async with self.runs._sm() as s:
-            return await idea_service.apply_reorder(s, project_id, data, source)
+            groups = await idea_service.reorder_groups(s, project, None if source == "button" else focus) if project else []
+        for topic_ids, idea_ids in groups[:REORDER_CALLS]:
+            async with self.runs._sm() as s:
+                project = await s.get(Project, project_id)
+                every = await idea_service.topics(s, project_id)
+                ideas = [i for i in await idea_service.open_ideas(s, project_id) if i.id in set(idea_ids)] if project else []
+                if not ideas:
+                    continue
+                whole = len(groups) == 1 and len(idea_ids) == await idea_service.count_open(s, project_id)
+                inside = [t for t in every if whole or t.id in topic_ids]
+                prompt = idea_service.reorder_prompt(project, inside, ideas, None if whole else [t for t in every if t.id not in topic_ids])
+                data, error = await self._ask(s, project, idea_service.REORDER_SYSTEM, prompt)
+            if data is None:
+                bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300)})
+                return
+            async with self.runs._sm() as s:
+                await idea_service.apply_reorder(s, project_id, data, source)
 
     async def _merge_duplicates(self, project_id: int) -> bool:
         """Merge what was found to say the same, group by group. Returns whether anything was merged."""
@@ -163,7 +179,10 @@ class Ideas:
         return change
 
     async def answer(self, s: AsyncSession, project: Project, idea: Idea, option_index: int | None, text: str, author: str) -> IdeaChange:
-        """The person's answer to the model's question about an idea, worked into it by the model."""
+        """The person's answer to the model's question about an idea, worked into it by the model; an option of
+        a conflict question (keep one, keep both) is done without it."""
+        if not text.strip() and idea_service.conflict_choice(idea, option_index) is not None:
+            return await idea_service.resolve_conflict(s, idea, option_index, author)
         answer = await idea_service.take_answer(s, idea, option_index, text)
         prompt = await idea_service.intent_prompt(s, project, "", draft=idea, answer=answer)
         data, _error = await self._ask(s, project, idea_service.INTENT_SYSTEM, prompt)

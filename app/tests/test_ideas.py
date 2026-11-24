@@ -73,7 +73,7 @@ def by_id(data: dict) -> dict[int, dict]:
     return {i["id"]: i for i in data["ideas"]}
 
 
-def test_ideas_are_sorted_together_with_similar_ones_and_duplicates(client, project, monkeypatch):
+def test_ideas_are_sorted_together_and_those_that_belong_in_one_are_marked_to_merge(client, project, monkeypatch):
     pid = project["id"]
 
     def first(spec) -> str:
@@ -93,8 +93,8 @@ def test_ideas_are_sorted_together_with_similar_ones_and_duplicates(client, proj
         two, three = ids_in(spec, "Sort these:")
         reply = {
             "ideas": [
-                {"id": two, "topic": "payment", "similar": [one["id"], 999], "hint": f"similar to i{one['id']}"},
-                {"id": f"i{three}", "topic": "Payment", "duplicate_of": one["id"]},
+                {"id": two, "topic": "payment", "similar": [one["id"], 999], "merge_with": 999, "hint": "which providers?"},
+                {"id": f"i{three}", "topic": "Payment", "merge_with": one["id"]},
             ],
             "topics": [{"name": "Payment", "hint": "3 ideas about payment"}],
         }
@@ -106,8 +106,9 @@ def test_ideas_are_sorted_together_with_similar_ones_and_duplicates(client, proj
     assert len(asked["sort"]) == 1  # both in one call
     ideas = by_id(data)
     assert {i["topic_id"] for i in ideas.values()} == {topic["id"]} and data["topics"][0]["hint"] == "3 ideas about payment"
-    assert ideas[two["id"]]["similar"] == [one["id"]] and ideas[three["id"]]["duplicate_of"] == one["id"]
-    assert sorted(ideas[one["id"]]["similar"]) == sorted([two["id"], three["id"]])
+    # No "similar" links any more (noise on every card): what belongs in one is merged, related ideas share a topic.
+    assert ideas[two["id"]]["similar"] == [] and ideas[two["id"]]["duplicate_of"] is None and ideas[two["id"]]["hint"] == "which providers?"
+    assert ideas[three["id"]]["duplicate_of"] == one["id"] and ideas[one["id"]]["similar"] == []
     runs = [r for r in runs_of(client, pid)]
     assert runs and all(r["trigger"] == "ideas" and r["input_text"] == "" for r in runs)
     assert client.get(f"/api/projects/{pid}/tasks").json() == []  # sorting starts nothing
@@ -230,12 +231,12 @@ def test_what_is_typed_is_read_as_intent_and_every_change_keeps_the_old_text(cli
     assert by_id(ideas_of(client, pid))[booking["id"]]["text"] == "Book appointments online"
     assert len(client.get(f"/api/projects/{pid}/ideas/{booking['id']}/versions").json()) == 2  # the SMS text is kept too
 
-    # Several ideas at once, with a hint to a similar one.
+    # Several ideas at once.
     several = {"action": "new", "ideas": [{"title": "Dark mode", "text": "Dark mode"}, {"title": "Big fonts", "text": "Bigger fonts"}], "similar": [other["id"], 999]}
     answer(client, intent=[json.dumps(several)])
     change = typed(client, pid, "dark mode and bigger fonts")
-    assert change["kind"] == "several" and len(change["summary"]["created"]) == 2 and change["summary"]["similar"] == [other["id"]]
-    assert all(i["similar"] == [other["id"]] for i in change["ideas"])
+    assert change["kind"] == "several" and len(change["summary"]["created"]) == 2
+    assert all(i["similar"] == [] for i in change["ideas"])
     client.post(f"/api/projects/{pid}/ideas/changes/{change['id']}/undo")
     kept = by_id(ideas_of(client, pid, closed=True))
     assert all(kept[i]["status"] == "dismissed" and kept[i]["closed_reason"] == "undone" for i in change["summary"]["created"])
@@ -266,7 +267,7 @@ def test_an_unclear_input_becomes_a_question_and_the_answer_is_worked_in(client,
     change = typed(client, pid, "export")
     assert change["kind"] == "question"
     (idea,) = change["ideas"]
-    assert idea["question_status"] == "open" and idea["question_options"] == [{"label": "Invoices", "description": "PDF"}, {"label": "Customers", "description": ""}]
+    assert idea["question_status"] == "open" and idea["question_options"] == [{"label": "Invoices", "description": "PDF", "resolve": ""}, {"label": "Customers", "description": "", "resolve": ""}]
     assert client.post(f"/api/projects/{pid}/ideas/{idea['id']}/answer", json={"option_index": 7}).status_code == 400
     assert [i["id"] for i in client.get(f"/api/projects/{pid}/ideas/questions").json()] == [idea["id"]]
 
@@ -504,7 +505,7 @@ def test_duplicates_are_merged_into_one_with_their_files_and_links_and_the_merge
 
     def duplicate(spec) -> str:
         (idea_id,) = ids_in(spec, "Sort these:")
-        return json.dumps({"ideas": [{"id": idea_id, "topic": "Start", "duplicate_of": fast["id"], "similar": [fonts["id"]]}]})
+        return json.dumps({"ideas": [{"id": idea_id, "topic": "Start", "duplicate_of": fast["id"]}]})
 
     asked = answer(client, sort=[duplicate], merge=["no idea"])  # the first merge fails: the marker stays
     quick = add(client, pid, "Extremely fast startup, also on old phones", title="Fast startup")
@@ -524,7 +525,7 @@ def test_duplicates_are_merged_into_one_with_their_files_and_links_and_the_merge
     ideas = by_id(data)
     assert sorted(ideas) == sorted([fast["id"], fonts["id"]])
     assert (ideas[fast["id"]]["title"], ideas[fast["id"]]["text"]) == ("Fast start", merged_text)
-    assert [a["id"] for a in ideas[fast["id"]]["attachments"]] == [trace["id"]] and ideas[fonts["id"]]["similar"] == [fast["id"]]
+    assert [a["id"] for a in ideas[fast["id"]]["attachments"]] == [trace["id"]] and ideas[fonts["id"]]["similar"] == []
     gone = by_id(ideas_of(client, pid, closed=True))[quick["id"]]
     assert (gone["status"], gone["merged_into_id"], gone["text"]) == ("merged", fast["id"], quick["text"])
     versions = client.get(f"/api/projects/{pid}/ideas/{fast['id']}/versions").json()
@@ -574,3 +575,174 @@ def test_a_duplicate_of_an_idea_a_person_placed_is_asked_about_instead_of_merged
     assert (ideas[night["id"]]["question"], ideas[night["id"]]["question_status"]) == (question["question"], "open")
     assert ideas[night["id"]]["duplicate_of"] is None and ideas[night["id"]]["similar"] == [mine["id"]]
     assert all(c["kind"] != "merge" for c in client.get(f"/api/projects/{pid}/ideas/changes").json())
+
+
+# --- #116: splitting, conflicts, a big board ------------------------------------------------------
+
+
+def test_an_idea_that_holds_several_is_split_keeping_its_words_and_files_and_undone_as_one(client, project, monkeypatch):
+    pid = project["id"]
+    monkeypatch.setattr(idea_orchestration, "SORT_DELAY", 0.5)
+    parts = [{"title": "Dark mode", "text": "Dark mode for the whole app."}, {"title": "PDF export", "text": "Also export all invoices as PDF."}]
+
+    def split(spec) -> str:
+        (idea_id,) = ids_in(spec, "Sort these:")
+        return json.dumps({"ideas": [{"id": idea_id, "topic": "App", "split": parts}]})
+
+    asked = answer(client, sort=[split, sort_all])
+    idea = add(client, pid, "Dark mode for the whole app. Also export all invoices as PDF.")
+    (sketch,) = client.post(f"/api/projects/{pid}/ideas/{idea['id']}/attachments", files=[("files", ("dark.png", b"png", "image/png"))]).json()
+    data = settled(client, pid)
+    ideas = by_id(data)
+    (part,) = [i for i in ideas.values() if i["id"] != idea["id"]]
+    assert (ideas[idea["id"]]["title"], ideas[idea["id"]]["text"]) == ("Dark mode", "Dark mode for the whole app.")
+    assert (part["title"], part["text"], part["topic_id"]) == ("PDF export", "Also export all invoices as PDF.", ideas[idea["id"]]["topic_id"])
+    assert [a["id"] for a in ideas[idea["id"]]["attachments"]] == [sketch["id"]] and part["attachments"] == []  # files stay with the first part
+    assert len(asked["sort"]) == 2 and ids_in(asked["sort"][1], "Sort these:") == [part["id"]]  # only the new part is sorted again
+    assert part["similar"] == [] and part["duplicate_of"] is None  # parts are kept apart, without a link on the cards
+    change = next(c for c in client.get(f"/api/projects/{pid}/ideas/changes").json() if c["kind"] == "split")
+    assert change["source"] == "auto" and change["summary"]["created"] == [part["id"]] and change["summary"]["before"]["text"] == idea["text"]
+
+    assert client.post(f"/api/projects/{pid}/ideas/changes/{change['id']}/undo").status_code == 200
+    every = by_id(ideas_of(client, pid, closed=True))
+    assert every[idea["id"]]["text"] == idea["text"] and every[idea["id"]]["status"] == "open"
+    assert (every[part["id"]]["status"], every[part["id"]]["closed_reason"]) == ("dismissed", "undone")
+
+    # Parts that leave much of the text out: not split.
+    def lossy(spec) -> str:
+        (idea_id,) = ids_in(spec, "Sort these:")
+        return json.dumps({"ideas": [{"id": idea_id, "topic": "App", "split": [{"text": "Login"}, {"text": "Chat"}]}]})
+
+    answer(client, sort=[lossy])
+    long = add(client, pid, "Login with Google, Apple and a magic link by e-mail, and a chat between all users of a team")
+    assert len(settled(client, pid)["ideas"]) == 2 and by_id(ideas_of(client, pid))[long["id"]]["text"] == long["text"]
+
+
+def test_ideas_that_contradict_each_other_are_shown_and_the_person_decides(client, project):
+    pid = project["id"]
+    answer(client, sort=[sort_all])
+    card = add(client, pid, "Only card payments, no cash", title="Card only")
+    settled(client, pid)
+
+    def conflict(spec) -> str:
+        return json.dumps({"ideas": [{"id": i, "topic": "App", "merge_with": card["id"], "conflict": {"with": card["id"], "question": "Bargeld annehmen?"}} for i in ids_in(spec, "Sort these:")]})
+
+    asked = answer(client, sort=[conflict, conflict])
+    cash = add(client, pid, "Accept cash at the counter", title="Cash too")
+    ideas = by_id(settled(client, pid))
+    assert ideas[cash["id"]]["conflicts"] == [card["id"]] and ideas[card["id"]]["conflicts"] == [cash["id"]]
+    assert ideas[cash["id"]]["duplicate_of"] is None and asked["merge"] == []  # never merged
+    asked_idea = ideas[cash["id"]]
+    assert (asked_idea["question"], asked_idea["question_status"]) == ("Bargeld annehmen?", "open")
+    assert [o["label"] for o in asked_idea["question_options"]] == ["Keep “Cash too”", "Keep “Card only”", "Both, in different contexts"]
+    assert [i["id"] for i in client.get(f"/api/projects/{pid}/ideas/questions").json()] == [cash["id"]]
+
+    # Keep the card idea: done without the model, the other one is left out, kept with the reason.
+    resp = client.post(f"/api/projects/{pid}/ideas/{cash['id']}/answer", json={"option_index": 1})
+    assert resp.status_code == 200, resp.text
+    change = resp.json()
+    assert change["kind"] == "resolve" and change["summary"]["dropped"] == [cash["id"]] and asked["intent"] == []
+    every = by_id(ideas_of(client, pid, closed=True))
+    assert every[cash["id"]]["status"] == "dismissed" and "contradicted" in every[cash["id"]]["closed_reason"] and every[card["id"]]["conflicts"] == []
+    # Undone: the idea, the question and the marker are back.
+    assert client.post(f"/api/projects/{pid}/ideas/changes/{change['id']}/undo").status_code == 200
+    ideas = by_id(ideas_of(client, pid))
+    assert ideas[cash["id"]]["question_status"] == "open" and ideas[cash["id"]]["conflicts"] == [card["id"]]
+
+    # Both, in different contexts: both stay, no longer a conflict; sorted again, it is not raised again.
+    resp = client.post(f"/api/projects/{pid}/ideas/{cash['id']}/answer", json={"option_index": 2})
+    assert resp.status_code == 200, resp.text
+    ideas = by_id(ideas_of(client, pid))
+    assert len(ideas) == 2 and ideas[cash["id"]]["conflicts"] == [] and ideas[cash["id"]]["question_status"] == "answered"
+    assert client.patch(f"/api/projects/{pid}/ideas/{cash['id']}", json={"text": "Accept cash at the counter, in the shop only"}).status_code == 200
+    ideas = by_id(settled(client, pid))
+    assert ideas[cash["id"]]["conflicts"] == [] and ideas[cash["id"]]["question_status"] == "answered" and ideas[cash["id"]]["duplicate_of"] is None
+
+    # An own answer goes to the model, which may leave one of them out.
+    def coupon(spec) -> str:
+        return json.dumps({"ideas": [{"id": i, "topic": "App", "conflict": {"with": card["id"]}} for i in ids_in(spec, "Sort these:")]})
+
+    answer(client, sort=[coupon])
+    paper = add(client, pid, "Paper vouchers instead of cards", title="Paper vouchers")
+    asked_idea = by_id(settled(client, pid))[paper["id"]]
+    assert asked_idea["question"] == "“Paper vouchers” and “Card only” contradict each other. Which one applies?"
+    asked = answer(client, intent=[json.dumps({"action": "drop", "ids": [paper["id"]], "reason": "cards stay"})])
+    resp = client.post(f"/api/projects/{pid}/ideas/{paper['id']}/answer", json={"text": "Karten bleiben, Gutscheine nicht"})
+    assert resp.status_code == 200, resp.text
+    assert "Karten bleiben" in asked["intent"][0].prompt and "Card only" in asked["intent"][0].prompt
+    assert resp.json()["kind"] == "resolve" and by_id(ideas_of(client, pid, closed=True))[paper["id"]]["status"] == "dismissed"
+    assert by_id(ideas_of(client, pid))[card["id"]]["conflicts"] == []
+
+
+def board(client, pid: int, topics: dict[str, list[str]]) -> dict[str, int]:
+    """Ideas straight into the database, sorted into these topics: a board as it grew. Returns topic ids."""
+    from plainboard.db import sessionmaker
+    from plainboard.models import Idea, IdeaTopic
+
+    async def write() -> dict[str, int]:
+        async with sessionmaker()() as session:
+            made = {}
+            for n, (name, texts) in enumerate(topics.items()):
+                topic = IdeaTopic(project_id=pid, name=name, color=n % 10)
+                session.add(topic)
+                await session.flush()
+                made[name] = topic.id
+                session.add_all([Idea(project_id=pid, title=text[:40], text=text, topic_id=topic.id, sort_state="sorted") for text in texts])
+            await session.commit()
+            return made
+
+    return client.portal.call(write)
+
+
+def lines_in(prompt: str, section: str) -> list[int]:
+    part = prompt.split(section)[1].split("\n\n")[0]
+    return [int(n) for n in re.findall(r"^i(\d+) ", part, re.M)]
+
+
+def test_on_a_big_board_without_semantic_search_the_model_sees_the_ideas_sharing_words(client, project, monkeypatch):
+    pid = project["id"]
+    monkeypatch.setattr(idea_service, "BOARD_WHOLE", 4)
+    board(client, pid, {
+        "Payment": ["Pay by credit card at the checkout", "Credit card refunds for customers"],
+        "Look": ["Dark theme for the night", "Bigger fonts for older people"],
+        "Chat": ["Chat between team members", "Push notifications for new messages"],
+    })  # fmt: skip
+    asked = answer(client, sort=[sort_all])
+    new = add(client, pid, "Save the credit card for the next payment")
+    settled(client, pid)
+    prompt = asked["sort"][0].prompt
+    assert "Ideas closest to these (of 7 on the board):" in prompt and "Ideas already sorted" not in prompt
+    shown = {i["text"] for i in ideas_of(client, pid)["ideas"] if i["id"] in lines_in(prompt, "Ideas closest to these")}
+    assert shown == {"Pay by credit card at the checkout", "Credit card refunds for customers"}
+    assert ids_in(asked["sort"][0], "Sort these:") == [new["id"]] and "- Look" in prompt  # every topic is named
+
+    asked = answer(client, intent=[json.dumps({"action": "new", "ideas": [{"title": "Themes", "text": "More themes"}]})])
+    typed(client, pid, "a dark theme in blue")
+    intent = asked["intent"][0].prompt
+    assert "Ideas (of 7: the closest to it and the newest):" in intent and "Dark theme for the night" in intent
+
+
+def test_a_board_of_hundreds_of_ideas_never_goes_to_the_model_whole(client, project):
+    pid = project["id"]
+    words = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango".split()
+    topics = {f"Topic {w}": [f"{w} feature number {n} with {words[(i + n) % len(words)]} extras" for n in range(15)] for i, w in enumerate(words)}
+    board(client, pid, topics)  # 300 ideas in 20 topics
+    asked = answer(client, sort=[sort_all] * 3)
+    add(client, pid, "golf feature with hotel extras and a new twist")
+    settled(client, pid)
+    prompt = asked["sort"][0].prompt
+    assert len(lines_in(prompt, "Ideas closest to these")) <= idea_service.NEARBY_MAX and len(prompt) < 30_000
+
+    asked = answer(client, intent=[json.dumps({"action": "new", "ideas": [{"text": "x"}]})])
+    typed(client, pid, "kilo extras for lima")
+    intent = asked["intent"][0].prompt
+    assert 0 < len(lines_in(intent, "the closest to it and the newest):")) <= idea_service.INTENT_NEAR + idea_service.INTENT_RECENT and len(intent) < 15_000
+
+    # The button: every idea rearranged, group by group of related topics, each call bounded.
+    asked = answer(client, reorder=["{}"] * 30)
+    assert client.post(f"/api/projects/{pid}/ideas/sort").status_code == 202
+    wait_for(lambda: len(asked["reorder"]) > 1 and not ideas_of(client, pid)["sorting"])
+    seen = [lines_in(spec.prompt, "Ideas [topic id]:") for spec in asked["reorder"]]
+    assert all(len(ids) <= idea_service.REORDER_IDEAS for ids in seen) and all(len(spec.prompt) < 40_000 for spec in asked["reorder"])
+    assert sorted(i for ids in seen for i in ids) == sorted(i["id"] for i in ideas_of(client, pid)["ideas"])
+    assert all("Other topics:" in spec.prompt for spec in asked["reorder"])

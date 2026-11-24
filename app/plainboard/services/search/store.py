@@ -72,10 +72,16 @@ def _without(model: str):
     return ~exists().where(SearchVector.document_id == SearchDocument.id, SearchVector.model == model)
 
 
-async def pending(s: AsyncSession, model: str, project_ids: list[int], limit: int) -> list[tuple[int, int, str, str]]:
-    """Chunks without a vector of this model, the newest first: they are the likeliest to be searched for."""
+async def pending(s: AsyncSession, model: str, project_ids: list[int], limit: int, *, kind: str | None = None, source_ids: list[str] | None = None) -> list[tuple[int, int, str, str]]:
+    """Chunks without a vector of this model, the newest first: they are the likeliest to be searched for
+    (``kind``/``source_ids``: only of these items)."""
     query = select(SearchDocument.id, SearchDocument.project_id, SearchDocument.header, SearchDocument.body, SearchDocument.content_hash)
-    query = query.where(SearchDocument.project_id.in_(project_ids), _without(model)).order_by(SearchDocument.changed_at.desc()).limit(limit)
+    query = query.where(SearchDocument.project_id.in_(project_ids), _without(model))
+    if kind is not None:
+        query = query.where(SearchDocument.kind == kind)
+    if source_ids is not None:
+        query = query.where(SearchDocument.source_id.in_(source_ids))
+    query = query.order_by(SearchDocument.changed_at.desc()).limit(limit)
     return [(r.id, r.project_id, f"{r.header}\n{r.body}", r.content_hash) for r in await s.execute(query)]
 
 
@@ -148,7 +154,7 @@ class Hit:
     word_rank: int | None = None
 
 
-def _vector(vector: list[float]) -> str:
+def vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{x:.6g}" for x in vector) + "]"
 
 
@@ -201,7 +207,7 @@ async def search(
         params["repo"] = repo
     scope = " AND ".join(where)
     if vector is not None:
-        params["vector"] = _vector(vector)
+        params["vector"] = vector_literal(vector)
         by_meaning = f"""SELECT d.id, row_number() OVER (ORDER BY v.embedding <=> CAST(:vector AS vector)) AS r, 1 - (v.embedding <=> CAST(:vector AS vector)) AS sim
             FROM search_documents d JOIN search_vectors v ON v.document_id = d.id AND v.model = :model WHERE {scope}
             ORDER BY v.embedding <=> CAST(:vector AS vector) LIMIT :n"""
@@ -231,7 +237,7 @@ async def search(
 
 async def nearest(s: AsyncSession, project_id: int, vector: list[float], model: str, *, exclude_ticket: int | None, limit: int) -> list[Hit]:
     """By meaning only, for the hint at the start of an assignment."""
-    params = {"project": project_id, "model": model, "vector": _vector(vector), "limit": limit * 3, "ticket": exclude_ticket or -1}
+    params = {"project": project_id, "model": model, "vector": vector_literal(vector), "limit": limit * 3, "ticket": exclude_ticket or -1}
     sql = f"""SELECT {_HIT}, 1 - (v.embedding <=> CAST(:vector AS vector)) AS sim
         FROM search_documents d JOIN search_vectors v ON v.document_id = d.id AND v.model = :model
         WHERE d.project_id = :project AND (d.ticket_number IS NULL OR d.ticket_number <> :ticket)
