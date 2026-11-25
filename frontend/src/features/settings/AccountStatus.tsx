@@ -17,7 +17,7 @@ export interface StatusItem {
   text: string;
 }
 
-const LOGIN_MODES = ["runner_login", "chatgpt"];
+const LOGIN_MODES = ["runner_login", "chatgpt", "google"];
 const fromUnix = (seconds: number) => new Date(seconds * 1000).toISOString();
 
 /** Where a subscription stands, in four steps: signed in, shared with whom, which projects run on it, whether its limits are known. */

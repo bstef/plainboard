@@ -6,14 +6,14 @@ import { qk } from "../../api/queries";
 import type { ProviderAccount } from "../../api/types";
 import { Button, Input } from "../../components/ui";
 
-/** The sign-in of a subscription in the browser: ChatGPT with a device code (Codex), or Claude, whose page
- *  shows a code after signing in that is typed in here. A person's own is kept for this subscription only. */
+/** The sign-in of a subscription in the browser: ChatGPT with a device code (Codex), or Claude and Google (Gemini),
+ *  whose page shows a code after signing in that is typed in here. A person's own is kept for this subscription only. */
 export function SignIn({ accountId, provider }: { accountId: number; provider: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const KEY = ["accountSignIn", accountId];
   const url = `/accounts/${accountId}/signin`;
-  const texts = provider === "codex" ? "codex" : "claude";
+  const texts = provider === "codex" ? "codex" : provider === "gemini_cli" ? "gemini" : "claude";
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function SignIn({ accountId, provider }: { accountId: number; provider: s
     <div className="space-y-2 rounded-sm bg-sunk p-3 text-fg-2" data-part="sign-in">
       {data?.login_code || data?.needs_code ? (
         <>
-          <p>{t(data.needs_code ? "settings.claudeOpenPage" : "settings.codexDeviceCode")}</p>
+          <p>{t(data.needs_code ? `settings.${texts}OpenPage` : "settings.codexDeviceCode")}</p>
           <a href={data.login_url ?? "#"} target="_blank" rel="noreferrer" className="block font-medium break-all text-fg underline">
             {data.login_url}
           </a>

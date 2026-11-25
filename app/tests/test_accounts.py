@@ -253,6 +253,22 @@ def test_codex_accounts_have_their_own_sign_in(client, project):
     assert moved["account_id"] is None  # the pin belonged to Codex
 
 
+def test_gemini_accounts_sign_in_with_google_or_a_key(client, project):
+    """Gemini CLI (#160): a Google sign-in made in the browser is kept here and goes with each run; an API key too."""
+    pid = project["id"]
+    google = client.post("/api/accounts", json={"provider": "gemini_cli", "auth_mode": "google"}).json()
+    assert google["label"] == "Gemini"
+    dev = make_dev(client, pid, provider="gemini_cli")
+    client.post(f"/api/accounts/{google['id']}/signin")
+    client.post(f"/api/accounts/{google['id']}/signin/code", json={"code": "good#code"})
+    creds = turn(client, pid, dev["id"])
+    assert creds.gemini_auth_mode == "own_login" and creds.login_account not in ("default", "") and creds.login_files and creds.gemini_api_key is None
+    key = client.post("/api/accounts", json={"provider": "gemini_cli", "auth_mode": "api_key", "secret": "gem-key"}).json()
+    client.patch(f"/api/agents/{dev['id']}", json={"account_id": key["id"]})
+    creds = turn(client, pid, dev["id"])
+    assert creds.gemini_auth_mode == "api_key" and creds.gemini_api_key == "gem-key" and not creds.login_files
+
+
 def test_codex_subscriptions_list_the_models_they_may_use(client, project):
     """Each Codex subscription says with its read of the limits which models it may use (#92): what any of them
     may use can be chosen, and a turn goes to a subscription that has the agent's model."""
@@ -412,7 +428,7 @@ def test_a_model_server_of_one_s_own_is_an_account_with_its_address_and_models(c
     that offers the agent's model."""
     pid = project["id"]
     meta = client.get("/api/meta").json()
-    assert [p["name"] for p in meta["providers"]] == ["claude_code", "codex"]
+    assert [p["name"] for p in meta["providers"]] == ["claude_code", "codex", "gemini_cli"]
     assert [p["name"] for p in meta["endpoints"]] == ["ollama", "gemini"] and meta["endpoints"][0]["endpoint"]["key"] is False
     assert client.post("/api/accounts", json={"provider": "nowhere", "auth_mode": "api_key"}).status_code == 400
     assert client.post("/api/accounts", json={"provider": "ollama", "auth_mode": "chatgpt"}).status_code == 400
@@ -420,7 +436,7 @@ def test_a_model_server_of_one_s_own_is_an_account_with_its_address_and_models(c
     home = client.post("/api/accounts", json={"provider": "ollama", "auth_mode": "api_key"}).json()
     assert (home["label"], home["endpoint_url"], home["models"], home["context_tokens"]) == ("Ollama", "", [], 0)
     # No model named yet: nothing an agent could run on.
-    assert [p["name"] for p in client.get("/api/meta").json()["providers"]] == ["claude_code", "codex"]
+    assert [p["name"] for p in client.get("/api/meta").json()["providers"]] == ["claude_code", "codex", "gemini_cli"]
     assert client.post(f"/api/accounts/{home['id']}/models").json() == {"models": ["a-model", "b-model"]}
     assert runner(client).models_asked[0] == "ollama"
 
@@ -453,7 +469,7 @@ def test_a_model_server_of_one_s_own_is_an_account_with_its_address_and_models(c
     wait_for(lambda: idle(client, pid))
     messages = client.get(f"/api/agents/{manager['id']}/conversation").json()["messages"]
     listed = next(m["meta"]["result"] for m in messages if m["kind"] == "tool" and m["content"] == "list_models")
-    assert "ollama: coder (medium), small-one (medium), large-one (medium)" in listed and "gemini" not in listed
+    assert "ollama: coder (medium), small-one (medium), large-one (medium)" in listed and "\ngemini:" not in listed
 
 
 def test_a_project_can_be_limited_to_some_subscriptions(client, project):

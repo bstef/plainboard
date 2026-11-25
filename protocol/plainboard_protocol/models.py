@@ -55,6 +55,9 @@ class Credentials(BaseModel):
     codex_auth_mode: Literal["chatgpt", "api_key", "own_login"] = "chatgpt"
     # Which of the runner's Codex sign-ins to use: every account has its own Codex home.
     codex_account: str = Field(default=DEFAULT_ACCOUNT, pattern=ACCOUNT_KEY_PATTERN)
+    # Gemini CLI: "own_login" a Google sign-in kept by the app (login_files); "api_key": gemini_api_key.
+    gemini_auth_mode: Literal["own_login", "api_key"] = "own_login"
+    gemini_api_key: str | None = None
     login_account: str = Field(default=DEFAULT_ACCOUNT, pattern=ACCOUNT_KEY_PATTERN)
     login_files: dict[str, str] | None = None  # file name -> content; None: no own sign-in
     # A provider that is an endpoint (ProviderInfo.endpoint): the account's address, empty for the usual one, and its key.

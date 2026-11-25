@@ -183,6 +183,12 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
           <AccountsEditor provider="codex" own />
         </div>
       )}
+      {providers.some((p) => p.name === "gemini_cli") && (
+        <div className="space-y-2">
+          <h3 className="font-semibold">{t("settings.gemini")}</h3>
+          <AccountsEditor provider="gemini_cli" own />
+        </div>
+      )}
       {!!meta.data?.endpoints?.length && (!me.is_admin || ownEndpoints) && (
         <div className="space-y-2">
           <h3 className="font-semibold">{t("endpoints.title")}</h3>
@@ -230,6 +236,13 @@ export function SettingsDialog({ open, onClose, section }: { open: boolean; onCl
                   <h3 className="font-semibold">{t("settings.codex")}</h3>
                   <p className="text-fg-3">{t("settings.codexHint")}</p>
                   <AccountsEditor provider="codex" />
+                </div>
+              )}
+              {providers.some((p) => p.name === "gemini_cli") && (
+                <div className="space-y-2">
+                  <h3 className="font-semibold">{t("settings.gemini")}</h3>
+                  <p className="text-fg-3">{t("settings.geminiHint")}</p>
+                  <AccountsEditor provider="gemini_cli" />
                 </div>
               )}
               {!!meta.data?.endpoints?.length && (
