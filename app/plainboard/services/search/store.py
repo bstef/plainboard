@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models import SearchDocument, SearchVector
 from .documents import Doc, prepare
 
-LINKS = ("task_id", "assignment_id", "decision_id", "comment_id", "note_id", "repository_id", "doc_page_id")  # SearchDocument's sources
+LINKS = ("task_id", "assignment_id", "decision_id", "comment_id", "note_id", "repository_id", "doc_page_id", "attachment_id")  # SearchDocument's sources
 
 # Reciprocal rank fusion: a hit's score is the sum of 1 / (K + its rank) in each list. K = 60 is the usual
 # value: the top places count, but a hit that both lists rank fairly high beats one that only one ranks first.

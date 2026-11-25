@@ -1304,7 +1304,7 @@ class SearchDocument(Base):
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
-    kind: Mapped[str] = mapped_column(String(20))  # an indexer's kind: ticket, report, decision, comment, note, commit
+    kind: Mapped[str] = mapped_column(String(20))  # an indexer's kind: ticket, report, decision, comment, note, commit, idea, doc, file
     source_id: Mapped[str] = mapped_column(String(100))  # the item within its kind (a row id, repository:sha)
     chunk: Mapped[int] = mapped_column(Integer, default=0)
     ref: Mapped[str] = mapped_column(String(120))  # how an agent names it: #64, assignment #5043, 1a2b3c4d5e
@@ -1328,6 +1328,7 @@ class SearchDocument(Base):
     # A doc page: its foreign key is added by search.schema.ensure once doc_pages exists (migration 0073 makes this
     # table from today's models, before 0088 made doc_pages).
     doc_page_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    attachment_id: Mapped[int | None] = mapped_column(ForeignKey("attachments.id", ondelete="CASCADE"), index=True)  # a file (kind file)
     tsv: Mapped[Any] = mapped_column(TSVECTOR, Computed("to_tsvector('simple', header || ' ' || body)", persisted=True), deferred=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 

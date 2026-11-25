@@ -479,11 +479,11 @@ async def list_schedules(project: ProjectRef) -> str:
     ) or "No schedules."
 
 
-@tool("Search the project's history by meaning and keywords: tickets, reports, decisions, comments, notes, commits.")
+@tool("Search the project's history by meaning and keywords: tickets, reports, decisions, comments, notes, commits, files of tickets.")
 async def search_history(
     project: ProjectRef,
     query: Annotated[str, Field(min_length=2, max_length=500)],
-    kinds: list[Literal["ticket", "report", "decision", "comment", "note", "commit"]] | None = None,
+    kinds: list[Literal["ticket", "report", "decision", "comment", "note", "commit", "file"]] | None = None,
     limit: Annotated[int, Field(ge=1, le=20)] = 8,
 ) -> str:
     async with sessionmaker()() as session:

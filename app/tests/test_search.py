@@ -82,6 +82,33 @@ def test_a_text_longer_than_the_model_reads_is_embedded_in_windows_never_cut():
     assert windows[0].startswith("w0 ") and windows[-1].endswith(" w59") and len(windows) >= 3  # every word is in one
 
 
+def test_a_markdown_file_is_cut_at_its_headings_and_each_chunk_names_its_section():
+    intro = "Worum es geht: die Suche soll Anhänge finden."
+    long = "\n\n".join(f"Absatz {i} über Vektoren und Chunks, " + "Einbettung " * 30 for i in range(6))
+    text = f"# Entwurf\n\n{intro}\n\n## Datenbank\n\nPostgreSQL mit pgvector.\n\n```\n# kein Titel\n```\n\n## Skalierung\n\n{long}\n\n### Grenzen\n\nHöchstens 200 Chunks."
+    chunks = documents.split_sections(text)
+    assert chunks[0].startswith("Entwurf\nWorum es geht") and "Entwurf › Datenbank\nPostgreSQL mit pgvector." in chunks[0] and "kein Titel" in chunks[0]
+    scaling = [c for c in chunks if "Absatz" in c]
+    assert len(scaling) > 1 and all(c.startswith("Entwurf › Skalierung\n") for c in scaling)
+    assert chunks[-1].endswith("Entwurf › Skalierung › Grenzen\nHöchstens 200 Chunks.")
+    assert all(len(c) <= documents.CHUNK_CHARS + 30 for c in chunks)
+    assert len(documents.split_sections(text, max_chunks=2)) == 2
+    many = "\n\n".join(f"# Teil {i}\n\n" + "Wort " * 300 for i in range(100))
+    assert len(documents.split_sections(many, max_chunks=7)) == 7
+
+
+def test_only_text_is_read_of_a_file(tmp_path):
+    from plainboard.services.search.indexers import FILE_READ_BYTES, read_text
+
+    (tmp_path / "a.md").write_text("# Titel\n\nÄrger mit Umlauten ist keiner.")
+    (tmp_path / "b.txt").write_bytes(b"PK\x03\x04\x00\x00binary")
+    (tmp_path / "c.log").write_bytes(bytes(range(128, 256)) * 50)
+    (tmp_path / "d.txt").write_text("x" * (FILE_READ_BYTES + 1000))
+    assert read_text(tmp_path / "a.md") == "# Titel\n\nÄrger mit Umlauten ist keiner."
+    assert read_text(tmp_path / "b.txt") is None and read_text(tmp_path / "c.log") is None and read_text(tmp_path / "gone.md") is None
+    assert len(read_text(tmp_path / "d.txt")) == FILE_READ_BYTES
+
+
 # --- where it is absent ----------------------------------------------------------------------------
 
 
@@ -175,7 +202,8 @@ def test_the_history_is_indexed_once_and_found_by_meaning_and_by_words(client, p
     status = client.get("/api/search/status").json()
     assert status["available"] and status["documents"] == status["embedded"] == 4
     assert {k: (v["items"], v["total"], v["embedded"]) for k, v in status["by_kind"].items()} == {
-        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1), "idea": (0, 0, 0), "doc": (0, 0, 0)
+        "ticket": (2, 2, 2), "report": (0, 0, 0), "decision": (0, 0, 0), "comment": (1, 1, 1), "note": (1, 1, 1), "idea": (0, 0, 0), "doc": (0, 0, 0),
+        "file": (0, 0, 0),
     }  # fmt: skip
     assert status["errors"] == []
     embedded = len(embedder.embedded)
@@ -504,3 +532,74 @@ def test_ideas_are_searchable_and_their_neighbours_are_found_by_their_vectors(cl
     assert client.delete(f"/api/projects/{pid}/ideas/{new['id']}").status_code in (200, 204)
     index(client)
     assert client.get("/api/search/status").json()["by_kind"]["idea"]["items"] == 4
+
+
+@pg_only
+def test_text_files_of_tickets_are_found_with_their_ticket_once_and_leave_when_deleted(client, project, embedder, tmp_path):
+    from sqlalchemy import update
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Attachment, SearchCursor, SearchDocument, SearchVector, utcnow
+    from plainboard.services.search.indexers import FILE_MAX_CHUNKS
+
+    pid = project["id"]
+    task = ticket(client, pid, "Recherche Vektor-Datenbanken", "Ergebnisse hängen an.")
+    other = ticket(client, pid, "Dunkles Design", "Ein Dark-Mode-Schalter.")
+    research = "# Recherche\n\nWir vergleichen Qdrant, Weaviate und pgvector.\n\n## Ergebnis\n\npgvector reicht: HNSW-Index ab einer Million Chunks."
+    huge = "\n\n".join(f"Zeile {i}: " + "Protokoll Eintrag Fehler " * 10 for i in range(3000))
+    files = [
+        ("files", ("recherche.md", research.encode(), "text/markdown")),
+        ("files", ("bild.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "image/png")),
+        ("files", ("kaputt.txt", b"PK\x03\x04\x00\x00 binary", "text/plain")),
+        ("files", ("werte.json", b'{"engine": "pgvector", "grenze": "Million Chunks"}', "application/octet-stream")),
+        ("files", ("riesig.log", huge.encode(), "text/plain")),
+    ]
+    out = client.post(f"/api/tasks/{task['id']}/attachments", files=files).json()
+    ids = {a["filename"]: a["id"] for a in out}
+    index(client)
+
+    docs = rows(client, SearchDocument, project_id=pid, kind="file")
+    by_file: dict = {}
+    for d in docs:
+        by_file.setdefault(d.source_id, []).append(d)
+    assert set(by_file) == {str(ids["recherche.md"]), str(ids["werte.json"]), str(ids["riesig.log"])}
+    assert len(by_file[str(ids["riesig.log"])]) == FILE_MAX_CHUNKS  # a long file: its start
+    (md,) = by_file[str(ids["recherche.md"])]
+    assert md.ticket_number == task["number"] and md.task_id == task["id"] and md.attachment_id == ids["recherche.md"]
+    assert md.header.startswith(f"File recherche.md · {project['name']} · ") and f"on ticket #{task['number']}" in md.header and f"attachment {ids['recherche.md']}" in md.header
+    assert "Recherche › Ergebnis\npgvector reicht" in md.body
+    status = client.get("/api/search/status").json()["by_kind"]["file"]
+    assert (status["items"], status["total"]) == (3, 4)  # the total: what may be text by its name; kaputt.txt is not
+
+    # Unchanged: read and embedded once; another file of the ticket: only it.
+    embedded = len(embedder.embedded)
+    index(client)
+    assert len(embedder.embedded) == embedded
+    client.post(f"/api/tasks/{other['id']}/attachments", files=[("files", ("notiz.txt", "Dark Mode für die Einstellungen".encode(), "text/plain"))])
+    index(client)
+    assert len(embedder.embedded) == embedded + 1
+
+    # Found by an agent with the file's name and path, and by people with the ticket that opens it.
+    found = search(client, manager_of(client, pid)["id"], pid, query="pgvector HNSW Million", kinds=["file"])
+    assert f"recherche.md file on #{task['number']} (/uploads/" in found and "Recherche Vektor-Datenbanken" in found
+    hits = client.get(f"/api/projects/{pid}/search", params={"q": "Qdrant Weaviate HNSW", "kinds": "file"}).json()["hits"]
+    assert (hits[0]["filename"], hits[0]["attachment_id"], hits[0]["task_id"]) == ("recherche.md", ids["recherche.md"], task["id"])
+    board = client.get(f"/api/projects/{pid}/search", params={"q": "Qdrant Weaviate", "kinds": ["ticket", "file"], "close": True}).json()["hits"]
+    assert board[0]["task_id"] == task["id"]
+
+    # The retention deletes a file: it leaves with the next look. Deleted by hand: at once.
+    async def purge():
+        async with sessionmaker()() as session:
+            await session.execute(update(Attachment).where(Attachment.id == ids["werte.json"]).values(purged_at=utcnow()))
+            await session.commit()
+
+    client.portal.call(purge)
+    index(client)
+    assert rows(client, SearchDocument, kind="file", source_id=str(ids["werte.json"])) == []
+    assert client.delete(f"/api/attachments/{ids['recherche.md']}").status_code == 204
+    assert rows(client, SearchDocument, kind="file", source_id=str(ids["recherche.md"])) == []
+    # Its ticket deleted: its files with it.
+    assert client.delete(f"/api/tasks/{task['id']}").status_code == 204
+    assert {d.source_id for d in rows(client, SearchDocument, kind="file")} == {str(a.id) for a in rows(client, Attachment, task_id=other["id"])}
+    assert len(rows(client, SearchVector, project_id=pid)) == len(rows(client, SearchDocument, project_id=pid))
+    assert rows(client, SearchCursor, project_id=pid, source="file")[0].value

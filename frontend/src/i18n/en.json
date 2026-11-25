@@ -1584,7 +1584,8 @@
       "note": "notes",
       "commit": "commits",
       "idea": "ideas",
-      "doc": "doc pages"
+      "doc": "doc pages",
+      "file": "files"
     },
     "switching": "Switching to",
     "rebuilt": "{{done}} of {{total}} chunks embedded; search uses the current model until all are",
@@ -1764,7 +1765,8 @@
       "note": "Note",
       "commit": "Commit",
       "idea": "Idea",
-      "doc": "Doc page"
+      "doc": "Doc page",
+      "file": "File"
     },
     "state": {
       "off": "Search by meaning is off for this project; it is switched on in the project settings.",
