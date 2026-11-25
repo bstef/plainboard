@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from conftest import agents_by_slug, idle, wait_for
 from test_docs import page, site
 from test_docs_api import bearer, make_key
@@ -129,6 +131,7 @@ def test_a_project_moves_with_the_areas_and_groups_of_its_doc_sites(client, proj
     assert (intro["area_id"], intro["group_id"]) == (new_area["id"], new_group["id"])
 
 
+@pytest.mark.skipif(bool(__import__("os").environ.get("PLAINBOARD_DATABASE")), reason="the path from 0098 exists on SQLite only: PostgreSQL starts at today's tables")
 def test_migration_adds_areas_and_groups_and_goes_back(tmp_path, monkeypatch):
     from alembic import command
     from plainboard import config, migrate
