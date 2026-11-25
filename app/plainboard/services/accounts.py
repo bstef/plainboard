@@ -312,18 +312,31 @@ async def switch_off_own(session: AsyncSession) -> None:
 
 
 async def delete(session: AsyncSession, account: Account) -> None:
-    await release(session, account, gone=True)
-    await session.execute(sql_update(Agent).where(Agent.account_id == account.id).values(account_id=None))
-    await session.delete(account)
+    await _forget(session, account)
     await session.commit()
 
 
 async def delete_owned(session: AsyncSession, user: User) -> None:
     """A person is deleted: so are their own subscriptions, and what ran on them chooses again."""
     for account in list(await session.scalars(select(Account).where(Account.owner_id == user.id))):
-        await release(session, account, gone=True)
-        await session.execute(sql_update(Agent).where(Agent.account_id == account.id).values(account_id=None))
-        await session.delete(account)
+        await _forget(session, account)
+
+
+async def _forget(session: AsyncSession, account: Account) -> None:
+    """Delete the account and every mention of it (#162): what ran on it chooses automatically again (``release``),
+    and no project's or person's list of subscriptions names it any longer. Not committed."""
+    await release(session, account, gone=True)
+    await session.execute(sql_update(Agent).where(Agent.account_id == account.id).values(account_id=None))
+    await session.execute(sql_update(Project).where(Project.account_id == account.id).values(account_id=None))
+    for project in await session.scalars(select(Project)):
+        if account.id in (project.account_ids or []):
+            project.account_ids = [i for i in project.account_ids if i != account.id]
+        if account.id in (project.blocked_account_ids or []):
+            project.blocked_account_ids = [i for i in project.blocked_account_ids or [] if i != account.id]
+    for user in await session.scalars(select(User)):
+        if account.id in (user.account_ids or []):
+            user.account_ids = [i for i in user.account_ids or [] if i != account.id]
+    await session.delete(account)
 
 
 async def check_pin(session: AsyncSession, account_id: int | None, provider: str, project_id: int | None = None) -> None:
@@ -340,9 +353,9 @@ async def limit_project(session: AsyncSession, project: Project, account_ids: li
     """The only accounts the project's agents may run on from now on; none: any. What the project or
     one of its agents had chosen outside of them is chosen automatically again."""
     known = {a.id for a in await list_accounts(session)}
-    if unknown := [i for i in account_ids if i not in known]:
-        raise NotFound(f"Account not found: {unknown[0]}")
-    project.account_ids = list(dict.fromkeys(account_ids))
+    if unknown := [i for i in account_ids if i not in known and i not in (project.account_ids or [])]:
+        raise NotFound(f"Account not found: {unknown[0]}")  # one that is gone but was kept here is dropped (#162)
+    project.account_ids = [i for i in dict.fromkeys(account_ids) if i in known]
     if project.account_ids:
         keep = list(set(project.account_ids) | await permissions.contributed(session, project))  # what members gave it stays
         if project.account_id not in keep:
