@@ -580,8 +580,13 @@ function useFlip(ref: RefObject<HTMLElement | null>) {
     root.querySelectorAll<HTMLElement>("[data-idea]").forEach((el) => {
       const id = el.dataset.idea!;
       el.getAnimations().forEach((a) => a.id === "flip" && a.cancel());
+      // Where the card lies in its content, not on screen: scrolling (also a topic's row on the phone) is no move.
       const r = el.getBoundingClientRect();
-      const pos = { x: r.left - base.left + root.scrollLeft, y: r.top - base.top + root.scrollTop };
+      const pos = { x: r.left - base.left, y: r.top - base.top };
+      for (let p = el.parentElement; p; p = p === root ? null : p.parentElement) {
+        pos.x += p.scrollLeft;
+        pos.y += p.scrollTop;
+      }
       next.set(id, pos);
       const prev = last.current.get(id);
       if (!prev || still) return;
