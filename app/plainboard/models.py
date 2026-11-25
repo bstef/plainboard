@@ -522,6 +522,7 @@ class Idea(Timestamps, Base):
     question_status: Mapped[str] = mapped_column(String(10), default="", server_default="")  # "" | open | answered | withdrawn
     question_answer: Mapped[str] = mapped_column(Text, default="", server_default="")
     question_at: Mapped[datetime | None] = mapped_column(DateTime)
+    handed_over_at: Mapped[datetime | None] = mapped_column(DateTime)  # handed to the manager to make tickets of (#163)
 
 
 class IdeaLink(Base):

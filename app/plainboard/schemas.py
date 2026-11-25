@@ -1645,6 +1645,7 @@ class IdeaOut(ORM):
     question_at: UTCDateTime | None
     closed_at: UTCDateTime | None
     closed_reason: str
+    handed_over_at: UTCDateTime | None = None  # handed to the manager, not yet taken or left out (#163)
     attachments: list[AttachmentOut] = Field(default_factory=list)
     created_at: UTCDateTime
     updated_at: UTCDateTime
@@ -1700,6 +1701,18 @@ class IdeasOut(BaseModel):
     topics: list[IdeaTopicOut]
     ideas: list[IdeaOut]
     sorting: bool = False  # the model is sorting ideas right now
+
+
+class IdeaHandOver(BaseModel):
+    """Ideas for the manager to make tickets of; no ids: all open ones."""
+
+    idea_ids: list[int] | None = None
+    message: str = Field(default="", max_length=10000)
+
+
+class IdeaHandOverOut(BaseModel):
+    agent_id: int  # the manager: its chat has the message
+    ideas: list[IdeaOut]
 
 
 class IdeaTicketIn(BaseModel):

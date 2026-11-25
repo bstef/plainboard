@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { CornerDownLeft, Lightbulb, Loader2, MessageSquare, Paperclip, PencilRuler, RotateCcw, Shuffle, Undo2, X } from "lucide-react";
+import { Check, CornerDownLeft, Lightbulb, Loader2, MessageSquare, Paperclip, PencilRuler, RotateCcw, Send, Shuffle, Undo2, X } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -26,6 +26,7 @@ import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
 import { IdeaCard, ideaTitle, ReadingLine } from "./IdeaCard";
 import { IdeaDialog } from "./IdeaDialog";
+import { HandOverBar } from "./HandOverBar";
 import { Outbox, type Outgoing } from "./outbox";
 import "./ideas.css";
 
@@ -36,8 +37,25 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
  * space: collecting and sorting starts nothing; tickets come from the manager when asked. */
 export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const { t } = useTranslation();
-  const { project, canWrite } = useShell();
+  const { project, canWrite, agents, openChat } = useShell();
   const pid = project.id;
+  const manager = canWrite ? agents.find((a) => a.is_manager && a.enabled) : undefined;
+  const [handed, setHanded] = useState(0);
+  // The ideas collected for the manager; while there is a list, the bar takes the input's place. Kept like a draft.
+  const [trayDraft, setTrayDraft, clearTray] = useDraft(`idea-handover-tray:${pid}`);
+  const tray = useMemo<number[] | null>(() => {
+    try {
+      return trayDraft ? (JSON.parse(trayDraft) as number[]) : null;
+    } catch {
+      return null;
+    }
+  }, [trayDraft]);
+  const setTray = (ids: number[]) => setTrayDraft(JSON.stringify(ids));
+  useEffect(() => {
+    if (!handed) return;
+    const timer = window.setTimeout(() => setHanded(0), 8000);
+    return () => window.clearTimeout(timer);
+  }, [handed]);
   const qc = useQueryClient();
   const ideas = useIdeas(pid);
   const data = ideas.data;
@@ -54,6 +72,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
 
   const byId = useMemo(() => new Map((data?.ideas ?? []).map((i) => [i.id, i])), [data]);
   const open = (data?.ideas ?? []).filter((i) => i.status === "open");
+  const notHanded = open.filter((i) => !i.handed_over_at);
   const reading = [...outgoing.filter((o) => o.state === "sending").map((o) => o.text), ...(data?.ideas ?? []).filter((i) => i.status === "reading").map((i) => i.text)];
   const shown = data?.ideas ?? [];
   const known = useRef<Set<number> | null>(null);
@@ -199,6 +218,17 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
             <span className="max-sm:hidden">{t("ideas.rearrange")}</span>
           </Button>
         )}
+        {manager && notHanded.length > 0 && (
+          <Button
+            data-part="ideas-handover-all"
+            icon={<Send className="size-4" />}
+            variant="ghost"
+            onClick={() => setTray(notHanded.map((i) => i.id))}
+            aria-label={t("ideas.handOver.all", { name: manager.name })}
+          >
+            <span className="max-sm:hidden">{t("ideas.handOver.all", { name: manager.name })}</span>
+          </Button>
+        )}
       </PageHead>
       <div className="relative min-h-0 flex-1">
         <div ref={boardRef} className="idea-dots scroll-thin h-full overflow-auto">
@@ -247,6 +277,18 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-bg to-transparent" />
             <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-col items-center gap-2 px-3 sm:bottom-5">
               <Notice error={error} onDismissError={() => setError("")} byId={byId} />
+              {handed > 0 && manager && (
+                <div role="status" data-part="idea-handover-sent" className="pointer-events-auto flex max-w-full items-center gap-2 rounded-sm bg-bg py-1 pr-1 pl-3 shadow-lg ring-1 ring-line-2">
+                  <Check className="size-4 shrink-0" />
+                  <span className="min-w-0 font-medium">{t("ideas.handOver.sent", { name: manager.name, count: handed })}</span>
+                  <Button size="sm" variant="ghost" icon={<MessageSquare className="size-3.5" />} onClick={() => openChat(manager.id)}>
+                    {t("ideas.handOver.openChat")}
+                  </Button>
+                  <IconButton label={t("common.close")} onClick={() => setHanded(0)}>
+                    <X className="size-3.5" />
+                  </IconButton>
+                </div>
+              )}
               {(reading.length > 0 || data.sorting) && (
                 <div role="status" className="idea-sorting pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-bg px-3 py-1 text-fg-2 shadow-lg ring-1 ring-line">
                   <Loader2 className="size-3.5 shrink-0 animate-spin" />
@@ -256,6 +298,18 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   </span>
                 </div>
               )}
+              {tray && manager ? (
+                <HandOverBar
+                  manager={manager}
+                  ideas={tray.map((id) => byId.get(id)).filter((i): i is Idea => !!i && i.status === "open" && !i.handed_over_at)}
+                  onRemove={(id) => setTray(tray.filter((x) => x !== id))}
+                  onClose={clearTray}
+                  onSent={(count) => {
+                    setHanded(count);
+                    clearTray();
+                  }}
+                />
+              ) : (
               <form
                 data-part="idea-composer"
                 onSubmit={(e) => {
@@ -305,6 +359,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   </Button>
                 </div>
               </form>
+              )}
             </div>
           </>
         )}
@@ -324,6 +379,9 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
         entering={entering(idea.id)}
         onOpen={() => setOpenId(idea.id)}
         onShow={show}
+        manager={manager?.name}
+        selected={!!tray?.includes(idea.id)}
+        onHandOver={() => setTray(tray?.includes(idea.id) ? tray.filter((x) => x !== idea.id) : [...(tray ?? []), idea.id])}
       />
     );
   }

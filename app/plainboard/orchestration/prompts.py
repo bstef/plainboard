@@ -106,6 +106,9 @@ How work flows:
   ticket (create_tasks) with your own short title and a compact description of the user's point, inventing
   nothing; attach each of its files to the ticket (attach_file with the file's /uploads path), then handle
   it as any new ticket.
+- A chat message starting with "Ideas handed over:" comes from the ideas view: the user asks for tickets
+  from the ideas it names (get_idea for each), as above: merge, split, leave out duplicates, follow the
+  user's note below the list, then take_ideas / leave_out_ideas for every named idea.
 - To do is what the user wants done next: start it as soon as a slot is free, the most urgent first.
   What comes after it is set per project: see "Backlog" in this briefing.
 - Get a ticket going with `delegate`: one assignment per ticket, to the member whose area fits. Split

@@ -1883,6 +1883,21 @@
       "must": "It must be able to ",
       "special": "What makes it special: ",
       "annoys": "What annoys people today: "
+    },
+    "handOver": {
+      "all": "All to {{name}}",
+      "placeholder": "Note for {{name}} (optional)",
+      "send": "Hand to {{name}}",
+      "sent_one": "Handed to {{name}}: the ticket follows.",
+      "sent_other": "{{count}} ideas handed to {{name}}: tickets follow.",
+      "openChat": "Open chat",
+      "handed": "With {{name}}",
+      "add": "For {{name}}",
+      "selected": "Selected",
+      "remove": "Remove",
+      "barTitle_one": "1 idea for {{name}}",
+      "barTitle_other": "{{count}} ideas for {{name}}",
+      "barEmpty": "Pick ideas on the board."
     }
   },
   "docsSite": {

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ArrowRight, Copy, GripVertical, Loader2, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, Check, Copy, GripVertical, Loader2, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -28,6 +28,9 @@ export function IdeaCard({
   entering,
   onOpen,
   onShow,
+  manager,
+  onHandOver,
+  selected,
 }: {
   idea: Idea;
   byId: Map<number, Idea>;
@@ -37,6 +40,11 @@ export function IdeaCard({
   onOpen: () => void;
   /** Bring another idea into view (a similar one, the original of a duplicate). */
   onShow: (id: number) => void;
+  /** The manager's name, where ideas can go to it (#163). */
+  manager?: string;
+  onHandOver?: () => void;
+  /** In the bar of ideas to hand over to the manager. */
+  selected?: boolean;
 }) {
   const { t } = useTranslation();
   const reading = idea.status === "reading";
@@ -74,6 +82,7 @@ export function IdeaCard({
           "group relative flex cursor-pointer flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 text-left shadow-[var(--shadow-card,none)] ring-1 ring-line transition-shadow hover:ring-line-2",
           original && "opacity-75",
           conflicts.length > 0 && "ring-you-fg/60",
+          selected && "ring-2! ring-fg!",
         )}
       >
         {draggable && <GripVertical aria-hidden className="absolute top-3 left-0.5 size-3.5 text-fg-3 opacity-0 group-hover:opacity-100 max-sm:hidden" />}
@@ -113,6 +122,31 @@ export function IdeaCard({
             <span className="sr-only">{t("ideas.files", { count: idea.attachments.length })}</span>
             <span aria-hidden>{idea.attachments.length}</span>
           </span>
+        )}
+        {idea.status === "open" && manager && idea.handed_over_at && (
+          <span data-part="idea-handed-over" className="inline-flex items-center gap-1 self-start rounded-full bg-ok/15 px-2 py-0.5 text-[0.92em] font-medium text-ok">
+            <Check aria-hidden className="size-3.5" />
+            {t("ideas.handOver.handed", { name: manager })}
+          </span>
+        )}
+        {idea.status === "open" && manager && !idea.handed_over_at && onHandOver && (
+          <button
+            type="button"
+            data-part="idea-handover-button"
+            aria-pressed={!!selected}
+            onClick={(e) => {
+              e.stopPropagation();
+              onHandOver();
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+            className={clsx(
+              "inline-flex items-center gap-1 self-start rounded-full px-2 py-0.5 text-[0.92em] font-medium ring-1 ring-inset touch:min-h-11 touch:px-3",
+              selected ? "plate ring-transparent" : "text-fg-2 ring-line-2 hover:bg-sunk hover:text-fg",
+            )}
+          >
+            {selected ? <Check aria-hidden className="size-3.5" /> : <Send aria-hidden className="size-3.5" />}
+            {selected ? t("ideas.handOver.selected") : t("ideas.handOver.add", { name: manager })}
+          </button>
         )}
         {(idea.status === "taken" || idea.status === "merged") && (
           <span className="inline-flex items-center gap-1 self-end font-semibold text-ok">
