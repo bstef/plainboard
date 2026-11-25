@@ -228,6 +228,14 @@ the extension) its tables are never made, the tool and the switch are absent and
   Measured here (Ryzen 9 5950X, 18 cores visible, shared with other agents at load ~15): e5-base
   backfilled 1 800 chunks of 1 600 real tickets at 11 chunks/s; API latency idle p50 10 ms / p95 25 ms,
   during the backfill p50 16 ms / p95 40 ms; a search's query vector took 17-59 ms meanwhile.
+- **Text files of tickets and ideas** (kind `file`, #157; `indexers.Files`): by name (`.md`, `.txt`, `.rst`,
+  `.csv`, `.json`, `.log` ...) or a text type; binary content (a NUL byte, not UTF-8) is left out, chat
+  files are not indexed. Files never change: each is read once, in a thread, 20 a transaction, of a long
+  one the first 256 KB and at most 200 chunks; markdown is cut at its headings and each chunk names its
+  section. A file the retention deletes (`purged_at`) leaves with the next look, one deleted by hand or
+  with its ticket at once (`attachment_id`, foreign key). A hit names the file and its path (`/uploads/...`)
+  and opens its ticket. Measured: 5 000 markdown files (30 000 chunks) and 2 500 images read in 33 s with
+  a fake model; a look with nothing new 63 ms.
 - **What it did is readable** for judging quality on production (`scripts/remote.py sql`): flow events
   `search.query` (agent, assignment, ticket, query, filters, model, latency, each hit's ref with its
   cosine, vector rank, word rank and fused score), `search.hint` (the nearest items with their cosine, the

@@ -14,6 +14,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   NotebookPen,
+  Paperclip,
   Palette,
   Search,
   Settings,
@@ -178,6 +179,7 @@ const KIND_ICON: Record<string, (cls: string) => ReactNode> = {
   commit: (c) => <GitCommitHorizontal className={c} />,
   idea: (c) => <Lightbulb className={c} />,
   doc: (c) => <BookOpen className={c} />,
+  file: (c) => <Paperclip className={c} />,
 };
 
 interface Item {
@@ -262,7 +264,7 @@ export function CommandPalette({
     return {
       key: `h-${i}-${h.ref}`,
       group: "history",
-      label: h.title,
+      label: h.kind === "file" && h.filename ? `${h.filename} · ${h.title}` : h.title,
       ref: h.kind === "commit" ? h.sha?.slice(0, 7) : h.ticket_number !== null ? `#${h.ticket_number}` : undefined,
       kind: t(`palette.kinds.${h.kind}`, { defaultValue: h.kind }),
       snippet: h.snippet,

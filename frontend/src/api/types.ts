@@ -1109,7 +1109,7 @@ export interface FlowTicketBranch {
 
 /** A hit of the project's search by meaning (the command palette). */
 export interface SearchHit {
-  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit" | "idea" | "doc";
+  kind: "ticket" | "report" | "decision" | "comment" | "note" | "commit" | "idea" | "doc" | "file";
   ref: string;
   title: string;
   snippet: string;
@@ -1120,6 +1120,9 @@ export interface SearchHit {
   note_id: number | null;
   idea_id: number | null;
   doc_page_id?: number | null;
+  /** A file of a ticket or idea (#157): opens with it. */
+  attachment_id?: number | null;
+  filename?: string | null;
   repo: string | null;
   sha: string | null;
   url: string | null;

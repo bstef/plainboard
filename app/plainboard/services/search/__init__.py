@@ -1,4 +1,4 @@
-"""Semantic search over a project's history (tickets, reports, decisions, comments, notes, commits) and its open ideas.
+"""Semantic search over a project's history (tickets, reports, decisions, comments, notes, commits, text files of tickets) and its open ideas.
 
 Only with PostgreSQL and pgvector (``schema``), and while the setting ``semantic_search`` and the
 project's own switch are on. ``indexers`` read the sources, ``documents`` prepares their texts, the
@@ -21,12 +21,12 @@ from plainboard_protocol import GitPresentSpec
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...models import Decision, Project, Repository, SearchCursor, Task, utcnow
+from ...models import Attachment, Decision, Project, Repository, SearchCursor, Task, utcnow
 from .. import flow_log
 from .. import settings as settings_service
 from ..errors import ServiceError
 from . import embedding, store
-from .indexers import COMMIT, INDEXERS, KINDS
+from .indexers import COMMIT, FILE, INDEXERS, KINDS
 from .schema import available
 from .store import Hit
 
@@ -224,6 +224,11 @@ async def for_user(s: AsyncSession, project: Project, query: str, limit: int = 8
             item["idea_id"] = int(h.source_id)
         if h.kind == "doc" and h.source_id.isdigit():
             item["doc_page_id"] = int(h.source_id)
+        if h.kind == FILE and h.source_id.isdigit():
+            item |= {"attachment_id": int(h.source_id), "filename": h.ref}
+            if h.ticket_number is None:
+                idea_id = await s.scalar(select(Attachment.idea_id).where(Attachment.id == int(h.source_id), Attachment.project_id == project.id))
+                item["idea_id"] = idea_id
         if h.kind == COMMIT:
             repo_id, _, sha = h.source_id.partition(":")
             repo = repos.get(int(repo_id)) if repo_id.isdigit() else None
@@ -343,7 +348,9 @@ def snippet(body: str, query: str, size: int = 240) -> str:
 def label(hit: Hit, now: datetime | None = None, state: str = "") -> str:
     """A hit in one line: its reference and kind, when it was made and last changed (with its age), where it stands now, its title."""
     now = now or utcnow()
-    where = f" on #{hit.ticket_number}" if hit.ticket_number and hit.kind == "report" else ""
+    where = f" on #{hit.ticket_number}" if hit.ticket_number and hit.kind in ("report", FILE) else ""
+    if hit.kind == FILE and hit.paths:  # the file to read
+        where += f" ({hit.paths[0]})"
     repo = f" in {hit.repo}" if hit.repo else ""
     kind = "" if hit.kind in ("decision", "comment") else f" {hit.kind}"  # their reference names it
     when = f"{hit.at:%Y-%m-%d} ({ago(hit.at, now)})"

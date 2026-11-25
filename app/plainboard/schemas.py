@@ -377,7 +377,7 @@ class SearchStatusOut(BaseModel):
 
 
 class SearchHitOut(BaseModel):
-    kind: str  # ticket, report, decision, comment, note, commit, idea
+    kind: str  # ticket, report, decision, comment, note, commit, idea, doc, file
     ref: str
     title: str
     snippet: str  # the part of its text around the words searched for
@@ -388,6 +388,8 @@ class SearchHitOut(BaseModel):
     note_id: int | None = None
     idea_id: int | None = None
     doc_page_id: int | None = None  # a doc page (#118): open it in its site
+    attachment_id: int | None = None  # a file (#157): its ticket (task_id) or idea opens it
+    filename: str | None = None
     repo: str | None = None
     sha: str | None = None  # a commit's whole hash
     url: str | None = None  # a commit's page, where its repository has one
