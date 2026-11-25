@@ -1,11 +1,11 @@
 import clsx from "clsx";
-import { ArrowRight, Copy, GripVertical, Loader2, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, Check, Copy, GripVertical, Loader2, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { showIdeaChange } from "../../api/events";
 import type { Idea, IdeaChange } from "../../api/types";
-import { IconButton, Input } from "../../components/ui";
+import { Button, IconButton, Input } from "../../components/ui";
 
 /** The AI's voice: a small sparkle and a line of text. */
 export function AiLine({ children, className }: { children: ReactNode; className?: string }) {
@@ -28,6 +28,8 @@ export function IdeaCard({
   entering,
   onOpen,
   onShow,
+  manager,
+  onHandOver,
 }: {
   idea: Idea;
   byId: Map<number, Idea>;
@@ -37,6 +39,9 @@ export function IdeaCard({
   onOpen: () => void;
   /** Bring another idea into view (a similar one, the original of a duplicate). */
   onShow: (id: number) => void;
+  /** The manager's name, where ideas can go to it (#163). */
+  manager?: string;
+  onHandOver?: () => void;
 }) {
   const { t } = useTranslation();
   const reading = idea.status === "reading";
@@ -113,6 +118,28 @@ export function IdeaCard({
             <span className="sr-only">{t("ideas.files", { count: idea.attachments.length })}</span>
             <span aria-hidden>{idea.attachments.length}</span>
           </span>
+        )}
+        {idea.status === "open" && manager && idea.handed_over_at && (
+          <span data-part="idea-handed-over" className="inline-flex items-center gap-1 self-end text-[0.92em] text-fg-3">
+            <Check aria-hidden className="size-3.5" />
+            {t("ideas.handOver.handed", { name: manager })}
+          </span>
+        )}
+        {idea.status === "open" && manager && !idea.handed_over_at && onHandOver && (
+          <Button
+            size="sm"
+            variant="ghost"
+            data-part="idea-handover-button"
+            icon={<Send className="size-3.5" />}
+            className="-mr-2 -mb-1 self-end text-fg-2 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 touch:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              onHandOver();
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {t("ideas.handOver.button", { name: manager })}
+          </Button>
         )}
         {(idea.status === "taken" || idea.status === "merged") && (
           <span className="inline-flex items-center gap-1 self-end font-semibold text-ok">

@@ -402,6 +402,26 @@ def test_the_manager_reads_ideas_and_marks_what_went_into_tickets(client, projec
     assert (kept[again["id"]]["status"], kept[again["id"]]["closed_reason"]) == ("dismissed", "duplicate")
 
 
+def test_ideas_handed_to_the_manager_are_marked_and_named_in_its_chat(client, project):
+    pid = project["id"]
+    answer(client)
+    card = add(client, pid, "Pay by card")
+    paypal = add(client, pid, "PayPal")
+    settled(client, pid)
+    runner = client.app_ref.state.runner
+    resp = client.post(f"/api/projects/{pid}/ideas/hand-over", json={"idea_ids": [card["id"]], "message": "Only the card for now"})
+    assert resp.status_code == 200, resp.text
+    assert [(i["id"], bool(i["handed_over_at"])) for i in resp.json()["ideas"]] == [(card["id"], True)]
+    wait_for(lambda: idle(client, pid))
+    assert f"Ideas handed over:\n- i{card['id']} " in runner.specs[-1].prompt and "Only the card for now" in runner.specs[-1].prompt
+    assert {i["id"]: bool(i["handed_over_at"]) for i in ideas_of(client, pid)["ideas"]} == {card["id"]: True, paypal["id"]: False}
+
+    every = client.post(f"/api/projects/{pid}/ideas/hand-over", json={})
+    assert sorted(i["id"] for i in every.json()["ideas"]) == sorted([card["id"], paypal["id"]])
+    wait_for(lambda: idle(client, pid))
+    assert f"- i{paypal['id']} " in runner.specs[-1].prompt
+
+
 def test_one_idea_becomes_a_ticket_and_the_project_moves_with_its_ideas(client, project):
     pid = project["id"]
     answer(client)

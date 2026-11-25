@@ -1175,6 +1175,8 @@ export interface Idea {
   question_at: string | null;
   closed_at: string | null;
   closed_reason: string;
+  /** Handed to the manager to make tickets of, not yet taken or left out (#163). */
+  handed_over_at: string | null;
   created_at: string;
   updated_at: string;
 }

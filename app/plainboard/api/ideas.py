@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, UploadFile
 
-from ..schemas import AttachmentOut, IdeaAnswer, IdeaChangeOut, IDEA_TEXT_MAX, IdeaCreate, IdeaOut, IdeasOut, IdeaTicketIn, IdeaTicketOut, IdeaTopicIn, IdeaTopicOut, IdeaUpdate, IdeaVersionOut
+from ..schemas import AttachmentOut, IdeaAnswer, IdeaChangeOut, IDEA_TEXT_MAX, IdeaCreate, IdeaHandOver, IdeaHandOverOut, IdeaOut, IdeasOut, IdeaTicketIn, IdeaTicketOut, IdeaTopicIn, IdeaTopicOut, IdeaUpdate, IdeaVersionOut
 from ..models import IdeaStatus
+from ..services import agents as agent_service
 from ..services import board as board_service
 from ..services import ideas as idea_service
 from ..services import projects as project_service
+from ..services import users as user_service
 from ..services.errors import ServiceError
 from .deps import Runs, Session, Who
 
@@ -75,6 +77,19 @@ async def rearrange(project_id: int, session: Session, runs: Runs) -> dict:
 @router.get("/changes", response_model=list[IdeaChangeOut])
 async def list_changes(project_id: int, session: Session, limit: int = 20) -> list[IdeaChangeOut]:
     return [await idea_service.change_out(session, c) for c in await idea_service.changes(session, project_id, min(max(limit, 1), 100))]
+
+
+@router.post("/hand-over", response_model=IdeaHandOverOut)
+async def hand_over(project_id: int, body: IdeaHandOver, session: Session, runs: Runs, who: Who) -> IdeaHandOverOut:
+    """Ideas to the manager (#163): a chat message it makes tickets from; no ids: all open ones."""
+    manager = await agent_service.get_manager(session, project_id)
+    if not manager.enabled:
+        raise ServiceError("The manager is switched off.", 409)
+    ideas, text = await idea_service.hand_over(session, project_id, body.idea_ids, body.message)
+    outs = await idea_service.outs(session, ideas)
+    several = bool(await user_service.author(session, who.user, project_id))
+    await runs.chat(session, manager, text, author=who.name or None, several=several)
+    return IdeaHandOverOut(agent_id=manager.id, ideas=outs)
 
 
 @router.post("/changes/{change_id}/undo", response_model=IdeaChangeOut)

@@ -1337,6 +1337,27 @@ async def take_one(session: AsyncSession, idea: Idea, data: IdeaTicketIn) -> Tas
     return task
 
 
+HAND_OVER = "Ideas handed over:"  # the manager knows the message by this start (orchestration/prompts.py)
+
+
+async def hand_over(session: AsyncSession, project_id: int, ids: list[int] | None, message: str) -> tuple[list[Idea], str]:
+    """Ideas a person hands to the manager to make tickets of (#163); ``ids`` None: all open ones. Marks them, so
+    nobody hands them over twice, and gives the chat message for the manager."""
+    ideas = list((await _open_for_taking(session, project_id, list(dict.fromkeys(ids)))).values()) if ids is not None else await open_ideas(session, project_id)
+    if not ideas:
+        raise ServiceError("There are no open ideas to hand over.", 409)
+    now = utcnow()
+    for idea in ideas:
+        idea.handed_over_at = now
+    await session.flush()
+    await publish(session, project_id, ideas)
+    lines = [f"- i{i.id} {truncate(i.title or i.text.replace(chr(10), ' '), 80)}" for i in sorted(ideas, key=lambda i: i.id)]
+    text = HAND_OVER + "\n" + "\n".join(lines)
+    if message.strip():
+        text += "\n\n" + message.strip()
+    return ideas, text
+
+
 async def take(session: AsyncSession, project_id: int, task: Task, ids: list[int]) -> list[Idea]:
     """The manager made the ticket from these ideas: they leave the board of ideas, kept with their ticket."""
     ideas = await _open_for_taking(session, project_id, list(dict.fromkeys(ids)))
