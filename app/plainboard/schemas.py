@@ -1603,12 +1603,6 @@ class IdeaCreate(BaseModel):
     y: float | None = None
 
 
-class IdeaInput(BaseModel):
-    """What a person typed into the field of the board of ideas: the model reads what they mean."""
-
-    text: str = Field(min_length=1, max_length=IDEA_TEXT_MAX)
-
-
 class IdeaUpdate(BaseModel):
     text: str | None = Field(default=None, min_length=1, max_length=IDEA_TEXT_MAX)
     title: str | None = Field(default=None, max_length=200)
@@ -1630,7 +1624,7 @@ class IdeaOut(ORM):
     title: str
     text: str
     author: str
-    status: str  # open | taken | dismissed | merged
+    status: str  # open | reading (typed, the model reads it soon) | taken | dismissed | merged
     topic_id: int | None
     topic_manual: bool
     task_id: int | None

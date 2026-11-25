@@ -58,10 +58,26 @@ def add(client, pid: int, text: str, **more) -> dict:
     return resp.json()
 
 
-def typed(client, pid: int, text: str) -> dict:
-    resp = client.post(f"/api/projects/{pid}/ideas/input", json={"text": text})
-    assert resp.status_code == 201, resp.text
+def send(client, pid: int, text: str, files=None) -> dict:
+    """What is typed: kept at once, to be read in the background."""
+    resp = client.post(f"/api/projects/{pid}/ideas/input", data={"text": text}, files=files)
+    assert resp.status_code == 202, resp.text
     return resp.json()
+
+
+def read(client, pid: int, kept: dict) -> dict:
+    """The change the model made of an input once it is read, with the ideas it touched."""
+    wait_for(lambda: by_id(ideas_of(client, pid, closed=True))[kept["id"]]["status"] != "reading")
+    (change,) = [c for c in client.get(f"/api/projects/{pid}/ideas/changes").json() if c["summary"].get("input_id") == kept["id"]]
+    ideas = by_id(ideas_of(client, pid, closed=True))
+    change["ideas"] = [ideas[i] for i in change["summary"]["ideas"]]
+    return change
+
+
+def typed(client, pid: int, text: str) -> dict:
+    kept = send(client, pid, text)
+    assert (kept["status"], kept["text"]) == ("reading", text)
+    return read(client, pid, kept)
 
 
 def settled(client, pid: int) -> dict:
@@ -746,3 +762,92 @@ def test_a_board_of_hundreds_of_ideas_never_goes_to_the_model_whole(client, proj
     assert all(len(ids) <= idea_service.REORDER_IDEAS for ids in seen) and all(len(spec.prompt) < 40_000 for spec in asked["reorder"])
     assert sorted(i for ids in seen for i in ids) == sorted(i["id"] for i in ideas_of(client, pid)["ideas"])
     assert all("Other topics:" in spec.prompt for spec in asked["reorder"])
+
+
+def test_inputs_typed_in_a_row_are_kept_at_once_read_one_after_the_other_and_sorted_together(client, project):
+    """#161: nobody waits for the model; with a slow one, ten inputs are kept at once and read in order."""
+    import threading
+
+    pid = project["id"]
+    gate = threading.Event()
+    seen: list[str] = []
+
+    async def slow(spec) -> str:
+        import asyncio
+
+        await asyncio.to_thread(gate.wait, 10)
+        typed_text = spec.prompt.split("The person typed:\n")[1]
+        seen.append(typed_text)
+        return json.dumps({"action": "new", "ideas": [{"title": typed_text, "text": typed_text}]})
+
+    asked = answer(client)
+    runner = client.app_ref.state.runner
+    plain = runner.complete
+
+    async def complete(spec):
+        if KINDS.get(spec.system_prompt) == "intent":
+            asked["intent"].append(spec)
+            return CompletionResult(text=await slow(spec), input_tokens=50, output_tokens=20, cost_usd=0.001)
+        return await plain(spec)
+
+    runner.complete = complete
+    texts = [f"Idea number {n}" for n in range(10)]
+    kept = [send(client, pid, text) for text in texts]  # the model has not answered any of them yet
+    assert [k["status"] for k in kept] == ["reading"] * 10
+    board = ideas_of(client, pid)
+    assert [i["text"] for i in board["ideas"]] == texts and all(i["status"] == "reading" for i in board["ideas"])
+    gate.set()
+    data = settled(client, pid)
+    assert seen == texts  # one after the other, in the order typed
+    assert [i["id"] for i in data["ideas"]] == [k["id"] for k in kept]  # each input became its idea: none lost, none twice
+    assert all(i["status"] == "open" and i["title"] == i["text"] for i in data["ideas"])
+    # Each was read knowing the ones before (an addition to the last idea is possible), never a waiting one.
+    assert f"i{kept[0]['id']} " in asked["intent"][1].prompt and f"i{kept[2]['id']} " not in asked["intent"][1].prompt
+    (sort,) = asked["sort"]  # sorted together once all were read
+    assert ids_in(sort, "Sort these:") == [k["id"] for k in kept]
+
+
+def test_an_input_that_cannot_be_read_stays_as_written_and_the_others_go_on(client, project, monkeypatch):
+    pid = project["id"]
+    answer(client, intent=[json.dumps({"action": "new", "ideas": [{"title": "Fine", "text": "fine"}]})] * 2)
+    apply = idea_service.apply_intent
+
+    async def broken(session, project_id, data, text, author, **more):
+        if text == "breaks":
+            raise RuntimeError("boom")
+        return await apply(session, project_id, data, text, author, **more)
+
+    monkeypatch.setattr(idea_service, "apply_intent", broken)
+    first, bad, last = send(client, pid, "first"), send(client, pid, "breaks"), send(client, pid, "last")
+    data = by_id(settled(client, pid))
+    assert data[bad["id"]]["status"] == "open" and data[bad["id"]]["text"] == "breaks" and data[bad["id"]]["sort_state"] == "failed"
+    assert data[first["id"]]["status"] == data[last["id"]]["status"] == "open"
+
+
+def test_the_files_of_an_input_go_where_it_was_read_into_and_a_waiting_input_is_read_after_a_restart(client, project):
+    pid = project["id"]
+    answer(client)
+    booking = add(client, pid, "Book appointments online", title="Booking")
+    settled(client, pid)
+    amend = {"action": "amend", "target": booking["id"], "title": "Booking", "text": "Book online, with a photo of the room"}
+    answer(client, intent=[json.dumps(amend)])
+    kept = send(client, pid, "add the photo to booking", files=[("files", ("room.png", b"x" * 10, "image/png"))])
+    assert [a["filename"] for a in kept["attachments"]] == ["room.png"]
+    change = read(client, pid, kept)
+    assert change["kind"] == "amend" and [i["id"] for i in change["ideas"]] == [booking["id"]]
+    shown = by_id(ideas_of(client, pid, closed=True))
+    assert [a["filename"] for a in shown[booking["id"]]["attachments"]] == ["room.png"] and shown[booking["id"]]["text"].endswith("room")
+    assert (shown[kept["id"]]["status"], shown[kept["id"]]["merged_into_id"]) == ("merged", booking["id"])
+
+    # Files alone: an idea named after them, not read.
+    alone = send(client, pid, "", files=[("files", ("plan.pdf", b"%PDF", "application/pdf"))])
+    assert (alone["status"], alone["text"]) == ("open", "plan.pdf")
+    assert client.post(f"/api/projects/{pid}/ideas/input", data={"text": " "}).status_code == 422
+
+    # Left waiting (e.g. by a restart): looking at the board reads it.
+    reading = client.app_ref.state.runs.ideas.read_soon
+    client.app_ref.state.runs.ideas.read_soon = lambda project_id: None
+    waiting = send(client, pid, "after a restart")
+    client.app_ref.state.runs.ideas.read_soon = reading
+    answer(client, intent=[json.dumps({"action": "new", "ideas": [{"title": "Restart", "text": "after a restart"}]})])
+    assert read(client, pid, waiting)["kind"] == "new"

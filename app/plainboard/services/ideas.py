@@ -91,9 +91,10 @@ async def open_ideas(session: AsyncSession, project_id: int) -> list[Idea]:
 
 
 async def listed(session: AsyncSession, project_id: int, *, closed: bool = False) -> list[Idea]:
+    """For the board: the open ones and those still being read; ``closed``: all."""
     query = select(Idea).where(Idea.project_id == project_id).order_by(Idea.id)
     if not closed:
-        query = query.where(Idea.status == IdeaStatus.OPEN)
+        query = query.where(Idea.status.in_((IdeaStatus.OPEN, IdeaStatus.READING)))
     return list((await session.scalars(query)).all())
 
 
@@ -321,6 +322,35 @@ async def create(session: AsyncSession, project_id: int, data: IdeaCreate, autho
     await session.commit()
     await publish(session, project_id, [idea])
     return idea
+
+
+async def receive(session: AsyncSession, project_id: int, text: str, files: list[tuple[str, str, BinaryIO]], author: str) -> Idea:
+    """What a person typed, kept at once with its files: waiting to be read (status reading) by the model in the
+    background (``orchestration.ideas.Ideas.read_soon``), in the order it came. Files alone become an idea named
+    after them, not read."""
+    text = text.strip()
+    idea = Idea(project_id=project_id, text=text or ", ".join(name for name, _kind, _data in files), author=author[:100], sort_state=PENDING)
+    idea.status = IdeaStatus.READING if text else IdeaStatus.OPEN
+    session.add(idea)
+    await session.commit()
+    for name, kind, data in files:
+        await board_service.store_attachment(session, project_id, name, kind, data, idea_id=idea.id)
+    await session.refresh(idea)
+    await publish(session, project_id, [idea])
+    return idea
+
+
+async def waiting_input(session: AsyncSession, project_id: int) -> Idea | None:
+    """The oldest input still to be read."""
+    query = select(Idea).where(Idea.project_id == project_id, Idea.status == IdeaStatus.READING).order_by(Idea.id).limit(1)
+    return (await session.scalars(query)).first()
+
+
+async def keep_unread(session: AsyncSession, idea: Idea) -> None:
+    """Reading it broke: the text stays as written, an idea left unsorted ("rearrange" sorts it)."""
+    idea.status, idea.title, idea.sort_state = IdeaStatus.OPEN, "", FAILED
+    await session.commit()
+    await publish(session, idea.project_id, [idea])
 
 
 async def update(session: AsyncSession, idea: Idea, fields: dict[str, Any], author: str) -> tuple[Idea, IdeaChange | None]:
@@ -684,11 +714,24 @@ async def intent_prompt(session: AsyncSession, project: Project, text: str, draf
     return "\n\n".join(parts)
 
 
-async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, Any] | None, text: str, author: str, *, draft: Idea | None = None) -> IdeaChange:
+async def apply_intent(
+    session: AsyncSession, project_id: int, data: dict[str, Any] | None, text: str, author: str, *, draft: Idea | None = None, typed: Idea | None = None
+) -> IdeaChange:
     """Do what the model read in ``text``, or (``draft``) what it made of the answer to its question about
     that idea. An answer it got wrong, or none, never loses the text: it becomes a new idea, or the answer is
-    added to the draft."""
+    added to the draft. ``typed``: the input as it was kept while waiting (``receive``); it becomes the (first)
+    new idea, or goes with its files into the idea it amends or merges into."""
     data = data if isinstance(data, dict) else {}
+    waiting = [typed] if typed is not None else []
+
+    async def new_idea(title: str, text: str) -> Idea:
+        if not waiting:
+            return await _new_idea(session, snap, project_id, title, text, author)
+        idea = waiting.pop()
+        idea.status, idea.title, idea.text, idea.sort_state = IdeaStatus.OPEN, truncate(title, 200), text, PENDING
+        snap.new_ideas.append(idea.id)
+        return idea
+
     action = data.get("action")
     by_id = {i.id: i for i in await open_ideas(session, project_id)}
     if draft is not None:
@@ -724,7 +767,7 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
                     _set_text(session, snap, draft, item_title or draft.title, item_text, "ai")
                     made.append(draft)
                 else:
-                    made.append(await _new_idea(session, snap, project_id, item_title, item_text, author))
+                    made.append(await new_idea(item_title, item_text))
             summary.update(created=snap.new_ideas[:])
             kind = "several" if len(made) > 1 else "new"
     elif action == "drop" and draft is not None:
@@ -738,7 +781,7 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
             summary.update(idea_id=draft.id, dropped=[i.id for i in dropped], ideas=sorted({draft.id, *(i.id for i in dropped)}))
             kind = "resolve"
     elif action == "question" and draft is None and (question := _str(data.get("question"), 500)) and (options := _options(data.get("options"))):
-        idea = await _new_idea(session, snap, project_id, "", text, author)
+        idea = await new_idea("", text)
         idea.question, idea.question_options, idea.question_status, idea.question_at = question, options, QUESTION_OPEN, utcnow()
         summary.update(created=[idea.id], question=question)
         kind = "question"
@@ -750,14 +793,21 @@ async def apply_intent(session: AsyncSession, project_id: int, data: dict[str, A
             summary["after"] = {"title": draft.title, "text": draft.text}
             kind = "amend"
         else:
-            idea = await _new_idea(session, snap, project_id, "", text, author)
+            idea = await new_idea("", text)
             summary["created"] = [idea.id]
             kind = "new"
     if draft is not None:  # answered: what it contradicted is decided
         snap.new_links += await _settle_conflicts(session, draft)
+    if typed is not None:
+        summary["input_id"] = typed.id
+    if waiting:  # amended or merged into an idea: the input goes there, with its files (an undo keeps them there)
+        target_id = summary["idea_id"]
+        typed.status, typed.merged_into_id, typed.closed_at, typed.closed_reason = IdeaStatus.MERGED, target_id, utcnow(), f"read into i{target_id}"
+        for attachment in await session.scalars(select(Attachment).where(Attachment.idea_id == typed.id)):
+            attachment.idea_id = target_id
     change = _record(session, project_id, kind, "answer" if draft is not None else "input", author, summary, snap)
     await session.commit()
-    touched = [i for i in (await session.scalars(select(Idea).where(Idea.id.in_(change.summary["ideas"])))).all()]
+    touched = [i for i in (await session.scalars(select(Idea).where(Idea.id.in_([*change.summary["ideas"], *(i.id for i in waiting)])))).all()]
     await _publish_linked(session, project_id, [i.id for i in touched])
     await publish(session, project_id, touched)
     await _publish_change(session, change)

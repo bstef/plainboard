@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { ArrowRight, Copy, GripVertical, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, Copy, GripVertical, Loader2, MessageCircleQuestion, Paperclip, Send, Sparkles, TriangleAlert, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -39,7 +39,8 @@ export function IdeaCard({
   onShow: (id: number) => void;
 }) {
   const { t } = useTranslation();
-  const leaving = idea.status !== "open";
+  const reading = idea.status === "reading";
+  const leaving = idea.status !== "open" && !reading;
   const rot = ((idea.id * 37) % 5) - 2;
   const original = idea.duplicate_of !== null ? byId.get(idea.duplicate_of) : undefined;
   const twins = [...byId.values()].filter((i) => i.duplicate_of === idea.id && i.status === "open");
@@ -57,7 +58,7 @@ export function IdeaCard({
         tabIndex={0}
         data-part="idea-card"
         aria-label={ideaTitle(idea)}
-        draggable={draggable && !leaving}
+        draggable={draggable && !leaving && !reading}
         onDragStart={(e) => {
           e.dataTransfer.setData("application/x-plainboard-idea", String(idea.id));
           e.dataTransfer.effectAllowed = "move";
@@ -103,7 +104,8 @@ export function IdeaCard({
             <Link onClick={() => onShow(other.id)}>{t("ideas.similarTo", { title: ideaTitle(other) })}</Link>
           </AiLine>
         ))}
-        {!idea.title && idea.sort_state === "pending" && <AiLine className="text-[0.92em]">{t("ideas.reading")}</AiLine>}
+        {reading && <ReadingLine />}
+        {!reading && !idea.title && idea.sort_state === "pending" && <AiLine className="text-[0.92em]">{t("ideas.reading")}</AiLine>}
         {idea.hint && !similar.length && !original && !conflicts.length && <AiLine className="text-[0.92em]">{idea.hint}</AiLine>}
         {idea.attachments?.length > 0 && (
           <span data-part="idea-files" title={t("ideas.files", { count: idea.attachments.length })} className="inline-flex items-center gap-1 self-start text-[0.92em] text-fg-3">
@@ -120,6 +122,17 @@ export function IdeaCard({
         )}
       </div>
     </div>
+  );
+}
+
+/** Typed, on its way or being read by the AI (#161). */
+export function ReadingLine() {
+  const { t } = useTranslation();
+  return (
+    <p data-part="idea-reading" className="flex items-center gap-1.5 text-[0.92em] text-fg-2">
+      <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-fg-3" />
+      {t("ideas.beingRead")}
+    </p>
   );
 }
 

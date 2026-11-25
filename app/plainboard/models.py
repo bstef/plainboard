@@ -472,6 +472,7 @@ class Task(Timestamps, Base):
 
 class IdeaStatus(StrEnum):
     OPEN = "open"
+    READING = "reading"  # typed, waiting for the model to read it (orchestration/ideas.py); not yet an idea for anything else
     TAKEN = "taken"  # became (part of) a ticket: task_id
     DISMISSED = "dismissed"  # left out on purpose (closed_reason), or its creation was undone
     MERGED = "merged"  # went into another idea (merged_into_id)
