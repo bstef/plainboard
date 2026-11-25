@@ -26,7 +26,7 @@ import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
 import { IdeaCard, ideaTitle, ReadingLine } from "./IdeaCard";
 import { IdeaDialog } from "./IdeaDialog";
-import { HandOverDialog } from "./HandOverDialog";
+import { HandOverBar } from "./HandOverBar";
 import { Outbox, type Outgoing } from "./outbox";
 import "./ideas.css";
 
@@ -40,8 +40,17 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const { project, canWrite, agents, openChat } = useShell();
   const pid = project.id;
   const manager = canWrite ? agents.find((a) => a.is_manager && a.enabled) : undefined;
-  const [handing, setHanding] = useState<{ ideas: Idea[]; all: boolean } | null>(null);
   const [handed, setHanded] = useState(0);
+  // The ideas collected for the manager; while there is a list, the bar takes the input's place. Kept like a draft.
+  const [trayDraft, setTrayDraft, clearTray] = useDraft(`idea-handover-tray:${pid}`);
+  const tray = useMemo<number[] | null>(() => {
+    try {
+      return trayDraft ? (JSON.parse(trayDraft) as number[]) : null;
+    } catch {
+      return null;
+    }
+  }, [trayDraft]);
+  const setTray = (ids: number[]) => setTrayDraft(JSON.stringify(ids));
   useEffect(() => {
     if (!handed) return;
     const timer = window.setTimeout(() => setHanded(0), 8000);
@@ -211,10 +220,10 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
         )}
         {manager && notHanded.length > 0 && (
           <Button
-            variant="ghost"
             data-part="ideas-handover-all"
             icon={<Send className="size-4" />}
-            onClick={() => setHanding({ ideas: notHanded, all: true })}
+            variant="ghost"
+            onClick={() => setTray(notHanded.map((i) => i.id))}
             aria-label={t("ideas.handOver.all", { name: manager.name })}
           >
             <span className="max-sm:hidden">{t("ideas.handOver.all", { name: manager.name })}</span>
@@ -289,6 +298,18 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   </span>
                 </div>
               )}
+              {tray && manager ? (
+                <HandOverBar
+                  manager={manager}
+                  ideas={tray.map((id) => byId.get(id)).filter((i): i is Idea => !!i && i.status === "open" && !i.handed_over_at)}
+                  onRemove={(id) => setTray(tray.filter((x) => x !== id))}
+                  onClose={clearTray}
+                  onSent={(count) => {
+                    setHanded(count);
+                    clearTray();
+                  }}
+                />
+              ) : (
               <form
                 data-part="idea-composer"
                 onSubmit={(e) => {
@@ -338,22 +359,11 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   </Button>
                 </div>
               </form>
+              )}
             </div>
           </>
         )}
       </div>
-      {handing && manager && (
-        <HandOverDialog
-          manager={manager}
-          ideas={handing.ideas}
-          all={handing.all}
-          onClose={() => setHanding(null)}
-          onSent={() => {
-            setHanded(handing.ideas.length);
-            setHanding(null);
-          }}
-        />
-      )}
       {opened && <IdeaDialog key={opened.id} idea={opened} topics={topics} canWrite={canWrite} onClose={() => setOpenId(null)} />}
     </div>
   );
@@ -370,7 +380,8 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
         onOpen={() => setOpenId(idea.id)}
         onShow={show}
         manager={manager?.name}
-        onHandOver={() => setHanding({ ideas: [idea], all: false })}
+        selected={!!tray?.includes(idea.id)}
+        onHandOver={() => setTray(tray?.includes(idea.id) ? tray.filter((x) => x !== idea.id) : [...(tray ?? []), idea.id])}
       />
     );
   }

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { showIdeaChange } from "../../api/events";
 import type { Idea, IdeaChange } from "../../api/types";
-import { Button, IconButton, Input } from "../../components/ui";
+import { IconButton, Input } from "../../components/ui";
 
 /** The AI's voice: a small sparkle and a line of text. */
 export function AiLine({ children, className }: { children: ReactNode; className?: string }) {
@@ -30,6 +30,7 @@ export function IdeaCard({
   onShow,
   manager,
   onHandOver,
+  selected,
 }: {
   idea: Idea;
   byId: Map<number, Idea>;
@@ -42,6 +43,8 @@ export function IdeaCard({
   /** The manager's name, where ideas can go to it (#163). */
   manager?: string;
   onHandOver?: () => void;
+  /** In the bar of ideas to hand over to the manager. */
+  selected?: boolean;
 }) {
   const { t } = useTranslation();
   const reading = idea.status === "reading";
@@ -79,6 +82,7 @@ export function IdeaCard({
           "group relative flex cursor-pointer flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 text-left shadow-[var(--shadow-card,none)] ring-1 ring-line transition-shadow hover:ring-line-2",
           original && "opacity-75",
           conflicts.length > 0 && "ring-you-fg/60",
+          selected && "ring-2! ring-fg!",
         )}
       >
         {draggable && <GripVertical aria-hidden className="absolute top-3 left-0.5 size-3.5 text-fg-3 opacity-0 group-hover:opacity-100 max-sm:hidden" />}
@@ -120,26 +124,29 @@ export function IdeaCard({
           </span>
         )}
         {idea.status === "open" && manager && idea.handed_over_at && (
-          <span data-part="idea-handed-over" className="inline-flex items-center gap-1 self-end text-[0.92em] text-fg-3">
+          <span data-part="idea-handed-over" className="inline-flex items-center gap-1 self-start rounded-full bg-ok/15 px-2 py-0.5 text-[0.92em] font-medium text-ok">
             <Check aria-hidden className="size-3.5" />
             {t("ideas.handOver.handed", { name: manager })}
           </span>
         )}
         {idea.status === "open" && manager && !idea.handed_over_at && onHandOver && (
-          <Button
-            size="sm"
-            variant="ghost"
+          <button
+            type="button"
             data-part="idea-handover-button"
-            icon={<Send className="size-3.5" />}
-            className="-mr-2 -mb-1 self-end text-fg-2 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 touch:opacity-100"
+            aria-pressed={!!selected}
             onClick={(e) => {
               e.stopPropagation();
               onHandOver();
             }}
             onKeyDown={(e) => e.stopPropagation()}
+            className={clsx(
+              "inline-flex items-center gap-1 self-start rounded-full px-2 py-0.5 text-[0.92em] font-medium ring-1 ring-inset touch:min-h-11 touch:px-3",
+              selected ? "plate ring-transparent" : "text-fg-2 ring-line-2 hover:bg-sunk hover:text-fg",
+            )}
           >
-            {t("ideas.handOver.button", { name: manager })}
-          </Button>
+            {selected ? <Check aria-hidden className="size-3.5" /> : <Send aria-hidden className="size-3.5" />}
+            {selected ? t("ideas.handOver.selected") : t("ideas.handOver.add", { name: manager })}
+          </button>
         )}
         {(idea.status === "taken" || idea.status === "merged") && (
           <span className="inline-flex items-center gap-1 self-end font-semibold text-ok">
