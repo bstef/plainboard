@@ -3,12 +3,14 @@ Members change them, viewers read (services/access.py). Tickets come from them t
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 
-from ..schemas import AttachmentOut, IdeaAnswer, IdeaChangeOut, IdeaCreate, IdeaInput, IdeaOut, IdeasOut, IdeaTicketIn, IdeaTicketOut, IdeaTopicIn, IdeaTopicOut, IdeaUpdate, IdeaVersionOut
+from ..schemas import AttachmentOut, IdeaAnswer, IdeaChangeOut, IDEA_TEXT_MAX, IdeaCreate, IdeaOut, IdeasOut, IdeaTicketIn, IdeaTicketOut, IdeaTopicIn, IdeaTopicOut, IdeaUpdate, IdeaVersionOut
+from ..models import IdeaStatus
 from ..services import board as board_service
 from ..services import ideas as idea_service
 from ..services import projects as project_service
+from ..services.errors import ServiceError
 from .deps import Runs, Session, Who
 
 router = APIRouter(prefix="/api/projects/{project_id}/ideas", tags=["ideas"])
@@ -23,6 +25,8 @@ async def _out(session, idea) -> IdeaOut:  # noqa: ANN001
 async def list_ideas(project_id: int, session: Session, runs: Runs, closed: bool = False) -> IdeasOut:
     """The open ideas and their topics; ``closed``: also the ones taken into tickets, left out or merged."""
     await project_service.get(session, project_id)
+    if not runs.ideas.reading(project_id) and await idea_service.waiting_input(session, project_id) is not None:
+        runs.ideas.read_soon(project_id)  # left waiting by a restart
     topics = [IdeaTopicOut.model_validate(t) for t in await idea_service.topics(session, project_id)]
     ideas = await idea_service.outs(session, await idea_service.listed(session, project_id, closed=closed))
     return IdeasOut(topics=topics, ideas=ideas, sorting=runs.ideas.sorting(project_id))
@@ -43,12 +47,21 @@ async def create_idea(project_id: int, body: IdeaCreate, session: Session, runs:
     return await _out(session, idea)
 
 
-@router.post("/input", response_model=IdeaChangeOut, status_code=201)
-async def read_input(project_id: int, body: IdeaInput, session: Session, runs: Runs, who: Who) -> IdeaChangeOut:
-    """What the person typed, read by the model: what it did, with the ideas it touched and an id to undo it."""
-    project = await project_service.get(session, project_id)
-    change = await runs.ideas.read_input(session, project, body.text, who.name)
-    return await idea_service.change_out(session, change, with_ideas=True)
+@router.post("/input", response_model=IdeaOut, status_code=202)
+async def take_input(
+    project_id: int, session: Session, runs: Runs, who: Who, text: str = Form("", max_length=IDEA_TEXT_MAX), files: list[UploadFile] = File(default=[])
+) -> IdeaOut:
+    """What the person typed (and pasted files), kept at once and read by the model in the background: the idea
+    comes with status reading; what the model made of it comes as an ``idea_change.upserted`` (``summary.input_id``)."""
+    await project_service.get(session, project_id)
+    if not text.strip() and not files:
+        raise ServiceError("Type something or add a file.", 422)
+    idea = await idea_service.receive(session, project_id, text, [(f.filename or "file", f.content_type or "", f.file) for f in files], who.name)
+    if idea.status == IdeaStatus.READING:
+        runs.ideas.read_soon(project_id)
+    else:
+        runs.ideas.sort_soon(project_id)
+    return await _out(session, idea)
 
 
 @router.post("/sort", status_code=202)

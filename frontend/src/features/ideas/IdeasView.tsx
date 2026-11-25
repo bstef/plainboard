@@ -1,10 +1,22 @@
 import clsx from "clsx";
-import { CornerDownLeft, Lightbulb, Loader2, MessageSquare, PencilRuler, Shuffle, Undo2, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type DragEvent, type RefObject } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { CornerDownLeft, Lightbulb, Loader2, MessageSquare, Paperclip, PencilRuler, RotateCcw, Shuffle, Undo2, X } from "lucide-react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ClipboardEvent,
+  type CSSProperties,
+  type DragEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { showIdeaChange, useIdeaChange } from "../../api/events";
+import { expectIdeaChange, showIdeaChange, upsertIdea, useIdeaChange } from "../../api/events";
 import { qk, useIdeas } from "../../api/queries";
 import type { Idea, IdeaChange, IdeasData, IdeaTopic } from "../../api/types";
 import { PendingFile } from "../../components/PendingFile";
@@ -12,8 +24,9 @@ import { Button, IconButton, Input, PageHead, Spinner } from "../../components/u
 import { useIsDesktop } from "../../lib/hooks";
 import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
-import { IdeaCard, ideaTitle } from "./IdeaCard";
+import { IdeaCard, ideaTitle, ReadingLine } from "./IdeaCard";
 import { IdeaDialog } from "./IdeaDialog";
+import { Outbox, type Outgoing } from "./outbox";
 import "./ideas.css";
 
 const DRAG_TYPE = "application/x-plainboard-idea";
@@ -32,7 +45,8 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [text, setText] = useDraft(`idea:${pid}`);
   const [files, setFiles] = useDraftFiles(`idea:${pid}`);
-  const [reading, setReading] = useState<string | null>(null);
+  const outbox = useOutbox(pid, qc);
+  const outgoing = useSyncExternalStore(outbox.subscribe, outbox.snapshot);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [multiline, setMultiline] = useState(false);
@@ -40,6 +54,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
 
   const byId = useMemo(() => new Map((data?.ideas ?? []).map((i) => [i.id, i])), [data]);
   const open = (data?.ideas ?? []).filter((i) => i.status === "open");
+  const reading = [...outgoing.filter((o) => o.state === "sending").map((o) => o.text), ...(data?.ideas ?? []).filter((i) => i.status === "reading").map((i) => i.text)];
   const shown = data?.ideas ?? [];
   const known = useRef<Set<number> | null>(null);
   if (data && known.current === null) known.current = new Set(data.ideas.map((i) => i.id));
@@ -50,9 +65,9 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
 
   // Taken, merged or left-out ideas show where they went for a moment, then leave.
   useEffect(() => {
-    if (!data?.ideas.some((i) => i.status !== "open")) return;
+    if (!data?.ideas.some(closed)) return;
     const timer = window.setTimeout(
-      () => qc.setQueryData<IdeasData>(qk.ideas(pid), (old) => old && { ...old, ideas: old.ideas.filter((i) => i.status === "open") }),
+      () => qc.setQueryData<IdeasData>(qk.ideas(pid), (old) => old && { ...old, ideas: old.ideas.filter((i) => !closed(i)) }),
       1800,
     );
     return () => window.clearTimeout(timer);
@@ -103,47 +118,16 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
     el.style.height = `${Math.min(el.scrollHeight, line * 8)}px`;
     setMultiline(el.scrollHeight > line * 1.5);
   }, [text]);
-  // Pasted or dropped files go with the input: onto the idea it results in (new, added to or merged into).
-  // Files alone become a new idea named after them.
-  const submit = async () => {
+  // The field is free again at once (#161): the input is queued and shown until the server has it; the AI reads
+  // it in the background. Pasted or dropped files go with it: onto the idea it results in (new, added to or
+  // merged into). Files alone become a new idea named after them.
+  const submit = () => {
     const value = text.trim();
-    const pending = files;
-    if ((!value && !pending.length) || reading !== null) return;
-    const names = pending.map(fileName);
-    setReading(value || names.join(", "));
+    if (!value && !files.length) return;
+    void outbox.add(value, files);
     setText("");
     setFiles([]);
     setError("");
-    let target: number | undefined;
-    try {
-      if (value) {
-        const change = await api.post<IdeaChange>(`/projects/${pid}/ideas/input`, { text: value });
-        showIdeaChange(change);
-        target = change.summary.idea_id ?? change.summary.created?.[0];
-      } else {
-        target = (await api.post<Idea>(`/projects/${pid}/ideas`, { text: names.join(", ") })).id;
-      }
-    } catch (err) {
-      setText(value);
-      setFiles(pending);
-      setError(errorMessage(err));
-      setReading(null);
-      return;
-    }
-    try {
-      if (pending.length) {
-        if (target === undefined) throw new Error(t("ideas.filesNoIdea"));
-        const form = new FormData();
-        for (const file of pending) form.append("files", file, fileName(file));
-        await api.post(`/projects/${pid}/ideas/${target}/attachments`, form);
-        if (!value) window.setTimeout(() => show(target!), 300);
-      }
-    } catch (err) {
-      setFiles(pending);
-      setError(errorMessage(err));
-    } finally {
-      setReading(null);
-    }
   };
   const onPaste = (e: ClipboardEvent) => {
     // Office apps also put a picture of copied text on the clipboard: text wins.
@@ -175,7 +159,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const topicIds = new Set(topics.map((tp) => tp.id));
   const islands = topics.map((topic) => ({ topic, ideas: shown.filter((i) => i.topic_id === topic.id) })).filter((x) => x.ideas.length);
   const loose = shown.filter((i) => i.topic_id === null || !topicIds.has(i.topic_id));
-  const empty = shown.length === 0;
+  const empty = shown.length === 0 && outgoing.length === 0;
   const opened = openId !== null ? byId.get(openId) : undefined;
   const drag = canWrite && isDesktop;
 
@@ -228,14 +212,17 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
             />
           ) : (
             <div className={clsx("flex flex-wrap items-start justify-center gap-8 px-4 pt-6 sm:px-6 sm:pt-10", canWrite ? "pb-44" : "pb-16")}>
-              {loose.length > 0 && (
+              {(loose.length > 0 || outgoing.length > 0) && (
                 <Island
                   name={loose.some((i) => i.sort_state === "failed") ? t("ideas.notSorted") : t("ideas.unsorted")}
-                  hint={loose.some((i) => i.sort_state === "pending") ? t("ideas.unsortedHint") : ""}
+                  hint={loose.some((i) => i.sort_state === "pending") || outgoing.length ? t("ideas.unsortedHint") : ""}
                   color={null}
                   ideas={loose}
                   onDrop={drag ? (id) => move(id, null) : undefined}
                   card={(idea) => card(idea)}
+                  extra={outgoing.map((item) => (
+                    <OutgoingCard key={`out-${item.key}`} item={item} onRetry={() => void outbox.retry(item.key)} onRemove={() => outbox.remove(item.key)} />
+                  ))}
                 />
               )}
               {islands.map(({ topic, ideas: list }, n) => (
@@ -259,19 +246,21 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
           <>
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-bg to-transparent" />
             <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-col items-center gap-2 px-3 sm:bottom-5">
-              <Notice error={error} onDismissError={() => setError("")} />
-              {(reading !== null || data.sorting) && (
+              <Notice error={error} onDismissError={() => setError("")} byId={byId} />
+              {(reading.length > 0 || data.sorting) && (
                 <div role="status" className="idea-sorting pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-bg px-3 py-1 text-fg-2 shadow-lg ring-1 ring-line">
                   <Loader2 className="size-3.5 shrink-0 animate-spin" />
-                  {reading !== null && <span className="min-w-0 truncate">„{reading}“</span>}
-                  <span className="shrink-0 text-fg-3">{reading !== null ? t("ideas.readingInput") : t("ideas.sorting")}</span>
+                  {reading.length === 1 && <span className="min-w-0 truncate">„{reading[0]}“</span>}
+                  <span className="shrink-0 text-fg-3">
+                    {reading.length === 1 ? t("ideas.readingInput") : reading.length > 1 ? t("ideas.readingInputs", { count: reading.length }) : t("ideas.sorting")}
+                  </span>
                 </div>
               )}
               <form
                 data-part="idea-composer"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  void submit();
+                  submit();
                 }}
                 className={clsx(
                   "pointer-events-auto w-full max-w-2xl bg-[var(--card,var(--bg))] shadow-lg ring-1 ring-line-2",
@@ -298,7 +287,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                     onKeyDown={(e) => {
                       if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
                       e.preventDefault();
-                      void submit();
+                      submit();
                     }}
                     maxLength={10000}
                     aria-label={t("ideas.placeholder")}
@@ -311,7 +300,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                   <span className={clsx("inline-flex items-center gap-1 text-fg-3 max-sm:hidden", multiline && "h-8 touch:h-11")}>
                     <CornerDownLeft className="size-3.5" />
                   </span>
-                  <Button type="submit" variant="primary" className="rounded-full!" disabled={(!text.trim() && !files.length) || reading !== null}>
+                  <Button type="submit" variant="primary" className="rounded-full!" disabled={!text.trim() && !files.length}>
                     {t("ideas.add")}
                   </Button>
                 </div>
@@ -341,6 +330,67 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
 }
 
 const fileName = (file: File) => file.name || "pasted.png";
+const closed = (idea: Idea) => idea.status !== "open" && idea.status !== "reading";
+
+// Per project, outside the view: leaving the page loses nothing still being sent.
+const outboxes = new Map<number, Outbox<File>>();
+
+function useOutbox(pid: number, qc: QueryClient): Outbox<File> {
+  let box = outboxes.get(pid);
+  if (!box) {
+    box = new Outbox<File>(async (item) => {
+      const form = new FormData();
+      form.append("text", item.text);
+      for (const file of item.files) form.append("files", file, fileName(file));
+      const idea = await api.post<Idea>(`/projects/${pid}/ideas/input`, form);
+      if (idea.status === "reading") expectIdeaChange(idea.id);
+      upsertIdea(qc, pid, idea);
+    }, errorMessage);
+    outboxes.set(pid, box);
+  }
+  return box;
+}
+
+/** An input on its way to the server, or one that did not get there: with "try again". */
+function OutgoingCard({ item, onRetry, onRemove }: { item: Outgoing<File>; onRetry: () => void; onRemove: () => void }) {
+  const { t } = useTranslation();
+  const failed = item.state === "failed";
+  const title = item.text || item.files.map(fileName).join(", ");
+  return (
+    <div data-part="idea-outgoing" className="relative idea-enter">
+      <div
+        className={clsx(
+          "flex flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 shadow-[var(--shadow-card,none)] ring-1",
+          failed ? "ring-you-fg/60" : "ring-line",
+        )}
+      >
+        <div className="leading-snug font-medium whitespace-pre-line text-fg">{title.length > 200 ? `${title.slice(0, 200)}…` : title}</div>
+        {item.files.length > 0 && (
+          <span title={t("ideas.files", { count: item.files.length })} className="inline-flex items-center gap-1 self-start text-[0.92em] text-fg-3">
+            <Paperclip aria-hidden className="size-3.5" />
+            <span className="sr-only">{t("ideas.files", { count: item.files.length })}</span>
+            <span aria-hidden>{item.files.length}</span>
+          </span>
+        )}
+        {failed ? (
+          <div role="alert" className="flex flex-col gap-1">
+            <span className="text-[0.92em] text-you-fg">{t("ideas.sendFailed", { error: item.error })}</span>
+            <div className="-mx-2 flex items-center justify-between gap-1">
+              <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={onRetry}>
+                {t("ideas.retry")}
+              </Button>
+              <IconButton label={t("ideas.discard")} onClick={onRemove}>
+                <X className="size-3.5" />
+              </IconButton>
+            </div>
+          </div>
+        ) : (
+          <ReadingLine />
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** A topic: a soft outline in its colour around its cards; ideas dropped on it are pinned there. */
 function Island({
@@ -352,6 +402,7 @@ function Island({
   onRename,
   onDrop,
   card,
+  extra,
 }: {
   name: string;
   hint: string;
@@ -361,11 +412,14 @@ function Island({
   onRename?: (name: string) => void;
   onDrop?: (id: number) => void;
   card: (idea: Idea) => React.ReactNode;
+  /** Inputs not on the server yet, after its cards. */
+  extra?: ReactNode[];
 }) {
   const { t } = useTranslation();
   const [over, setOver] = useState(false);
   const [editing, setEditing] = useState(false);
-  const wide = ideas.length >= 5;
+  const count = ideas.length + (extra?.length ?? 0);
+  const wide = count >= 5;
   const style = { "--c": color === null ? "var(--fg-3)" : `var(--chart-${(color % 10) + 1})` } as CSSProperties;
   return (
     <section
@@ -424,24 +478,25 @@ function Island({
         ) : (
           <h2 className="min-w-0 truncate font-semibold">{name}</h2>
         )}
-        <span className="text-fg-3 tabular-nums">{ideas.filter((i) => i.status === "open").length}</span>
+        <span className="text-fg-3 tabular-nums">{ideas.filter((i) => !closed(i)).length}</span>
       </header>
       {hint && <p className="mb-3 text-[0.92em] text-fg-2">{hint}</p>}
       <div
         className={clsx(
           "grid gap-2.5 max-sm:-mx-5 max-sm:flex max-sm:snap-x max-sm:overflow-x-auto max-sm:px-5 max-sm:pt-1 max-sm:pb-2 max-sm:[&>*]:w-[78%] max-sm:[&>*]:shrink-0 max-sm:[&>*]:snap-center",
           wide && "sm:grid-cols-2",
-          ideas.length === 1 && "max-sm:[&>*]:w-full",
+          count === 1 && "max-sm:[&>*]:w-full",
         )}
       >
         {ideas.map(card)}
+        {extra}
       </div>
     </section>
   );
 }
 
 /** What the AI just did with the input, or how it rearranged the topics, with an undo. */
-function Notice({ error, onDismissError }: { error: string; onDismissError: () => void }) {
+function Notice({ error, onDismissError, byId }: { error: string; onDismissError: () => void; byId: Map<number, Idea> }) {
   const { t } = useTranslation();
   const change = useIdeaChange();
   const { project } = useShell();
@@ -478,7 +533,7 @@ function Notice({ error, onDismissError }: { error: string; onDismissError: () =
   return (
     <div role="status" data-part="idea-notice" className="idea-notice pointer-events-auto flex max-w-full items-center gap-2 rounded-sm bg-bg py-1 pr-1 pl-3 shadow-lg ring-1 ring-line-2">
       <span className="min-w-0">
-        <span className="font-medium">{noticeText(change, t)}</span>
+        <span className="font-medium">{noticeText(change, byId, t)}</span>
         {undoError && <span className="text-you-fg"> · {undoError}</span>}
       </span>
       <Button size="sm" variant="ghost" icon={<Undo2 className="size-3.5" />} loading={busy} onClick={undo}>
@@ -491,9 +546,10 @@ function Notice({ error, onDismissError }: { error: string; onDismissError: () =
   );
 }
 
-function noticeText(change: IdeaChange, t: (key: string, o?: Record<string, unknown>) => string): string {
+function noticeText(change: IdeaChange, board: Map<number, Idea>, t: (key: string, o?: Record<string, unknown>) => string): string {
   const s = change.summary;
-  const byId = new Map(change.ideas.map((i) => [i.id, i]));
+  // A change that came as an event holds no ideas: those on the board stand in.
+  const byId = new Map([...board, ...change.ideas.map((i) => [i.id, i] as const)]);
   const target = byId.get(s.idea_id ?? s.created?.[0]);
   const title = s.after?.title || (target ? ideaTitle(target) : "");
   if (change.kind === "reorder") {

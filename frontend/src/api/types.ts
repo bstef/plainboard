@@ -1148,7 +1148,8 @@ export interface Idea {
   title: string;
   text: string;
   author: string;
-  status: "open" | "taken" | "dismissed" | "merged";
+  /** reading: typed, the AI reads it in the background (#161). */
+  status: "open" | "reading" | "taken" | "dismissed" | "merged";
   topic_id: number | null;
   /** Placed by a person: the AI leaves its topic alone. */
   topic_manual: boolean;
