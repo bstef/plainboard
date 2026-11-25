@@ -418,7 +418,7 @@ function OutgoingCard({ item, onRetry, onRemove }: { item: Outgoing<File>; onRet
     <div data-part="idea-outgoing" className="relative idea-enter">
       <div
         className={clsx(
-          "flex flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 shadow-[var(--shadow-card,none)] ring-1",
+          "flex flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 shadow-[var(--shadow-card,0_0_#0000)] ring-1",
           failed ? "ring-you-fg/60" : "ring-line",
         )}
       >
