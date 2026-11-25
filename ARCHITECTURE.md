@@ -11,7 +11,7 @@
 │        │ POST /runs  (RunSpec → NDJSON RunEvents)      ▲ tool calls       │
 │        ▼                                               │ (per-run token)  │
 │ runner  (internal only; user `agent` with sudo)                          │
-│  providers/      claude_code (Agent SDK) · codex (app server) · mock     │
+│  providers/      claude_code (Agent SDK) · codex · gemini_cli · mock     │
 │                  endpoints: model servers and hosts, in claude_code's     │
 │                  harness (translate.py for Chat Completions)             │
 │  tool_bridge.py  proxies tool calls to the app; local tools (files)      │
@@ -356,6 +356,19 @@ pinned in the runner's Dockerfile), one process per run. Board tools come from `
 for a running turn go in with `turn/steer`, and the thread id is the session id. The default account's ChatGPT
 sign-in lives in `~/.codex` (agent-home volume), further accounts in `~/.plainboard/codex-accounts/<key>`;
 an API key is signed in to a separate Codex home. A person's own ChatGPT sign-in has a private home only while it is in use (see Account).
+
+**Gemini.** `providers/gemini_cli.py` runs Google's Gemini CLI headless (`gemini -p "" --output-format stream-json
+--approval-mode yolo`, the prompt on stdin), one CLI process per prompt; `gemini_cli.py` keeps the CLI current like
+`codex_cli.py` (the image pins a version). Each run gets a `GEMINI_CLI_HOME` of its own in a private folder: the
+run's `settings.json` (sign-in kind, the toolset's built-in tools, board tools from `mcp_stdio`), the system prompt
+as the global `GEMINI.md`, the sign-in. Its path depends only on the system prompt, so the prompt the CLI builds stays
+the same each turn (Gemini caches it). Sessions and history are shared by all homes (`~/.plainboard/gemini`), so
+`--resume <session id>` works under any account. The CLI takes no message during a turn: one that arrives goes in as
+the next prompt of the same session, an urgent one stops a long tool call first. Accounts: a Google sign-in
+(`google`, a kept sign-in: the runner builds the CLI's own OAuth address, the page's code is typed in, the result is
+the CLI's `oauth_creds.json`) or an API key. A Google account's quotas come from Gemini Code Assist
+(`retrieveUserQuota`): one window per model, read after each turn and by the limits watcher; they also list the
+models the account may use.
 
 The UI picks up models from `/api/meta`. If the provider has no server-side sessions, return no
 `session_id`: the context manager then rebuilds every turn from summary + recent messages.

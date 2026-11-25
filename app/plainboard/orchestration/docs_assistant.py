@@ -159,7 +159,7 @@ class DocsAssistant:
         else:
             credentials = settings_service.credentials(values, account=account_service.fields(account))
             workspace = WorkspaceSpec(path=f"{root}/{project.slug}/{FOLDER}")
-        keys = ("claude_oauth_token", "anthropic_api_key", "openai_api_key", "endpoint_key", "github_token", "git_ssh_key")
+        keys = ("claude_oauth_token", "anthropic_api_key", "openai_api_key", "gemini_api_key", "endpoint_key", "github_token", "git_ssh_key")
         known = {**credentials.secrets, **{k: v for k in keys if (v := getattr(credentials, k, None))}}
         shown = assistant.filter_for(known)
         credentials = credentials.model_copy(update={"secrets": {}})  # nothing runs a command: the project's secrets stay home

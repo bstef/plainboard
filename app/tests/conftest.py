@@ -365,6 +365,7 @@ class FakeRunner:
                 label="Codex",
                 models=[ModelInfo(id="gpt-6.1-sol", label="Sol", tier="large"), ModelInfo(id="gpt-6.1-terra", label="Terra", tier="medium"), ModelInfo(id="gpt-6-luna", label="Luna", tier="small")],
             ),
+            ProviderInfo(name="gemini_cli", label="Gemini", models=[ModelInfo(id="gemini-2.5-pro", label="Gemini 2.5 Pro", tier="large"), ModelInfo(id="gemini-2.5-flash", label="Gemini 2.5 Flash", tier="medium")]),
             # Providers that are an address. Agents can be given them once an account names a model.
             ProviderInfo(name="ollama", label="Ollama", models=[], endpoint=EndpointInfo(url="http://host.docker.internal:11434", key=False, hint="A model server of your own.")),
             ProviderInfo(name="gemini", label="Gemini (Google)", models=[], endpoint=EndpointInfo(url="https://generativelanguage.googleapis.com/v1beta/openai")),

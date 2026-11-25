@@ -15,16 +15,20 @@ import { SignIn } from "./SignIn";
 const MODES: Record<string, string[]> = {
   claude_code: ["api_key", "oauth_token", "runner_login"],
   codex: ["chatgpt", "api_key"],
+  gemini_cli: ["google", "api_key"],
 };
 // The text of a sign-in kind. A sign-in in the browser is kept by PlainBoard and works on every runner.
 const modeText = (provider: string, mode: string) => `${MODE_TEXTS[provider]}.${mode}`;
 const SHARES = ["private", "people", "everyone"] as const;
 // i18n group of the sign-in kinds per provider
-const MODE_TEXTS: Record<string, string> = { claude_code: "settings.auth", codex: "settings.codexAuth" };
+const MODE_TEXTS: Record<string, string> = { claude_code: "settings.auth", codex: "settings.codexAuth", gemini_cli: "settings.geminiAuth" };
+// The note under a sign-in with one's own account, per provider
+const OWN_LOGIN_NOTICES: Record<string, string> = { codex: "settings.codexOwnLoginNotice", gemini_cli: "settings.geminiOwnLoginNotice" };
 const SECRET_LABELS: Record<string, string> = {
   "claude_code:oauth_token": "settings.oauthToken",
   "claude_code:api_key": "settings.apiKey",
   "codex:api_key": "settings.openaiApiKey",
+  "gemini_cli:api_key": "settings.geminiApiKey",
 };
 
 /** The accounts of one provider: the installation's, or with ``own`` people's own ones (a non-admin:
@@ -161,7 +165,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
         </div>
       )}
       {account.auth_mode === "runner_login" && <SignIn accountId={account.id} provider={account.provider} />}
-      {account.provider === "codex" && account.auth_mode === "chatgpt" && <SignIn accountId={account.id} provider={account.provider} />}
+      {((account.provider === "codex" && account.auth_mode === "chatgpt") || account.auth_mode === "google") && <SignIn accountId={account.id} provider={account.provider} />}
       {account.auth_mode !== "api_key" && (
         <label className="block space-y-1">
           <span className="block font-medium text-fg-2">{t("accounts.planSize")}</span>
@@ -182,7 +186,7 @@ function AccountCard({ account, onChange }: { account: Account; onChange: (actio
         </label>
       )}
       {account.auth_mode !== "api_key" && (
-        <p className="text-fg-2">{t(account.provider === "codex" ? "settings.codexOwnLoginNotice" : "settings.ownLoginNotice")}</p>
+        <p className="text-fg-2">{t(OWN_LOGIN_NOTICES[account.provider] ?? "settings.ownLoginNotice")}</p>
       )}
       <div className="flex items-center gap-3">
         <Button size="sm" onClick={test}>

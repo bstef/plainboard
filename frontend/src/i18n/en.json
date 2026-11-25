@@ -919,6 +919,18 @@
     "claudeSendCode": "Sign in",
     "signedIn": "Signed in.",
     "codexOwnLoginNotice": "Uses your own ChatGPT account. Whether this is allowed for third-party tools depends on OpenAI's terms for your plan.",
+    "gemini": "Gemini",
+    "geminiHint": "Google accounts and API keys for agents that run on Gemini models with the Gemini CLI. Which one an agent uses is chosen per agent.",
+    "geminiAuth": {
+      "google": "Google account",
+      "googleHint": "Sign in with Google (Google AI plan)",
+      "api_key": "API key",
+      "api_keyHint": "Google AI Studio"
+    },
+    "geminiApiKey": "Gemini API key",
+    "geminiSignIn": "Sign in with Google",
+    "geminiOpenPage": "Open this page and sign in with your Google account. The page then shows a code: copy it and enter it here.",
+    "geminiOwnLoginNotice": "Uses your own Google account. Whether this is allowed for third-party tools depends on Google's terms for your plan.",
     "githubToken": "GitHub token",
     "gitName": "Git author name",
     "gitEmail": "Git author email",

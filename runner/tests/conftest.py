@@ -12,7 +12,7 @@ def _error_log(tmp_path_factory, monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_cli_lookups(monkeypatch):
     """No test starts Claude Code for its list of models or installs a Codex CLI (codex_cli) by itself."""
-    from plainboard_runner import codex_cli
+    from plainboard_runner import codex_cli, gemini_cli
     from plainboard_runner.providers.claude_code import ClaudeCodeProvider
 
     async def nothing(*_args):
@@ -22,4 +22,5 @@ def _no_cli_lookups(monkeypatch):
         return [], []
 
     monkeypatch.setattr(codex_cli, "keep_current", nothing)
+    monkeypatch.setattr(gemini_cli, "keep_current", nothing)
     monkeypatch.setattr(ClaudeCodeProvider, "_cli_models", no_models)

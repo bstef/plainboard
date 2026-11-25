@@ -33,7 +33,7 @@ from . import permissions
 from . import users as user_service
 from .errors import NotFound, ServiceError
 
-AUTH_MODES = {"claude_code": ("oauth_token", "api_key", "runner_login"), "codex": ("chatgpt", "api_key")}
+AUTH_MODES = {"claude_code": ("oauth_token", "api_key", "runner_login"), "codex": ("chatgpt", "api_key"), "gemini_cli": ("google", "api_key")}
 # Every other provider is an endpoint (ProviderInfo.endpoint): which ones exist is the runner's list, not the app's.
 ENDPOINT_MODES = ("api_key",)
 # A sign-in in the browser (Claude's runner_login, Codex's ChatGPT sign-in). It is never in the runner's home,
@@ -41,9 +41,16 @@ ENDPOINT_MODES = ("api_key",)
 # and go with each run of it into a private folder (runner signins.py), from which refreshed ones come back
 # (``take_sign_ins``). The installation's from before (#84) are copied over once from the built-in runner's home
 # (``Account.home_login``, ``take_over``); until then they work on the built-in runner only, as before.
-LOGIN_MODES = ("runner_login", "chatgpt")
-LABELS = {"claude_code": "Claude", "codex": "Codex"}
-ENV_SECRETS = {("claude_code", "oauth_token"): "CLAUDE_CODE_OAUTH_TOKEN", ("claude_code", "api_key"): "ANTHROPIC_API_KEY", ("codex", "api_key"): "OPENAI_API_KEY"}
+LOGIN_MODES = ("runner_login", "chatgpt", "google")
+LABELS = {"claude_code": "Claude", "codex": "Codex", "gemini_cli": "Gemini"}
+ENV_SECRETS = {
+    ("claude_code", "oauth_token"): "CLAUDE_CODE_OAUTH_TOKEN",
+    ("claude_code", "api_key"): "ANTHROPIC_API_KEY",
+    ("codex", "api_key"): "OPENAI_API_KEY",
+    ("gemini_cli", "api_key"): "GEMINI_API_KEY",
+}
+# The field of Credentials that says how an account of the provider signs in.
+MODE_FIELDS = {"claude_code": "claude_auth_mode", "codex": "codex_auth_mode", "gemini_cli": "gemini_auth_mode"}
 SWITCH_AT = 0.95  # an account this full hands new turns to one with more room; its rest is used last
 # The prompt cache lives an hour (Claude Code's ENABLE_PROMPT_CACHING_1H): a conversation that had no
 # turn for longer loses nothing by moving to the account with the most room.
@@ -106,7 +113,7 @@ def _models(names: list[str]) -> list[str]:
 
 # Providers whose subscriptions each list the models they may use (LimitsEvent.models): kept in Account.models,
 # where an endpoint's account has the models its owner named.
-LISTED = {"codex"}
+LISTED = {"codex", "gemini_cli"}
 MODELS_CHECK_SECONDS = 3600  # how often such a list is asked for again, also while the subscription is in use
 
 
@@ -575,14 +582,16 @@ def fields(account: Account | None) -> dict[str, Any]:
     if account is None:
         return {}
     if kept_login(account):  # its files only, never a token field: a runner that does not know "own_login" refuses the run
-        own = {"claude_auth_mode" if account.provider == "claude_code" else "codex_auth_mode": "own_login", "login_account": account.key, "login_files": login_files(account)}
-        own |= {"claude_oauth_token": None, "anthropic_api_key": None, "openai_api_key": None}
+        own = {MODE_FIELDS[account.provider]: "own_login", "login_account": account.key, "login_files": login_files(account)}
+        own |= {"claude_oauth_token": None, "anthropic_api_key": None, "openai_api_key": None, "gemini_api_key": None}
         return own | ({"codex_account": account.key} if account.provider == "codex" else {})
     value = secret(account)
     if account.provider == "claude_code":  # login_files: none of another account's, after a switch (run_manager._switch_account)
         return {"claude_auth_mode": account.auth_mode, "claude_oauth_token" if account.auth_mode == "oauth_token" else "anthropic_api_key": value, "login_files": None}
     if account.provider == "codex":
         return {"codex_auth_mode": account.auth_mode, "codex_account": account.key, "openai_api_key": value, "login_files": None}
+    if account.provider == "gemini_cli":
+        return {"gemini_auth_mode": account.auth_mode, "gemini_api_key": value, "login_files": None}
     return {"endpoint_url": account.endpoint_url, "endpoint_key": value, "endpoint_context": account.context_tokens}
 
 
