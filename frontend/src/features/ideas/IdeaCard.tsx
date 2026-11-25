@@ -54,6 +54,10 @@ export function IdeaCard({
   const twins = [...byId.values()].filter((i) => i.duplicate_of === idea.id && i.status === "open");
   const similar = idea.similar.map((id) => byId.get(id)).filter((i): i is Idea => !!i && i.id !== idea.duplicate_of && !twins.includes(i));
   const conflicts = (idea.conflicts ?? []).map((id) => byId.get(id)).filter((i): i is Idea => !!i);
+  const files = idea.attachments?.length ?? 0;
+  const forManager = idea.status === "open" && !!manager;
+  const handed = forManager && !!idea.handed_over_at;
+  const canPick = forManager && !idea.handed_over_at && !!onHandOver;
   return (
     <div
       data-idea={idea.id}
@@ -79,7 +83,7 @@ export function IdeaCard({
           }
         }}
         className={clsx(
-          "group relative flex cursor-pointer flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 text-left shadow-[var(--shadow-card,none)] ring-1 ring-line transition-shadow hover:ring-line-2",
+          "group relative flex cursor-pointer flex-col gap-1.5 rounded-md bg-[var(--card,var(--bg))] px-3 py-2.5 text-left shadow-[var(--shadow-card,0_0_#0000)] ring-1 ring-line transition-shadow hover:ring-line-2",
           original && "opacity-75",
           conflicts.length > 0 && "ring-you-fg/60",
           selected && "ring-2! ring-fg!",
@@ -116,37 +120,43 @@ export function IdeaCard({
         {reading && <ReadingLine />}
         {!reading && !idea.title && idea.sort_state === "pending" && <AiLine className="text-[0.92em]">{t("ideas.reading")}</AiLine>}
         {idea.hint && !similar.length && !original && !conflicts.length && <AiLine className="text-[0.92em]">{idea.hint}</AiLine>}
-        {idea.attachments?.length > 0 && (
-          <span data-part="idea-files" title={t("ideas.files", { count: idea.attachments.length })} className="inline-flex items-center gap-1 self-start text-[0.92em] text-fg-3">
-            <Paperclip aria-hidden className="size-3.5" />
-            <span className="sr-only">{t("ideas.files", { count: idea.attachments.length })}</span>
-            <span aria-hidden>{idea.attachments.length}</span>
-          </span>
-        )}
-        {idea.status === "open" && manager && idea.handed_over_at && (
-          <span data-part="idea-handed-over" className="inline-flex items-center gap-1 self-start rounded-full bg-ok/15 px-2 py-0.5 text-[0.92em] font-medium text-ok">
-            <Check aria-hidden className="size-3.5" />
-            {t("ideas.handOver.handed", { name: manager })}
-          </span>
-        )}
-        {idea.status === "open" && manager && !idea.handed_over_at && onHandOver && (
-          <button
-            type="button"
-            data-part="idea-handover-button"
-            aria-pressed={!!selected}
-            onClick={(e) => {
-              e.stopPropagation();
-              onHandOver();
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-            className={clsx(
-              "inline-flex items-center gap-1 self-start rounded-full px-2 py-0.5 text-[0.92em] font-medium ring-1 ring-inset touch:min-h-11 touch:px-3",
-              selected ? "plate ring-transparent" : "text-fg-2 ring-line-2 hover:bg-sunk hover:text-fg",
+        {(files > 0 || handed || canPick) && (
+          <div data-part="idea-footer" className="flex min-h-6 items-center gap-2">
+            {files > 0 && (
+              <span data-part="idea-files" title={t("ideas.files", { count: files })} className="inline-flex items-center gap-0.5 text-[0.92em] text-fg-3">
+                <Paperclip aria-hidden className="size-3.5" />
+                <span className="sr-only">{t("ideas.files", { count: files })}</span>
+                <span aria-hidden>{files}</span>
+              </span>
             )}
-          >
-            {selected ? <Check aria-hidden className="size-3.5" /> : <Send aria-hidden className="size-3.5" />}
-            {selected ? t("ideas.handOver.selected") : t("ideas.handOver.add", { name: manager })}
-          </button>
+            <span className="flex-1" />
+            {handed && (
+              <span data-part="idea-handed-over" className="inline-flex items-center gap-1 rounded-full bg-ok/15 px-2 py-0.5 text-[0.85em] font-medium text-ok">
+                <Check aria-hidden className="size-3.5" />
+                {t("ideas.handOver.handed", { name: manager })}
+              </span>
+            )}
+            {canPick && (
+              <button
+                type="button"
+                data-part="idea-handover-button"
+                aria-pressed={!!selected}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onHandOver?.();
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                className={clsx(
+                  // A wider hit area on touch screens without making the chip bigger.
+                  "relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.85em] font-medium touch:after:absolute touch:after:-inset-2.5 touch:after:content-['']",
+                  selected ? "plate" : "text-fg-3 hover:bg-sunk hover:text-fg",
+                )}
+              >
+                {selected ? <Check aria-hidden className="size-3.5" /> : <Send aria-hidden className="size-3.5" />}
+                {selected ? t("ideas.handOver.selected") : t("ideas.handOver.add", { name: manager })}
+              </button>
+            )}
+          </div>
         )}
         {(idea.status === "taken" || idea.status === "merged") && (
           <span className="inline-flex items-center gap-1 self-end font-semibold text-ok">
