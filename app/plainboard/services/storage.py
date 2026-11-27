@@ -18,6 +18,7 @@ path, or when its clones are all of the project's repositories; and of no other 
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from collections import defaultdict
@@ -336,12 +337,15 @@ async def listing(session: AsyncSession, runner, machine: MachineUsage | None = 
     turns = await cleanup_service.last_turns(session)
     await session.commit()  # no transaction stays open while the runner works
     machine = machine or await runner.usage()
-    folders = cleanup_service.folders(projects, agents, busy, turns, machine.folders, root)
+    clones: dict[int, list[str]] = {p.id: [] for p in projects}
+    for r in all_repos:
+        clones[r.project_id].append(r.name)
+    folders = cleanup_service.folders(projects, agents, busy, turns, machine.folders, root, clones)
     found = await runner.cleanup_candidates(CandidatesSpec(folders=folders))
     by_folder = {f"{root}/{p.slug}/{a.slug}": a for a in agents for p in projects if p.id == a.project_id and not p.workspace_path}
     items = []
     for c in found:
-        if c.what in ("build", "folder"):
+        if c.what in ("build", "folder", "workdir"):
             project = cleanup_service.project_of(c.path, root, projects)
             agent = next((a for path, a in by_folder.items() if c.path == path or c.path.startswith(path + "/")), None)
             items.append(Item(c, project.id if project else None, agent))
@@ -354,8 +358,8 @@ async def listing(session: AsyncSession, runner, machine: MachineUsage | None = 
 
 def item_line(item: Item, project_id: int, busy: set[int]) -> str:
     c = item.candidate
-    what = {"build": "build output", "folder": "folder of a removed agent", "cache": "cache", "home": "home folder"}[c.what]
-    if item.agent is not None and c.what == "build":
+    what = {"build": "build output", "folder": "folder of a removed agent", "workdir": "extra work folder", "cache": "cache", "home": "home folder"}[c.what]
+    if item.agent is not None and c.what in ("build", "workdir"):
         what += f" of {item.agent.name}"
     details = []
     if c.what in ("home", "cache"):
@@ -386,7 +390,7 @@ def tool_listing(listing: Listing, project: Project, f: Forecast | None, setting
         "safe": "Safe (made again when needed):",
         "busy": "Busy (a member works there: deleting with force=true makes its next build slower; or ask the member to clean up):",
         "unsure": "Unsure (may hold someone's work: judge by what it holds and when it last changed; if it is only made again, delete with force=true):",
-        "keep": "Kept (unpushed work or tools; delete_cleanup won't):",
+        "keep": "Kept (work that is nowhere else, or tools; delete_cleanup won't, not even with force; ask the member to push or drop it):",
     }
     items = listing.visible(project.id)
     for safety, title in groups.items():
@@ -547,9 +551,12 @@ async def delete(session: AsyncSession, runner, project: Project, agent: Agent, 
     The second value: paths that are no candidate of this project."""
     found = await listing(session, runner, runner_id=project.runner_id)
     allowed = {i.candidate.path for i in found.visible(project.id)}
-    wanted = [p.rstrip("/") for p in paths]
-    refused = [p for p in wanted if p not in allowed]
-    chosen = [p for p in wanted if p in allowed]
+    wanted = list(dict.fromkeys(os.path.normpath(p) for p in paths))
+    root = get_config().workspaces_root.rstrip("/")
+    # Paths in this project's folders that are no candidate now go to the runner too: it says why (gone already, not offered).
+    own = [p for p in wanted if p not in allowed and cleanup_service.project_of(p, root, [project]) is not None]
+    refused = [p for p in wanted if p not in allowed and p not in own]
+    chosen = [p for p in wanted if p in allowed or p in own]
     result = await runner.cleanup_delete(DeleteSpec(paths=chosen, folders=found.folders, force=force)) if chosen else CleanupResult()
     volume = cleanup_service.workspace_volume(found.machine, get_config().workspaces_root)
     if result.items:
@@ -575,7 +582,7 @@ def delete_text(result: CleanupResult, refused: list[str]) -> str:
     if result.skipped:
         lines.append("Not deleted: " + "; ".join(result.skipped[:20]) + ".")
     if refused:
-        lines.append("Refused, not your project's (only its own data can be deleted): " + ", ".join(refused[:20]) + ".")
+        lines.append("Refused, not in your project's folders (only its own data can be deleted; give the paths as list_cleanup shows them): " + ", ".join(refused[:20]) + ".")
     return "\n".join(lines) or "Nothing deleted."
 
 

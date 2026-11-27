@@ -246,7 +246,7 @@ class FolderOut(BaseModel):
 
 class CleanedOut(BaseModel):
     path: str
-    what: str  # build | cache | folder | logs | server
+    what: str  # build | cache | folder | workdir | logs | server
     bytes: int = 0
 
 

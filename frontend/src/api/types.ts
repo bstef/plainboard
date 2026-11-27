@@ -856,7 +856,7 @@ export interface UsageCleanup {
   freed: number;
   free_before: number;
   total: number;
-  items: { path: string; what: "build" | "cache" | "folder" | "logs" | "home" | "server"; bytes: number }[];
+  items: { path: string; what: "build" | "cache" | "folder" | "workdir" | "logs" | "home" | "server"; bytes: number }[];
   kept: string[];
   told: boolean;
   by: string;
