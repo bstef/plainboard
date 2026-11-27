@@ -18,6 +18,7 @@ from ..schemas import (
     FlowHistory,
     FlowLive,
     FlowTicketBranch,
+    IdeaOut,
     RunOut,
     StatsOut,
     TaskCreate,
@@ -30,6 +31,7 @@ from ..services import board as board_service
 from ..services import decisions as decision_service
 from ..services import flow as flow_service
 from ..services import flow_check as flow_check_service
+from ..services import ideas as idea_service
 from ..services import projects as project_service
 from ..services import stats as stats_service
 from ..services import trace as trace_service
@@ -79,6 +81,15 @@ async def update_task(task_id: int, body: TaskUpdate, session: Session, runs: Ru
 @router.delete("/tasks/{task_id}", status_code=204)
 async def delete_task(task_id: int, session: Session) -> None:
     await board_service.delete_task(session, await board_service.get_task(session, task_id))
+
+
+@router.post("/tasks/{task_id}/to-idea", response_model=list[IdeaOut])
+async def ticket_to_idea(task_id: int, session: Session, runs: Runs, who: Who) -> list[IdeaOut]:
+    """A ticket of the Backlog back into the ideas (#172): its ideas open again, or a new one; the ticket is archived."""
+    task = await board_service.get_task(session, task_id)
+    ideas = await idea_service.from_ticket(session, task, who.name)
+    runs.ideas.sort_soon(task.project_id)
+    return await idea_service.outs(session, ideas)
 
 
 @router.post("/tasks/{task_id}/start", response_model=RunOut)

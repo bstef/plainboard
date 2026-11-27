@@ -401,6 +401,8 @@
     "agent": "Agent",
     "system": "System",
     "confirmDelete": "Delete ticket #{{number}}?",
+    "toIdea": "Back to ideas",
+    "toIdeaHint": "Turns the ticket back into an idea: the ideas it came from open again, its text and files go with it. The ticket is archived.",
     "effort": "effort {{effort}}",
     "forReview": "For your review",
     "filePurged": "File deleted on {{date}} (retention {{days}} days)",

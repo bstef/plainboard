@@ -25,7 +25,7 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
-from ..models import Agent, Attachment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Project, SearchDocument, Task, TaskStatus, utcnow
+from ..models import Agent, Attachment, Comment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Landing, LandingStatus, Project, SearchDocument, Task, TaskStatus, utcnow
 from ..schemas import IDEA_TEXT_MAX, AttachmentOut, IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
 from . import board as board_service
 from . import idea_neighbours as neighbours
@@ -1479,6 +1479,74 @@ async def _files_to_ticket(session: AsyncSession, task: Task, ideas: list[Idea])
         except (OSError, ServiceError):  # gone from disk, or larger than uploads may be now: the idea still has it
             continue
         have.add((a.filename, a.size))
+
+
+BRANCH_ON_ITS_WAY = (LandingStatus.WAITING, LandingStatus.TRAIN, LandingStatus.BACK, LandingStatus.STUCK)
+
+
+async def from_ticket(session: AsyncSession, task: Task, author: str, *, by_manager: bool = False) -> list[Idea]:
+    """A ticket of the Backlog back into the ideas (#172). The ideas it was made from open again (no duplicate),
+    else it becomes a new idea with its title and description. What the ticket holds beyond those ideas (its
+    description, people's comments) is added to the first one as a new version, its files are copied to it.
+    The ticket is archived, not deleted: its history, comments and files stay, and it can go back on the board."""
+    if task.archived_at is not None or task.status != TaskStatus.BACKLOG:
+        raise ServiceError(f"Only tickets in the Backlog go back to the ideas: #{task.number} is {'archived' if task.archived_at else task.status}.", 409)
+    if await board_service.open_assignments(session, task.id):
+        raise ServiceError(f"#{task.number} has open assignments.", 409)
+    if await session.scalar(select(Landing.id).where(Landing.task_id == task.id, Landing.status.in_(BRANCH_ON_ITS_WAY)).limit(1)) is not None:
+        raise ServiceError(f"#{task.number} has a branch on its way to landing.", 409)
+    project_id = task.project_id
+    ideas = list((await session.scalars(select(Idea).where(Idea.project_id == project_id, Idea.task_id == task.id, Idea.status == IdeaStatus.TAKEN).order_by(Idea.id))).all())
+    comments = (await session.scalars(select(Comment).where(Comment.task_id == task.id, Comment.author_kind == "user").order_by(Comment.id))).all()
+    notes = [f"Comment{f' by {c.author_name}' if c.author_name else ''}: {c.body.strip()}" for c in comments if c.body.strip()]
+    description = task.description.strip()
+    now = utcnow()
+    if ideas:
+        known = " ".join(" ".join(f"{i.title} {i.text}".split()) for i in ideas)
+        for idea in ideas:  # a description that only goes on from an idea's text: what was added
+            rest = description.removeprefix(idea.text.strip()) if idea.text.strip() else description
+            if rest != description and (not rest or rest[0].isspace()):
+                description = rest.strip()
+        extra = ([description] if description and " ".join(description.split()) not in known else []) + notes
+        for idea in ideas:
+            if idea.topic_id is not None and await session.get(IdeaTopic, idea.topic_id) is None:
+                idea.topic_id = None
+            idea.status, idea.task_id, idea.closed_at, idea.closed_reason, idea.handed_over_at = IdeaStatus.OPEN, None, None, "", None
+            if idea.topic_id is None:
+                idea.sort_state = PENDING
+        first = ideas[0]
+        if extra:
+            _version(session, first, "ai" if by_manager else "user")
+            first.text = "\n\n".join([first.text.rstrip(), f"From ticket #{task.number} {task.title}:", *extra]).strip()
+            first.sort_state = PENDING
+    else:
+        first = Idea(project_id=project_id, title=task.title.strip()[:200], text="\n\n".join([description, *notes]).strip(), author=author[:100], sort_state=PENDING)
+        session.add(first)
+        ideas = [first]
+    await session.flush()
+    task.archived_at = now
+    names = ", ".join(f"i{i.id}" for i in ideas)
+    session.add(Comment(task_id=task.id, author_kind="system", body=f"Back to the ideas as {names}; the ticket was archived."))
+    if not by_manager and (manager := await session.scalar(select(Agent).where(Agent.project_id == project_id, Agent.is_manager.is_(True)))) is not None:
+        text = f"The user turned ticket #{task.number} {truncate(task.title, 80)} back into idea(s) {names}; the ticket is archived. Nothing needs doing because of this note."
+        session.add(InboxItem(agent_id=manager.id, text=text))  # read with its next turn; costs no turn
+    await session.commit()
+    have = {(a.filename, a.size) for a in (await session.scalars(select(Attachment).where(Attachment.idea_id.in_([i.id for i in ideas])))).all()}
+    for a in await board_service.list_attachments(session, task.id):
+        if a.purged_at is not None or (a.filename, a.size) in have:
+            continue
+        try:
+            with board_service.storage_path(a).open("rb") as fh:
+                await board_service.store_attachment(session, project_id, a.filename, a.content_type, fh, idea_id=first.id)
+        except (OSError, ServiceError):  # gone from disk, or too large now: the archived ticket still has it
+            continue
+        have.add((a.filename, a.size))
+    for idea in ideas:
+        await session.refresh(idea)
+    await board_service.publish_task(session, task)
+    await publish(session, project_id, ideas)
+    await _publish_linked(session, project_id, [i.id for i in ideas])
+    return ideas
 
 
 async def leave_out(session: AsyncSession, project_id: int, ids: list[int], reason: str, duplicate_of: int | None = None) -> list[Idea]:

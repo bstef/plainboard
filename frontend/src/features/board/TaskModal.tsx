@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Bot, Check, ChevronDown, ChevronRight, CircleDashed, Play, Send, Trash2, UserRound, X } from "lucide-react";
+import { Archive, ArchiveRestore, Bot, Check, ChevronDown, ChevronRight, CircleDashed, Lightbulb, Play, Send, Trash2, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -85,6 +85,18 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
     try {
       await api.post(`/tasks/${taskId}/start`);
       qc.invalidateQueries({ queryKey: qk.task(taskId) });
+    } catch (err) {
+      setError(err);
+    }
+  };
+
+  const toIdea = async () => {
+    setError(null);
+    try {
+      await api.post(`/tasks/${taskId}/to-idea`);
+      qc.invalidateQueries({ queryKey: qk.tasks(project.id) });
+      qc.invalidateQueries({ queryKey: qk.ideas(project.id) });
+      onClose();
     } catch (err) {
       setError(err);
     }
@@ -191,9 +203,16 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
             <div>{t("ticket.updated", { when: timeAgo(data.updated_at) })}</div>
           </div>
           {canWrite && (
-            <Button variant="danger" size="sm" icon={<Trash2 className="size-3.5" />} onClick={remove}>
-              {t("common.delete")}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {data.status === "backlog" && !data.archived_at && (
+                <Button size="sm" icon={<Lightbulb className="size-3.5" />} onClick={toIdea} title={t("ticket.toIdeaHint")}>
+                  {t("ticket.toIdea")}
+                </Button>
+              )}
+              <Button variant="danger" size="sm" icon={<Trash2 className="size-3.5" />} onClick={remove}>
+                {t("common.delete")}
+              </Button>
+            </div>
           )}
           <ErrorText error={error} />
         </aside>

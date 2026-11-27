@@ -448,6 +448,43 @@ def test_ideas_handed_to_the_manager_are_marked_and_named_in_its_chat(client, pr
     assert f"- i{paypal['id']} " in runner.specs[-1].prompt
 
 
+def test_a_backlog_ticket_goes_back_to_the_ideas(client, project):
+    """#172: its ideas open again with what the ticket added (text, people's comments, files); else a new idea.
+    The ticket is archived, not deleted; the manager does the same with ticket_to_idea."""
+    pid = project["id"]
+    answer(client)
+    card = add(client, pid, "Pay by card")
+    settled(client, pid)
+    assert client.post(f"/api/projects/{pid}/ideas/{card['id']}/attachments", files=[("files", ("card.png", b"card", "image/png"))]).status_code == 201
+    ticket = client.post(f"/api/projects/{pid}/ideas/{card['id']}/ticket", json={"status": "backlog"}).json()["ticket"]
+    client.patch(f"/api/tasks/{ticket['id']}", json={"description": "Pay by card\n\nAlso Visa"})
+    client.post(f"/api/tasks/{ticket['id']}/comments", json={"body": "And Mastercard"})
+    assert client.post(f"/api/tasks/{ticket['id']}/attachments", files=[("files", ("plan.txt", b"plan", "text/plain"))]).status_code == 201
+
+    resp = client.post(f"/api/tasks/{ticket['id']}/to-idea")
+    assert resp.status_code == 200, resp.text
+    (back,) = resp.json()
+    assert back["id"] == card["id"] and back["status"] == "open" and back["task_number"] is None
+    assert back["text"] == f"Pay by card\n\nFrom ticket #1 {ticket['title']}:\n\nAlso Visa\n\nComment: And Mastercard"
+    assert sorted(a["filename"] for a in back["attachments"]) == ["card.png", "plan.txt"]  # its own file once, the ticket's added
+    assert [v["text"] for v in client.get(f"/api/projects/{pid}/ideas/{card['id']}/versions").json()] == ["Pay by card"]
+    kept = client.get(f"/api/tasks/{ticket['id']}").json()
+    assert kept["archived_at"] and [a["filename"] for a in kept["attachments"]] == ["card.png", "plan.txt"]  # nothing lost
+    assert client.post(f"/api/tasks/{ticket['id']}/to-idea").status_code == 409  # archived
+
+    doing = client.post(f"/api/projects/{pid}/tasks", json={"title": "Dark mode", "status": "todo"}).json()
+    assert client.post(f"/api/tasks/{doing['id']}/to-idea").status_code == 409  # not in the Backlog
+    plain = client.post(f"/api/projects/{pid}/tasks", json={"title": "Bigger fonts", "description": "For old eyes"}).json()
+    manager = agents_by_slug(client, pid)["manager"]
+    chat(client, manager["id"], "Back to the ideas\nTOOL ticket_to_idea " + json.dumps({"ticket": plain["number"]}))
+    wait_for(lambda: idle(client, pid))
+    (result,) = tool_results(client, manager["id"])[-1:]
+    new = [i for i in ideas_of(client, pid)["ideas"] if i["id"] != card["id"]]
+    assert [(i["title"], i["text"]) for i in new] == [("Bigger fonts", "For old eyes")]
+    assert result == f"#{plain['number']} archived; back in the ideas as i{new[0]['id']}."
+    assert client.get(f"/api/tasks/{plain['id']}").json()["archived_at"]
+
+
 def test_one_idea_becomes_a_ticket_and_the_project_moves_with_its_ideas(client, project):
     pid = project["id"]
     answer(client)
