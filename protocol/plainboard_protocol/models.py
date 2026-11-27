@@ -714,6 +714,8 @@ class LimitWindow(BaseModel):
     utilization: float  # fraction used; can pass 1
     resets_at: int | None = None  # unix seconds
     status: str | None = None
+    # The model (family) the window limits, as the provider names it (e.g. "Fable"); None: all of the plan's usage.
+    model: str | None = None
 
 
 class LimitsEvent(BaseModel):

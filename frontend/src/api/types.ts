@@ -526,6 +526,8 @@ export interface LimitWindow {
   utilization: number;
   resets_at: number | null;
   status: string | null;
+  /** The model (family) the window limits, e.g. "Fable"; null: all of the plan's usage. */
+  model?: string | null;
 }
 
 export interface LimitForecast {
