@@ -144,3 +144,19 @@ def test_writing_in_a_project_paused_for_its_limits_reads_them_again(client, pro
     client.portal.call(client.app_ref.state.limit_pause.__setattr__, "_read_at", 0.0)  # a reading long ago
     chat(client, manager["id"], "SAY ok")
     wait_for(lambda: client.get(f"/api/projects/{pid}").json()["limit_paused_at"] is None)
+
+
+def test_the_turns_a_persons_pause_told_to_wrap_up_go_on_when_it_is_resumed(client, project):
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    fake = runner(client)
+    chat(client, manager["id"], "HOLD\nSAY wrapped up")
+    wait_for(lambda: any(r["status"] == "running" for r in runs_of(client, pid)))
+    client.post(f"/api/projects/{pid}/pause")
+    wait_for(lambda: any(r["status"] == "running" and r["stop_requested_at"] for r in runs_of(client, pid)))
+    assert client.delete(f"/api/projects/{pid}/pause").json()["paused_at"] is None
+    (run,) = [r for r in runs_of(client, pid) if r["status"] == "running"]
+    assert run["stop_requested_at"] is None  # the UI no longer shows it as being stopped
+    assert any(run_id == run["id"] and "the project was resumed" in text for run_id, text in fake.notices)
+    fake.released = True
+    wait_for(lambda: idle(client, pid))
