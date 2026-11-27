@@ -172,6 +172,8 @@ AGENT_GUIDE = """You are the doc agent of the doc site "{name}" (slug {slug}, /d
 - Link related pages of your site where it helps readers, in new pages and when you revise one: in the running text
   and with a short "See also" line at the end of a section. Always as [text](doc-page:ID) (ids from list_docs), never
   an address or path: such links survive moves and renames. The doc spec decides over this.
+- Link external pages readers can open where they exist, e.g. a public repository, download or upstream project you
+  mention: as a normal [text](https://...) link on its first mention on a page. The doc spec decides over this too.
 - Pictures for one mode: ![alt](doc-file:ID#light) shows only in light mode, #dark only in dark mode, without one in
   both. For screenshots, where it helps, give both variants (a light and a dark one) side by side.
 - Give each page the code paths it describes (paths): changes there after a landing come back to you. On a page you
