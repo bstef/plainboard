@@ -481,8 +481,10 @@ class FakeRunner:
         found = {c.path: c for c in getattr(self, "candidates", [])}
         result = CleanupResult()
         for path in spec.paths:
-            c = found[path]
-            if c.safety == "keep" or (c.safety != "safe" and not spec.force):
+            c = found.get(path)
+            if c is None:
+                result.skipped.append(f"{path}: gone already")
+            elif c.safety == "keep" or (c.safety != "safe" and not spec.force):
                 result.skipped.append(f"{path}: {c.safety}")
             else:
                 result.items.append(CleanedItem(path=path, what=c.what, bytes=c.bytes))

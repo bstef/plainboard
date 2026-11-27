@@ -1558,6 +1558,7 @@
       "build": "Build output",
       "cache": "Cache",
       "folder": "Folder of a removed agent",
+      "workdir": "Extra work folder of an agent",
       "home": "Folder in the shared home",
       "logs": "Job logs",
       "server": "Server"
