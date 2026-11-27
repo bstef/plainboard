@@ -378,11 +378,19 @@ def test_the_manager_reads_ideas_and_marks_what_went_into_tickets(client, projec
     settled(client, pid)
     manager = agents_by_slug(client, pid)["manager"]
     runner = client.app_ref.state.runner
+    # Their files go onto the ticket as copies (#168): a file it has already (same name and size) and purged ones are left out.
+    files = {}
+    for idea, name, data in ((card, "card.png", b"card"), (card, "terms.pdf", b"%PDF"), (paypal, "card.png", b"CARD"), (paypal, "old.txt", b"old")):
+        resp = client.post(f"/api/projects/{pid}/ideas/{idea['id']}/attachments", files=[("files", (name, data, "text/plain"))])
+        assert resp.status_code == 201, resp.text
+        files[(idea["id"], name)] = resp.json()[0]
+    _purged(client, files[(paypal["id"], "old.txt")]["id"])
+    ticket = client.post(f"/api/projects/{pid}/tasks", json={"title": "Payments"}).json()
+    assert client.post(f"/api/tasks/{ticket['id']}/attachments", files=[("files", ("terms.pdf", b"%PDF", "application/pdf"))]).status_code == 201
 
     lines = [
         "TOOL list_ideas {}",
         "TOOL get_idea " + json.dumps({"idea": card["id"]}),
-        'TOOL create_tasks {"tickets": [{"title": "Payments"}]}',
         "TOOL take_ideas " + json.dumps({"ticket": 1, "ideas": [card["id"], paypal["id"]]}),
         "TOOL leave_out_ideas " + json.dumps({"ideas": [again["id"]], "reason": "duplicate", "duplicate_of": card["id"]}),
         "TOOL take_ideas " + json.dumps({"ticket": 1, "ideas": [card["id"]]}),
@@ -390,7 +398,7 @@ def test_the_manager_reads_ideas_and_marks_what_went_into_tickets(client, projec
     chat(client, manager["id"], "Make tickets from the payment ideas\n" + "\n".join(lines))
     wait_for(lambda: idle(client, pid))
     assert "Ideas: 3 open (list_ideas)." in runner.specs[-1].prompt
-    listed, detail, _created, taken, left, twice = tool_results(client, manager["id"])[-6:]
+    listed, detail, taken, left, twice = tool_results(client, manager["id"])[-5:]
     assert listed.startswith("Ideas 1-3 of 3:") and "## Payment" in listed and f"i{card['id']} (no title)\n  Pay by card" in listed and "## No topic" in listed
     assert detail.startswith(f"i{card['id']} (no title) — open") and "Pay by card" in detail
     assert taken == "2 idea(s) taken into #1." and left == "1 idea(s) left out." and "no longer open" in twice
@@ -400,6 +408,24 @@ def test_the_manager_reads_ideas_and_marks_what_went_into_tickets(client, projec
     kept = by_id(ideas_of(client, pid, closed=True))
     assert (kept[card["id"]]["status"], kept[card["id"]]["task_number"]) == ("taken", 1)
     assert (kept[again["id"]]["status"], kept[again["id"]]["closed_reason"]) == ("dismissed", "duplicate")
+    on_ticket = client.get(f"/api/tasks/{ticket['id']}").json()["attachments"]
+    assert [(a["filename"], a["idea_id"]) for a in on_ticket] == [("terms.pdf", None), ("card.png", None)]
+    assert client.get(f"/api/attachments/{on_ticket[1]['id']}").content == b"card"
+    assert {(a["filename"], a["id"]) for i in (card, paypal) for a in kept[i["id"]]["attachments"]} == {(n, a["id"]) for (_, n), a in files.items()}  # the ideas keep theirs
+
+
+def _purged(client, attachment_id: int) -> None:
+    from sqlalchemy import update
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Attachment, utcnow
+
+    async def run():
+        async with sessionmaker()() as s:
+            await s.execute(update(Attachment).where(Attachment.id == attachment_id).values(purged_at=utcnow()))
+            await s.commit()
+
+    client.portal.call(run)
 
 
 def test_ideas_handed_to_the_manager_are_marked_and_named_in_its_chat(client, project):
@@ -507,13 +533,16 @@ def test_files_of_an_idea_are_shown_read_by_the_manager_kept_by_the_retention_an
     assert f"  file: {sketch['id']} sketch.png (10 B): /uploads/" in listed
     assert f"Attachments:\n- {sketch['id']} sketch.png (10 B): /uploads/" in detail
 
-    # Taken into a ticket that is done long since: the retention leaves the idea's file alone.
+    # Taken into a ticket (#168): it gets a copy of the file. Done long since: the retention deletes the copy, never the idea's file.
     ticket = client.post(f"/api/projects/{pid}/ideas/{idea['id']}/ticket", json={}).json()["ticket"]
+    (on_ticket,) = client.get(f"/api/tasks/{ticket['id']}").json()["attachments"]
+    assert (on_ticket["filename"], on_ticket["size"], on_ticket["idea_id"]) == ("sketch.png", 10, None) and on_ticket["id"] != sketch["id"]
+    assert client.get(f"/api/attachments/{on_ticket['id']}").content == b"x" * 10
     assert client.patch(f"/api/tasks/{ticket['id']}", json={"status": "done"}).status_code == 200
     _age(client, pid, ticket["number"], 400)
     assert client.patch(f"/api/projects/{pid}", json={"attachment_retention_days": 30}).status_code == 200
-    assert _purge(client) == {}
-    assert _file(sketch).is_file()
+    assert _purge(client) == {pid: [on_ticket["id"]]}
+    assert _file(sketch).is_file() and not _file(on_ticket).exists()
     assert by_id(ideas_of(client, pid, closed=True))[idea["id"]]["attachments"][0]["purged_at"] is None
 
     moved = bring_in(client, export(client, pid))
@@ -524,6 +553,8 @@ def test_files_of_an_idea_are_shown_read_by_the_manager_kept_by_the_retention_an
     assert client.get(f"/api/attachments/{copy['id']}").content == b"x" * 10
 
     path = _file(sketch)
+    assert client.delete(f"/api/tasks/{ticket['id']}").status_code == 204  # the ticket goes: the idea keeps its file
+    assert path.is_file() and client.get(f"/api/attachments/{sketch['id']}").content == b"x" * 10
     assert client.delete(f"/api/projects/{pid}/ideas/{idea['id']}").status_code == 204
     assert not path.exists() and client.get(f"/api/attachments/{sketch['id']}").status_code == 404
 
