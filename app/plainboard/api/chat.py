@@ -40,7 +40,9 @@ async def send_message(agent_id: int, body: ChatMessageIn, session: Session, run
     if body.client_key and (run := await runs.sent_chat(session, agent.id, body.client_key)):
         return RunOut.model_validate(run)  # it arrived before; the answer did not
     several = bool(await user_service.author(session, who.user, agent.project_id))
-    run = await runs.chat(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several, key=body.client_key)
+    run, new = await runs.chat_once(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several, key=body.client_key)
+    if not new:  # an earlier try was still on its way and took it
+        return RunOut.model_validate(run)
     await mention_service.record(session, agent.project_id, body.text, kind="chat", author=who.name, author_user_id=who.user.id if who.user else None, agent_id=agent.id)
     return RunOut.model_validate(run)
 
