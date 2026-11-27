@@ -19,6 +19,7 @@ import {
   Moon,
   Paperclip,
   RotateCcw,
+  Settings2,
   Sun,
   SunMoon,
   Table,
@@ -181,9 +182,9 @@ function Editor({ pid, site, page, canWrite, onBack, onOpenPage }: { pid: number
               {t("docs.page.versions", { count: page.versions })}
             </button>
             {canWrite && (
-              <button type="button" className="hover:text-fg hover:underline" onClick={() => setDetails((d) => !d)} aria-expanded={details}>
+              <Button size="sm" variant="secondary" icon={<Settings2 className="size-3.5" />} onClick={() => setDetails((d) => !d)} aria-expanded={details} className={clsx(details && "bg-sunk")}>
                 {t("docs.page.settings")}
-              </button>
+              </Button>
             )}
           </div>
           {version && !version.working && <ReleasedNote site={site} name={version.name} canWrite={canWrite} />}

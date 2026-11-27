@@ -16,7 +16,7 @@ import {
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
-import { expectIdeaChange, showIdeaChange, upsertIdea, useIdeaChange } from "../../api/events";
+import { expectIdeaChange, showIdeaChange, showIdeaNote, upsertIdea, useIdeaChange, useIdeaNote } from "../../api/events";
 import { qk, useIdeas } from "../../api/queries";
 import type { Idea, IdeaChange, IdeasData, IdeaTopic } from "../../api/types";
 import { PendingFile } from "../../components/PendingFile";
@@ -167,6 +167,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
   const rearrange = async () => {
     try {
+      showIdeaNote(null);
       qc.setQueryData<IdeasData>(qk.ideas(pid), (old) => old && { ...old, sorting: true });
       await api.post(`/projects/${pid}/ideas/sort`);
     } catch (err) {
@@ -581,6 +582,7 @@ function Island({
 function Notice({ error, onDismissError, byId }: { error: string; onDismissError: () => void; byId: Map<number, Idea> }) {
   const { t } = useTranslation();
   const change = useIdeaChange();
+  const note = useIdeaNote();
   const { project } = useShell();
   const [busy, setBusy] = useState(false);
   const [undoError, setUndoError] = useState("");
@@ -590,11 +592,18 @@ function Notice({ error, onDismissError, byId }: { error: string; onDismissError
     const timer = window.setTimeout(() => showIdeaChange(null), 12_000);
     return () => window.clearTimeout(timer);
   }, [change]);
-  if (error) {
+  useEffect(() => {
+    if (!note || note.error) return;
+    const timer = window.setTimeout(() => showIdeaNote(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [note]);
+  const shownNote = note?.project_id === project.id ? note : null;
+  if (error || shownNote) {
+    const failed = error || (shownNote?.error ? t("ideas.sortFailed", { error: shownNote.error }) : "");
     return (
-      <div role="alert" className="pointer-events-auto flex max-w-full items-center gap-2 rounded-sm bg-bg py-1 pr-1 pl-3 shadow-lg ring-1 ring-line-2">
-        <span className="min-w-0 text-you-fg">{error}</span>
-        <IconButton label={t("common.close")} onClick={onDismissError}>
+      <div role={failed ? "alert" : "status"} className="pointer-events-auto flex max-w-full items-center gap-2 rounded-sm bg-bg py-1 pr-1 pl-3 shadow-lg ring-1 ring-line-2">
+        <span className={clsx("min-w-0", failed ? "text-you-fg" : "font-medium")}>{failed || t("ideas.notice.unchanged")}</span>
+        <IconButton label={t("common.close")} onClick={error ? onDismissError : () => showIdeaNote(null)}>
           <X className="size-3.5" />
         </IconButton>
       </div>

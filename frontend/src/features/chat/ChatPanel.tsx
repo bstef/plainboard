@@ -15,7 +15,7 @@ import { AgentSquare, ChatPanelToggle, SwitchTrack, IconButton, Select, Spinner 
 import { formatCost, formatTokens } from "../../lib/format";
 import { sendsOnEnter, useAutoGrow, useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
-import { useDraft, useDraftFiles } from "../../lib/drafts";
+import { seedChat, useChatSeed, useDraft, useDraftFiles } from "../../lib/drafts";
 import { useChatOutbox } from "./chatOutbox";
 import { useShell } from "../layout/shell-context";
 import { AskDialog } from "./AskDialog";
@@ -60,6 +60,13 @@ export function ChatPanel({
   const [details, setDetails] = useStored<boolean>("plainboard.chatDetails", false);
   const [files, setFiles] = useDraftFiles(`chat:${agentId}`);
   const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
+  // A request prepared elsewhere (openChat with a text): into the field, once.
+  const prepared = useChatSeed(agentId);
+  useEffect(() => {
+    if (!prepared) return;
+    setSeed((last) => ({ text: prepared.text, n: (last?.n ?? 0) + 1 }));
+    seedChat(agentId, null);
+  }, [prepared, agentId]);
 
   const activeRuns = (runs.data ?? []).filter((r) => r.agent_id === agentId && (r.status === "queued" || r.status === "running"));
   const running = activeRuns.find((r) => r.status === "running");

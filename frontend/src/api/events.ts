@@ -80,6 +80,29 @@ export function useIdeaChange(): IdeaChange | null {
   );
 }
 
+/** What rearranging the ideas answered when nothing came of it: it failed (`error`), or nothing had to move. */
+export interface IdeaNote {
+  project_id: number;
+  error: string;
+}
+let ideaNote: IdeaNote | null = null;
+const noteListeners = new Set<() => void>();
+
+export function showIdeaNote(note: IdeaNote | null) {
+  ideaNote = note;
+  noteListeners.forEach((l) => l());
+}
+
+export function useIdeaNote(): IdeaNote | null {
+  return useSyncExternalStore(
+    (l) => {
+      noteListeners.add(l);
+      return () => noteListeners.delete(l);
+    },
+    () => ideaNote,
+  );
+}
+
 // Inputs typed here: what the AI made of them is shown with an undo when it comes (#161).
 const ownInputs = new Set<number>();
 export const expectIdeaChange = (inputId: number) => ownInputs.add(inputId);
@@ -127,6 +150,12 @@ function handleIdeas(qc: QueryClient, pid: number, type: string, data: any) {
     }
     case "ideas.sorting":
       qc.setQueryData<IdeasData>(qk.ideas(pid), (old) => old && { ...old, sorting: !!data.sorting });
+      break;
+    case "ideas.sort_failed":
+      showIdeaNote({ project_id: pid, error: String(data.error || "?") });
+      break;
+    case "ideas.rearranged":
+      if (!data.changed) showIdeaNote({ project_id: pid, error: "" });
       break;
   }
 }
