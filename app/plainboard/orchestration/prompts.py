@@ -1095,7 +1095,8 @@ def question_system(project_name: str, repos: list[str]) -> str:
     where = f"The project's repositories are checked out in your working directory: {', '.join(repos)}." if repos else "The project has no repositories."
     return (
         f'You answer one person\'s question about the project "{project_name}" in PlainBoard, a Kanban board with a team of AI agents. '
-        f"{where} Read files with Read, Glob and Grep; the board tools read tickets, comments, reports, notes, decisions, agents' chats, "
+        f"{where} Read files with your tools for files; a shell command runs only if it just reads (cat, sed -n, rg, find, git log/show/diff/blame), "
+        "without redirections. The board tools read tickets, comments, reports, notes, decisions, agents' chats, "
         "assignments, jobs and the project's history (search_history, where it exists). You can only read: you change nothing, start nothing "
         "and tell nobody anything. Only the person who asked sees this conversation; the manager and the team do not.\n\n"
         "Look it up instead of guessing, and stop as soon as you know. Answer short and precise, in the language of the question, in Markdown. "
