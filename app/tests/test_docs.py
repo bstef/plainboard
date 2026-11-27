@@ -520,6 +520,42 @@ def test_an_llm_translates_on_the_projects_subscription(client, project, monkeyp
     assert list(runs) == [s["agent"]["id"]] * 2  # title and text, each counted, on the doc agent
 
 
+def test_the_settings_show_what_llm_translations_run_on_and_nothing_switches(client, project, monkeypatch):
+    """#178: the provider and model come from the same function the watcher uses; one the project can't use is a
+    problem shown there, never a reason to take another provider."""
+    from plainboard.models import DocTranslation, Project, utcnow
+    from sqlalchemy import select
+
+    pid = project["id"]
+    monkeypatch.setattr(client.app_ref.state.docs_watcher, "translate_soon", lambda: None)
+    s = site(client, pid, published=True, public=True, languages=["fr"])
+    url = f"/api/projects/{pid}/docs/sites/{s['id']}"
+    client.patch(url, json={"translator": "llm", "translate_model": "claude-haiku-x"})
+    used = client.get(f"{url}/translation-model").json()
+    assert used == {"provider": s["agent"]["provider"], "model": "claude-haiku-x", "provider_from": "agent", "model_from": "site", "problem": ""}
+    client.patch(url, json={"translate_model": ""})
+    used = client.get(f"{url}/translation-model").json()
+    assert used["model_from"] == "small" and used["model"] and not used["problem"]
+
+    client.patch(url, json={"translate_provider": "nobody_has_this"})
+    used = client.get(f"{url}/translation-model").json()
+    assert used["provider"] == "nobody_has_this" and used["provider_from"] == "site" and "no subscription" in used["problem"]
+    page(client, pid, s["id"], title="Welcome", body="Hello.")
+    fake = runner(client)
+
+    async def complete(spec):
+        raise AssertionError(f"ran on {spec.provider}")
+
+    fake.complete = complete
+
+    async def look(session):
+        return await client.app_ref.state.docs_watcher.translate(session, await session.get(Project, pid), utcnow())
+
+    assert db(client, look) == 0
+    errors = list(db(client, lambda session: session.scalars(select(DocTranslation.error))))
+    assert errors and all("no subscription" in e for e in errors)
+
+
 def test_an_llm_translation_must_keep_the_markdown_skeleton(client, project, monkeypatch):
     """#155: a paragraph that comes back as a heading is asked again; twice wrong fails and the original is shown."""
     from plainboard_protocol import CompletionResult

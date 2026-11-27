@@ -2260,6 +2260,16 @@
       "attachLight": "Pictures for light mode only",
       "attachDark": "Pictures for dark mode only"
     },
+    "translationModel": {
+      "uses": "Translates with:",
+      "cannot": "Translations can't run:",
+      "from": {
+        "site_site": "Provider and model as set here.",
+        "site_small": "Provider as set here, its small model.",
+        "agent_site": "Provider of the doc agent, model as set here.",
+        "agent_small": "Provider of the doc agent, its small model."
+      }
+    },
     "translator": {
       "none": "None",
       "llm": "AI model",
@@ -2289,9 +2299,9 @@
       "code": "Language code",
       "addCode": "Add this code",
       "translator": "Translated by",
-      "translateProviderHint": "Empty: the project's.",
+      "translateProviderHint": "Empty: the doc agent's.",
       "translateModelHint": "Empty: the provider's small model.",
-      "projectDefault": "The project's",
+      "agentsProvider": "The doc agent's",
       "deeplKey": "DeepL API key",
       "googleKey": "Google Translate API key",
       "keyHint": "Stored encrypted; it is never shown again.",

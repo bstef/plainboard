@@ -1,10 +1,11 @@
 import clsx from "clsx";
-import { Check, Cloud, Copy, ExternalLink, Globe2, KeyRound, Loader2, Plus, RefreshCw, ShieldAlert, Trash2, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, Cloud, Copy, Cpu, ExternalLink, Globe2, KeyRound, Loader2, Plus, RefreshCw, ShieldAlert, Trash2, TriangleAlert, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { useMeta } from "../../api/queries";
-import type { DocSite, DocTranslator } from "../../api/types";
+import type { DocSite, DocTranslationModel, DocTranslator } from "../../api/types";
 import { SaveRow, SettingsLayout, type SettingsSection } from "../../components/SettingsLayout";
 import { Badge, Button, ErrorText, Field, FieldRow, Input, Modal, Segmented, Select, Toggle } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
@@ -13,7 +14,7 @@ import { CustomPages } from "./CustomPages";
 import { DocApi } from "./DocApi";
 import { Outline } from "./Outline";
 import { languageLabel } from "./PageEditor";
-import { base, useDocDomain, useDocsRefresh } from "./queries";
+import { base, dk, useDocDomain, useDocsRefresh } from "./queries";
 import { SiteLook } from "./SiteLook";
 
 /** Further languages offered first; any other code can be typed. */
@@ -108,7 +109,12 @@ function Languages({ pid, site, isOwner }: { pid: number; site: DocSite; isOwner
   const [code, setCode] = useState("");
   const [asked, setAsked] = useState(false);
   const providers = meta.data?.providers ?? [];
-  const providerInfo = providers.find((p) => p.name === (provider || providers[0]?.name));
+  const used = useQuery({
+    queryKey: [...dk.translationModel(pid, site.id), site.translate_provider, site.translate_model, site.agent?.provider ?? ""],
+    queryFn: () => api.get<DocTranslationModel>(`${base(pid)}/sites/${site.id}/translation-model`),
+    enabled: site.translator === "llm",
+  });
+  const providerInfo = providers.find((p) => p.name === (provider || used.data?.provider || site.agent?.provider || providers[0]?.name));
   const dirty =
     languages.join(",") !== site.languages.join(",") || translator !== (site.translator || "") || provider !== site.translate_provider || model !== site.translate_model;
   const add = (c: string) => {
@@ -167,7 +173,7 @@ function Languages({ pid, site, isOwner }: { pid: number; site: DocSite; isOwner
         <FieldRow>
           <Field label={t("team.provider")} hint={t("docs.settings.translateProviderHint")}>
             <Select value={provider} onChange={(e) => (setProvider(e.target.value), setModel(""))}>
-              <option value="">{t("docs.settings.projectDefault")}</option>
+              <option value="">{t("docs.settings.agentsProvider")}</option>
               {providers.map((p) => (
                 <option key={p.name} value={p.name}>
                   {p.label}
@@ -180,6 +186,7 @@ function Languages({ pid, site, isOwner }: { pid: number; site: DocSite; isOwner
           </Field>
         </FieldRow>
       )}
+      {translator === "llm" && site.translator === "llm" && used.data && <TranslationUses used={used.data} label={providers.find((p) => p.name === used.data.provider)?.label ?? used.data.provider} />}
       <SaveRow dirty={dirty} onSave={() => patch({ languages, translator, translate_provider: provider, translate_model: model })}>
         {site.languages.length > 0 && site.translator && (
           <Button
@@ -195,6 +202,32 @@ function Languages({ pid, site, isOwner }: { pid: number; site: DocSite; isOwner
         )}
       </SaveRow>
       {(translator === "deepl" || translator === "google") && <TranslatorKey pid={pid} site={site} which={translator} isOwner={isOwner} />}
+    </div>
+  );
+}
+
+/** What the saved settings translate with right now, as the backend decides it (#178): never a hidden fallback. */
+function TranslationUses({ used, label }: { used: DocTranslationModel; label: string }) {
+  const { t } = useTranslation();
+  const from = t(`docs.translationModel.from.${used.provider_from}_${used.model_from}`);
+  return (
+    <div
+      role={used.problem ? "alert" : "note"}
+      data-part="translation-model"
+      className={clsx("flex gap-2.5 rounded-sm p-3 ring-1 ring-inset", used.problem ? "bg-you-bg text-fg ring-you" : "text-fg-2 ring-line-2")}
+    >
+      {used.problem ? <TriangleAlert className="mt-0.5 size-4 shrink-0 text-you-fg" aria-hidden /> : <Cpu className="mt-0.5 size-4 shrink-0 text-fg-3" aria-hidden />}
+      <div className="min-w-0 space-y-1">
+        <p>
+          <span className="font-semibold text-fg">{t("docs.translationModel.uses")}</span> {label} · <span className="font-mono break-words">{used.model}</span>
+        </p>
+        <p className="text-fg-3">{from}</p>
+        {used.problem && (
+          <p>
+            <span className="font-semibold">{t("docs.translationModel.cannot")}</span> {used.problem}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
