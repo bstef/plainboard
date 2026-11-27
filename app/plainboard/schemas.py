@@ -1026,6 +1026,8 @@ class TaskDetail(TaskOut):
 class ChatMessageIn(BaseModel):
     text: str = ""
     attachment_ids: list[int] = Field(default_factory=list)
+    # Chosen by the browser per message: sent again (no answer came, the server restarted), it is not taken twice.
+    client_key: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def not_empty(self) -> ChatMessageIn:

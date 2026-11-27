@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowUp, ChevronDown, CircleHelp, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2 } from "lucide-react";
+import { ArrowUp, ChevronDown, CircleHelp, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
@@ -16,6 +16,7 @@ import { formatCost, formatTokens } from "../../lib/format";
 import { sendsOnEnter, useAutoGrow, useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useDraft, useDraftFiles } from "../../lib/drafts";
+import { useChatOutbox } from "./chatOutbox";
 import { useShell } from "../layout/shell-context";
 import { AskDialog } from "./AskDialog";
 import { LimitsRing } from "./LimitsRing";
@@ -511,6 +512,23 @@ function Composer({
 
   useAutoGrow(area, text);
 
+  // What was sent waits here until the server has it: across a reload and a restart of the server.
+  const me = useMe();
+  const { outbox, items: outgoing, waiting } = useChatOutbox(me?.id ?? 0, agentId, () => qc.invalidateQueries({ queryKey: qk.runs(project.id) }));
+  useEffect(() => {
+    const rejected = outbox.takeRejected();
+    if (!rejected) return;
+    setText((cur) => (cur.trim() ? `${rejected.text}\n\n${cur}` : rejected.text));
+    setError(rejected.error ?? null);
+  }, [outbox, outgoing]);
+
+  const takeBack = (key: string) => {
+    const item = outgoing.find((i) => i.key === key);
+    if (!item) return;
+    outbox.remove(key);
+    setText((cur) => (cur.trim() ? `${item.text}\n\n${cur}` : item.text));
+  };
+
   const send = async () => {
     const value = text.trim();
     const pending = files;
@@ -518,17 +536,18 @@ function Composer({
     setError(null);
     setText("");
     onFilesChange([]);
+    if (!pending.length) {
+      outbox.add(value, []);
+      return;
+    }
     setSending(true);
     try {
-      let attachment_ids: number[] = [];
-      if (pending.length) {
-        const form = new FormData();
-        for (const file of pending) form.append("files", file, file.name || "pasted.png");
-        attachment_ids = (await api.post<Attachment[]>(`/agents/${agentId}/attachments`, form)).map((a) => a.id);
-      }
-      await api.post(`/agents/${agentId}/messages`, { text: value, attachment_ids });
-      qc.invalidateQueries({ queryKey: qk.runs(project.id) });
+      const form = new FormData();
+      for (const file of pending) form.append("files", file, file.name || "pasted.png");
+      const attachment_ids = (await api.post<Attachment[]>(`/agents/${agentId}/attachments`, form)).map((a) => a.id);
+      outbox.add(value, attachment_ids);
     } catch (err) {
+      // Files can't wait in the browser's storage: they stay in the field until sent again.
       setText(value);
       onFilesChange(pending);
       setError(errorMessage(err));
@@ -568,6 +587,24 @@ function Composer({
     <div className="shrink-0 border-t border-line px-3 pt-2.5 pb-3">
       <div className={className}>
       {error && <p className="mb-2 text-you-fg">{error}</p>}
+      {waiting && outgoing.some((i) => !i.error) && (
+        <div role="status" data-part="outbox" className="mb-2 flex flex-col gap-1">
+          <p className="flex items-center gap-2 font-semibold">
+            <Loader2 className="size-4 shrink-0 motion-safe:animate-spin" />
+            {t("chat.waitingForServer")}
+          </p>
+          {outgoing
+            .filter((i) => !i.error)
+            .map((i) => (
+              <div key={i.key} className="flex items-center gap-2 text-fg-2">
+                <span className="min-w-0 flex-1 truncate">{i.text || t("chat.filesOnly", { count: i.attachment_ids.length })}</span>
+                <IconButton label={t("chat.takeBack")} onClick={() => takeBack(i.key)} className="size-7 touch:size-11">
+                  <X className="size-3.5" />
+                </IconButton>
+              </div>
+            ))}
+        </div>
+      )}
       <StoppingAgents />
       {status && (
         <div role="status" title={statusTitle || undefined} className="mb-2 flex items-center gap-2 font-semibold">
