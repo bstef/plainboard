@@ -109,6 +109,8 @@ export function useAutoGrow(ref: RefObject<HTMLTextAreaElement | null>, value: u
     el.style.height = "auto";
     const border = el.offsetHeight - el.clientHeight;
     el.style.height = `${el.scrollHeight + border}px`;
+    // No scrollbar while the text fits (#169): phones round line heights so that a single line can overflow by a pixel.
+    el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? "auto" : "hidden";
     for (const [box, top] of kept) box.scrollTop = top;
   };
   useLayoutEffect(() => fit.current(), [value]);
@@ -124,6 +126,12 @@ export function useAutoGrow(ref: RefObject<HTMLTextAreaElement | null>, value: u
     watch.observe(el);
     return () => watch.disconnect();
   }, [ref]);
+}
+
+/** Whether this key press sends (#169): Enter sends and Shift+Enter is a new line; on touch screens Enter is a
+ * new line and the send button sends. */
+export function sendsOnEnter(e: { key: string; shiftKey: boolean; nativeEvent: { isComposing: boolean } }): boolean {
+  return e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !window.matchMedia("(pointer: coarse)").matches;
 }
 
 /** The value once it has not changed for ``ms``. */

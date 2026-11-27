@@ -13,7 +13,7 @@ import { PendingFile } from "../../components/PendingFile";
 import { useMentionPicker, useReadMentionsOf } from "../../components/Mentions";
 import { AgentSquare, ChatPanelToggle, SwitchTrack, IconButton, Select, Spinner } from "../../components/ui";
 import { formatCost, formatTokens } from "../../lib/format";
-import { useAutoGrow, useDismiss, useInView, useStored } from "../../lib/hooks";
+import { sendsOnEnter, useAutoGrow, useDismiss, useInView, useStored } from "../../lib/hooks";
 import { useNow } from "../../lib/time";
 import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
@@ -555,12 +555,10 @@ function Composer({
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.onKeyDown(e)) return;
-    // Touch keyboards: Enter inserts a newline, the send button sends.
-    const touch = window.matchMedia("(pointer: coarse)").matches;
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
       e.preventDefault();
       askQuestion();
-    } else if (e.key === "Enter" && !e.shiftKey && !touch && !e.nativeEvent.isComposing) {
+    } else if (sendsOnEnter(e)) {
       e.preventDefault();
       void send();
     }

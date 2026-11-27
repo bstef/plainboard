@@ -21,7 +21,7 @@ import { qk, useIdeas } from "../../api/queries";
 import type { Idea, IdeaChange, IdeasData, IdeaTopic } from "../../api/types";
 import { PendingFile } from "../../components/PendingFile";
 import { Button, IconButton, Input, PageHead, Spinner } from "../../components/ui";
-import { useIsDesktop } from "../../lib/hooks";
+import { sendsOnEnter, useIsDesktop } from "../../lib/hooks";
 import { useDraft, useDraftFiles } from "../../lib/drafts";
 import { useShell } from "../layout/shell-context";
 import { IdeaCard, ideaTitle, ReadingLine } from "./IdeaCard";
@@ -67,6 +67,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   const outgoing = useSyncExternalStore(outbox.subscribe, outbox.snapshot);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const [multiline, setMultiline] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
 
@@ -135,6 +136,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
     el.style.height = "auto";
     const line = parseFloat(getComputedStyle(el).lineHeight) || 20;
     el.style.height = `${Math.min(el.scrollHeight, line * 8)}px`;
+    el.style.overflowY = el.scrollHeight > el.clientHeight + 1 ? "auto" : "hidden";
     setMultiline(el.scrollHeight > line * 1.5);
   }, [text]);
   // The field is free again at once (#161): the input is queued and shown until the server has it; the AI reads
@@ -339,7 +341,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                     onChange={(e) => setText(e.target.value)}
                     onPaste={onPaste}
                     onKeyDown={(e) => {
-                      if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                      if (!sendsOnEnter(e)) return;
                       e.preventDefault();
                       submit();
                     }}
@@ -347,13 +349,27 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                     aria-label={t("ideas.placeholder")}
                     placeholder={empty ? t("ideas.placeholderFirst") : t("ideas.placeholder")}
                     className={clsx(
-                      "min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-fg placeholder:text-fg-3 focus:outline-none",
+                      "scroll-thin min-w-0 flex-1 resize-none overflow-y-hidden bg-transparent text-fg placeholder:truncate placeholder:text-fg-3 focus:outline-none",
                       multiline && "my-1",
                     )}
                   />
-                  <span className={clsx("inline-flex items-center gap-1 text-fg-3 max-sm:hidden", multiline && "h-8 touch:h-11")}>
+                  <span className={clsx("inline-flex items-center gap-1 text-fg-3 touch:hidden", multiline && "h-8")}>
                     <CornerDownLeft className="size-3.5" />
                   </span>
+                  <input
+                    ref={picker}
+                    type="file"
+                    multiple
+                    hidden
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      setFiles((cur) => [...cur, ...picked]);
+                      e.target.value = "";
+                    }}
+                  />
+                  <IconButton label={t("ideas.attach")} onClick={() => picker.current?.click()} className="rounded-full! size-8 touch:size-11">
+                    <Paperclip className="size-4" />
+                  </IconButton>
                   <Button type="submit" variant="primary" className="rounded-full!" disabled={!text.trim() && !files.length}>
                     {t("ideas.add")}
                   </Button>
