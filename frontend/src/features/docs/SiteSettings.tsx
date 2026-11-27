@@ -530,7 +530,7 @@ function Domain({ pid, site, isOwner }: { pid: number; site: DocSite; isOwner: b
   const [domain, setDomain] = useState(site.domain ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [verify, setVerify] = useState<{ verified: boolean; detail: string } | null>(null);
+  const [verify, setVerify] = useState<{ verified: boolean; detail: string; hint?: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [cfToken, setCfToken] = useState("");
   const [proxied, setProxied] = useState(true);
@@ -678,8 +678,18 @@ function Domain({ pid, site, isOwner }: { pid: number; site: DocSite; isOwner: b
                   >
                     {t("docs.domain.check")}
                   </Button>
-                  {verify && <span className={verify.verified ? "text-ok" : "text-you-fg"}>{verify.verified ? t("docs.domain.checkOk") : verify.detail || t("docs.domain.checkFailed")}</span>}
+                  {verify?.verified && <span className="text-ok">{t("docs.domain.checkOk")}</span>}
                 </div>
+                {verify && !verify.verified && (
+                  <div className="space-y-1 rounded-sm p-3 ring-1 ring-line ring-inset" role="alert">
+                    <p className="text-you-fg">{verify.detail || t("docs.domain.checkFailed")}</p>
+                    {verify.hint && (
+                      <p className="text-fg-2">
+                        <span className="font-medium text-fg">{t("docs.domain.whatToDo")}</span> {verify.hint}
+                      </p>
+                    )}
+                  </div>
+                )}
               </Step>
             </ol>
           )}

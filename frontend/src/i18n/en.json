@@ -2363,7 +2363,8 @@
       "expect": "Expects",
       "check": "Check now",
       "checkOk": "Verified: the site answers at its domain.",
-      "checkFailed": "Not reachable yet. DNS can take a while; try again in a few minutes."
+      "checkFailed": "Not reachable yet. DNS can take a while; try again in a few minutes.",
+      "whatToDo": "What to do:"
     },
     "look": {
       "section": "Appearance",

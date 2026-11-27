@@ -195,6 +195,53 @@ def test_a_site_at_its_own_domain_is_served_there_only_when_verified(client, pro
     sign_in(client, "admin", ADMIN_PASSWORD)
 
 
+def test_a_failed_domain_check_names_the_real_cause(client, project, monkeypatch):
+    from plainboard.services import docs_domains
+
+    pid = project["id"]
+    s = site(client, pid)
+    client.put(f"/api/projects/{pid}/docs/sites/{s['id']}/domain", json={"domain": "docs.example.com"})
+    answers: dict[str, httpx.Response | Exception] = {}
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        got = answers.get(request.url.scheme, httpx.Response(404, text="nope"))
+        if isinstance(got, Exception):
+            raise got
+        return got
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(docs_domains.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(answer), **kw))
+    resolves = True
+
+    async def fake_resolves(domain: str) -> bool:
+        return resolves
+
+    monkeypatch.setattr(docs_domains, "_resolves", fake_resolves)
+
+    def check() -> dict:
+        out = client.post(f"/api/projects/{pid}/docs/sites/{s['id']}/domain/verify").json()
+        assert out["verified"] is False
+        return out
+
+    # http only redirects (308) to https, where Cloudflare can't do the TLS handshake with the server
+    cf = {"server": "cloudflare", "cf-ray": "8e0f-FRA"}
+    answers["http"] = httpx.Response(308, headers={"location": "https://docs.example.com/.well-known/plainboard-docs"})
+    answers["https"] = httpx.Response(525, text="error code: 525", headers=cf)
+    out = check()
+    assert "525" in out["detail"] and "TLS handshake" in out["detail"] and "308" not in out["detail"]
+    assert "docs.example.com" in out["hint"] and "CNAME to testserver" in out["hint"]
+    answers["https"] = httpx.Response(530, text="error code: 1033", headers=cf)
+    assert "tunnel" in check()["detail"]
+    answers["https"] = httpx.Response(522, text="<html>Connection timed out</html>", headers=cf)
+    assert "522" in check()["detail"]
+    answers["https"] = httpx.Response(404, text="Not Found", headers={"server": "nginx"})
+    out = check()
+    assert "404" in out["detail"] and "not reach this PlainBoard" in out["detail"] and "DNS record points to the PlainBoard server" in out["hint"]
+    answers["https"] = answers["http"] = httpx.ConnectError("[Errno -2] Name or service not known")
+    resolves = False
+    assert "does not resolve" in check()["detail"]
+
+
 def test_cloudflare_creates_the_cname_and_the_token_is_never_shown(client, project, monkeypatch):
     from plainboard.services import docs_domains
 
