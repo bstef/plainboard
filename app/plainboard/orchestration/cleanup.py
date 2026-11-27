@@ -3,9 +3,10 @@
 Disk: it reads how full the agents' volume is (statvfs in the runner, no folder is measured for it),
 every few minutes when it is high or grows fast, else once an hour, and keeps the samples in memory
 for the trend. At the target, or when the forecast crosses it soon, the manager of the project that
-causes it gets a notice with the biggest items and what is safe to delete; he deletes with his tools.
-Nothing of a project goes by itself, except at the emergency level: then what is made again when
-needed, and the manager hears exactly what. Above the target the big shared tool caches are trimmed,
+causes it gets a cleanup run of its own (orchestration/cleanup_run.py: a small model decides on the
+project's candidates, the manager hears the result in his updates without a turn). Nothing of a project
+goes otherwise, except at the emergency level: then what is made again when needed, and the manager
+hears exactly what. Above the target the big shared tool caches are trimmed,
 oldest entries first, and the managers of the projects that use them hear it. Memory: servers nobody opened for long are stopped.
 """
 
@@ -35,6 +36,7 @@ from ..services import settings as settings_service
 from ..services import storage
 from ..services import tool_details
 from . import inbox
+from .cleanup_run import CleanupRuns, Order, need
 from .run_manager import RunManager
 from .runner_client import RunnerError
 
@@ -61,6 +63,7 @@ class CleanupWatcher:
         self._emergency_at: dict[int | None, datetime] = {}
         self._trim_at: dict[int | None, datetime] = {}
         self._details_at: datetime | None = None
+        self.cleanups = CleanupRuns(runs)
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop(), name="cleanup")
@@ -69,6 +72,7 @@ class CleanupWatcher:
         if self._task:
             self._task.cancel()
             await asyncio.gather(self._task, return_exceptions=True)  # its database connection is back before the engine goes
+        await self.cleanups.stop()
 
     async def _loop(self) -> None:
         while True:
@@ -176,6 +180,7 @@ class CleanupWatcher:
         if storage.closes(f, settings, last):
             async with self._sm() as s:
                 await storage.close_last(s, runner_id)
+            self.cleanups.forget()
             return
         reason = storage.notice_due(f, settings, last, now)
         if reason is not None:
@@ -194,21 +199,29 @@ class CleanupWatcher:
                 return
             told = [main.name]
             text = storage.notice_text(reason, f, settings, found, main, why)
-            await self._tell(s, main, f"{before}\n\n{text}" if before else text)
+            await self._clean(s, main, f"{before}\n\n{text}" if before else text, found, f, settings, first=others or bool(before), before=before)
             if others:
                 for project in found.projects:
                     size = storage.freeable(found, project.id)
                     if project.id != main.id and size >= storage.OTHERS_FROM:
-                        await self._tell(s, project, storage.others_text(f, settings, main, size))
+                        await self._clean(s, project, storage.others_text(f, settings, main, size), found, f, settings, first=True)
                         told.append(project.name)
             await storage.remember(s, "storage_notices", storage.notice_record(reason if not before else "emergency", f, now, told, settings, runner_id))
 
-    async def _tell(self, s: AsyncSession, project: Project, text: str) -> None:
-        """Disk space can't wait: the manager gets a turn even where he is not woken for updates."""
+    async def _clean(self, s: AsyncSession, project: Project, text: str, found: storage.Listing, f: storage.Forecast, settings: dict, first: bool, before: str = "") -> None:
+        """A cleanup run of its own decides on the project's candidates; the manager hears the result without a turn.
+        One at a time per project, and none when nothing new can go: then the manager hears it once, also without a turn."""
         manager = await s.scalar(select(Agent).where(Agent.project_id == project.id, Agent.is_manager))
-        if manager is not None:
-            await inbox.push(s, manager.id, text)
-            await self._runs.request_wake(s, manager.id)
+        if manager is None or self.cleanups.running(project.id):
+            return
+        items = self.cleanups.offer(found, project.id)
+        if items:
+            head = f"Disk space: {storage.forecast_text(f, settings)}."
+            self.cleanups.start(Order(project.id, text, items, head, need(f, settings), found.busy))
+        elif first:
+            lines = [f"{before}\n" if before else "", f"Disk space: {storage.forecast_text(f, settings)}. Nothing of your project can go now by the safety rules: no cleanup run."]
+            lines += storage.grouped(found.visible(project.id), project.id, found.busy, ("unsure", "keep"))
+            await inbox.push(s, manager.id, "\n".join(x for x in lines if x))
 
     async def _emergency(self, runner_id: int | None, client: Any, f: storage.Forecast, machine: MachineUsage, settings: dict, now: datetime) -> None:
         """Nearly full: delete what is made again when needed (idle agents' folders only), and say exactly what."""
@@ -242,7 +255,8 @@ class CleanupWatcher:
             await self._notify(runner_id, client, "over", after, machine, settings, now, others=True, before=text)
         elif main is not None:
             async with self._sm() as s:
-                await self._tell(s, main, text)
+                if (manager := await s.scalar(select(Agent).where(Agent.project_id == main.id, Agent.is_manager))) is not None:
+                    await inbox.push(s, manager.id, text)  # done already: nothing for him to do, no turn
                 await storage.remember(s, "storage_notices", storage.notice_record("emergency", after, now, [main.name], settings, runner_id))
 
     async def _trim(self, runner_id: int | None, client: Any, f: storage.Forecast, machine: MachineUsage, settings: dict, now: datetime) -> int:

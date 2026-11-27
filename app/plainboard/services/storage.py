@@ -381,25 +381,34 @@ def busy_names(listing: Listing, project_id: int) -> list[str]:
     return [a.name for a in listing.agents if a.project_id == project_id and a.id in listing.busy]
 
 
+GROUPS = {
+    "safe": "Safe (made again when needed):",
+    "busy": "Busy (a member works there: deleting with force=true makes its next build slower; or ask the member to clean up):",
+    "unsure": "Unsure (may hold someone's work: judge by what it holds and when it last changed; if it is only made again, delete with force=true):",
+    "keep": "Kept (work that is nowhere else, or tools; delete_cleanup won't, not even with force; ask the member to push or drop it):",
+}
+
+
+def grouped(items: list[Item], project_id: int, busy: set[int], safeties: tuple[str, ...] = tuple(GROUPS)) -> list[str]:
+    """Candidates from SMALL up under their safety, the biggest first (list_cleanup, and a cleanup run's prompt)."""
+    lines = []
+    for safety in safeties:
+        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
+        if found:
+            lines.append(GROUPS[safety])
+            lines += [item_line(i, project_id, busy) for i in found[:25]]
+            if len(found) > 25:
+                lines.append(f"- and {len(found) - 25} more, {format_bytes(sum(i.candidate.bytes for i in found[25:]))} together")
+    return lines
+
+
 def tool_listing(listing: Listing, project: Project, f: Forecast | None, settings: dict[str, Any]) -> str:
     """For list_cleanup: the forecast, then what may go by safety, the biggest first."""
     lines = [forecast_text(f, settings) + "." if f else "Disk use not known yet."]
     if names := busy_names(listing, project.id):
         lines.append("Busy now: " + ", ".join(names) + ".")
-    groups = {
-        "safe": "Safe (made again when needed):",
-        "busy": "Busy (a member works there: deleting with force=true makes its next build slower; or ask the member to clean up):",
-        "unsure": "Unsure (may hold someone's work: judge by what it holds and when it last changed; if it is only made again, delete with force=true):",
-        "keep": "Kept (work that is nowhere else, or tools; delete_cleanup won't, not even with force; ask the member to push or drop it):",
-    }
     items = listing.visible(project.id)
-    for safety, title in groups.items():
-        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
-        if found:
-            lines.append(title)
-            lines += [item_line(i, project.id, listing.busy) for i in found[:25]]
-            if len(found) > 25:
-                lines.append(f"- and {len(found) - 25} more, {format_bytes(sum(i.candidate.bytes for i in found[25:]))} together")
+    lines += grouped(items, project.id, listing.busy)
     small = [i for i in items if i.candidate.bytes < SMALL]
     if small:
         lines.append(f"{len(small)} smaller ones, {format_bytes(sum(i.candidate.bytes for i in small))} together, not shown.")
@@ -546,8 +555,8 @@ def overview(settings: dict[str, Any], volume: VolumeUsage | None) -> StorageOut
     )
 
 
-async def delete(session: AsyncSession, runner, project: Project, agent: Agent, paths: list[str], force: bool) -> tuple[CleanupResult, list[str]]:
-    """Delete what one project's manager chose, through the runner; logged as a flow event.
+async def delete(session: AsyncSession, runner, project: Project, agent: Agent, paths: list[str], force: bool, by: str = "") -> tuple[CleanupResult, list[str]]:
+    """Delete what one project's manager (or its cleanup run, ``by``) chose, through the runner; logged as a flow event.
     The second value: paths that are no candidate of this project."""
     found = await listing(session, runner, runner_id=project.runner_id)
     allowed = {i.candidate.path for i in found.visible(project.id)}
@@ -567,11 +576,12 @@ async def delete(session: AsyncSession, runner, project: Project, agent: Agent, 
             agent_id=agent.id,
             level="manager",
             force=force,
+            by=by or agent.name,
             freed=result.freed,
             items=[i.model_dump() for i in result.items[:40]],
             kept=result.skipped[:20],
         )
-        await remember(session, "storage_cleanups", cleanup_service.record("manager", utcnow(), volume.total if volume else 0, volume.free if volume else 0, result, by=agent.name, project=project.name))
+        await remember(session, "storage_cleanups", cleanup_service.record("manager", utcnow(), volume.total if volume else 0, volume.free if volume else 0, result, by=by or agent.name, project=project.name))
     return result, refused
 
 

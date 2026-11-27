@@ -50,6 +50,9 @@ export interface Project {
   idea_provider: string;
   idea_model: string;
   idea_effort: string;
+  /** What cleans up the project's disk space; "" : the manager's provider, its small model. */
+  cleanup_provider: string;
+  cleanup_model: string;
   label_colors: Record<string, string>;
   created_at: string;
 }

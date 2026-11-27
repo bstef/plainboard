@@ -555,6 +555,8 @@ class ProjectUpdate(BaseModel):
     idea_provider: str | None = Field(default=None, max_length=50)  # sorting ideas: "" the same as questions again
     idea_model: str | None = Field(default=None, max_length=100)
     idea_effort: str | None = Field(default=None, max_length=20)
+    cleanup_provider: str | None = Field(default=None, max_length=50)  # cleanup runs: "" the manager's provider again
+    cleanup_model: str | None = Field(default=None, max_length=100)
 
 
 class ProjectAccountsIn(BaseModel):
@@ -594,6 +596,8 @@ class ProjectOut(ORM):
     idea_provider: str = ""
     idea_model: str = ""
     idea_effort: str = ""
+    cleanup_provider: str = ""
+    cleanup_model: str = ""
     label_colors: dict[str, str] = Field(default_factory=dict)
     created_at: UTCDateTime
 
