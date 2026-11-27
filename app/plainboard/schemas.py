@@ -2149,7 +2149,8 @@ class DocDnsOut(BaseModel):
 
 class DocVerifyOut(BaseModel):
     verified: bool
-    detail: str = ""
+    detail: str = ""  # not verified: what the domain answered and what that means
+    hint: str = ""  # what to do about it
     verified_at: UTCDateTime | None = None
 
 

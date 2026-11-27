@@ -146,8 +146,8 @@ async def set_domain(project_id: int, site_id: int, body: DocDomainIn, session: 
 
 
 @router.post("/sites/{site_id}/domain/verify", response_model=DocVerifyOut)
-async def verify_domain(project_id: int, site_id: int, session: Session) -> DocVerifyOut:
-    return await docs_domains.verify(session, await docs_service.get_site(session, project_id, site_id))
+async def verify_domain(project_id: int, site_id: int, session: Session, request: Request) -> DocVerifyOut:
+    return await docs_domains.verify(session, await docs_service.get_site(session, project_id, site_id), target=_target(request))
 
 
 @router.post("/sites/{site_id}/domain/cloudflare", response_model=DocDnsOut)
