@@ -453,18 +453,20 @@ def _hours_left(windows: list[LimitWindow], now: float) -> float:
     return max(1.0, (max(ends, default=now + WEEK_HOURS * HOUR) - now) / HOUR)
 
 
-def _rank(account: Account, windows: list[LimitWindow], size: float = 1.0, now: float | None = None) -> tuple[int, float]:
+def _rank(account: Account, windows: list[LimitWindow], size: float = 1.0, now: float | None = None, model: str | None = None) -> tuple[int, float]:
     """Lower is better: subscriptions with room, the rest of nearly full ones, API keys, used-up
-    subscriptions; within each, the most usage left in absolute terms per hour until it is lost."""
+    subscriptions; within each, the most usage left in absolute terms per hour until it is lost.
+    ``model``: what the turn runs on; a window for other models does not count."""
     if not has_plan(account):
         return 2, 0.0
+    windows = [w for w in windows if limits_service.applies(w, model)]
     utilization = limits_service.fullest(windows)
     room = max(0.0, 1 - utilization) * size
     return (0 if utilization < SWITCH_AT else 1 if utilization < 1 else USED_UP), -room / _hours_left(windows, time.time() if now is None else now)
 
 
-def used_up_now(account: Account, windows: dict[str, list[LimitWindow]]) -> bool:
-    return _rank(account, windows.get(account.key, []))[0] == USED_UP
+def used_up_now(account: Account, windows: dict[str, list[LimitWindow]], model: str | None = None) -> bool:
+    return _rank(account, windows.get(account.key, []), model=model)[0] == USED_UP
 
 
 def plan_sizes(accounts: list[Account], said: dict[str, float]) -> dict[int, float]:
@@ -515,9 +517,9 @@ async def used_up_until(session: AsyncSession, agent: Agent) -> int | None:
     found = await limits_service.windows(session)
     ends = []
     for account in accounts:
-        if not used_up_now(account, found):
+        if not used_up_now(account, found, agent.model):
             return None
-        resets = [w.resets_at for w in found.get(account.key, []) if w.status == "rejected" or w.utilization >= 1]
+        resets = [w.resets_at for w in found.get(account.key, []) if (w.status == "rejected" or w.utilization >= 1) and limits_service.applies(w, agent.model)]
         if not resets or not all(resets):
             return None
         ends.append(max(resets))  # type: ignore[type-var]
@@ -543,9 +545,10 @@ async def pick(
     found = await limits_service.windows(session)
     sizes = plan_sizes(accounts, await limits_service.plan_sizes(session))
     now = time.time()
+    model = model or (agent.model if agent else None)
 
     def rank(account: Account) -> tuple[int, float]:
-        return _rank(account, found.get(account.key, []), sizes.get(account.id, 1.0), now)
+        return _rank(account, found.get(account.key, []), sizes.get(account.id, 1.0), now, model)
 
     best = min(accounts, key=rank)
     last = next((a for a in accounts if conv and a.key == conv.account_key), None)
@@ -585,7 +588,7 @@ async def other_with_room(session: AsyncSession, provider: str, agent: Agent, co
     """Another account for a turn the account ``used_up`` (by key) was turned away on; None if
     there is none that is not used up as well."""
     account = await pick(session, provider, agent, conv, where=where)
-    if account is None or account.key == used_up or used_up_now(account, await limits_service.windows(session)):
+    if account is None or account.key == used_up or used_up_now(account, await limits_service.windows(session), agent.model):
         return None
     return account
 
