@@ -1102,7 +1102,15 @@ class RunManager:
         self._limits_asked = time.monotonic()
         self._limits_task = asyncio.create_task(self._refresh_limits(), name="limits-refresh")
 
-    async def _refresh_limits(self) -> None:
+    async def read_limits_now(self) -> None:
+        """Read the plan limits of every subscription at once, also of those that reported a moment
+        ago: a plan topped up shows only in a new reading (the limit pause ends with it)."""
+        if self._limits_task and not self._limits_task.done():
+            await asyncio.gather(self._limits_task, return_exceptions=True)
+        self._limits_asked = time.monotonic()
+        await self._refresh_limits(force=True)
+
+    async def _refresh_limits(self, force: bool = False) -> None:
         async with self._sm() as s:
             values = await settings_service.get_all(s)
             # An account in use reports its limits with every turn, but not its plan.
@@ -1114,7 +1122,7 @@ class RunManager:
                 for a in await account_service.list_accounts(s)
                 if a.enabled
                 and account_service.has_plan(a)
-                and not (a.key in reported and a.key in (listed if a.provider in account_service.LISTED else planned) and (a.provider not in account_service.LISTED or a.models))
+                and (force or not (a.key in reported and a.key in (listed if a.provider in account_service.LISTED else planned) and (a.provider not in account_service.LISTED or a.models)))
             ]
             found = await asyncio.gather(
                 *(self.runner.limits(a.provider, settings_service.credentials(values, account=account_service.fields(a))) for a in accounts)
@@ -1253,14 +1261,34 @@ class RunManager:
         bus.publish(project.id, "project.updated", project_service.to_out(project))
 
     async def resume_after_limits(self, s: AsyncSession, project: Project) -> None:
-        """A subscription of the project has room again: what waited starts, and its manager is told."""
+        """A subscription of the project has room again: what waited starts, and its manager is told.
+        The turns the pause told to wrap up are no longer being stopped (#181)."""
+        since = project.limit_paused_at
         project.limit_paused_at, project.limit_resumes_at = None, None
         await s.commit()
+        if since is not None and project.paused_at is None and not self.paused:
+            await self._end_limit_stops(s, project.id, since)
         await flow_log.record(s, project.id, "project.limit_resumed")
         bus.publish(project.id, "project.updated", project_service.to_out(project))
         if manager_id := await s.scalar(select(Agent.id).where(Agent.project_id == project.id, Agent.is_manager).limit(1)):
             await inbox.push(s, manager_id, prompts.LIMIT_RESUMED)
         self._wake.set()
+
+    async def _end_limit_stops(self, s: AsyncSession, project_id: int, since: datetime) -> None:
+        """The limit pause is over: the turns it told to wrap up are no longer being stopped, so the UI
+        stops showing them so. One that still runs hears that it may go on."""
+        told = select(Run).join(Agent, Agent.id == Run.agent_id).where(
+            Run.project_id == project_id, Run.stop_requested_at >= since, Run.status != RunStatus.QUEUED, Agent.enabled
+        )
+        for run in list(await s.scalars(told)):
+            if run.status == RunStatus.RUNNING:
+                try:
+                    await self.runners.of(project_id).notify_run(run.id, prompts.LIMIT_PAUSE_OVER)
+                except Exception:
+                    log.exception("Limit pause over: turn %s was not told", run.id)
+            run.stop_requested_at = None
+            await s.commit()
+            bus.publish(project_id, "run.upserted", RunOut.model_validate(run))
 
     async def _rest_jobs(self, s: AsyncSession, agent_id: int | None = None, project_id: int | None = None) -> int:
         """Everything is paused: stop the background jobs of agents that have no turn (of one agent, or

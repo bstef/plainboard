@@ -102,3 +102,45 @@ def test_a_project_that_switched_it_off_never_pauses_before_its_limits(client, p
     assert tick(client) == (0, 1)  # as before: it goes on
     assert tick(client) == (0, 0)
     assert client.get(f"/api/projects/{pid}").json()["limit_paused_at"] is None
+
+
+def test_the_turns_told_to_wrap_up_are_no_longer_stopping_when_the_limit_pause_ends(client, project):
+    pid = project["id"]
+    two_subscriptions(client)
+    make_dev(client, pid)
+    manager = agents_by_slug(client, pid)["manager"]
+    fake = runner(client)
+    chat(client, manager["id"], "TOOL delegate " + json.dumps({"agent": "dev", "title": "Endpoints", "instructions": "HOLD\nSAY API done"}))
+    wait_for(lambda: any(r["status"] == "running" and r["assignment_id"] for r in runs_of(client, pid)))
+    record(client, Claude=0.99, Second=0.96)
+    assert tick(client) == (1, 0)
+    (told,) = [r for r in runs_of(client, pid) if r["status"] == "running" and r["assignment_id"]]
+    assert told["stop_requested_at"]  # the UI shows it as being stopped
+
+    # The plan was topped up: the user asks for a new reading instead of waiting for the next one.
+    fake.limit_windows = [LimitWindow(name="five_hour", utilization=0.2, resets_at=int(time.time()) + 3600)]
+    calls = len(fake.limit_calls)
+    body = client.post(f"/api/projects/{pid}/limit-check").json()
+    assert body["limit_paused_at"] is None and len(fake.limit_calls) > calls  # read at once, also what reported a moment ago
+    run = next(r for r in runs_of(client, pid) if r["id"] == told["id"])
+    assert run["status"] == "running" and run["stop_requested_at"] is None
+    assert any(run_id == told["id"] and "The pause is over" in text for run_id, text in fake.notices)
+    fake.released = True
+    wait_for(lambda: idle(client, pid))
+
+
+def test_writing_in_a_project_paused_for_its_limits_reads_them_again(client, project):
+    pid = project["id"]
+    two_subscriptions(client)
+    manager = agents_by_slug(client, pid)["manager"]
+    fake = runner(client)
+    record(client, Claude=0.99, Second=0.96)
+    assert tick(client) == (1, 0)
+    fake.limit_windows = [LimitWindow(name="five_hour", utilization=0.99, resets_at=int(time.time()) + 3600)]
+    body = client.post(f"/api/projects/{pid}/limit-check").json()
+    assert body["limit_paused_at"]  # still nearly used up
+
+    fake.limit_windows = [LimitWindow(name="five_hour", utilization=0.1, resets_at=int(time.time()) + 3600)]
+    client.portal.call(client.app_ref.state.limit_pause.__setattr__, "_read_at", 0.0)  # a reading long ago
+    chat(client, manager["id"], "SAY ok")
+    wait_for(lambda: client.get(f"/api/projects/{pid}").json()["limit_paused_at"] is None)
