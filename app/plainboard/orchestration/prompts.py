@@ -905,6 +905,7 @@ def limit_paused(until: str) -> str:
     )
 
 
+PAUSE_OVER = "[PlainBoard] The pause is over: the project was resumed. Forget the request to wrap up and go on with your work as usual."
 LIMIT_PAUSE_OVER = (
     "[PlainBoard] The pause is over: a subscription of this project has room again. Forget the request to wrap up and go on with your work as usual."
 )

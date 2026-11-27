@@ -1224,11 +1224,15 @@ class RunManager:
         return await s.scalar(select(Project.paused_at).where(Project.id == project_id)) is not None
 
     async def resume_project(self, s: AsyncSession, project: Project) -> None:
-        """End a project's pause: what waited starts, and open assignments go on with their next turn."""
+        """End a project's pause: what waited starts, and open assignments go on with their next turn.
+        The turns the pause told to wrap up are no longer being stopped (#181)."""
+        since = project.paused_at
         project.paused_at, project.paused_by = None, ""
         await s.commit()
         await flow_log.record(s, project.id, "project.resumed")
         bus.publish(project.id, "project.updated", project_service.to_out(project))
+        if since is not None and project.limit_paused_at is None and not self.paused:
+            await self._end_stops(s, project.id, since, prompts.PAUSE_OVER)
         self._wake.set()
 
     async def pause_for_limits(self, s: AsyncSession, project: Project, until: datetime | None) -> None:
@@ -1267,25 +1271,25 @@ class RunManager:
         project.limit_paused_at, project.limit_resumes_at = None, None
         await s.commit()
         if since is not None and project.paused_at is None and not self.paused:
-            await self._end_limit_stops(s, project.id, since)
+            await self._end_stops(s, project.id, since, prompts.LIMIT_PAUSE_OVER)
         await flow_log.record(s, project.id, "project.limit_resumed")
         bus.publish(project.id, "project.updated", project_service.to_out(project))
         if manager_id := await s.scalar(select(Agent.id).where(Agent.project_id == project.id, Agent.is_manager).limit(1)):
             await inbox.push(s, manager_id, prompts.LIMIT_RESUMED)
         self._wake.set()
 
-    async def _end_limit_stops(self, s: AsyncSession, project_id: int, since: datetime) -> None:
-        """The limit pause is over: the turns it told to wrap up are no longer being stopped, so the UI
-        stops showing them so. One that still runs hears that it may go on."""
+    async def _end_stops(self, s: AsyncSession, project_id: int, since: datetime, notice: str) -> None:
+        """A project's pause is over: the turns it told to wrap up (since it began) are no longer being
+        stopped, so the UI stops showing them so. One that still runs hears ``notice``: it may go on."""
         told = select(Run).join(Agent, Agent.id == Run.agent_id).where(
             Run.project_id == project_id, Run.stop_requested_at >= since, Run.status != RunStatus.QUEUED, Agent.enabled
         )
         for run in list(await s.scalars(told)):
             if run.status == RunStatus.RUNNING:
                 try:
-                    await self.runners.of(project_id).notify_run(run.id, prompts.LIMIT_PAUSE_OVER)
+                    await self.runners.of(project_id).notify_run(run.id, notice)
                 except Exception:
-                    log.exception("Limit pause over: turn %s was not told", run.id)
+                    log.exception("Pause over: turn %s was not told", run.id)
             run.stop_requested_at = None
             await s.commit()
             bus.publish(project_id, "run.upserted", RunOut.model_validate(run))
