@@ -381,25 +381,34 @@ def busy_names(listing: Listing, project_id: int) -> list[str]:
     return [a.name for a in listing.agents if a.project_id == project_id and a.id in listing.busy]
 
 
+GROUPS = {
+    "safe": "Safe (made again when needed):",
+    "busy": "Busy (a member works there: deleting with force=true makes its next build slower; or ask the member to clean up):",
+    "unsure": "Unsure (may hold someone's work: judge by what it holds and when it last changed; if it is only made again, delete with force=true):",
+    "keep": "Kept (work that is nowhere else, or tools; delete_cleanup won't, not even with force; ask the member to push or drop it):",
+}
+
+
+def grouped(items: list[Item], project_id: int, busy: set[int], safeties: tuple[str, ...] = tuple(GROUPS)) -> list[str]:
+    """Candidates from SMALL up under their safety, the biggest first (list_cleanup, and a cleanup run's prompt)."""
+    lines = []
+    for safety in safeties:
+        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
+        if found:
+            lines.append(GROUPS[safety])
+            lines += [item_line(i, project_id, busy) for i in found[:25]]
+            if len(found) > 25:
+                lines.append(f"- and {len(found) - 25} more, {format_bytes(sum(i.candidate.bytes for i in found[25:]))} together")
+    return lines
+
+
 def tool_listing(listing: Listing, project: Project, f: Forecast | None, settings: dict[str, Any]) -> str:
     """For list_cleanup: the forecast, then what may go by safety, the biggest first."""
     lines = [forecast_text(f, settings) + "." if f else "Disk use not known yet."]
     if names := busy_names(listing, project.id):
         lines.append("Busy now: " + ", ".join(names) + ".")
-    groups = {
-        "safe": "Safe (made again when needed):",
-        "busy": "Busy (a member works there: deleting with force=true makes its next build slower; or ask the member to clean up):",
-        "unsure": "Unsure (may hold someone's work: judge by what it holds and when it last changed; if it is only made again, delete with force=true):",
-        "keep": "Kept (work that is nowhere else, or tools; delete_cleanup won't, not even with force; ask the member to push or drop it):",
-    }
     items = listing.visible(project.id)
-    for safety, title in groups.items():
-        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
-        if found:
-            lines.append(title)
-            lines += [item_line(i, project.id, listing.busy) for i in found[:25]]
-            if len(found) > 25:
-                lines.append(f"- and {len(found) - 25} more, {format_bytes(sum(i.candidate.bytes for i in found[25:]))} together")
+    lines += grouped(items, project.id, listing.busy)
     small = [i for i in items if i.candidate.bytes < SMALL]
     if small:
         lines.append(f"{len(small)} smaller ones, {format_bytes(sum(i.candidate.bytes for i in small))} together, not shown.")
@@ -417,52 +426,6 @@ def shared_lines(listing: Listing, project_id: int, count: int) -> list[str]:
         f"Shared, not yours ({format_bytes(sum(i.candidate.bytes for i in found))}; PlainBoard trims the shared tool caches itself above the target, the rest belongs to no single project and stays):",
         *[item_line(i, project_id, listing.busy) for i in found[:count]],
     ]
-
-
-# --- in few words, for a cleanup run (orchestration/cleanup_run.py) ---------------------------------
-
-
-WHAT = {"build": "build", "folder": "removed agent's folder", "workdir": "extra work folder", "cache": "cache", "home": "home folder"}
-GROUPS = {
-    "safe": "safe:",
-    "busy": "busy (force=true; the member's next build is slower):",
-    "unsure": "unsure (may hold work; judge by contents and age; force=true if only made again):",
-    "keep": "keep (never deleted; the member must push or drop it):",
-}
-
-
-def short_line(item: Item, project_id: int, busy: set[int]) -> str:
-    """One candidate in few words, for a cleanup run's prompt: size, path, what, whose and why (its safety is the heading)."""
-    c = item.candidate
-    what = WHAT[c.what]
-    if item.agent is not None and c.what in ("build", "workdir"):
-        what += f" of {item.agent.name}"
-    if c.what in ("home", "cache"):
-        what += f", {'yours' if item.project_id == project_id else 'shared'}" + (f": {item.reason}" if item.reason else "")
-        if c.modified:
-            what += f"; changed {_hours(max(0.0, time.time() - c.modified) / 3600)} ago"
-        if c.entries:
-            what += "; holds " + ", ".join(f"{n} {format_bytes(b)}" for n, b in list(c.entries.items())[:4])
-    state = c.why
-    if c.safety == "busy" and item.agent is not None and item.agent.id in busy:
-        state = f"{item.agent.name} works now"
-    return f"- {format_bytes(c.bytes)} {c.path}: {what}" + (f"; {state}" if state else "")
-
-
-def grouped(items: list[Item], project_id: int, busy: set[int], groups: tuple[str, ...] = tuple(GROUPS), most: int = 25) -> list[str]:
-    """Candidates under their safety, the biggest first; the small ones only counted."""
-    lines = []
-    for safety in groups:
-        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
-        if found:
-            lines.append(GROUPS[safety])
-            lines += [short_line(i, project_id, busy) for i in found[:most]]
-            if len(found) > most:
-                lines.append(f"- {len(found) - most} more, {format_bytes(sum(i.candidate.bytes for i in found[most:]))}")
-    small = [i for i in items if i.candidate.safety in groups and i.candidate.bytes < SMALL]
-    if small:
-        lines.append(f"{len(small)} smaller ones, {format_bytes(sum(i.candidate.bytes for i in small))}, not shown.")
-    return lines
 
 
 def project_sizes(listing: Listing, measures: list[tuple[float, dict[str, int]]]) -> tuple[dict[int | None, int], dict[int | None, int], float | None]:

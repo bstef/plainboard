@@ -211,7 +211,8 @@ def test_a_cleanup_run_of_its_own_decides_and_the_manager_hears_it_without_a_tur
     (spec,) = asked
     assert (spec.provider, spec.model, spec.system_prompt) == ("claude_code", "claude-sonnet-5-5", prompts.CLEANUP_SYSTEM)
     assert spec.prompt.startswith("Disk space: 85 % used") and "free 8.0 GB." in spec.prompt  # to a little below the target
-    assert f"safe:\n- 30.0 GB {target}: build of Manager\n" in spec.prompt and f"- 6.0 GB {workdir}: extra work folder of Manager; uncommitted changes" in spec.prompt
+    assert f"Safe (made again when needed):\n- 30.0 GB {target}: build output of Manager; safe\n" in spec.prompt  # the same lines as list_cleanup
+    assert f"- 6.0 GB {workdir}: extra work folder of Manager; unsure: uncommitted changes" in spec.prompt
     assert kept not in spec.prompt  # kept ones are not even offered
     assert [(d.paths, d.force) for d in fake.deletes] == [([target], False)]  # only what was offered
     (note,) = [t for t in _inbox(client, manager["id"]) if "cleanup run" in t]

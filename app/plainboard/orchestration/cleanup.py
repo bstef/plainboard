@@ -220,7 +220,7 @@ class CleanupWatcher:
             self.cleanups.start(Order(project.id, text, items, head, need(f, settings), found.busy))
         elif first:
             lines = [f"{before}\n" if before else "", f"Disk space: {storage.forecast_text(f, settings)}. Nothing of your project can go now by the safety rules: no cleanup run."]
-            lines += storage.grouped(found.visible(project.id), project.id, found.busy, ("unsure", "keep"), most=3)
+            lines += storage.grouped(found.visible(project.id), project.id, found.busy, ("unsure", "keep"))
             await inbox.push(s, manager.id, "\n".join(x for x in lines if x))
 
     async def _emergency(self, runner_id: int | None, client: Any, f: storage.Forecast, machine: MachineUsage, settings: dict, now: datetime) -> None:

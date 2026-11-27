@@ -149,7 +149,7 @@ class CleanupRuns:
         lines = [order.head]
         if order.need:
             lines.append(f"To get a little below the target: free {format_bytes(order.need)}.")
-        lines += storage.grouped(order.items, order.project_id, order.busy, OFFERED, most=MOST)
+        lines += storage.grouped(order.items, order.project_id, order.busy, OFFERED)
         return "\n".join(lines)
 
     async def _apply(self, s: AsyncSession, order: Order, data: dict, label: str) -> None:
