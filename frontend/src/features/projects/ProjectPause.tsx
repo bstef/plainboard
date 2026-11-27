@@ -6,6 +6,7 @@ import { api } from "../../api/client";
 import { qk } from "../../api/queries";
 import type { Project } from "../../api/types";
 import { ErrorText, Toggle } from "../../components/ui";
+import { whenAhead } from "../../lib/format";
 
 /** Pause or resume one project. Paused, nothing of it starts until a person resumes it here.
  *  The switch flips at once; if the request fails, it flips back and the error is shown. */
@@ -34,7 +35,7 @@ const since = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "me
 function useLimitPause(project: Project): string {
   const { t } = useTranslation();
   if (!project.limit_paused_at) return "";
-  return project.limit_resumes_at ? t("projects.limitPaused", { when: since(project.limit_resumes_at) }) : t("projects.limitPausedUnknown");
+  return project.limit_resumes_at ? t("projects.limitPaused", { when: whenAhead(project.limit_resumes_at) }) : t("projects.limitPausedUnknown");
 }
 
 /** Read the subscriptions' limits now: a plan topped up ends PlainBoard's pause at once, not with its next reading. */

@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAccounts, useLimits } from "../../api/queries";
 import type { AccountLimits, LimitForecast, LimitWindow } from "../../api/types";
-import { timeAgo } from "../../lib/format";
+import { timeAgo, whenAhead } from "../../lib/format";
 import { useDismiss, useInView } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { useUsableAccounts } from "../projects/ProjectAccounts";
@@ -164,7 +164,7 @@ const forecastTone = {
 const forecastHeadline = (t: TFunction, forecast: LimitForecast) =>
   forecast.status === "over"
     ? forecast.runs_out_at
-      ? t("chat.limits.forecast.over", { percent: percent(forecast.projected), when: timeAgo(fromUnix(forecast.runs_out_at)) })
+      ? t("chat.limits.forecast.over", { percent: percent(forecast.projected), when: whenAhead(fromUnix(forecast.runs_out_at)) })
       : t("chat.limits.forecast.reached")
     : t(`chat.limits.forecast.${forecast.status}`, { percent: percent(forecast.projected) });
 
@@ -207,7 +207,7 @@ function LimitRow({ window, forecast }: { window: LimitWindow; forecast?: LimitF
       <div className="mt-1 h-1.5 bg-line">
         <div className={clsx("h-full", bar[tone(window.utilization)])} style={{ width: `${Math.min(percent(window.utilization), 100)}%` }} />
       </div>
-      {window.resets_at && <p className="mt-1 text-fg-3">{t("chat.limits.resets", { when: timeAgo(fromUnix(window.resets_at)) })}</p>}
+      {window.resets_at && <p className="mt-1 text-fg-3">{t("chat.limits.resets", { when: whenAhead(fromUnix(window.resets_at)) })}</p>}
       {forecast && <Forecast forecast={forecast} />}
     </div>
   );
