@@ -438,7 +438,7 @@ async def shut_out(session: AsyncSession, provider: str, agent: Agent) -> str:
     if not accounts or any(a.id in allowed for a in accounts):
         return ""
     return (
-        f"This project may only use some of the installation's subscriptions, and none of them is for {agent.provider}. "
+        f"This project may only use some of the installation's subscriptions, and none of them is for {provider}. "
         "An admin can change that (Project settings, Team, or what the project's owner may use in Settings, Users), or the agent can be given a provider the project has a subscription for."
     )
 

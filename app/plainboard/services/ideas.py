@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..events import bus
 from ..models import Agent, Attachment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Project, SearchDocument, Task, TaskStatus, utcnow
-from ..schemas import AttachmentOut, IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
+from ..schemas import IDEA_TEXT_MAX, AttachmentOut, IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
 from . import board as board_service
 from . import idea_neighbours as neighbours
 from .search import schema as search_schema
@@ -44,7 +44,8 @@ SIMILAR, DUPLICATE, KEPT, SPLIT, CONFLICT, RESOLVED = "similar", "duplicate", "k
 APART = (KEPT, SPLIT, CONFLICT, RESOLVED)
 SORT_TEXT = 600  # what the sorting model reads of an idea
 NEAR_TEXT = 400  # ... of an idea near those it sorts
-MERGE_TEXT = 8000  # what the model reads of an idea it merges with another
+MERGE_TEXT = 8000  # what the model reads of an idea it merges with another; longer ones are merged as written
+READ_TEXT = 12_000  # longer inputs are kept as written, not read: the model would have to write them out again
 MERGE_GROUP = 6  # ideas merged into one at most at a time
 SPLIT_PARTS = 6  # parts an idea is split into at most
 SPLIT_KEEPS = 0.7  # the parts together keep at least this share of the idea's text, else it is not split
@@ -327,10 +328,12 @@ async def create(session: AsyncSession, project_id: int, data: IdeaCreate, autho
 async def receive(session: AsyncSession, project_id: int, text: str, files: list[tuple[str, str, BinaryIO]], author: str) -> Idea:
     """What a person typed, kept at once with its files: waiting to be read (status reading) by the model in the
     background (``orchestration.ideas.Ideas.read_soon``), in the order it came. Files alone become an idea named
-    after them, not read."""
-    text = text.strip()
+    after them, not read; so does a long text (``READ_TEXT``), as written."""
+    text = text.replace("\r\n", "\n").strip()
+    if len(text) > IDEA_TEXT_MAX:
+        raise ServiceError(f"The text is too long: at most {IDEA_TEXT_MAX:,} characters.", 422)
     idea = Idea(project_id=project_id, text=text or ", ".join(name for name, _kind, _data in files), author=author[:100], sort_state=PENDING)
-    idea.status = IdeaStatus.READING if text else IdeaStatus.OPEN
+    idea.status = IdeaStatus.READING if text and len(text) <= READ_TEXT else IdeaStatus.OPEN
     session.add(idea)
     await session.commit()
     for name, kind, data in files:
@@ -526,8 +529,8 @@ async def update_topic(session: AsyncSession, topic: IdeaTopic, data: IdeaTopicI
     return topic
 
 
-async def remove_topic(session: AsyncSession, topic: IdeaTopic) -> None:
-    """Its ideas stay, unsorted."""
+async def remove_topic(session: AsyncSession, topic: IdeaTopic) -> list[Idea]:
+    """Its ideas stay, unsorted (sorted into other topics next). Returns its open ideas."""
     project_id, topic_id = topic.project_id, topic.id
     ideas = list((await session.scalars(select(Idea).where(Idea.topic_id == topic_id))).all())
     for idea in ideas:
@@ -535,7 +538,9 @@ async def remove_topic(session: AsyncSession, topic: IdeaTopic) -> None:
     await session.delete(topic)
     await session.commit()
     bus.publish(project_id, "idea_topic.deleted", {"id": topic_id})
-    await publish(session, project_id, [i for i in ideas if i.status == IdeaStatus.OPEN])
+    left = [i for i in ideas if i.status == IdeaStatus.OPEN]
+    await publish(session, project_id, left)
+    return left
 
 
 async def _drop_empty_topics(session: AsyncSession, project_id: int, snap: Snap | None = None) -> list[int]:
@@ -821,29 +826,40 @@ You sort the ideas of a software project into topics, for a board of ideas, and 
 clear: one idea per card, nothing said twice, contradictions shown. You only sort: you plan and start nothing.
 
 Answer with one JSON object and nothing else:
-{"topics": [{"name": "...", "hint": "..."}],
- "ideas": [{"id": 12, "topic": "...", "merge_with": null, "split": [], "conflict": null, "hint": "...", "unsure": false}]}
+{"topics": [{"name": "...", "hint": "...", "ideas": [12, 15]}],
+ "rename": [{"topic": "...", "name": "..."}],
+ "ideas": [{"id": 12, "merge_with": null, "split": [], "conflict": null, "hint": "...", "question": null}],
+ "unsure": false}
 
-- "ideas": one entry for every idea under "Sort these", by its id.
-- "topic": the name of an existing topic if the idea fits it (exactly as written), else a new one: one to \
-three words, in the language of the ideas.
-- "merge_with": the id of another idea that says substantially the same, or that this one only adds to or \
+- "topics": every idea under "Sort these" in exactly one topic, by id; never leave one without a topic. An \
+existing topic if it fits (its name exactly as written), else a new one: one to three words, in the language of \
+the ideas. A short hint per topic, e.g. "3 ideas about payment". You may also move ideas already sorted to a \
+better topic, as many at once as needed, by listing their ids there.
+- "rename" (optional, else []): existing topics to rename. A topic renamed to the name of another existing one \
+is merged into it.
+- "ideas": only ideas with something more to say, else leave them out:
+  - "merge_with": the id of another idea that says substantially the same, or that this one only adds to or \
 details, so that both belong in one idea. They are then merged into one, nothing of either is lost. Not for \
 ideas that only touch the same area: those share a topic. Else null.
-- "split": only if the idea holds several independent ideas, each of which could be planned on its own: its \
+  - "split": only if the idea holds several independent ideas, each of which could be planned on its own: its \
 parts, [{"title": "...", "text": "..."}], with every word of the idea in one of them, as written. The first \
 part stays this idea. Else [].
-- "conflict": if the idea contradicts another one (they want opposite things, both cannot be built as they \
+  - "conflict": if the idea contradicts another one (they want opposite things, both cannot be built as they \
 are): {"with": 5, "question": "..."}, a short question to the person about what they want, in the language \
 of the ideas. The person decides; never merge such ideas. Else null.
-- "hint": a few words for the person, only where there is something to say, e.g. an open point. Else "".
-- "unsure": true if the idea fits no topic well or the topics should be rearranged.
-- "question": rarely, only if an idea is so unclear that it can neither be sorted nor later planned: \
+  - "hint": a few words for the person, only where there is something to say, e.g. an open point. Else "".
+  - "question": rarely, only if an idea is so unclear that it can neither be sorted nor later planned: \
 {"question": "...", "options": [{"label": "...", "description": "..."}]}, 2-4 options, the recommended \
 first. At most one question per answer.
-- "topics": every topic you used, with a short hint about it, e.g. "3 ideas about payment".
+- "unsure": true if ideas fit no topic well or the topics should be rearranged.
 - Ids: only ids from this message.
 """
+
+
+def unsorted(ideas: list[Idea]) -> list[Idea]:
+    """Open ideas still to be sorted: new or changed ones (pending), and those left without a topic or unsorted
+    (sorting failed, the model gave none, their topic was removed); not one a person took out of its topic."""
+    return [i for i in ideas if i.sort_state == PENDING or (not i.topic_manual and (i.sort_state == FAILED or i.topic_id is None))]
 
 
 def sort_prompt(project: Project, existing: list[IdeaTopic], others: list[Idea], batch: list[Idea], *, total: int | None = None) -> str:
@@ -883,15 +899,23 @@ async def sort_failed(session: AsyncSession, project_id: int, ids: list[int]) ->
 
 
 async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], data: dict[str, Any]) -> tuple[int, bool]:
-    """Store what the model answered for the ideas ``ids``: topics, ideas to merge (``merge_request`` merges
-    them), conflicts (a question to the person, both marked), splits (each an undoable change). What it got wrong
-    is left out: an idea it did not sort stays unsorted (failed), a link to an id it made up is not made, an
-    idea a person placed keeps its topic. Returns how many it sorted and whether it was unsure."""
+    """Store what the model answered for the ideas ``ids``: topics (by groups of ideas, or per idea as earlier
+    prompts asked), ideas to merge (``merge_request`` merges them), conflicts (a question to the person, both
+    marked), splits (each an undoable change). Renamed or merged topics and ideas already sorted that it moved are
+    one undoable change of kind reorder. What it got wrong is left out: an idea it gave no topic stays unsorted
+    (failed, sorted again next time), a link to an id it made up is not made, an idea a person placed keeps its
+    topic. Returns how many it sorted and whether it was unsure."""
     batch = {i.id: i for i in (await session.scalars(select(Idea).where(Idea.id.in_(ids), Idea.status == IdeaStatus.OPEN))).all()}
-    valid = set((await session.scalars(select(Idea.id).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN))).all())
-    by_name = {t.name.casefold(): t for t in await topics(session, project_id)}
+    others = {i.id: i for i in await open_ideas(session, project_id) if i.id not in batch}
+    valid = set(batch) | set(others)
+    existing = await topics(session, project_id)
+    old_names = {t.id: t.name for t in existing}
+    by_name = {t.name.casefold(): t for t in existing}
     touched: dict[int, IdeaTopic] = {}
     unsure, asked = False, False
+    snap = Snap()  # what it rearranged besides sorting: renamed and merged topics, ideas moved
+    renamed: list[dict[str, Any]] = []
+    moved: list[dict[str, Any]] = []
 
     async def topic_named(name: str) -> IdeaTopic:
         topic = by_name.get(name.casefold())
@@ -900,58 +924,117 @@ async def apply_sort(session: AsyncSession, project_id: int, ids: list[int], dat
             session.add(topic)
             await session.flush()
             by_name[name.casefold()] = topic
+            snap.new_topics.append(topic.id)
         return topic
 
+    def move(idea: Idea, topic: IdeaTopic) -> None:
+        if idea.topic_manual or idea.topic_id == topic.id:
+            return
+        if idea.id in others:
+            snap.idea(idea)
+            moved.append({"idea_id": idea.id, "title": idea.title or truncate(idea.text, 60), "from": old_names.get(idea.topic_id), "to": topic.name})
+        idea.topic_id = topic.id
+        touched[topic.id] = topic
+
+    every = {**others, **batch}
+    renames = data.get("rename")
+    for item in renames if isinstance(renames, list) else []:
+        if not isinstance(item, dict) or (old := by_name.get(_str(item.get("topic"), 100).casefold())) is None or old.manual:
+            continue
+        name = _str(item.get("name"), 100)
+        if not name or name == old.name:
+            continue
+        into = by_name.get(name.casefold())
+        if into is not None and into.id != old.id:  # merged into the other one
+            for idea in [i for i in every.values() if i.topic_id == old.id]:
+                move(idea, into)
+            continue
+        snap.topic(old)
+        renamed.append({"topic_id": old.id, "from": old.name, "to": name})
+        del by_name[old.name.casefold()]
+        old.name = name
+        by_name[name.casefold()] = old
+        touched[old.id] = old
+
     done: set[int] = set()
+    placed: set[int] = set()
+    groups = data.get("topics")
+    for group in groups if isinstance(groups, list) else []:
+        if not isinstance(group, dict) or not (name := _str(group.get("name"), 100)):
+            continue
+        members = [i for i in dict.fromkeys(_ints(group.get("ideas"))) if i in valid and i not in placed]
+        if members:
+            topic = await topic_named(name)
+            for idea_id in members:
+                placed.add(idea_id)
+                move(every[idea_id], topic)
+    items = data.get("ideas")
+    items = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    for item in items:  # earlier prompts: the topic per idea
+        if (idea := batch.get(_int(item.get("id")) or -1)) is not None and idea.id not in placed and (name := _str(item.get("topic"), 100)):
+            placed.add(idea.id)
+            move(idea, await topic_named(name))
+
     splits: list[tuple[Idea, list[tuple[str, str]]]] = []
     conflicts: list[tuple[Idea, int, str]] = []
-    items = data.get("ideas")
-    for item in items if isinstance(items, list) else []:
-        if not isinstance(item, dict) or (idea := batch.get(_int(item.get("id")) or -1)) is None or idea.id in done:
+    for item in items:
+        if (idea := batch.get(_int(item.get("id")) or -1)) is None or idea.id in done:
             continue
         done.add(idea.id)
-        name = _str(item.get("topic"), 100)
-        if name and not idea.topic_manual:
-            topic = await topic_named(name)
-            idea.topic_id = topic.id
-            touched[topic.id] = topic
         idea.hint = _str(item.get("hint"), 300)
-        idea.sort_state = SORTED
         unsure = unsure or item.get("unsure") is True
         question = item.get("question")
         if not asked and not idea.question_status and isinstance(question, dict) and (text := _str(question.get("question"), 500)) and (options := _options(question.get("options"))):
             idea.question, idea.question_options, idea.question_status, idea.question_at = text, options, QUESTION_OPEN, utcnow()
             asked = True
-        await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id, IdeaLink.kind.in_((SIMILAR, DUPLICATE))))
         conflict = item.get("conflict")
         against = _int(conflict.get("with")) if isinstance(conflict, dict) else None
         if against in valid and against != idea.id:
             conflicts.append((idea, against, _str(conflict.get("question"), 500)))
         merge = _int(item.get("merge_with")) or _int(item.get("duplicate_of"))  # duplicate_of: what earlier prompts asked for
+        await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id, IdeaLink.kind.in_((SIMILAR, DUPLICATE))))
         if merge in valid and merge not in (idea.id, against) and frozenset((idea.id, merge)) not in await _kept_apart(session, [idea.id]):
             session.add(IdeaLink(project_id=project_id, idea_id=idea.id, other_id=merge, kind=DUPLICATE))
         if len(parts := _parts(item.get("split"))) >= 2:
             splits.append((idea, parts))
+    unsure = unsure or data.get("unsure") is True
+    sorted_ids: set[int] = set()
+    for idea in batch.values():
+        if idea.id in placed or (idea.id in done and idea.topic_manual):
+            idea.sort_state = SORTED
+            sorted_ids.add(idea.id)
+            if idea.id not in done:  # sorted without more to say: its old marks go
+                idea.hint = ""
+                await session.execute(delete(IdeaLink).where(IdeaLink.idea_id == idea.id, IdeaLink.kind.in_((SIMILAR, DUPLICATE))))
+        else:
+            idea.sort_state = FAILED  # no topic from the model: sorted again next time
     for idea, other, question in conflicts:
         await _conflict(session, project_id, idea, other, question)
     split_changes = [c for idea, parts in splits if (c := await _split(session, project_id, idea, parts)) is not None]
-    for idea in batch.values():
-        if idea.id not in done and idea.sort_state == PENDING:
-            idea.sort_state = FAILED
-    named = data.get("topics")
-    for item in named if isinstance(named, list) else []:
+    for item in groups if isinstance(groups, list) else []:
         if isinstance(item, dict) and (topic := by_name.get(_str(item.get("name"), 100).casefold())) is not None and isinstance(item.get("hint"), str):
             topic.hint = _str(item["hint"], 300)
             touched[topic.id] = topic
+    await session.flush()
+    gone: list[int] = []
+    change = None
+    if renamed or moved:
+        gone = await _drop_empty_topics(session, project_id, snap)
+        removed = [{"topic_id": t, "name": old_names[t], "into": sorted({m["to"] for m in moved if m["from"] == old_names[t]})} for t in gone if t in old_names]
+        summary = {"renamed": renamed, "created": [], "removed": removed, "moved": moved, "ideas": sorted(m["idea_id"] for m in moved)}
+        change = _record(session, project_id, "reorder", "auto", "", summary, snap)
     await session.commit()
+    for topic_id in gone:
+        bus.publish(project_id, "idea_topic.deleted", {"id": topic_id})
     for topic in touched.values():
-        publish_topic(topic)
+        if topic.id not in gone:
+            publish_topic(topic)
     parts = [i for c in split_changes for i in c.summary["created"]]
-    await publish(session, project_id, list(batch.values()) + list((await session.scalars(select(Idea).where(Idea.id.in_(parts)))).all()))
-    await _publish_linked(session, project_id, list(done))
-    for change in split_changes:
-        await _publish_change(session, change)
-    return len(done), unsure
+    await publish(session, project_id, list(batch.values()) + [others[m["idea_id"]] for m in moved] + list((await session.scalars(select(Idea).where(Idea.id.in_(parts)))).all()))
+    await _publish_linked(session, project_id, list(batch))
+    for c in [*split_changes, *([change] if change else [])]:
+        await _publish_change(session, c)
+    return len(sorted_ids), unsure
 
 
 def _parts(value: Any) -> list[tuple[str, str]]:
@@ -1259,6 +1342,15 @@ async def merge_request(session: AsyncSession, project: Project, ids: list[int])
     if fixed := await _fixed(session, ideas):
         parts.append(f"A person wrote or placed {', '.join(f'i{i.id}' for i in fixed)} by hand: do not merge, ask first.")
     return "\n\n".join(parts), {i.id: (i.title, i.text) for i in ideas}
+
+
+def merged_as_written(seen: dict[int, tuple[str, str]]) -> dict[str, str] | None:
+    """Ideas too long for the model to write out again (``MERGE_TEXT``): merged without it, their texts one after
+    the other under the oldest one's title. None if the model can merge them."""
+    if all(len(text) <= MERGE_TEXT for _title, text in seen.values()):
+        return None
+    first = min(seen)
+    return {"title": seen[first][0], "text": "\n\n".join(seen[i][1] for i in sorted(seen))}
 
 
 async def apply_merge(session: AsyncSession, project_id: int, seen: dict[int, tuple[str, str]], data: dict[str, Any] | None) -> IdeaChange | None:

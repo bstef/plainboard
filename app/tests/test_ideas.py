@@ -902,3 +902,126 @@ def test_the_files_of_an_input_go_where_it_was_read_into_and_a_waiting_input_is_
     client.app_ref.state.runs.ideas.read_soon = reading
     answer(client, intent=[json.dumps({"action": "new", "ideas": [{"title": "Restart", "text": "after a restart"}]})])
     assert read(client, pid, waiting)["kind"] == "new"
+
+
+def test_ideas_left_unsorted_are_sorted_again_once_more_than_one_is_left(client, project):
+    """#171: no idea stays under "no topic": failed or topicless ones go along with the next sorting, and more
+    than one of them is sorted again on its own (once per set: a broken model is not asked again and again)."""
+    pid = project["id"]
+    answer(client, sort=["Sorry", json.dumps({"topics": [{"name": "App", "ideas": []}]})])  # no topic for it: unsorted too
+    one = add(client, pid, "Dark mode")
+    settled(client, pid)
+    two = add(client, pid, "Light mode")
+    data = by_id(settled(client, pid))
+    assert all(data[i["id"]]["sort_state"] == "failed" and data[i["id"]]["topic_id"] is None for i in (one, two))
+
+    asked = answer(client, sort=[sort_all])
+    settled(client, pid)
+    assert asked["sort"] == []  # just these were tried: not again on every look at the board
+    client.app_ref.state.runs.ideas._tried.clear()  # e.g. a restart: looking at the board sorts them
+    ideas_of(client, pid)
+    wait_for(lambda: len(asked["sort"]) == 1 and not ideas_of(client, pid)["sorting"])
+    assert sorted(ids_in(asked["sort"][0], "Sort these:")) == sorted([one["id"], two["id"]])
+    data = by_id(ideas_of(client, pid))
+    assert all(i["sort_state"] == "sorted" and i["topic_id"] is not None for i in data.values())
+
+    # A removed topic: its ideas are sorted into others.
+    (topic,) = ideas_of(client, pid)["topics"]
+    asked = answer(client, sort=[lambda spec: json.dumps({"topics": [{"name": "Look", "ideas": ids_in(spec, "Sort these:")}]})])
+    assert client.delete(f"/api/projects/{pid}/ideas/topics/{topic['id']}").status_code == 204
+    wait_for(lambda: len(asked["sort"]) == 1 and not ideas_of(client, pid)["sorting"])
+    data = ideas_of(client, pid)
+    assert [t["name"] for t in data["topics"]] == ["Look"] and all(i["topic_id"] == data["topics"][0]["id"] for i in data["ideas"])
+
+    # Failing again: tried once, not on every look at the board.
+    asked = answer(client, fail=True)
+    client.delete(f"/api/projects/{pid}/ideas/topics/{data['topics'][0]['id']}")
+    wait_for(lambda: len(asked["sort"]) == 1 and not ideas_of(client, pid)["sorting"])
+    settled(client, pid)
+    assert len(asked["sort"]) == 1
+
+
+def test_the_sorting_model_moves_renames_and_merges_topics_in_one_answer_undone_as_one(client, project):
+    """#171: the sorting answer groups ideas by topic and may move ideas already sorted, rename and merge topics:
+    many at once, one undoable change."""
+    pid = project["id"]
+    names = board(client, pid, {"Pay": ["Card", "PayPal"], "Misc": ["Login", "Chat"]})
+    login, chat = ({"id": i["id"]} for i in ideas_of(client, pid)["ideas"] if i["text"] in ("Login", "Chat"))
+
+    def regroup(spec) -> str:
+        (new,) = ids_in(spec, "Sort these:")
+        return json.dumps(
+            {
+                "rename": [{"topic": "Pay", "name": "Payment"}, {"topic": "Misc", "name": "Accounts"}, {"topic": "Nope", "name": "X"}],
+                "topics": [{"name": "Accounts", "hint": "2 ideas", "ideas": [new, login["id"]]}, {"name": "Talk", "ideas": [chat["id"], 999]}],
+                "ideas": [{"id": new, "hint": "which one?"}],
+            }
+        )
+
+    answer(client, sort=[regroup])
+    google = add(client, pid, "Google login")
+    data = settled(client, pid)
+    topics = {t["id"]: t for t in data["topics"]}
+    ideas = by_id(data)
+    assert {t["name"] for t in topics.values()} == {"Payment", "Accounts", "Talk"} and names["Pay"] in topics and names["Misc"] in topics
+    assert topics[ideas[google["id"]]["topic_id"]]["name"] == "Accounts" and ideas[google["id"]]["hint"] == "which one?"
+    assert topics[ideas[login["id"]]["topic_id"]]["name"] == "Accounts" and topics[ideas[chat["id"]]["topic_id"]]["name"] == "Talk"
+    assert topics[names["Misc"]]["hint"] == "2 ideas"
+    (change,) = [c for c in client.get(f"/api/projects/{pid}/ideas/changes").json() if c["kind"] == "reorder"]
+    assert change["source"] == "auto" and {r["to"] for r in change["summary"]["renamed"]} == {"Payment", "Accounts"}
+    assert [m["idea_id"] for m in change["summary"]["moved"]] == [chat["id"]]
+
+    assert client.post(f"/api/projects/{pid}/ideas/changes/{change['id']}/undo").status_code == 200
+    data = ideas_of(client, pid)
+    topics = {t["id"]: t["name"] for t in data["topics"]}
+    assert topics[names["Pay"]] == "Pay" and topics[names["Misc"]] == "Misc" and by_id(data)[chat["id"]]["topic_id"] == names["Misc"]
+
+    # Renamed to an existing one: merged into it, the emptied topic is gone.
+    answer(client, sort=[lambda spec: json.dumps({"rename": [{"topic": "Misc", "name": "Pay"}], "topics": [{"name": "Pay", "ideas": ids_in(spec, "Sort these:")}]})])
+    add(client, pid, "Invoices")
+    data = settled(client, pid)
+    assert [t["name"] for t in data["topics"] if t["name"] in ("Pay", "Misc")] == ["Pay"]
+    assert {i["topic_id"] for i in data["ideas"]} == {names["Pay"]} | ({by_id(data)[google["id"]]["topic_id"]} - {None})
+
+
+def test_a_long_pasted_text_is_kept_as_written_and_too_long_a_text_says_so(client, project):
+    """#171: line breaks come as two characters each from a form; a long text is not rewritten by the reading
+    model, but kept as written and sorted; one past the limit gets a clear error."""
+    from plainboard.schemas import IDEA_TEXT_MAX
+
+    pid = project["id"]
+    asked = answer(client, sort=[sort_all])
+    long = "\r\n".join(f"Line {n}: the board should keep every word of a long note" for n in range(400))  # ~22,000 characters
+    kept = send(client, pid, long)
+    assert kept["status"] == "open" and kept["text"] == long.replace("\r\n", "\n")
+    data = settled(client, pid)
+    assert asked["intent"] == [] and data["ideas"][0]["sort_state"] == "sorted"
+    resp = client.post(f"/api/projects/{pid}/ideas/input", data={"text": "x" * (IDEA_TEXT_MAX + 1)})
+    assert resp.status_code == 422 and "at most 100,000 characters" in resp.text
+
+    # Merged with another one: too long for the model to write out again, so their texts go one after the other.
+    def duplicate(spec) -> str:
+        (new,) = ids_in(spec, "Sort these:")
+        return json.dumps({"topics": [{"name": "App", "ideas": [new]}], "ideas": [{"id": new, "merge_with": kept["id"]}]})
+
+    asked = answer(client, sort=[duplicate, sort_all])
+    add(client, pid, "Keep long notes")
+    wait_for(lambda: len(ideas_of(client, pid)["ideas"]) == 1)
+    data = settled(client, pid)
+    assert asked["merge"] == []
+    (idea,) = data["ideas"]
+    assert idea["id"] == kept["id"] and idea["text"] == long.replace("\r\n", "\n") + "\n\nKeep long notes"
+
+
+def test_the_idea_model_uses_the_managers_provider_where_the_project_may_not_use_its_own(client, project):
+    """#171: an idea model the project has no subscription for broke every sorting; then the manager's provider
+    sorts with its small model."""
+    pid = project["id"]
+    claude = next(a for a in client.get("/api/accounts").json() if a["provider"] == "claude_code")
+    client.post("/api/accounts", json={"provider": "codex", "label": "Team", "auth_mode": "chatgpt"})
+    assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": [claude["id"]]}).status_code == 200
+    client.patch(f"/api/projects/{pid}", json={"idea_provider": "codex", "idea_model": "gpt-6-luna"})
+    asked = answer(client, sort=[sort_all])
+    add(client, pid, "Dark mode")
+    (idea,) = settled(client, pid)["ideas"]
+    assert idea["sort_state"] == "sorted" and (asked["sort"][0].provider, asked["sort"][0].model) == ("claude_code", "claude-haiku-5-5")

@@ -1592,7 +1592,7 @@ class FlowTicketBranch(BaseModel):
 
 # --- ideas (services/ideas.py, orchestration/ideas.py) -----------------------------------------
 
-IDEA_TEXT_MAX = 10000
+IDEA_TEXT_MAX = 100_000  # the ideas field says so when a paste is longer (frontend: IDEA_TEXT_MAX)
 
 
 class IdeaCreate(BaseModel):

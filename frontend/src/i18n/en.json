@@ -1801,6 +1801,7 @@
     "placeholderFirst": "What comes to mind?",
     "attach": "Add pictures or files",
     "add": "Add",
+    "tooLong": "An idea holds at most {{max}} characters: the rest of what you pasted was cut off.",
     "readingInput": "the AI reads it…",
     "readingInputs_one": "The AI reads {{count}} input…",
     "readingInputs_other": "The AI reads {{count}} inputs one after the other…",
