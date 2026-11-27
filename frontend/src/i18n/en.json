@@ -210,7 +210,7 @@
     "resume": "Resume",
     "limitPause": "Pause before the subscriptions run out",
     "limitPauseHint": "When every subscription this project may use is nearly used up, no new turn starts, running ones wrap up and open work waits. It goes on by itself as soon as one has room again. Not with an API key or an endpoint, which have no plan limit.",
-    "limitPaused": "Paused by PlainBoard: every subscription of this project is nearly used up. It goes on by itself around {{when}}; open work stays open.",
+    "limitPaused": "Paused by PlainBoard: every subscription of this project is nearly used up. It should go on by itself {{when}}; open work stays open.",
     "limitCheck": "Check again",
     "limitChecking": "Checking…",
     "limitStill": "Checked just now: still nearly used up.",
@@ -1559,7 +1559,7 @@
     "growing": "growing {{rate}}/h",
     "notGrowing": "not growing",
     "trendUnknown": "trend not known yet",
-    "eta": "{{what}} in about {{time}}",
+    "eta": "{{what}} in about {{time}} ({{at}})",
     "full": "full",
     "notices": "Notices to managers",
     "notice": {
