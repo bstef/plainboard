@@ -654,6 +654,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PLAINBOARD_JOB_WATCH_INTERVAL_SECONDS", "3600")
     monkeypatch.setenv("PLAINBOARD_LANDING_INTERVAL_SECONDS", "3600")
     monkeypatch.setenv("PLAINBOARD_LANDING_LINGER_SECONDS", "0")
+    monkeypatch.setenv("PLAINBOARD_LANDING_QUICK_SECONDS", "0")  # tests look with app.state.landing.tick / look
     monkeypatch.setenv("PLAINBOARD_SEARCH_INTERVAL_SECONDS", "3600")  # tests index with app.state.search.tick
     monkeypatch.setenv("PLAINBOARD_DOCS_INTERVAL_SECONDS", "3600")  # tests look with app.state.docs_watcher.tick
     monkeypatch.setenv("PLAINBOARD_LIMIT_PAUSE_INTERVAL_SECONDS", "3600")  # tests look with app.state.limit_pause.tick

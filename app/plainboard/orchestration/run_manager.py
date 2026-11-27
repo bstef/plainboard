@@ -217,6 +217,7 @@ class RunManager:
         from .ideas import Ideas
 
         self.ideas = Ideas(self)  # sorting ideas and planning tickets from them: no queue, no tools
+        self.wake_landing: Callable[[int], None] = lambda repository_id: None  # the landing watcher's wake (main.py)
         self._uploads: dict[int, set[str]] = {}  # external runner -> attachment files it has
         self._copying: dict[tuple[int, int], asyncio.Task[None]] = {}  # (runner, project) -> attachments being copied in the background
         self._seen: dict[int, float] = {}  # runner id -> when its last_seen_at was last written (monotonic)
