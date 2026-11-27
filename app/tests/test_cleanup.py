@@ -121,8 +121,8 @@ def test_at_the_target_without_a_usable_cleanup_run_the_manager_is_told_once_wit
     prompt = _told(fake, "Disk space")[0]
     assert "Clean up now." in prompt and "Workspaces: Manager 40.0 GB." in prompt
     assert "No cleanup run: the cleanup model claude-haiku-5-5 (Claude) could not be used: its answer held no JSON." in prompt  # the fake answers no JSON
-    assert f"- 30.0 GB /workspaces/{slug}/manager/repo/target: build of Manager; busy\n" in prompt
-    assert "Shared, not yours (47.0 GB; PlainBoard trims the shared tool caches, the rest stays)" in prompt and "admin" not in prompt
+    assert f"- 30.0 GB /workspaces/{slug}/manager/repo/target: build output of Manager; busy\n" in prompt
+    assert "Shared, not yours (47.0 GB; PlainBoard trims the shared tool caches itself" in prompt and "admin" not in prompt
     assert "- 21.0 GB /home/agent/.cache/sccache: cache, shared: sccache's shared cache, PlainBoard trims it itself; safe" in prompt
     assert "26.0 GB /home/agent/fw-jobs: home folder, shared; unsure: fw-jobs/run.log is not in a clone" in prompt
     view = client.get("/api/usage").json()["storage"]
@@ -263,8 +263,8 @@ def test_the_manager_lists_and_deletes_only_his_projects_data_by_the_safety_rule
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "\n".join(calls)}).status_code == 202
     wait_for(lambda: idle(client, pid) and len(_results(client, manager["id"])) >= 3)
     listed, first, forced = _results(client, manager["id"])[-3:]
-    assert "safe:\n- 5.0 GB " + safe in listed and "keep (never deleted; the member must push or drop it):\n- 2.0 GB " + kept in listed
-    assert f"- 6.0 GB {workdir}: extra work folder of Manager; Manager works now" in listed
+    assert "Safe (made again when needed):\n- 5.0 GB " + safe in listed and "Kept (work that is nowhere else, or tools; delete_cleanup won't" in listed
+    assert f"- 6.0 GB {workdir}: extra work folder of Manager; busy: Manager works now" in listed
     assert theirs not in listed  # another project's data is not even shown
     assert "Shared, not yours (4.0 GB;" in listed and "- 4.0 GB /home/agent/scratch: home folder, shared; safe" in listed
     assert first.startswith("Deleted 5.0 GB: " + safe) and f"{busy}: busy" in first and f"{kept}: keep" in first
@@ -333,7 +333,7 @@ def test_the_manager_deletes_a_cache_of_his_project_and_another_manager_cannot(c
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": call}).status_code == 202
     wait_for(lambda: idle(client, pid) and len(_results(client, manager["id"])) >= 2)
     listed, deleted = _results(client, manager["id"])[-2:]
-    assert f"safe:\n- 37.0 GB {cache}: cache, yours: its name; changed 2 h ago; holds set1 30.0 GB, set2 7.0 GB" in listed
+    assert f"- 37.0 GB {cache}: cache, yours: its name; safe (last changed 2 h ago; holds set1 30.0 GB, set2 7.0 GB)" in listed
     assert deleted.startswith(f"Deleted 37.0 GB: {cache}")
 
 
