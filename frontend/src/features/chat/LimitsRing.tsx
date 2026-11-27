@@ -77,7 +77,7 @@ function LimitLine({ account }: { account: AccountLimits }) {
   const week = weeks.length ? weeks.reduce((a, b) => (b.utilization > a.utilization ? b : a)) : undefined;
   const forecast = week && account.forecasts.find((f) => f.name === week.name);
   const risk = account.forecasts.some((f) => f.status === "over") || account.windows.some((w) => w.utilization >= 1);
-  const name = (w: LimitWindow) => t(`chat.limits.${w.name}`, { defaultValue: w.name });
+  const name = (w: LimitWindow) => limitName(t, w.name);
   return (
     <div className="grid h-9 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 border-b border-line px-2.5" title={forecast ? forecastHeadline(t, forecast) : undefined}>
       <span className={clsx("flex min-w-0 items-center gap-1.5", risk && "text-you-fg")}>
@@ -180,12 +180,23 @@ function Forecast({ forecast }: { forecast: LimitForecast }) {
   );
 }
 
+/** A plan limit's window by name: a known one translated, one only known by its length (Codex: `codex_43200_min`)
+ * by that length, else the name as it came. */
+function limitName(t: TFunction, name: string): string {
+  const minutes = Number(/_(\d+)_min$/.exec(name)?.[1]);
+  if (!minutes) return t(`chat.limits.${name}`, { defaultValue: name });
+  if (minutes === 10080) return t("chat.limits.seven_day");
+  if (minutes % 1440 === 0) return t("chat.limits.days", { count: minutes / 1440 });
+  if (minutes % 60 === 0) return t("chat.limits.hours", { count: minutes / 60 });
+  return t("chat.limits.minutes", { count: minutes });
+}
+
 function LimitRow({ window, forecast }: { window: LimitWindow; forecast?: LimitForecast }) {
   const { t } = useTranslation();
   return (
     <div>
       <div className="flex justify-between gap-2 font-medium">
-        <span>{t(`chat.limits.${window.name}`, { defaultValue: window.name })}</span>
+        <span>{limitName(t, window.name)}</span>
         <span>{percent(window.utilization)}%</span>
       </div>
       <div className="mt-1 h-1.5 bg-line">

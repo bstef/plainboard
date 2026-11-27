@@ -1,4 +1,9 @@
 {
+  "app": {
+    "crashed": "Something went wrong while showing this page",
+    "updated": "PlainBoard was updated: reload to get the new version",
+    "reload": "Reload"
+  },
   "common": {
     "cancel": "Cancel",
     "copy": "Copy",
@@ -469,6 +474,12 @@
       "seven_day_overage_included": "Weekly limit (included models)",
       "codex_five_hour": "5-hour limit",
       "codex_seven_day": "Weekly limit",
+      "days_one": "Daily limit",
+      "days_other": "{{count}}-day limit",
+      "hours_one": "1-hour limit",
+      "hours_other": "{{count}}-hour limit",
+      "minutes_one": "1-minute limit",
+      "minutes_other": "{{count}}-minute limit",
       "resets": "Resets {{when}}",
       "updated": "Last updated {{when}}",
       "slowDown": "slow down to make it to the reset",
@@ -1797,6 +1808,7 @@
     "topics_one": "{{count}} topic",
     "topics_other": "{{count}} topics",
     "rearrange": "Rearrange",
+    "sortFailed": "The AI could not sort the ideas: {{error}}",
     "placeholder": "Add an idea…",
     "placeholderFirst": "What comes to mind?",
     "attach": "Add pictures or files",
@@ -1823,6 +1835,7 @@
     "managerHint": "Tickets from these ideas? Write to the manager, e.g. “turn the ideas into tickets”.",
     "writeManager": "Write to the manager",
     "notice": {
+      "unchanged": "Rearranged: the topics already fit, nothing moved",
       "new": "New idea “{{title}}”",
       "newSimilar": "New idea “{{title}}”, similar to others",
       "kept": "Kept as a new idea",
@@ -2061,6 +2074,7 @@
     "empty": "No doc sites yet",
     "emptyHint": "Tell the manager in the chat what documentation you want: it talks it through with you, writes the doc rules and sets the site up. Or create one here.",
     "askManager": "Ask the manager",
+    "askManagerText": "Please set up documentation for this project: suggest what it should cover and who it is for, then create the doc site.",
     "namePlaceholder": "Developer docs",
     "newHint": "A site gets its own doc agent, which alone writes its pages. Start as a draft: nobody sees it until you publish it.",
     "pagesCount_one": "{{count}} page",
@@ -2102,6 +2116,7 @@
       "agent": "the doc agent",
       "hint": "What goes into this documentation, what stays out and how it is written. {{agent}} follows these rules with every page it writes and every update after a change lands.",
       "withManager": "Work them out with the manager in the chat",
+      "askManagerText": "Please help me write the doc rules for the doc site “{{name}}”: what it covers, for whom, and how it is written.",
       "none": "No doc rules yet",
       "noneHint": "Without rules the doc agent decides by itself what to document. Write them here or let the manager write them with you.",
       "newHint": "Optional. What it should cover, for whom, what not, and how it is written. You can change them any time.",

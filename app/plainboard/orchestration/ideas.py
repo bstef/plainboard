@@ -152,7 +152,9 @@ class Ideas:
                 self._again.discard(project_id)
                 more = await self._sort(project_id)
                 if (source := self._reorder.pop(project_id, None)) is not None:
-                    await self._rearrange(project_id, source)
+                    changed = await self._rearrange(project_id, source)
+                    if source == "button" and changed is False:
+                        bus.publish(project_id, "ideas.rearranged", {"changed": False})  # the button gets an answer
                 if await self._merge_duplicates(project_id):
                     more = True  # the merged idea is sorted again
                 if not more and project_id not in self._again:
@@ -198,9 +200,11 @@ class Ideas:
             left = (await s.scalars(select(Idea.id).where(Idea.project_id == project_id, Idea.status == IdeaStatus.OPEN, Idea.sort_state == idea_service.PENDING))).first()
             return left is not None
 
-    async def _rearrange(self, project_id: int, source: str) -> None:
+    async def _rearrange(self, project_id: int, source: str) -> bool | None:
         """All topics at once on a small board; on a big one group by group (``reorder_groups``): after sorting
-        only the groups around the topics new ideas went into, with the button all of them. A change per call."""
+        only the groups around the topics new ideas went into, with the button all of them. A change per call.
+        Returns whether anything changed, None if the model failed (``ideas.sort_failed`` says why)."""
+        changed = False
         self._fresh[project_id] = 0
         focus = self._focus.pop(project_id, set())
         async with self.runs._sm() as s:
@@ -220,9 +224,10 @@ class Ideas:
                     data, error = await self._ask(s, project, idea_service.REORDER_SYSTEM, prompt)
                 if data is None:
                     bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300)})
-                    return
+                    return None
                 async with self.runs._sm() as s:
-                    await idea_service.apply_reorder(s, project_id, data, source)
+                    changed = await idea_service.apply_reorder(s, project_id, data, source) is not None or changed
+        return changed
 
     async def _merge_duplicates(self, project_id: int) -> bool:
         """Merge what was found to say the same, group by group. Returns whether anything was merged."""

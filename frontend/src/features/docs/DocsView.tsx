@@ -146,7 +146,7 @@ function SiteList({ sites, error, canWrite, onOpen, onNew }: { sites: DocSite[];
             {canWrite && (
               <div className="flex flex-wrap justify-center gap-2">
                 {manager && (
-                  <Button icon={<MessageSquare className="size-4" />} onClick={() => openChat(manager.id)}>
+                  <Button icon={<MessageSquare className="size-4" />} onClick={() => openChat(manager.id, t("docs.askManagerText"))}>
                     {t("docs.askManager")}
                   </Button>
                 )}
@@ -581,7 +581,7 @@ function RulesTab({ site }: { site: DocSite }) {
           </div>
           <p className="text-fg-2">{t("docs.rules.hint", { agent: site.agent?.name ?? t("docs.rules.agent") })}</p>
           {canWrite && manager && (
-            <button type="button" onClick={() => openChat(manager.id)} className="inline-flex items-center gap-1.5 text-fg-2 underline decoration-line-2 underline-offset-3 hover:text-fg">
+            <button type="button" onClick={() => openChat(manager.id, t("docs.rules.askManagerText", { name: site.name }))} className="inline-flex items-center gap-1.5 text-fg-2 underline decoration-line-2 underline-offset-3 hover:text-fg">
               <MessageSquare className="size-4" /> {t("docs.rules.withManager")}
             </button>
           )}
