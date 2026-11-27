@@ -356,29 +356,54 @@ async def listing(session: AsyncSession, runner, machine: MachineUsage | None = 
     return Listing(items, projects, agents, busy, machine, folders)
 
 
-def item_line(item: Item, project_id: int, busy: set[int]) -> str:
+WHAT = {"build": "build", "folder": "removed agent's folder", "workdir": "extra work folder", "cache": "cache", "home": "home folder"}
+GROUPS = {
+    "safe": "safe:",
+    "busy": "busy (force=true; the member's next build is slower):",
+    "unsure": "unsure (may hold work; judge by contents and age; force=true if only made again):",
+    "keep": "keep (never deleted; the member must push or drop it):",
+}
+SHARED_SHOWN = 3
+
+
+def item_line(item: Item, project_id: int, busy: set[int], safety: bool = True) -> str:
+    """One candidate in few words: size, path, what, whose, safety (left out under a safety heading) and why."""
     c = item.candidate
-    what = {"build": "build output", "folder": "folder of a removed agent", "workdir": "extra work folder", "cache": "cache", "home": "home folder"}[c.what]
+    what = WHAT[c.what]
     if item.agent is not None and c.what in ("build", "workdir"):
         what += f" of {item.agent.name}"
-    details = []
     if c.what in ("home", "cache"):
-        whose = "yours" if item.project_id == project_id else "shared"
-        what += f", {whose}: {item.reason}" if item.reason else f", {whose}"
+        what += f", {'yours' if item.project_id == project_id else 'shared'}" + (f": {item.reason}" if item.reason else "")
         if c.modified:
-            details.append(f"last changed {_hours(max(0.0, time.time() - c.modified) / 3600)} ago")
+            what += f"; changed {_hours(max(0.0, time.time() - c.modified) / 3600)} ago"
         if c.entries:
-            details.append("holds " + ", ".join(f"{n} {format_bytes(b)}" for n, b in c.entries.items()))
-    safety = c.safety
-    if safety == "busy" and item.agent is not None and item.agent.id in busy:
-        safety = f"busy: {item.agent.name} works now"
+            what += "; holds " + ", ".join(f"{n} {format_bytes(b)}" for n, b in list(c.entries.items())[:4])
+    state = c.safety if safety else ""
+    if c.safety == "busy" and item.agent is not None and item.agent.id in busy:
+        state = f"{state}: {item.agent.name} works now" if state else f"{item.agent.name} works now"
     elif c.why:
-        safety += f": {c.why}"
-    return f"- {format_bytes(c.bytes)} {c.path}: {what}; {safety}" + (f" ({'; '.join(details)})" if details else "")
+        state = f"{state}: {c.why}" if state else c.why
+    return f"- {format_bytes(c.bytes)} {c.path}: {what}" + (f"; {state}" if state else "")
 
 
 def busy_names(listing: Listing, project_id: int) -> list[str]:
     return [a.name for a in listing.agents if a.project_id == project_id and a.id in listing.busy]
+
+
+def grouped(items: list[Item], project_id: int, busy: set[int], groups: tuple[str, ...] = tuple(GROUPS), most: int = 25) -> list[str]:
+    """Candidates under their safety, the biggest first; the small ones only counted."""
+    lines = []
+    for safety in groups:
+        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
+        if found:
+            lines.append(GROUPS[safety])
+            lines += [item_line(i, project_id, busy, safety=False) for i in found[:most]]
+            if len(found) > most:
+                lines.append(f"- {len(found) - most} more, {format_bytes(sum(i.candidate.bytes for i in found[most:]))}")
+    small = [i for i in items if i.candidate.safety in groups and i.candidate.bytes < SMALL]
+    if small:
+        lines.append(f"{len(small)} smaller ones, {format_bytes(sum(i.candidate.bytes for i in small))}, not shown.")
+    return lines
 
 
 def tool_listing(listing: Listing, project: Project, f: Forecast | None, settings: dict[str, Any]) -> str:
@@ -386,26 +411,11 @@ def tool_listing(listing: Listing, project: Project, f: Forecast | None, setting
     lines = [forecast_text(f, settings) + "." if f else "Disk use not known yet."]
     if names := busy_names(listing, project.id):
         lines.append("Busy now: " + ", ".join(names) + ".")
-    groups = {
-        "safe": "Safe (made again when needed):",
-        "busy": "Busy (a member works there: deleting with force=true makes its next build slower; or ask the member to clean up):",
-        "unsure": "Unsure (may hold someone's work: judge by what it holds and when it last changed; if it is only made again, delete with force=true):",
-        "keep": "Kept (work that is nowhere else, or tools; delete_cleanup won't, not even with force; ask the member to push or drop it):",
-    }
     items = listing.visible(project.id)
-    for safety, title in groups.items():
-        found = [i for i in items if i.candidate.safety == safety and i.candidate.bytes >= SMALL]
-        if found:
-            lines.append(title)
-            lines += [item_line(i, project.id, listing.busy) for i in found[:25]]
-            if len(found) > 25:
-                lines.append(f"- and {len(found) - 25} more, {format_bytes(sum(i.candidate.bytes for i in found[25:]))} together")
-    small = [i for i in items if i.candidate.bytes < SMALL]
-    if small:
-        lines.append(f"{len(small)} smaller ones, {format_bytes(sum(i.candidate.bytes for i in small))} together, not shown.")
+    lines += grouped(items, project.id, listing.busy)
     if not items:
         lines.append("Nothing of your project to delete.")
-    lines += shared_lines(listing, project.id, 10)
+    lines += shared_lines(listing, project.id, SHARED_SHOWN)
     return "\n".join(lines)
 
 
@@ -414,7 +424,7 @@ def shared_lines(listing: Listing, project_id: int, count: int) -> list[str]:
     if not found:
         return []
     return [
-        f"Shared, not yours ({format_bytes(sum(i.candidate.bytes for i in found))}; PlainBoard trims the shared tool caches itself above the target, the rest belongs to no single project and stays):",
+        f"Shared, not yours ({format_bytes(sum(i.candidate.bytes for i in found))}; PlainBoard trims the shared tool caches, the rest stays):",
         *[item_line(i, project_id, listing.busy) for i in found[:count]],
     ]
 
@@ -471,7 +481,7 @@ def notice_text(reason: str, f: Forecast, settings: dict[str, Any], listing: Lis
     if items:
         lines.append("Biggest items of your project that can go (list_cleanup shows all, delete_cleanup deletes):")
         lines += [item_line(i, project.id, listing.busy) for i in items[:SHOWN]]
-    lines += shared_lines(listing, project.id, 5)
+    lines += shared_lines(listing, project.id, SHARED_SHOWN)
     if names := busy_names(listing, project.id):
         lines.append("Busy now: " + ", ".join(names) + ".")
     lines.append(
@@ -546,8 +556,8 @@ def overview(settings: dict[str, Any], volume: VolumeUsage | None) -> StorageOut
     )
 
 
-async def delete(session: AsyncSession, runner, project: Project, agent: Agent, paths: list[str], force: bool) -> tuple[CleanupResult, list[str]]:
-    """Delete what one project's manager chose, through the runner; logged as a flow event.
+async def delete(session: AsyncSession, runner, project: Project, agent: Agent, paths: list[str], force: bool, by: str = "") -> tuple[CleanupResult, list[str]]:
+    """Delete what one project's manager (or its cleanup run, ``by``) chose, through the runner; logged as a flow event.
     The second value: paths that are no candidate of this project."""
     found = await listing(session, runner, runner_id=project.runner_id)
     allowed = {i.candidate.path for i in found.visible(project.id)}
@@ -567,11 +577,12 @@ async def delete(session: AsyncSession, runner, project: Project, agent: Agent, 
             agent_id=agent.id,
             level="manager",
             force=force,
+            by=by or agent.name,
             freed=result.freed,
             items=[i.model_dump() for i in result.items[:40]],
             kept=result.skipped[:20],
         )
-        await remember(session, "storage_cleanups", cleanup_service.record("manager", utcnow(), volume.total if volume else 0, volume.free if volume else 0, result, by=agent.name, project=project.name))
+        await remember(session, "storage_cleanups", cleanup_service.record("manager", utcnow(), volume.total if volume else 0, volume.free if volume else 0, result, by=by or agent.name, project=project.name))
     return result, refused
 
 

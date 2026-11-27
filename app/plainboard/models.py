@@ -56,6 +56,7 @@ class RunTrigger(StrEnum):
     IDEAS = "ideas"  # sorting ideas or planning tickets from them (orchestration/ideas.py): for the statistics only
     DOCS = "docs"  # translating doc pages (services/docs_translate.py): for the statistics only
     DOC_ASSISTANT = "doc_assistant"  # a visitor's question to a doc site's assistant (orchestration/docs_assistant.py): statistics only
+    CLEANUP = "cleanup"  # a disk-space cleanup run (orchestration/cleanup_run.py): for the statistics only
 
 
 class AssignmentStatus(StrEnum):
@@ -222,6 +223,9 @@ class Project(Timestamps, Base):
     idea_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
     idea_model: Mapped[str] = mapped_column(String(100), default="", server_default="")
     idea_effort: Mapped[str] = mapped_column(String(20), default="", server_default="")
+    # What cleans up its disk space (orchestration/cleanup_run.py). Empty: the manager's provider, its small model.
+    cleanup_provider: Mapped[str] = mapped_column(String(50), default="", server_default="")
+    cleanup_model: Mapped[str] = mapped_column(String(100), default="", server_default="")
 
     agents: Mapped[list[Agent]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
 

@@ -5,11 +5,12 @@ import time
 from datetime import datetime, timedelta
 
 import pytest
-from plainboard_protocol import CleanedItem, CleanupCandidate, CleanupResult, FolderUsage, MachineUsage, VolumeUsage
+from plainboard_protocol import CleanedItem, CleanupCandidate, CleanupResult, CompletionResult, FolderUsage, MachineUsage, VolumeUsage
 from sqlalchemy import select
 
 from plainboard.db import sessionmaker
-from plainboard.models import Agent, FlowEvent, InboxItem, Job, Project, Repository, utcnow
+from plainboard.models import Agent, FlowEvent, InboxItem, Job, Project, Repository, Run, RunTrigger, utcnow
+from plainboard.orchestration import prompts
 from plainboard.services import cleanup, storage
 
 from conftest import agents_by_slug, idle, wait_for
@@ -104,7 +105,7 @@ def _told(fake, text):
     return [s.prompt for s in fake.specs if text in s.prompt]
 
 
-def test_at_the_target_the_manager_is_told_once_and_nothing_is_deleted(client, project):
+def test_at_the_target_without_a_usable_cleanup_run_the_manager_is_told_once_with_a_turn(client, project):
     pid, slug = project["id"], project["slug"]
     wait_for(lambda: idle(client, pid))
     fake = client.app_ref.state.runner
@@ -119,8 +120,9 @@ def test_at_the_target_the_manager_is_told_once_and_nothing_is_deleted(client, p
     wait_for(lambda: idle(client, pid) and _told(fake, "Disk space: 85 % used"))
     prompt = _told(fake, "Disk space")[0]
     assert "Clean up now." in prompt and "Workspaces: Manager 40.0 GB." in prompt
-    assert f"- 30.0 GB /workspaces/{slug}/manager/repo/target: build output of Manager; busy\n" in prompt
-    assert "Shared, not yours (47.0 GB; PlainBoard trims the shared tool caches itself" in prompt and "admin" not in prompt
+    assert "No cleanup run: the cleanup model claude-haiku-5-5 (Claude) could not be used: its answer held no JSON." in prompt  # the fake answers no JSON
+    assert f"- 30.0 GB /workspaces/{slug}/manager/repo/target: build of Manager; busy\n" in prompt
+    assert "Shared, not yours (47.0 GB; PlainBoard trims the shared tool caches, the rest stays)" in prompt and "admin" not in prompt
     assert "- 21.0 GB /home/agent/.cache/sccache: cache, shared: sccache's shared cache, PlainBoard trims it itself; safe" in prompt
     assert "26.0 GB /home/agent/fw-jobs: home folder, shared; unsure: fw-jobs/run.log is not in a clone" in prompt
     view = client.get("/api/usage").json()["storage"]
@@ -143,9 +145,10 @@ def test_near_full_safe_things_go_by_themselves_and_the_manager_hears_what(clien
     _tick(client)
     (spec,) = fake.cleanups
     assert spec.level == "soft" and spec.need == 18 * GB  # down to the target
-    wait_for(lambda: idle(client, pid) and _told(fake, "PlainBoard deleted by itself"))
-    prompt = _told(fake, "PlainBoard deleted by itself")[0]
+    manager = agents_by_slug(client, pid)["manager"]
+    (prompt,) = [t for t in _inbox(client, manager["id"]) if "PlainBoard deleted by itself" in t]
     assert f"/workspaces/{slug}/gone (folder) 10.0 GB" in prompt and "Now about 88 % used" in prompt and "Disk space: 88 % used" in prompt
+    assert "Nothing of your project can go now by the safety rules: no cleanup run." in prompt and not _told(fake, "Disk space")  # no turn for it
     (done,) = client.get("/api/usage").json()["cleanups"]
     assert done["level"] == "emergency" and done["freed"] == 10 * GB
     _tick(client, utcnow() + timedelta(minutes=5))
@@ -172,6 +175,61 @@ def test_a_busy_agents_folder_is_left_to_the_manager(client, project):
     _tick(client)
     assert f"/workspaces/{slug}/manager" not in {f.path for f in fake.cleanups[-1].folders}  # the emergency cleanup leaves it alone
     assert next(f for f in fake.candidate_specs[-1].folders if f.path == f"/workspaces/{slug}/manager").busy  # the manager sees it, marked busy
+
+
+def _inbox(client, agent_id):
+    async def read():
+        async with sessionmaker()() as s:
+            return [i.text for i in await s.scalars(select(InboxItem).where(InboxItem.agent_id == agent_id))]
+
+    return client.portal.call(read)
+
+
+def test_a_cleanup_run_of_its_own_decides_and_the_manager_hears_it_without_a_turn(client, project):
+    pid, slug = project["id"], project["slug"]
+    wait_for(lambda: idle(client, pid))
+    manager = agents_by_slug(client, pid)["manager"]
+    fake = client.app_ref.state.runner
+    target, workdir, kept = f"/workspaces/{slug}/manager/repo/target", f"/workspaces/{slug}/manager/ws-2", f"/workspaces/{slug}/gone"
+    fake.machine_usage = MachineUsage(volumes=[_volume(85)])
+    fake.candidates = [
+        CleanupCandidate(path=target, what="build", bytes=30 * GB, safety="safe"),
+        CleanupCandidate(path=workdir, what="workdir", bytes=6 * GB, safety="unsure", why="uncommitted changes"),
+        CleanupCandidate(path=kept, what="folder", bytes=2 * GB, safety="keep", why="repo has unpushed commits"),
+    ]
+    asked = []
+
+    async def complete(spec):
+        asked.append(spec)
+        return CompletionResult(text=json.dumps({"delete": [target, kept, "/etc"], "keep": [{"path": workdir, "why": "may hold work"}]}), input_tokens=300, output_tokens=40)
+
+    fake.complete = complete
+    assert client.patch(f"/api/projects/{pid}", json={"cleanup_model": "claude-sonnet-5-5"}).json()["cleanup_model"] == "claude-sonnet-5-5"
+    cleanups = client.app_ref.state.cleanup.cleanups
+    _tick(client)
+    client.portal.call(cleanups.wait)
+    (spec,) = asked
+    assert (spec.provider, spec.model, spec.system_prompt) == ("claude_code", "claude-sonnet-5-5", prompts.CLEANUP_SYSTEM)
+    assert spec.prompt.startswith("Disk space: 85 % used") and "free 8.0 GB." in spec.prompt  # to a little below the target
+    assert f"safe:\n- 30.0 GB {target}: build of Manager\n" in spec.prompt and f"- 6.0 GB {workdir}: extra work folder of Manager; uncommitted changes" in spec.prompt
+    assert kept not in spec.prompt  # kept ones are not even offered
+    assert [(d.paths, d.force) for d in fake.deletes] == [([target], False)]  # only what was offered
+    (note,) = [t for t in _inbox(client, manager["id"]) if "cleanup run" in t]
+    assert "A cleanup run (claude-sonnet-5-5 (Claude)) decided for you" in note and f"Deleted 30.0 GB: {target} 30.0 GB." in note
+    assert f"Left: {workdir} 6.0 GB (may hold work)." in note
+    assert not _told(fake, "Disk space")  # no turn of the manager
+
+    async def runs():
+        async with sessionmaker()() as s:
+            return list(await s.scalars(select(Run).where(Run.trigger == RunTrigger.CLEANUP)))
+
+    (run,) = client.portal.call(runs)
+    assert run.agent_id == manager["id"] and run.input_tokens == 300 and run.input_text == ""
+    assert client.get("/api/usage").json()["cleanups"][0]["by"] == "Cleanup run (claude-sonnet-5-5 (Claude))"
+
+    _tick(client, utcnow() + timedelta(hours=7))  # the reminder: what was left alone is not offered again, nothing new
+    client.portal.call(cleanups.wait)
+    assert len(asked) == 1 and len(client.get("/api/usage").json()["storage"]["notices"]) == 2
 
 
 def _results(client, agent_id):
@@ -205,8 +263,8 @@ def test_the_manager_lists_and_deletes_only_his_projects_data_by_the_safety_rule
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "\n".join(calls)}).status_code == 202
     wait_for(lambda: idle(client, pid) and len(_results(client, manager["id"])) >= 3)
     listed, first, forced = _results(client, manager["id"])[-3:]
-    assert "Safe (made again when needed):\n- 5.0 GB " + safe in listed and "Kept (work that is nowhere else, or tools; delete_cleanup won't" in listed
-    assert f"- 6.0 GB {workdir}: extra work folder of Manager; busy: Manager works now" in listed
+    assert "safe:\n- 5.0 GB " + safe in listed and "keep (never deleted; the member must push or drop it):\n- 2.0 GB " + kept in listed
+    assert f"- 6.0 GB {workdir}: extra work folder of Manager; Manager works now" in listed
     assert theirs not in listed  # another project's data is not even shown
     assert "Shared, not yours (4.0 GB;" in listed and "- 4.0 GB /home/agent/scratch: home folder, shared; safe" in listed
     assert first.startswith("Deleted 5.0 GB: " + safe) and f"{busy}: busy" in first and f"{kept}: keep" in first
@@ -275,16 +333,8 @@ def test_the_manager_deletes_a_cache_of_his_project_and_another_manager_cannot(c
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": call}).status_code == 202
     wait_for(lambda: idle(client, pid) and len(_results(client, manager["id"])) >= 2)
     listed, deleted = _results(client, manager["id"])[-2:]
-    assert f"- 37.0 GB {cache}: cache, yours: its name; safe (last changed 2 h ago; holds set1 30.0 GB, set2 7.0 GB)" in listed
+    assert f"safe:\n- 37.0 GB {cache}: cache, yours: its name; changed 2 h ago; holds set1 30.0 GB, set2 7.0 GB" in listed
     assert deleted.startswith(f"Deleted 37.0 GB: {cache}")
-
-
-def _inbox(client, agent_id):
-    async def read():
-        async with sessionmaker()() as s:
-            return [i.text for i in await s.scalars(select(InboxItem).where(InboxItem.agent_id == agent_id))]
-
-    return client.portal.call(read)
 
 
 def test_above_the_target_shared_caches_are_trimmed_and_their_users_hear_it(client, project):

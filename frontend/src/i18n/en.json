@@ -284,7 +284,12 @@
     "askEffortDefault": "Effort: high (default)",
     "askModelSmall": "{{model}} (default)",
     "ideaModel": "Ideas",
-    "ideaModelHint": "What reads, sorts and rearranges the ideas of this project. A small model is enough. Empty: the provider's small model."
+    "ideaModelHint": "What reads, sorts and rearranges the ideas of this project. A small model is enough. Empty: the provider's small model.",
+    "cleanupModel": "Disk cleanup",
+    "cleanupModelHint": "When the disk runs short, this model decides on its own what of this project can be deleted (only what is safe by the rules), and the manager hears what went. It never blocks the manager's chat. Empty: the small model of the manager's provider.",
+    "cleanupProvider": "Cleanup runs on",
+    "cleanupProviderManager": "{{provider}} (manager's)",
+    "cleanupBlocked": "This project may use no {{provider}} subscription: cleanup runs can't run, and the manager cleans up itself. Choose another provider or allow a subscription."
   },
   "board": {
     "filter": "Search tickets…",

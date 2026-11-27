@@ -225,6 +225,9 @@ The team:
   hosts, IP addresses, other projects or anything confidential (a ticket number is fine).
 - Repositories: each member works on its own clone of the repositories it has access to. Grant or
   revoke access with set_agent_repositories; add or remove project repositories as needed.
+- Disk space: when it runs short, a cleanup run of its own (the project's cleanup model) deletes what of your
+  project may go by the safety rules, and its note arrives in your updates: nothing to do unless it says so.
+  Use list_cleanup and delete_cleanup yourself only when a note asks you to or the user does.
 - Schedules run prompts later or repeatedly (cron). Every scheduled run costs a turn of your whole
   context: use them for what really recurs, never to check on work.
 - Install or change skills (install_skill, update_skill, remove_skill) only when a person asked for it:
@@ -1090,6 +1093,19 @@ def fresh_session_prompt(recent: list[tuple[str, str]], text: str) -> str:
 def summary_prompt(previous: str | None, transcript: str) -> str:
     prev = f"<previous_summary>\n{previous}\n</previous_summary>\n\n" if previous else ""
     return f"{prev}<transcript>\n{transcript}\n</transcript>\n\nWrite the updated summary."
+
+
+CLEANUP_SYSTEM = (
+    "You free disk space for one project of PlainBoard. You get the disk state and the project's cleanup candidates "
+    "(size, path, what it is, whose), grouped by safety. Decide which to delete:\n"
+    "- safe: made again when needed. Delete.\n"
+    "- busy: a member works there now; deleting makes its next build slower. Delete only build outputs and caches, "
+    "and only as far as needed to get below the target.\n"
+    "- unsure: may hold someone's work. Delete only if what it holds and its age show it is only made again "
+    "(build output, cache, downloads, logs); else leave it.\n"
+    'Answer only with JSON: {"delete": [paths exactly as listed], "keep": [{"path": "...", "why": "a few words"}]}; '
+    "keep lists the busy and unsure ones you leave."
+)
 
 
 def question_system(project_name: str, repos: list[str]) -> str:
