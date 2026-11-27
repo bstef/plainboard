@@ -143,6 +143,44 @@ def test_interrupted_manager_turn_is_reported_to_itself(client, project):
     assert "interrupted by a restart" in runner(client).specs[-1].prompt and "Plan the release" in runner(client).specs[-1].prompt
 
 
+def test_an_interrupted_chat_turn_of_a_member_is_answered_after_the_restart(client, project):
+    from plainboard.db import sessionmaker
+    from plainboard.models import Run
+
+    pid = project["id"]
+    dev = make_dev(client, pid)
+    long_text = "Please check the release notes. " * 40
+
+    async def interrupt_and_restart():
+        async with sessionmaker()() as s:
+            s.add(Run(project_id=pid, agent_id=dev["id"], trigger="chat", input_text=long_text, status="running"))
+            await s.commit()
+        await client.app_ref.state.runs._recover_interrupted()
+
+    client.portal.call(interrupt_and_restart)
+    wait_for(lambda: idle(client, pid))
+    spec = runner(client).specs[-1]
+    assert "interrupted by a restart" in spec.prompt and long_text.strip() in spec.prompt  # the whole message, not cut off
+
+
+def test_a_chat_message_sent_again_with_its_key_is_taken_once(client, project):
+    pid = project["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    dev = make_dev(client, pid)
+    body = {"text": "SAY once", "client_key": "k-1"}
+    first = client.post(f"/api/agents/{dev['id']}/messages", json=body).json()
+    again = client.post(f"/api/agents/{dev['id']}/messages", json=body).json()
+    assert again["id"] == first["id"] and again["input_text"] == "SAY once"
+    other = client.post(f"/api/agents/{dev['id']}/messages", json={"text": "SAY twice", "client_key": "k-2"}).json()
+    assert other["input_text"] == "SAY once\n\nSAY twice"
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 3}})
+    client.app_ref.state.runs._wake.set()
+    wait_for(lambda: idle(client, pid))
+    # Also after its turn: the answer to the first try was lost, the second try finds it.
+    assert client.post(f"/api/agents/{dev['id']}/messages", json=body).json()["id"] == first["id"]
+    assert len(runs_of(client, pid, agent_id=dev["id"])) == 1
+
+
 def test_delegating_moves_the_ticket_and_the_manager_is_reminded_when_work_ends(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)

@@ -552,6 +552,11 @@ class RunManager:
                 s, recipient, f'Assignment #{assignment.id} "{assignment.title}" ({agent.name}{ref}) was interrupted by a restart and may be half done. Check its state and delegate again if needed.'
             )
             await self._maybe_wake(s, project, recipient)
+        elif run.trigger == RunTrigger.CHAT and (run.input_text or run.attachment_ids):
+            # Someone wrote to the agent and waits for the answer: it gets the whole message again and answers.
+            files = f" (with {len(run.attachment_ids)} file(s), see the chat)" if run.attachment_ids else ""
+            await inbox.push(s, agent.id, f"Your previous turn was interrupted by a restart and may be incomplete. It answered this chat message{files}:\n{run.input_text}")
+            await self.request_wake(s, agent.id)
         elif agent.is_manager:
             await inbox.push(s, agent.id, f"Your previous turn was interrupted by a restart and may be incomplete: {truncate(run.input_text or 'processing updates', 500)}")
             await self._maybe_wake(s, project, agent.id)
@@ -648,19 +653,32 @@ class RunManager:
         self._wake.set()
 
     async def chat(
-        self, s: AsyncSession, agent: Agent, text: str, attachment_ids: list[int] | None = None, *, author: str | None = None, several: bool = False
+        self,
+        s: AsyncSession,
+        agent: Agent,
+        text: str,
+        attachment_ids: list[int] | None = None,
+        *,
+        author: str | None = None,
+        several: bool = False,
+        key: str | None = None,
     ) -> Run:
         """``author``: the person who writes; the chat shows the name and picture with the message.
         ``several``: several people work in the project (``users.author``). Then the name also stands
-        in front of the text, which is what the agent reads: it has to tell them apart."""
+        in front of the text, which is what the agent reads: it has to tell them apart.
+        ``key``: the sender's own id of the message; the same message sent again is not taken twice."""
         if attachment_ids and len(await board_service.chat_attachments(s, agent.project_id, attachment_ids)) != len(set(attachment_ids)):
             raise ServiceError("Unknown attachment")
         part = {"id": 1, "author": author, "text": text, "named": bool(author and several and text.strip()), "attachment_ids": list(attachment_ids or []), "at": _iso(utcnow())}
+        if key:
+            part["key"] = key
         text = _part_input(part)
-        if part["text"].strip() or attachment_ids:
-            await self.hold_for_message(s, agent, author or "the user", part["text"])  # before its turn can start: that turn reads it
         async with self._chat_locks.setdefault(agent.id, asyncio.Lock()):
             await s.commit()  # what is read next is the latest state, not that of a transaction begun before the wait
+            if key and (sent := await self.sent_chat(s, agent.id, key)):
+                return sent
+            if part["text"].strip() or attachment_ids:
+                await self.hold_for_message(s, agent, author or "the user", part["text"])  # before its turn can start: that turn reads it
             run = await self._join_waiting_chat(s, agent, part) or await self.enqueue(
                 s, agent, RunTrigger.CHAT, text, attachment_ids=attachment_ids, author_name=author, parts=[part]
             )
@@ -678,6 +696,13 @@ class RunManager:
             if ended := self._end_waits(busy_run, "the user wrote to you"):  # no wait is worth more than the user
                 await flow_log.record(s, agent.project_id, "wait.ended", agent_id=agent.id, run_id=busy_run, waits=ended, by="user")
         return run
+
+    async def sent_chat(self, s: AsyncSession, agent_id: int, key: str) -> Run | None:
+        """The chat run that already has the message with this ``key`` (among the agent's recent ones)."""
+        recent = await s.scalars(
+            select(Run).where(Run.agent_id == agent_id, Run.trigger == RunTrigger.CHAT).order_by(Run.id.desc()).limit(50)
+        )
+        return next((run for run in recent if any(p.get("key") == key for p in run.parts or [])), None)
 
     async def _wait_in_turn(self, run_id: int | None, kind: str, future: asyncio.Future[str], seconds: float) -> str:
         """Wait in a turn for a result. Raises TimeoutError, or WaitEnded when someone needs the agent now.
