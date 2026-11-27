@@ -66,6 +66,7 @@ from plainboard_protocol import (
 from .. import notices, signins
 from ..config import TOOL_RESULT_PREVIEW_CHARS
 from ..signins import SIGN_INS
+from ..read_only import allowed as read_only_command
 from ..tool_bridge import ToolBridge
 from ..workspace import tool_env
 from .base import Provider, ProviderError, merge_efforts
@@ -74,7 +75,10 @@ log = logging.getLogger(__name__)
 
 MCP_SERVER_NAME = "plainboard"
 BOARD_TOOLSET_BUILTINS = ["Read", "Glob", "Grep", "Bash", "Edit", "Write"]
-READ_TOOLSET_BUILTINS = ["Read", "Glob", "Grep"]  # a question about the project (app questions.py): nothing that changes anything
+# A question about the project (app questions.py): nothing that changes anything. Bash runs only commands that
+# just read (git log, read_only.py), checked by read_only_hook.
+READ_TOOLSET_BUILTINS = ["Read", "Glob", "Grep", "Bash"]
+READ_ONLY_REFUSED = "Refused: here only commands that just read may run (cat, sed -n, rg, find, git log/show/diff...), without redirections."
 # Interactive tools make no sense for headless agents; they talk back via chat or the board. Plan mode
 # waits for an approval nobody gives. The CLI's own todo list would compete with the PlainBoard task
 # list, which is the one the user and the manager see. Monitor waits for a process of its own: a turn
@@ -387,6 +391,13 @@ def build_mcp_server(bridge: ToolBridge):
     # servers the user added stay deferred: they can be many and long.
     server["alwaysLoad"] = True  # type: ignore[typeddict-unknown-key]
     return server
+
+
+async def read_only_hook(hook_input: Any, _tool_use_id: str | None, _context: Any) -> dict[str, Any]:
+    """A question's Bash: only commands that just read."""
+    if hook_input.get("tool_name") == "Bash" and not read_only_command(str((hook_input.get("tool_input") or {}).get("command") or "")):
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": READ_ONLY_REFUSED}}
+    return {}
 
 
 class ToolTimer:
@@ -817,6 +828,8 @@ class ClaudeCodeProvider(Provider):
         mcp_servers[MCP_SERVER_NAME] = build_mcp_server(bridge)
         timer = ToolTimer()
         hooks = {"PreToolUse": [HookMatcher(hooks=[timer.start])], "PostToolUse": [HookMatcher(hooks=[notice_hook(spec.run_id, timer)])]}
+        if spec.toolset == "read":
+            hooks["PreToolUse"].insert(0, HookMatcher(matcher="Bash", hooks=[read_only_hook]))
         if background:
             hooks["Stop"] = [HookMatcher(hooks=[background.stop_hook])]
         allowed = [f"mcp__{MCP_SERVER_NAME}__{t.name}" for t in bridge.tools] + [f"mcp__{name}" for name in mcp_servers if name != MCP_SERVER_NAME]
