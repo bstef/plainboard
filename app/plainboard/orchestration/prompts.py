@@ -727,6 +727,7 @@ LOST_NOTE = (
     "Your last turn broke off (PlainBoard lost the connection to it), and its last step may be half done. "
     "Look at where the work stands (git status, your steps above), then go on. Nothing has to be started over."
 )
+UNFINISHED = "[Again: the turn that got this did not finish. Check whether it is already done.] "
 RESUME_NOTE ="You were paused and are enabled again. Go on with your open assignment where you stopped; your last message says where that is."
 
 

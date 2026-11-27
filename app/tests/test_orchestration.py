@@ -143,6 +143,33 @@ def test_interrupted_manager_turn_is_reported_to_itself(client, project):
     assert "interrupted by a restart" in runner(client).specs[-1].prompt and "Plan the release" in runner(client).specs[-1].prompt
 
 
+def test_updates_of_a_manager_turn_cut_off_by_a_restart_come_again(client, project):
+    """#185: a user's decision reached a manager turn that a restart cut off; the next turn only heard
+    "processing updates", and the decision was lost."""
+    from plainboard.db import sessionmaker
+    from plainboard.models import Message, Run
+    from plainboard.services import agents as agent_service
+
+    pid = project["id"]
+    manager = agents_by_slug(client, pid)["manager"]
+    decided = 'User decided on ticket #7 ("Which variant?"): a2'
+
+    async def interrupt_and_restart():
+        async with sessionmaker()() as s:
+            run = Run(project_id=pid, agent_id=manager["id"], trigger="wake", input_text="", status="running")
+            s.add(run)
+            await s.commit()
+            conv = await agent_service.conversation_for(s, manager["id"])
+            s.add(Message(conversation_id=conv.id, role="user", kind="text", content="Process the updates above", meta={"inbox": [decided]}, run_id=run.id))
+            await s.commit()
+        await client.app_ref.state.runs._recover_interrupted()
+
+    client.portal.call(interrupt_and_restart)
+    wait_for(lambda: idle(client, pid))
+    prompt = runner(client).specs[-1].prompt
+    assert "interrupted by a restart" in prompt and decided in prompt and "Check whether it is already done" in prompt
+
+
 def test_an_interrupted_chat_turn_of_a_member_is_answered_after_the_restart(client, project):
     from plainboard.db import sessionmaker
     from plainboard.models import Run
