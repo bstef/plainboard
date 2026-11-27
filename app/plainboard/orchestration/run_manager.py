@@ -500,9 +500,10 @@ class RunManager:
             await s.commit()
             for run in interrupted:
                 try:
+                    given_back = await self._give_back_updates(s, run)
                     await flow_log.record(
                         s, run.project_id, "run.interrupted", agent_id=run.agent_id, run_id=run.id, assignment_id=run.assignment_id, task_id=run.task_id,
-                        trigger=str(run.trigger), resumed=run.id in resumed,
+                        trigger=str(run.trigger), resumed=run.id in resumed, updates_given_back=given_back,
                     )  # fmt: skip
                     if run.id in resumed:
                         held = await scratchpad_service.current(s, run.agent_id, run.assignment_id)
@@ -513,6 +514,19 @@ class RunManager:
                 except Exception:  # a failed report must not keep the app from starting
                     log.exception("Could not report interrupted run %s", run.id)
             await self._adopt_orphans(s)
+
+    async def _give_back_updates(self, s: AsyncSession, run: Run) -> int:
+        """A manager turn that took updates from the inbox but did not finish (a restart, a failure): they go
+        back to its inbox, so that none is lost, a user's decision say (#185). Marked, so it checks what is
+        already done. Returns how many came back the first time (one back a second time wakes nobody)."""
+        agent = await s.get(Agent, run.agent_id)
+        if agent is None or not agent.is_manager:
+            return 0
+        meta = await s.scalar(select(Message.meta).where(Message.run_id == run.id, Message.role == "user", Message.kind == "text").order_by(Message.id).limit(1))
+        updates = [u for u in (meta or {}).get("inbox") or [] if not u.startswith((prompts.RESTART_NOTE, prompts.LOST_NOTE))]
+        for item in updates:
+            await inbox.push(s, agent.id, item if item.startswith(prompts.UNFINISHED) else prompts.UNFINISHED + item)
+        return sum(not u.startswith(prompts.UNFINISHED) for u in updates)
 
     async def _adopt_orphans(self, s: AsyncSession) -> None:
         """An assignment that waits but has no turn would wait for ever, and block further work on its
@@ -559,7 +573,8 @@ class RunManager:
             await inbox.push(s, agent.id, f"Your previous turn was interrupted by a restart and may be incomplete. It answered this chat message{files}:\n{run.input_text}")
             await self.request_wake(s, agent.id)
         elif agent.is_manager:
-            await inbox.push(s, agent.id, f"Your previous turn was interrupted by a restart and may be incomplete: {truncate(run.input_text or 'processing updates', 500)}")
+            doing = f": {truncate(run.input_text, 500)}" if run.input_text else ". The updates it had come again."
+            await inbox.push(s, agent.id, f"Your previous turn was interrupted by a restart and may be incomplete{doing}")
             await self._maybe_wake(s, project, agent.id)
 
     async def stop(self) -> None:
@@ -1942,6 +1957,9 @@ class RunManager:
                     meta={"limit": True} if outcome.limited else {},
                 )
             bus.publish(run.project_id, "run.upserted", RunOut.model_validate(run))
+            if run.status == RunStatus.FAILED and await self._give_back_updates(s, run) and run.error != LOST:
+                if project := await s.get(Project, run.project_id):
+                    await self._maybe_wake(s, project, run.agent_id)
             try:
                 await self._after_run(s, run)
             except Exception:
