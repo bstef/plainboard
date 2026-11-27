@@ -181,6 +181,38 @@ def test_a_chat_message_sent_again_with_its_key_is_taken_once(client, project):
     assert len(runs_of(client, pid, agent_id=dev["id"])) == 1
 
 
+def test_the_same_chat_message_sent_twice_at_once_is_taken_once_and_shows_its_key(client, project):
+    """A retry (or a second tab) while the first request is still on its way (#179)."""
+    import asyncio
+
+    from plainboard.db import sessionmaker
+    from plainboard.models import Agent
+
+    pid = project["id"]
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 0}})
+    dev = make_dev(client, pid)
+    runs = client.app_ref.state.runs
+
+    async def both() -> list[tuple[int, bool]]:
+        async with sessionmaker()() as a, sessionmaker()() as b:
+            sent = await asyncio.gather(
+                runs.chat_once(a, await a.get(Agent, dev["id"]), "SAY once", key="k-1"),
+                runs.chat_once(b, await b.get(Agent, dev["id"]), "SAY once", key="k-1"),
+            )
+            return [(run.id, new) for run, new in sent]
+
+    (first, new_first), (second, new_second) = client.portal.call(both)
+    assert first == second and sorted([new_first, new_second]) == [False, True]
+    [run] = runs_of(client, pid, agent_id=dev["id"])
+    assert [p["key"] for p in run["parts"]] == ["k-1"] and run["input_text"] == "SAY once"  # the outbox finds it by its key
+    client.put("/api/settings", json={"values": {"max_parallel_runs": 3}})
+    runs._wake.set()
+    wait_for(lambda: idle(client, pid))
+    assert runner(client).specs[-1].prompt.count("SAY once") == 1
+    said = [m for m in client.get(f"/api/agents/{dev['id']}/conversation").json()["messages"] if m["role"] == "user"]
+    assert [p["key"] for m in said for p in m["meta"]["parts"]] == ["k-1"]  # and in the chat after its turn
+
+
 def test_delegating_moves_the_ticket_and_the_manager_is_reminded_when_work_ends(client, project):
     pid = project["id"]
     dev = make_dev(client, pid)

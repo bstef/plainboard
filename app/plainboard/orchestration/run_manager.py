@@ -664,7 +664,23 @@ class RunManager:
         several: bool = False,
         key: str | None = None,
     ) -> Run:
-        """``author``: the person who writes; the chat shows the name and picture with the message.
+        return (await self.chat_once(s, agent, text, attachment_ids, author=author, several=several, key=key))[0]
+
+    async def chat_once(
+        self,
+        s: AsyncSession,
+        agent: Agent,
+        text: str,
+        attachment_ids: list[int] | None = None,
+        *,
+        author: str | None = None,
+        several: bool = False,
+        key: str | None = None,
+    ) -> tuple[Run, bool]:
+        """``chat``, and whether the message is new: False when its ``key`` was taken before (also by a
+        request still in progress, which held the lock).
+
+        ``author``: the person who writes; the chat shows the name and picture with the message.
         ``several``: several people work in the project (``users.author``). Then the name also stands
         in front of the text, which is what the agent reads: it has to tell them apart.
         ``key``: the sender's own id of the message; the same message sent again is not taken twice."""
@@ -677,7 +693,7 @@ class RunManager:
         async with self._chat_locks.setdefault(agent.id, asyncio.Lock()):
             await s.commit()  # what is read next is the latest state, not that of a transaction begun before the wait
             if key and (sent := await self.sent_chat(s, agent.id, key)):
-                return sent
+                return sent, False
             if part["text"].strip() or attachment_ids:
                 await self.hold_for_message(s, agent, author or "the user", part["text"])  # before its turn can start: that turn reads it
             run = await self._join_waiting_chat(s, agent, part) or await self.enqueue(
@@ -696,7 +712,7 @@ class RunManager:
                 self._interrupts.setdefault(busy_run, set()).add(run.id)
             if ended := self._end_waits(busy_run, "the user wrote to you"):  # no wait is worth more than the user
                 await flow_log.record(s, agent.project_id, "wait.ended", agent_id=agent.id, run_id=busy_run, waits=ended, by="user")
-        return run
+        return run, True
 
     async def sent_chat(self, s: AsyncSession, agent_id: int, key: str) -> Run | None:
         """The chat run that already has the message with this ``key`` (among the agent's recent ones)."""
@@ -1625,7 +1641,7 @@ class RunManager:
             if run.author_name:
                 meta["author"] = run.author_name
             if run.parts:
-                meta["parts"] = [{k: p[k] for k in ("author", "text", "attachment_ids", "at")} for p in run.parts]
+                meta["parts"] = [{k: p[k] for k in ("author", "text", "attachment_ids", "at", "key") if k in p} for p in run.parts]
             if updates:
                 meta["inbox"] = updates
             if files:

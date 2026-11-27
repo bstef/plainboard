@@ -1071,6 +1071,7 @@ class ChatPartOut(BaseModel):
     text: str = ""
     attachment_ids: list[int] = Field(default_factory=list)
     at: UTCDateTime
+    key: str | None = None  # the sender's own id of it (``ChatMessageIn.client_key``): its outbox lets go of it
 
 
 class RunOut(ORM):

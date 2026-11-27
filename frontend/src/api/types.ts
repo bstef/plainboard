@@ -357,6 +357,8 @@ export interface ChatPart {
   text: string;
   attachment_ids: number[];
   at: string;
+  /** The sender's own id of it (its outbox's key). */
+  key?: string | null;
 }
 
 export interface Run {

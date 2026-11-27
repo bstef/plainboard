@@ -1,12 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ArrowUp, ChevronDown, CircleHelp, Eye, EyeOff, Loader2, Maximize2, MoreHorizontal, Paperclip, Square, Trash2, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { useCopying, useStreamingText } from "../../api/events";
 import { qk, useConversation, useMe, useRuns, useSettings } from "../../api/queries";
-import type { Attachment, Conversation } from "../../api/types";
+import type { Attachment, ChatPart, Conversation } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
 import { Markdown } from "../../components/Markdown";
 import { PendingFile } from "../../components/PendingFile";
@@ -72,6 +72,16 @@ export function ChatPanel({
   const running = activeRuns.find((r) => r.status === "running");
   const queued = activeRuns.filter((r) => r.status === "queued" && r.trigger === "chat");
   const messages = conversation.data?.messages ?? [];
+  // Sent messages the server has (by the sender's key): the outbox lets go of them, also before or
+  // without the answer to their request (#179).
+  const arrivedKeys = [
+    ...(runs.data ?? []).filter((r) => r.agent_id === agentId).flatMap((r) => r.parts ?? []),
+    ...messages.flatMap((m) => (m.role === "user" && Array.isArray(m.meta?.parts) ? (m.meta.parts as ChatPart[]) : [])),
+  ]
+    .map((p) => p.key)
+    .filter((key): key is string => !!key)
+    .join(" ");
+  const arrived = useMemo(() => new Set(arrivedKeys ? arrivedKeys.split(" ") : []), [arrivedKeys]);
   // A message the agent has not read yet stays at the very bottom, below whatever the agent still
   // writes, in the order it was sent. Once read it takes its place: at the time it was read, above
   // what the agent wrote after that. (By time, not by id: a busy agent can read a message and react
@@ -317,6 +327,7 @@ export function ChatPanel({
         runningSince={running ? (running.started_at ?? running.created_at) : undefined}
         files={files}
         onFilesChange={setFiles}
+        arrived={arrived}
       />
       )}
     </div>
@@ -484,6 +495,7 @@ function Composer({
   runningSince,
   files,
   onFilesChange,
+  arrived,
 }: {
   /** A text to start from, put into the field when it changes. */
   seed?: { text: string; n: number } | null;
@@ -497,6 +509,8 @@ function Composer({
   runningSince?: string;
   files: File[];
   onFilesChange: (files: File[]) => void;
+  /** Keys of sent messages the server has. */
+  arrived: Set<string>;
 }) {
   const { t } = useTranslation();
   const { project } = useShell();
@@ -521,13 +535,17 @@ function Composer({
 
   // What was sent waits here until the server has it: across a reload and a restart of the server.
   const me = useMe();
-  const { outbox, items: outgoing, waiting } = useChatOutbox(me?.id ?? 0, agentId, () => qc.invalidateQueries({ queryKey: qk.runs(project.id) }));
+  const { outbox, items, waiting } = useChatOutbox(me?.id ?? 0, agentId, () => qc.invalidateQueries({ queryKey: qk.runs(project.id) }));
+  const outgoing = items.filter((i) => !arrived.has(i.key));
+  useEffect(() => {
+    outbox.settle(arrived);
+  }, [outbox, items, arrived]);
   useEffect(() => {
     const rejected = outbox.takeRejected();
     if (!rejected) return;
     setText((cur) => (cur.trim() ? `${rejected.text}\n\n${cur}` : rejected.text));
     setError(rejected.error ?? null);
-  }, [outbox, outgoing]);
+  }, [outbox, items]);
 
   const takeBack = (key: string) => {
     const item = outgoing.find((i) => i.key === key);
