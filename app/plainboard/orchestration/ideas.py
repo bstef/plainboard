@@ -38,6 +38,7 @@ from ..services import accounts as account_service
 from ..services import agents as agent_service
 from ..services import ideas as idea_service
 from ..services import settings as settings_service
+from ..schemas import IdeaModelBlocked
 from ..services.util import truncate
 from . import questions
 
@@ -67,6 +68,8 @@ class Ideas:
         self._read_again: set[int] = set()  # more input came while reading
         self._locks: dict[int, asyncio.Lock] = {}
         self._tried: dict[int, set[int]] = {}  # project -> the unsorted ideas last sent to be sorted
+        self._shut: set[int] = set()  # projects whose idea model could not be used (``blocked``) at the last call
+        self._retry: set[int] = set()  # projects whose ideas left unsorted go to the model even one alone
 
     def _lock(self, project_id: int) -> asyncio.Lock:
         return self._locks.setdefault(project_id, asyncio.Lock())
@@ -145,9 +148,19 @@ class Ideas:
         self._sorters[project_id] = asyncio.create_task(self._loop(project_id), name=f"ideas-sort-{project_id}")
         bus.publish(project_id, "ideas.sorting", {"sorting": True})
 
-    def sort_left(self, project_id: int, ids: set[int]) -> None:
+    def sort_left(self, project_id: int, ids: set[int], blocked: bool = False) -> None:
         """More than one idea left without a topic (sorting failed, or their topic was removed): sorted once more,
-        unless just these were sent last time (a broken model is not asked again and again)."""
+        unless just these were sent last time (a broken model is not asked again and again), or the idea model
+        can't be used (``blocked``); once it can again, they are."""
+        if blocked:
+            return
+        if project_id in self._shut:  # it can be used again: what waited for it is sorted now
+            self._shut.discard(project_id)
+            self._tried.pop(project_id, None)
+            if ids:
+                self._retry.add(project_id)
+                self.sort_soon(project_id)
+            return
         if len(ids) > 1 and not self.sorting(project_id) and not self.reading(project_id) and not ids <= self._tried.get(project_id, set()):
             self.sort_soon(project_id)
 
@@ -191,7 +204,9 @@ class Ideas:
             # New and changed ones, and with them those left unsorted; those alone once more than one is left.
             pending = [i for i in ideas if i.sort_state == idea_service.PENDING]
             left = [i for i in idea_service.unsorted(ideas) if i.sort_state != idea_service.PENDING]
-            batch = (pending + left)[:SORT_BATCH] if pending or len(left) > 1 else []
+            retry = project_id in self._retry
+            self._retry.discard(project_id)
+            batch = (pending + left)[:SORT_BATCH] if pending or len(left) > 1 or retry else []
             if not batch:
                 return False
             ids = [i.id for i in batch]
@@ -201,7 +216,7 @@ class Ideas:
         async with self.runs._sm() as s:
             if data is None:
                 await idea_service.sort_failed(s, project_id, ids)
-                bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300)})
+                bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300), "blocked": project_id in self._shut})
                 return False  # no retry loop over a broken model: "rearrange" retries
             count, unsure = await idea_service.apply_sort(s, project_id, ids, data)
             self._fresh[project_id] = self._fresh.get(project_id, 0) + count
@@ -234,7 +249,7 @@ class Ideas:
                     prompt = idea_service.reorder_prompt(project, inside, ideas, None if whole else [t for t in every if t.id not in topic_ids])
                     data, error = await self._ask(s, project, idea_service.REORDER_SYSTEM, prompt)
                 if data is None:
-                    bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300)})
+                    bus.publish(project_id, "ideas.sort_failed", {"error": truncate(error, 300), "blocked": project_id in self._shut})
                     return None
                 async with self.runs._sm() as s:
                     changed = await idea_service.apply_reorder(s, project_id, data, source) is not None or changed
@@ -282,6 +297,16 @@ class Ideas:
         model = project.idea_model or questions.default_model(provider, await self._catalog(s))
         return provider, model, project.idea_effort or None
 
+    async def blocked(self, s: AsyncSession, project: Project) -> IdeaModelBlocked | None:
+        """The idea model set can't be used: the project may use no subscription of its provider. Ideas then
+        stay unsorted (never another model instead) until that is changed; the ideas view shows it."""
+        provider = project.idea_provider or DEFAULT_PROVIDER
+        manager = await agent_service.get_manager(s, project.id)
+        if not await account_service.shut_out(s, provider, manager):
+            return None
+        _provider, model, _effort = await self.choice(s, project)
+        return IdeaModelBlocked(provider=provider, provider_label=account_service.LABELS.get(provider, provider), model=model)
+
     async def _catalog(self, s: AsyncSession) -> list[ProviderInfo]:
         try:
             return await account_service.catalog(s, await self.runs.runner.providers())
@@ -294,14 +319,14 @@ class Ideas:
         manager = await agent_service.get_manager(s, project.id)
         where = self.runs.runners.where(project.id)
         account = await account_service.pick(s, provider, manager, None, model=model, fresh=True, where=where)
-        if account is None and manager.provider != provider:  # the project may not use that provider: the manager's small model
-            small = questions.default_model(manager.provider, await self._catalog(s))
-            if (other := await account_service.pick(s, manager.provider, manager, None, model=small, fresh=True, where=where)) is not None:
-                log.info("Ideas of project %s: no account for %s, using %s", project.id, provider, manager.provider)
-                account, provider, model, effort = other, manager.provider, small, None
-        why = ""
+        why = ""  # never another model than the one set: the ideas view says why it can't be used (``blocked``)
         if account is None:
-            why = await account_service.shut_out(s, provider, manager) or await account_service.not_signed_in(s, provider, manager, where)
+            why = await account_service.shut_out(s, provider, manager)
+            if why:
+                self._shut.add(project.id)
+            why = why or await account_service.not_signed_in(s, provider, manager, where)
+        if not why:
+            self._shut.discard(project.id)
         values = await settings_service.get_all(s)
         credentials = settings_service.credentials(values, account=account_service.fields(account))
         account_key = account.key if account else None

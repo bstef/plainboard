@@ -18,6 +18,8 @@ export interface ShellApi {
   openIdea: (ideaId: number) => void;
   /** PlainBoard settings, at a section (admins only: others see no settings). */
   openSettings: (section?: string) => void;
+  /** The project's settings, at a section (owners only). */
+  openProjectSettings: (section?: string) => void;
   /** Show an address of the agents' environment (e.g. http://localhost:5173/) in the browser window. */
   openBrowser: (address: string) => void;
   /** The side chat next to the views: only on desktop, and not in the chat view itself. */

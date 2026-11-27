@@ -1050,15 +1050,24 @@ def test_a_long_pasted_text_is_kept_as_written_and_too_long_a_text_says_so(clien
     assert idea["id"] == kept["id"] and idea["text"] == long.replace("\r\n", "\n") + "\n\nKeep long notes"
 
 
-def test_the_idea_model_uses_the_managers_provider_where_the_project_may_not_use_its_own(client, project):
-    """#171: an idea model the project has no subscription for broke every sorting; then the manager's provider
-    sorts with its small model."""
+def test_an_idea_model_the_project_may_not_use_is_shown_and_never_swapped(client, project):
+    """#171: an idea model the project has no subscription for: no other model sorts instead; the ideas say
+    which one can't be used, stay unsorted, and are sorted once the project may use it."""
     pid = project["id"]
     claude = next(a for a in client.get("/api/accounts").json() if a["provider"] == "claude_code")
-    client.post("/api/accounts", json={"provider": "codex", "label": "Team", "auth_mode": "chatgpt"})
+    codex = client.post("/api/accounts", json={"provider": "codex", "label": "Team", "auth_mode": "api_key", "secret": "sk-o"}).json()
     assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": [claude["id"]]}).status_code == 200
     client.patch(f"/api/projects/{pid}", json={"idea_provider": "codex", "idea_model": "gpt-6-luna"})
     asked = answer(client, sort=[sort_all])
     add(client, pid, "Dark mode")
-    (idea,) = settled(client, pid)["ideas"]
-    assert idea["sort_state"] == "sorted" and (asked["sort"][0].provider, asked["sort"][0].model) == ("claude_code", "claude-haiku-5-5")
+    data = settled(client, pid)
+    (idea,) = data["ideas"]
+    assert idea["sort_state"] == "failed" and asked["sort"] == []
+    assert data["model_blocked"] == {"provider": "codex", "provider_label": "Codex", "model": "gpt-6-luna"}
+    runs = client.get(f"/api/projects/{pid}/runs?limit=5").json()
+    assert any("none of them is for codex" in (r.get("error") or "") for r in runs)
+
+    assert client.put(f"/api/projects/{pid}/accounts", json={"account_ids": [claude["id"], codex["id"]]}).status_code == 200
+    assert ideas_of(client, pid)["model_blocked"] is None
+    wait_for(lambda: ideas_of(client, pid)["ideas"][0]["sort_state"] == "sorted")
+    assert (asked["sort"][0].provider, asked["sort"][0].model) == ("codex", "gpt-6-luna")

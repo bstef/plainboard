@@ -26,14 +26,15 @@ async def _out(session, idea) -> IdeaOut:  # noqa: ANN001
 @router.get("", response_model=IdeasOut)
 async def list_ideas(project_id: int, session: Session, runs: Runs, closed: bool = False) -> IdeasOut:
     """The open ideas and their topics; ``closed``: also the ones taken into tickets, left out or merged."""
-    await project_service.get(session, project_id)
+    project = await project_service.get(session, project_id)
     if not runs.ideas.reading(project_id) and await idea_service.waiting_input(session, project_id) is not None:
         runs.ideas.read_soon(project_id)  # left waiting by a restart
     topics = [IdeaTopicOut.model_validate(t) for t in await idea_service.topics(session, project_id)]
     listed = await idea_service.listed(session, project_id, closed=closed)
-    runs.ideas.sort_left(project_id, {i.id for i in idea_service.unsorted([i for i in listed if i.status == IdeaStatus.OPEN])})
+    blocked = await runs.ideas.blocked(session, project)
+    runs.ideas.sort_left(project_id, {i.id for i in idea_service.unsorted([i for i in listed if i.status == IdeaStatus.OPEN])}, blocked is not None)
     ideas = await idea_service.outs(session, listed)
-    return IdeasOut(topics=topics, ideas=ideas, sorting=runs.ideas.sorting(project_id))
+    return IdeasOut(topics=topics, ideas=ideas, sorting=runs.ideas.sorting(project_id), model_blocked=blocked)
 
 
 @router.get("/questions", response_model=list[IdeaOut])
