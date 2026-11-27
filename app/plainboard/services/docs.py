@@ -36,6 +36,7 @@ from ..events import bus
 from ..models import Agent, Attachment, DocCustomPage, DocPage, DocPageVersion, DocRelease, DocSite, DocTranslation, utcnow
 from ..schemas import AgentCreate, AgentUpdate, AttachmentOut, DocAgentOut, DocPageItem, DocSiteOut, DocTheme
 from . import board as board_service
+from . import thumbnails as thumbnail_service
 from .errors import NotFound, ServiceError
 from .util import slugify
 
@@ -301,6 +302,7 @@ async def delete_site(session: AsyncSession, site: DocSite) -> None:
     project_id, site_id = site.project_id, site.id
     for attachment in await files(session, site_id):
         board_service.storage_path(attachment).unlink(missing_ok=True)
+        thumbnail_service.discard(attachment.storage_name)
     if (agent := await doc_agent(session, site_id)) is not None:
         from . import agents as agent_service
 

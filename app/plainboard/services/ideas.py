@@ -28,6 +28,7 @@ from ..events import bus
 from ..models import Agent, Attachment, Comment, Idea, IdeaChange, IdeaLink, IdeaStatus, IdeaTopic, IdeaVersion, InboxItem, Landing, LandingStatus, Project, SearchDocument, Task, TaskStatus, utcnow
 from ..schemas import IDEA_TEXT_MAX, AttachmentOut, IdeaChangeOut, IdeaCreate, IdeaOut, IdeaTicketIn, IdeaTopicIn, IdeaTopicOut, TaskCreate
 from . import board as board_service
+from . import thumbnails as thumbnail_service
 from . import idea_neighbours as neighbours
 from .search import schema as search_schema
 from .errors import NotFound, ServiceError
@@ -409,6 +410,7 @@ async def remove(session: AsyncSession, idea: Idea) -> None:
     others = await _linked(session, [idea_id])
     for attachment in await attachments(session, idea):
         board_service.storage_path(attachment).unlink(missing_ok=True)
+        thumbnail_service.discard(attachment.storage_name)
         await session.delete(attachment)
     if await search_schema.available(session):  # out of the search at once, not with the indexer's sweep
         await session.execute(delete(SearchDocument).where(SearchDocument.project_id == project_id, SearchDocument.kind == "idea", SearchDocument.source_id == str(idea_id)))

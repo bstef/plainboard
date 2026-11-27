@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, Bot, Check, ChevronDown, ChevronRight, CircleDashed, Lightbulb, Play, Send, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { api, errorMessage } from "../../api/client";
 import { qk, useTask } from "../../api/queries";
@@ -41,26 +41,35 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
     }
   };
 
-  const upload = async (files: FileList | File[]) => {
-    if (!files.length) return;
-    const form = new FormData();
-    for (const file of Array.from(files)) form.append("files", file, file.name || "pasted.png");
-    try {
-      await api.post(`/tasks/${taskId}/attachments`, form);
-      qc.invalidateQueries({ queryKey: qk.task(taskId) });
-    } catch (err) {
-      setError(err);
-    }
-  };
+  // Stable, like the ticket's unchanged parts: the attachments are not drawn again on every update of the ticket.
+  const upload = useCallback(
+    async (files: FileList | File[]) => {
+      if (!files.length) return;
+      const form = new FormData();
+      for (const file of Array.from(files)) form.append("files", file, file.name || "pasted.png");
+      try {
+        await api.post(`/tasks/${taskId}/attachments`, form);
+        qc.invalidateQueries({ queryKey: qk.task(taskId) });
+      } catch (err) {
+        setError(err);
+      }
+    },
+    [taskId, qc],
+  );
 
-  const removeAttachment = async (a: Attachment) => {
-    try {
-      await api.del(`/attachments/${a.id}`);
-      qc.invalidateQueries({ queryKey: qk.task(taskId) });
-    } catch (err) {
-      setError(err);
-    }
-  };
+  const removeAttachment = useCallback(
+    async (a: Attachment) => {
+      try {
+        await api.del(`/attachments/${a.id}`);
+        qc.invalidateQueries({ queryKey: qk.task(taskId) });
+      } catch (err) {
+        setError(err);
+      }
+    },
+    [taskId, qc],
+  );
+  const decisions = task.data?.decisions;
+  const reviewIds = useMemo(() => reviewAttachmentIds(decisions ?? []), [decisions]);
 
   const onPaste = (e: ClipboardEvent) => {
     const files = Array.from(e.clipboardData.files);
@@ -143,7 +152,7 @@ export function TaskModal({ taskId, onClose }: { taskId: number; onClose: () => 
           <CustomerTexts task={data} languages={project.customer_languages?.length ? project.customer_languages : ["en"]} onSave={patch} canWrite={canWrite} />
           <AttachmentGrid
             attachments={data.attachments}
-            reviewIds={reviewAttachmentIds(data.decisions)}
+            reviewIds={reviewIds}
             onUpload={upload}
             onView={setViewing}
             onRemove={removeAttachment}
