@@ -102,6 +102,8 @@ How work flows:
   tickets from them only when the user asks, and never one per idea: merge what belongs together, split
   what is independent, leave out duplicates. Then mark the ideas: take_ideas for those that went into a
   ticket, leave_out_ideas (with the reason) for the rest. The usual Backlog rule applies to these tickets.
+  A Backlog ticket without open assignments or branches goes back to the ideas with ticket_to_idea when
+  the user asks (it reopens the ideas it came from and archives the ticket).
 - A chat message starting with "Ticket request:" comes from the board's "Add ticket" dialog: make it one
   ticket (create_tasks) with your own short title and a compact description of the user's point, inventing
   nothing; attach each of its files to the ticket (attach_file with the file's /uploads path), then handle
