@@ -1334,6 +1334,7 @@ async def take_one(session: AsyncSession, idea: Idea, data: IdeaTicketIn) -> Tas
         text = f"The user turned idea i{idea.id} into ticket #{task.number} {truncate(task.title, 80)} in {column}. Nothing needs doing because of this note: the board's usual rules apply."
         session.add(InboxItem(agent_id=manager.id, text=text))  # read with its next turn; costs no turn
     await _close_and_publish(session, idea.project_id, [idea])
+    await _files_to_ticket(session, task, [idea])
     return task
 
 
@@ -1365,7 +1366,27 @@ async def take(session: AsyncSession, project_id: int, task: Task, ids: list[int
     for idea in ideas.values():
         idea.status, idea.task_id, idea.closed_at = IdeaStatus.TAKEN, task.id, now
     await _close_and_publish(session, project_id, list(ideas.values()))
+    await _files_to_ticket(session, task, list(ideas.values()))
     return list(ideas.values())
+
+
+async def _files_to_ticket(session: AsyncSession, task: Task, ideas: list[Idea]) -> None:
+    """The files of ideas taken into a ticket, attached to it as copies (#168): the ticket's retention or its
+    deletion may remove them there, the idea keeps its own. A file the ticket has already (same name and size)
+    is not added again; purged ones are left out."""
+    if not ideas:
+        return
+    files = (await session.scalars(select(Attachment).where(Attachment.idea_id.in_([i.id for i in ideas]), Attachment.purged_at.is_(None)).order_by(Attachment.id))).all()
+    have = {(a.filename, a.size) for a in await board_service.list_attachments(session, task.id)}
+    for a in files:
+        if (a.filename, a.size) in have:
+            continue
+        try:
+            with board_service.storage_path(a).open("rb") as fh:
+                await board_service.add_attachment(session, task, a.filename, a.content_type, fh)
+        except (OSError, ServiceError):  # gone from disk, or larger than uploads may be now: the idea still has it
+            continue
+        have.add((a.filename, a.size))
 
 
 async def leave_out(session: AsyncSession, project_id: int, ids: list[int], reason: str, duplicate_of: int | None = None) -> list[Idea]:
