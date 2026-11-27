@@ -415,6 +415,10 @@ function ProjectWorkspace({
         setView("ideas");
       },
       openSettings,
+      openProjectSettings: (section) => {
+        if (section) localStorage.setItem("plainboard.projectSection", JSON.stringify(section));
+        setView("project");
+      },
       openBrowser: (address) => {
         setBrowserRequest((last) => ({ url: address, n: last.n + 1 }));
         setView("browser");

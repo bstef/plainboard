@@ -152,7 +152,8 @@ function handleIdeas(qc: QueryClient, pid: number, type: string, data: any) {
       qc.setQueryData<IdeasData>(qk.ideas(pid), (old) => old && { ...old, sorting: !!data.sorting });
       break;
     case "ideas.sort_failed":
-      showIdeaNote({ project_id: pid, error: String(data.error || "?") });
+      if (data.blocked) void qc.invalidateQueries({ queryKey: qk.ideas(pid) }); // the ideas view says which model can't be used
+      else showIdeaNote({ project_id: pid, error: String(data.error || "?") });
       break;
     case "ideas.rearranged":
       if (!data.changed) showIdeaNote({ project_id: pid, error: "" });

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Check, CornerDownLeft, Lightbulb, Loader2, MessageSquare, Paperclip, PencilRuler, RotateCcw, Send, Shuffle, Undo2, X } from "lucide-react";
+import { Check, CornerDownLeft, Lightbulb, Loader2, MessageSquare, Paperclip, PencilRuler, RotateCcw, Send, Settings, Shuffle, TriangleAlert, Undo2, X } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -285,6 +285,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
           <>
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-bg to-transparent" />
             <div className="pointer-events-none absolute inset-x-0 bottom-3 flex flex-col items-center gap-2 px-3 sm:bottom-5">
+              {data.model_blocked && <ModelBlocked blocked={data.model_blocked} />}
               <Notice error={error} onDismissError={() => setError("")} byId={byId} />
               {handed > 0 && manager && (
                 <div role="status" data-part="idea-handover-sent" className="pointer-events-auto flex max-w-full items-center gap-2 rounded-sm bg-bg py-1 pr-1 pl-3 shadow-lg ring-1 ring-line-2">
@@ -575,6 +576,28 @@ function Island({
         {extra}
       </div>
     </section>
+  );
+}
+
+/** The idea model set can't be used in this project: no other one sorts instead, so ideas wait unsorted. */
+function ModelBlocked({ blocked }: { blocked: NonNullable<IdeasData["model_blocked"]> }) {
+  const { t } = useTranslation();
+  const { isOwner, openProjectSettings } = useShell();
+  return (
+    <div role="alert" data-part="idea-model-blocked" className="pointer-events-auto flex w-full max-w-2xl flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded-sm bg-bg py-1.5 pr-1 pl-3 shadow-lg ring-1 ring-line-2">
+      <span className="flex min-w-0 flex-1 basis-64 items-start gap-2 text-you-fg">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+        <span className="min-w-0">
+        {t("ideas.modelBlocked", { provider: blocked.provider_label, model: blocked.model })}
+        {!isOwner && ` ${t("ideas.modelBlockedAskOwner")}`}
+        </span>
+      </span>
+      {isOwner && (
+        <Button size="sm" variant="ghost" icon={<Settings className="size-3.5" />} onClick={() => openProjectSettings("team")}>
+          {t("ideas.modelBlockedChange")}
+        </Button>
+      )}
+    </div>
   );
 }
 

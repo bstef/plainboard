@@ -1699,10 +1699,19 @@ class IdeaChangeOut(ORM):
     ideas: list[IdeaOut] = Field(default_factory=list)  # the ideas it touched, as they are now (with an answer only)
 
 
+class IdeaModelBlocked(BaseModel):
+    """The idea model set can't be used: the project may use no subscription of its provider."""
+
+    provider: str
+    provider_label: str
+    model: str
+
+
 class IdeasOut(BaseModel):
     topics: list[IdeaTopicOut]
     ideas: list[IdeaOut]
     sorting: bool = False  # the model is sorting ideas right now
+    model_blocked: IdeaModelBlocked | None = None  # ideas stay unsorted until that is changed
 
 
 class IdeaHandOver(BaseModel):

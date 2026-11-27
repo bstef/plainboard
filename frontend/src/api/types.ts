@@ -1220,6 +1220,8 @@ export interface IdeasData {
   ideas: Idea[];
   /** The AI is sorting ideas right now. */
   sorting: boolean;
+  /** The idea model set can't be used: the project may use no subscription of its provider. */
+  model_blocked: { provider: string; provider_label: string; model: string } | null;
 }
 
 // --- doc sites (#118) ---------------------------------------------------------------------------
