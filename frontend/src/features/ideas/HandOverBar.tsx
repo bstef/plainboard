@@ -7,6 +7,7 @@ import { upsertIdea } from "../../api/events";
 import type { Agent, Idea } from "../../api/types";
 import { Button, IconButton, Textarea } from "../../components/ui";
 import { useDraft } from "../../lib/drafts";
+import { sendsOnEnter } from "../../lib/hooks";
 import { useShell } from "../layout/shell-context";
 import { ideaTitle } from "./IdeaCard";
 
@@ -36,9 +37,9 @@ function useHandOver(onSent: (count: number) => void) {
   return { text, setText, sending, error, send };
 }
 
-// Like the idea input it takes the place of: Enter sends, Shift+Enter is a new line.
+// Like the idea input it takes the place of: Enter sends (a new line on touch screens), Shift+Enter is a new line.
 const enter = (go: () => void) => (e: React.KeyboardEvent) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+  if (sendsOnEnter(e)) {
     e.preventDefault();
     go();
   }
