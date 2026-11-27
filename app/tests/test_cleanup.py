@@ -188,7 +188,9 @@ def test_the_manager_lists_and_deletes_only_his_projects_data_by_the_safety_rule
     fake.machine_usage = MachineUsage(volumes=[_volume(85)])
     safe, busy, kept = f"/workspaces/{slug}/manager/repo/target", f"/workspaces/{slug}/manager/web/node_modules", f"/workspaces/{slug}/gone"
     theirs, shared = f"/workspaces/{other['slug']}/manager/repo/target", "/home/agent/scratch"
+    workdir, gone = f"/workspaces/{slug}/manager/ws-2", f"/workspaces/{slug}/manager/ws-old/target"
     fake.candidates = [
+        CleanupCandidate(path=workdir, what="workdir", bytes=6 * GB, safety="busy"),
         CleanupCandidate(path=safe, what="build", bytes=5 * GB, safety="safe"),
         CleanupCandidate(path=busy, what="build", bytes=3 * GB, safety="busy"),
         CleanupCandidate(path=kept, what="folder", bytes=2 * GB, safety="keep", why="repo has unpushed commits"),
@@ -197,20 +199,22 @@ def test_the_manager_lists_and_deletes_only_his_projects_data_by_the_safety_rule
     ]
     calls = [
         "TOOL list_cleanup {}",
-        "TOOL delete_cleanup " + json.dumps({"paths": [safe, busy, kept, theirs, shared, "/etc"]}),
-        "TOOL delete_cleanup " + json.dumps({"paths": [busy, kept, theirs, shared], "force": True}),
+        "TOOL delete_cleanup " + json.dumps({"paths": [safe, busy, kept, theirs, shared, "/etc", gone + "/"]}),
+        "TOOL delete_cleanup " + json.dumps({"paths": [workdir, busy, kept, theirs, shared], "force": True}),
     ]
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": "\n".join(calls)}).status_code == 202
     wait_for(lambda: idle(client, pid) and len(_results(client, manager["id"])) >= 3)
     listed, first, forced = _results(client, manager["id"])[-3:]
-    assert "Safe (made again when needed):\n- 5.0 GB " + safe in listed and "Kept (unpushed work or tools; delete_cleanup won't):" in listed
+    assert "Safe (made again when needed):\n- 5.0 GB " + safe in listed and "Kept (work that is nowhere else, or tools; delete_cleanup won't" in listed
+    assert f"- 6.0 GB {workdir}: extra work folder of Manager; busy: Manager works now" in listed
     assert theirs not in listed  # another project's data is not even shown
     assert "Shared, not yours (4.0 GB;" in listed and "- 4.0 GB /home/agent/scratch: home folder, shared; safe" in listed
     assert first.startswith("Deleted 5.0 GB: " + safe) and f"{busy}: busy" in first and f"{kept}: keep" in first
-    refused = f"Refused, not your project's (only its own data can be deleted): {theirs}, {shared}, /etc."
-    assert refused in first
-    assert forced.startswith("Deleted 3.0 GB: " + busy) and f"{kept}: keep" in forced and f"{theirs}, {shared}." in forced  # force changes nothing about whose it is
-    assert [d.paths for d in fake.deletes] == [[safe, busy, kept], [busy, kept]]
+    refused = f"Refused, not in your project's folders (only its own data can be deleted; give the paths as list_cleanup shows them): {theirs}, {shared}, /etc."
+    assert refused in first and f"{gone}: gone already" in first  # in its own folders, but no candidate (any more): the runner says why
+    assert forced.startswith(f"Deleted 9.0 GB: {workdir} 6.0 GB, {busy}") and f"{kept}: keep" in forced and f"{theirs}, {shared}." in forced  # force changes nothing about whose it is
+    assert [d.paths for d in fake.deletes] == [[safe, busy, kept, gone], [workdir, busy, kept]]
+    assert next(f for f in fake.candidate_specs[-1].folders if f.path == f"/workspaces/{slug}/manager").clones is not None  # extra work folders are offered
     assert any(c.path == theirs for c in fake.candidates)
 
     async def events():
@@ -265,7 +269,7 @@ def test_the_manager_deletes_a_cache_of_his_project_and_another_manager_cannot(c
     wait_for(lambda: idle(client, other["id"]) and len(_results(client, theirs["id"])) >= 2)
     listed, refused = _results(client, theirs["id"])[-2:]
     assert f"{cache}: cache, shared; safe" not in listed and cache not in listed  # another project's: not even shown
-    assert refused == f"Refused, not your project's (only its own data can be deleted): {cache}."
+    assert refused == f"Refused, not in your project's folders (only its own data can be deleted; give the paths as list_cleanup shows them): {cache}."
 
     manager = agents_by_slug(client, pid)["manager"]
     assert client.post(f"/api/agents/{manager['id']}/messages", json={"text": call}).status_code == 202

@@ -313,6 +313,7 @@ class CleanupFolder(BaseModel):
     idle_since: float = 0  # unix time of its agent's last turn; oldest first
     orphan: bool = False  # no agent has it any more (deleted or renamed): may go entirely if nothing in it is unpushed
     busy: bool = False  # its agent works (turn, open assignment, running job): only listed, deleted only when asked to
+    clones: list[str] | None = None  # names of the project's repositories (its clones there); other folders in it are extra work folders. None: none are offered
 
 
 class CleanupSpec(BaseModel):
@@ -325,7 +326,7 @@ class CleanupSpec(BaseModel):
 
 class CleanedItem(BaseModel):
     path: str
-    what: Literal["build", "cache", "folder", "logs", "home"]
+    what: Literal["build", "cache", "folder", "workdir", "logs", "home"]
     bytes: int
     users: list[str] = Field(default_factory=list)  # trimmed shared cache: the agent folders whose clones use its tool
 
@@ -343,7 +344,7 @@ class CleanupCandidate(BaseModel):
     """Something the manager may delete to free room (runner ``cleanup.candidates``)."""
 
     path: str
-    what: Literal["build", "cache", "folder", "home"]  # build output in an agent's folder, a cache, a removed agent's folder, a folder in the shared home
+    what: Literal["build", "cache", "folder", "workdir", "home"]  # build output in an agent's folder, a cache, a removed agent's folder, an extra work folder in an agent's folder (a worktree, another clone), a folder in the shared home
     bytes: int = 0
     safety: CandidateSafety  # safe: can be made again; busy: its agent works now; unsure: may hold work; keep: holds unpushed work or tools
     why: str = ""

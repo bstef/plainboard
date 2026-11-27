@@ -37,8 +37,10 @@ async def send_message(agent_id: int, body: ChatMessageIn, session: Session, run
     agent = await agent_service.get(session, agent_id)
     if not agent.is_manager and not await settings_service.get(session, "member_chat"):
         raise ServiceError("Direct messages to members are off. Talk to the manager, or enable it in Settings.", 403)
+    if body.client_key and (run := await runs.sent_chat(session, agent.id, body.client_key)):
+        return RunOut.model_validate(run)  # it arrived before; the answer did not
     several = bool(await user_service.author(session, who.user, agent.project_id))
-    run = await runs.chat(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several)
+    run = await runs.chat(session, agent, body.text, body.attachment_ids, author=who.name or None, several=several, key=body.client_key)
     await mention_service.record(session, agent.project_id, body.text, kind="chat", author=who.name, author_user_id=who.user.id if who.user else None, agent_id=agent.id)
     return RunOut.model_validate(run)
 

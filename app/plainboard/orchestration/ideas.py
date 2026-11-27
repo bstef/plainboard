@@ -66,6 +66,7 @@ class Ideas:
         self._readers: dict[int, asyncio.Task[None]] = {}
         self._read_again: set[int] = set()  # more input came while reading
         self._locks: dict[int, asyncio.Lock] = {}
+        self._tried: dict[int, set[int]] = {}  # project -> the unsorted ideas last sent to be sorted
 
     def _lock(self, project_id: int) -> asyncio.Lock:
         return self._locks.setdefault(project_id, asyncio.Lock())
@@ -144,6 +145,12 @@ class Ideas:
         self._sorters[project_id] = asyncio.create_task(self._loop(project_id), name=f"ideas-sort-{project_id}")
         bus.publish(project_id, "ideas.sorting", {"sorting": True})
 
+    def sort_left(self, project_id: int, ids: set[int]) -> None:
+        """More than one idea left without a topic (sorting failed, or their topic was removed): sorted once more,
+        unless just these were sent last time (a broken model is not asked again and again)."""
+        if len(ids) > 1 and not self.sorting(project_id) and not self.reading(project_id) and not ids <= self._tried.get(project_id, set()):
+            self.sort_soon(project_id)
+
     async def _loop(self, project_id: int) -> None:
         try:
             await asyncio.sleep(0 if self._reorder.get(project_id) == "button" else SORT_DELAY)
@@ -181,10 +188,14 @@ class Ideas:
             if project is None:
                 return False
             ideas = await idea_service.open_ideas(s, project_id)
-            batch = [i for i in ideas if i.sort_state == idea_service.PENDING][:SORT_BATCH]
+            # New and changed ones, and with them those left unsorted; those alone once more than one is left.
+            pending = [i for i in ideas if i.sort_state == idea_service.PENDING]
+            left = [i for i in idea_service.unsorted(ideas) if i.sort_state != idea_service.PENDING]
+            batch = (pending + left)[:SORT_BATCH] if pending or len(left) > 1 else []
             if not batch:
                 return False
             ids = [i.id for i in batch]
+            self._tried[project_id] = set(ids)
             prompt = await idea_service.sort_request(s, project, ideas, batch)
             data, error = await self._ask(s, project, idea_service.SORT_SYSTEM, prompt)
         async with self.runs._sm() as s:
@@ -242,7 +253,9 @@ class Ideas:
                     if request is None:
                         continue
                     prompt, seen = request
-                    data, _error = await self._ask(s, project, idea_service.MERGE_SYSTEM, prompt)
+                    data = idea_service.merged_as_written(seen)
+                    if data is None:
+                        data, _error = await self._ask(s, project, idea_service.MERGE_SYSTEM, prompt)
                 async with self.runs._sm() as s:
                     merged = await idea_service.apply_merge(s, project_id, seen, data) is not None or merged
         return merged
@@ -266,15 +279,14 @@ class Ideas:
     async def choice(self, s: AsyncSession, project: Project) -> tuple[str, str, str | None]:
         """Provider, model and effort for ideas: the project's own, else the provider's small model."""
         provider = project.idea_provider or DEFAULT_PROVIDER
-        model = project.idea_model
-        if not model:
-            catalog: list[ProviderInfo] = []
-            try:
-                catalog = await account_service.catalog(s, await self.runs.runner.providers())
-            except Exception:
-                catalog = []
-            model = questions.default_model(provider, catalog)
+        model = project.idea_model or questions.default_model(provider, await self._catalog(s))
         return provider, model, project.idea_effort or None
+
+    async def _catalog(self, s: AsyncSession) -> list[ProviderInfo]:
+        try:
+            return await account_service.catalog(s, await self.runs.runner.providers())
+        except Exception:
+            return []
 
     async def _ask(self, s: AsyncSession, project: Project, system: str, prompt: str) -> tuple[dict | None, str]:
         """The model's JSON answer, or None and why not. ``s`` is committed before the call; the cost is stored."""
@@ -282,6 +294,11 @@ class Ideas:
         manager = await agent_service.get_manager(s, project.id)
         where = self.runs.runners.where(project.id)
         account = await account_service.pick(s, provider, manager, None, model=model, fresh=True, where=where)
+        if account is None and manager.provider != provider:  # the project may not use that provider: the manager's small model
+            small = questions.default_model(manager.provider, await self._catalog(s))
+            if (other := await account_service.pick(s, manager.provider, manager, None, model=small, fresh=True, where=where)) is not None:
+                log.info("Ideas of project %s: no account for %s, using %s", project.id, provider, manager.provider)
+                account, provider, model, effort = other, manager.provider, small, None
         why = ""
         if account is None:
             why = await account_service.shut_out(s, provider, manager) or await account_service.not_signed_in(s, provider, manager, where)

@@ -211,7 +211,7 @@ def test_candidates_say_how_safe_each_is_and_delete_keeps_to_it(ws, tmp_path, mo
     assert [i.path for i in result.items] == [str(idle_agent / "repo" / "target")]
     assert busy_target.exists() and scratch.exists() and work.exists() and gone.exists() and (home / ".ssh").exists()
     assert f"{busy_target}: busy; force=true deletes it anyway" in result.skipped and f"{work}: kept, x has changes" in result.skipped
-    assert f"{home / '.ssh'}: not a cleanup candidate" in result.skipped
+    assert f"{home / '.ssh'}: not a cleanup candidate (list_cleanup shows what can go)" in result.skipped
 
     result = cleanup.delete(DeleteSpec(paths=asked, folders=folders, force=True))
     assert not busy_target.exists() and not scratch.exists()
@@ -286,3 +286,44 @@ def test_before_a_move_every_clone_says_what_of_its_work_is_on_no_remote(ws, tmp
     found = cleanup.unpushed_work(UnpushedSpec(folders=[str(clean.parent), str(folder), str(tmp_path / "outside"), str(ws)]))
     assert [(w.folder, w.repo) for w in found] == [(str(folder), "api")]
     assert found[0].problems == ["1 uncommitted change", "1 stash", "commits on no remote branch: feat/x (1)", "branches without upstream: spare"]
+
+
+def test_extra_work_folders_of_an_agent_are_offered_and_go_only_without_own_work(ws, tmp_path):
+    from plainboard_protocol import CandidatesSpec, DeleteSpec
+
+    folder = agent(ws, "dev")
+    repo = clone(tmp_path, folder)
+    git(repo, "worktree", "add", "-q", "-b", "feature", "../ws-b")  # a branch with unpushed commits: the main clone keeps it
+    (folder / "ws-b" / "f.rs").write_text("x")
+    git(folder / "ws-b", "add", ".")
+    git(folder / "ws-b", "commit", "-qm", "on a branch")
+    (folder / "ws-b" / "target").mkdir()
+    git(repo, "worktree", "add", "-q", "-b", "dirty", "../ws-c")
+    (folder / "ws-c" / "src.rs").write_text("changed")
+    git(repo, "worktree", "add", "-q", "--detach", "../ws-d")
+    (folder / "ws-d" / "g.rs").write_text("y")
+    git(folder / "ws-d", "add", ".")
+    git(folder / "ws-d", "commit", "-qm", "on no branch")
+    (folder / "notes").mkdir()
+    (folder / "notes" / "todo.txt").write_text("mine")
+    (folder / ".claude").mkdir()
+
+    folders = [CleanupFolder(path=str(folder), clones=["repo"])]
+    found = {os.path.relpath(c.path, folder): (c.what, c.safety, c.why) for c in cleanup.candidates(CandidatesSpec(folders=folders), sizes=False)}
+    assert found["ws-b"] == ("workdir", "safe", "")
+    assert found["ws-c"] == ("workdir", "keep", "ws-c has changes")
+    assert found["ws-d"] == ("workdir", "keep", "ws-d has commits on no branch")
+    assert found["notes"] == ("workdir", "unsure", "notes/todo.txt is not in a clone")
+    assert "repo" not in found and ".claude" not in found and found["repo/target"][0] == "build"
+    assert not any(c.what == "workdir" for c in cleanup.candidates(CandidatesSpec(folders=[CleanupFolder(path=str(folder))]), sizes=False))  # an app that sends no clones
+    busy = cleanup.candidates(CandidatesSpec(folders=[CleanupFolder(path=str(folder), clones=["repo"], busy=True)]), sizes=False)
+    assert next(c for c in busy if c.path == str(folder / "ws-b")).safety == "busy"
+
+    asked = [str(folder / n) for n in ("ws-b", "ws-c", "ws-d", "gone")]
+    result = cleanup.delete(DeleteSpec(paths=asked, folders=folders, force=True))
+    assert [(i.path, i.what) for i in result.items] == [(str(folder / "ws-b"), "workdir")]
+    assert f"{folder / 'ws-c'}: kept, ws-c has changes" in result.skipped and f"{folder / 'gone'}: gone already" in result.skipped
+    assert not (folder / "ws-b").exists() and (folder / "ws-c" / "src.rs").read_text() == "changed"
+    listed = subprocess.run(["git", "worktree", "list"], cwd=repo, capture_output=True, text=True).stdout
+    assert "ws-b" not in listed and "ws-c" in listed  # the main clone forgot the deleted worktree, and keeps its branch
+    assert subprocess.run(["git", "rev-parse", "--verify", "-q", "feature"], cwd=repo, capture_output=True).returncode == 0

@@ -150,12 +150,18 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
     setFiles([]);
     setError("");
   };
-  const onPaste = (e: ClipboardEvent) => {
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     // Office apps also put a picture of copied text on the clipboard: text wins.
     const pasted = Array.from(e.clipboardData.files);
-    if (pasted.length && !e.clipboardData.getData("text/plain")) {
+    const pastedText = e.clipboardData.getData("text/plain");
+    if (pasted.length && !pastedText) {
       e.preventDefault();
       setFiles((cur) => [...cur, ...pasted]);
+    }
+    // The field takes IDEA_TEXT_MAX characters and cuts the rest of a paste: say so.
+    const field = e.currentTarget;
+    if (text.length - (field.selectionEnd - field.selectionStart) + pastedText.length > IDEA_TEXT_MAX) {
+      setError(t("ideas.tooLong", { max: IDEA_TEXT_MAX.toLocaleString() }));
     }
   };
   const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -346,7 +352,7 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
                       e.preventDefault();
                       submit();
                     }}
-                    maxLength={10000}
+                    maxLength={IDEA_TEXT_MAX}
                     aria-label={t("ideas.placeholder")}
                     placeholder={empty ? t("ideas.placeholderFirst") : t("ideas.placeholder")}
                     className={clsx(
@@ -404,6 +410,8 @@ export function IdeasView({ focus }: { focus?: { id: number; n: number } }) {
   }
 }
 
+/** The longest text of an idea, as the server takes it (schemas.IDEA_TEXT_MAX). */
+const IDEA_TEXT_MAX = 100_000;
 const fileName = (file: File) => file.name || "pasted.png";
 const closed = (idea: Idea) => idea.status !== "open" && idea.status !== "reading";
 

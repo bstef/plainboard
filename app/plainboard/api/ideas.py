@@ -30,7 +30,9 @@ async def list_ideas(project_id: int, session: Session, runs: Runs, closed: bool
     if not runs.ideas.reading(project_id) and await idea_service.waiting_input(session, project_id) is not None:
         runs.ideas.read_soon(project_id)  # left waiting by a restart
     topics = [IdeaTopicOut.model_validate(t) for t in await idea_service.topics(session, project_id)]
-    ideas = await idea_service.outs(session, await idea_service.listed(session, project_id, closed=closed))
+    listed = await idea_service.listed(session, project_id, closed=closed)
+    runs.ideas.sort_left(project_id, {i.id for i in idea_service.unsorted([i for i in listed if i.status == IdeaStatus.OPEN])})
+    ideas = await idea_service.outs(session, listed)
     return IdeasOut(topics=topics, ideas=ideas, sorting=runs.ideas.sorting(project_id))
 
 
@@ -51,9 +53,9 @@ async def create_idea(project_id: int, body: IdeaCreate, session: Session, runs:
 
 @router.post("/input", response_model=IdeaOut, status_code=202)
 async def take_input(
-    project_id: int, session: Session, runs: Runs, who: Who, text: str = Form("", max_length=IDEA_TEXT_MAX), files: list[UploadFile] = File(default=[])
+    project_id: int, session: Session, runs: Runs, who: Who, text: str = Form("", max_length=2 * IDEA_TEXT_MAX), files: list[UploadFile] = File(default=[])
 ) -> IdeaOut:
-    """What the person typed (and pasted files), kept at once and read by the model in the background: the idea
+    """What the person typed (and pasted files; a form's line breaks come as two characters each), kept at once and read by the model in the background: the idea
     comes with status reading; what the model made of it comes as an ``idea_change.upserted`` (``summary.input_id``)."""
     await project_service.get(session, project_id)
     if not text.strip() and not files:
@@ -111,8 +113,10 @@ async def update_topic(project_id: int, topic_id: int, body: IdeaTopicIn, sessio
 
 
 @router.delete("/topics/{topic_id}", status_code=204)
-async def delete_topic(project_id: int, topic_id: int, session: Session) -> None:
-    await idea_service.remove_topic(session, await idea_service.get_topic(session, project_id, topic_id))
+async def delete_topic(project_id: int, topic_id: int, session: Session, runs: Runs) -> None:
+    """Its ideas are sorted into the other topics again."""
+    if await idea_service.remove_topic(session, await idea_service.get_topic(session, project_id, topic_id)):
+        runs.ideas.sort_soon(project_id)
 
 
 @router.patch("/{idea_id}", response_model=IdeaOut)

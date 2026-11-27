@@ -1,6 +1,7 @@
 """Frees room on the workspaces' volume with what can be made again, without any model.
 
-Two uses. The manager lists candidates (``candidates``: build outputs, removed agents' folders, caches
+Two uses. The manager lists candidates (``candidates``: build outputs, removed agents' folders, extra
+work folders in an agent's folder (worktrees, more clones; kept while they hold work that is nowhere else), caches
 and folders in the shared home, each with its size and how safe it is to delete) and deletes chosen
 ones (``delete``). And only in an emergency (the volume nearly full) the app has the runner clean up by
 itself (``run``, level soft).
@@ -476,9 +477,17 @@ def _on_path(folder: Path, home: Path) -> bool:
 
 
 def _clone_state(repo: Path, name: str) -> tuple[str, str]:
+    """keep: work that would be lost with the folder. A worktree (``.git`` is a file) shares branches and
+    stashes with its main clone, which keeps them: only its uncommitted changes and commits on no branch
+    (detached HEAD) are its own."""
+    worktree = (repo / ".git").is_file()
     try:
         if _git(repo, "status", "--porcelain").strip():
             return "keep", f"{name} has changes"
+        if worktree:
+            if _git(repo, "rev-list", "-n1", "HEAD", "--not", "--branches", "--remotes").strip():
+                return "keep", f"{name} has commits on no branch"
+            return "safe", ""
         if _git(repo, "stash", "list").strip():
             return "keep", f"{name} has a stash"
         if _git(repo, "rev-list", "-n1", "HEAD", "--branches", "--not", "--remotes").strip():
@@ -486,6 +495,45 @@ def _clone_state(repo: Path, name: str) -> tuple[str, str]:
     except (subprocess.SubprocessError, OSError) as exc:
         return "unsure", f"{name}: git could not tell ({type(exc).__name__})"
     return "safe", ""
+
+
+def extra_folders(folder: Path, clones: list[str]) -> list[Path]:
+    """Folders at the top of an agent's folder besides its clones of the project's repositories: worktrees,
+    more clones, scratch folders. Never hidden ones (tool settings) nor build outputs (listed as such)."""
+    try:
+        children = sorted(p for p in folder.iterdir() if p.is_dir() and not p.is_symlink())
+    except OSError:
+        return []
+    return [p for p in children if p.name not in clones and not p.name.startswith(".") and not (p.name in HARD_BUILD and _marked(p))]
+
+
+def _work_state(folder: Path, busy: bool, cwds: set[str]) -> tuple[str, str]:
+    """How safe an extra work folder is to delete: kept with work that is nowhere else; busy while its agent
+    works or a process works in it; unsure if something in it is not in a clone."""
+    safety, why = assess(folder)
+    if safety == "keep":
+        return safety, why
+    if any(_within(c, str(folder)) for c in cwds):
+        return "busy", "a process works in it"
+    if busy:
+        return "busy", why
+    return safety, why
+
+
+def _remove_workdir(path: Path, result: CleanupResult) -> None:
+    """Delete an extra work folder; a worktree is also taken off its main clone's list (else its branch stays checked out there)."""
+    common = None
+    if (path / ".git").is_file():
+        try:
+            common = (path / _git(path, "rev-parse", "--git-common-dir").strip()).resolve()
+        except (subprocess.SubprocessError, OSError):
+            common = None
+    _remove([path], "workdir", result)
+    if common is not None and common.is_dir():
+        try:
+            _git(common, "worktree", "prune")
+        except (subprocess.SubprocessError, OSError) as exc:
+            log.warning("git worktree prune in %s failed: %s", common, exc)
 
 
 def assess(folder: Path, top: Path | None = None, depth: int = SEARCH_DEPTH) -> tuple[str, str]:
@@ -554,6 +602,11 @@ def candidates(spec: CandidatesSpec, only: set[str] | None = None, sizes: bool =
                 found.append(CleanupCandidate(path=str(folder), what="folder", safety="busy" if busy else "safe", why="in use" if busy else ""))
                 continue
             found.append(CleanupCandidate(path=str(folder), what="folder", safety="keep", why=reason))
+        elif entry.clones is not None:
+            for extra in extra_folders(folder, entry.clones):
+                if wanted(extra):
+                    safety, why = _work_state(extra, entry.busy, cwds)
+                    found.append(CleanupCandidate(path=str(extra), what="workdir", safety=safety, why=why))  # type: ignore[arg-type]
         for path in build_outputs(folder, "hard"):
             found.append(CleanupCandidate(path=str(path), what="build", safety="busy" if busy else "safe"))
 
@@ -652,11 +705,13 @@ def delete(spec: DeleteSpec) -> CleanupResult:
     for path in paths:
         c = found.get(path)
         if c is None:
-            result.skipped.append(f"{path}: not a cleanup candidate")
+            result.skipped.append(f"{path}: gone already" if not os.path.lexists(path) else f"{path}: not a cleanup candidate (list_cleanup shows what can go)")
         elif c.safety == "keep":
             result.skipped.append(f"{path}: kept, {c.why}")
         elif c.safety != "safe" and not spec.force:
             result.skipped.append(f"{path}: {c.safety}{', ' + c.why if c.why else ''}; force=true deletes it anyway")
+        elif c.what == "workdir":
+            _remove_workdir(Path(path), result)
         else:
             _remove([Path(path)], c.what, result)
     forget_sizes()

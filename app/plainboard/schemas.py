@@ -246,7 +246,7 @@ class FolderOut(BaseModel):
 
 class CleanedOut(BaseModel):
     path: str
-    what: str  # build | cache | folder | logs | server
+    what: str  # build | cache | folder | workdir | logs | server
     bytes: int = 0
 
 
@@ -1026,6 +1026,8 @@ class TaskDetail(TaskOut):
 class ChatMessageIn(BaseModel):
     text: str = ""
     attachment_ids: list[int] = Field(default_factory=list)
+    # Chosen by the browser per message: sent again (no answer came, the server restarted), it is not taken twice.
+    client_key: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def not_empty(self) -> ChatMessageIn:
@@ -1592,7 +1594,7 @@ class FlowTicketBranch(BaseModel):
 
 # --- ideas (services/ideas.py, orchestration/ideas.py) -----------------------------------------
 
-IDEA_TEXT_MAX = 10000
+IDEA_TEXT_MAX = 100_000  # the ideas field says so when a paste is longer (frontend: IDEA_TEXT_MAX)
 
 
 class IdeaCreate(BaseModel):
