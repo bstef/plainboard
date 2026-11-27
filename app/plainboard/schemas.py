@@ -1865,6 +1865,16 @@ class DocSiteUpdate(BaseModel):
     theme: DocTheme | None = None  # its look (#121); DocTheme() as it is: none
 
 
+class DocTranslationModelOut(BaseModel):
+    """What the site's "llm" translations run on right now (#178), as the doc watcher decides it."""
+
+    provider: str
+    model: str
+    provider_from: str  # "site" | "agent": its own setting or its doc agent's provider
+    model_from: str  # "site" | "small": its own setting or the provider's small model
+    problem: str = ""  # why it can't run (no subscription the project may use, no sign-in); "": it can
+
+
 class DocKeysIn(BaseModel):
     """Write-only; "" removes a key, None keeps it."""
 

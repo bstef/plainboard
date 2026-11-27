@@ -1228,6 +1228,15 @@ export interface IdeasData {
 
 export type DocTranslator = "" | "llm" | "deepl" | "google";
 
+/** What the site's "llm" translations run on right now (#178): provider_from "site" | "agent", model_from "site" | "small". */
+export interface DocTranslationModel {
+  provider: string;
+  model: string;
+  provider_from: "site" | "agent";
+  model_from: "site" | "small";
+  problem: string;
+}
+
 export interface DocAgent {
   id: number;
   slug: string;

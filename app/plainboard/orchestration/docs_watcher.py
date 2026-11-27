@@ -41,7 +41,7 @@ from plainboard_protocol import CompletionResult, CompletionSpec, GitCommit, Git
 from sqlalchemy import String, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ..models import Assignment, AssignmentStatus, DocPage, DocPageVersion, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
+from ..models import Account, Agent, Assignment, AssignmentStatus, DocPage, DocPageVersion, DocSite, DocWatch, Landing, LandingStatus, Project, Repository, Run, RunStatus, RunTrigger, Task, utcnow
 from ..services import accounts as account_service
 from ..services import docs as docs_service
 from ..services import docs_proposals, docs_translate
@@ -101,6 +101,41 @@ def matches(path: str, patterns: list[str]) -> bool:
         elif path == pattern or path.startswith(pattern.rstrip("/") + "/"):
             return True
     return False
+
+
+@dataclass
+class TranslationChoice:
+    """What the site's "llm" translations run on right now: shown in its settings (#178), used by the watcher."""
+
+    provider: str
+    model: str
+    provider_from: str  # "site": its own setting, "agent": its doc agent's provider
+    model_from: str  # "site": its own setting, "small": the provider's small model
+    account: Account | None = None  # the subscription it runs on; None: it can't run, ``problem`` says why
+    problem: str = ""
+
+
+async def translation_choice(s: AsyncSession, runs: RunManager, project: Project, site: DocSite, agent: Agent) -> TranslationChoice:
+    """The provider and model of the site's translations: its own, else its doc agent's provider and that provider's
+    small model. Never another provider: one the project can't use is a problem, not a reason to switch."""
+    provider = site.translate_provider or agent.provider or DEFAULT_PROVIDER
+    model = site.translate_model
+    if not model:
+        try:
+            catalog = await account_service.catalog(s, await runs.runner.providers())
+        except Exception:
+            catalog = []
+        model = questions.default_model(provider, catalog)
+    choice = TranslationChoice(provider=provider, model=model, provider_from="site" if site.translate_provider else "agent", model_from="site" if site.translate_model else "small")
+    where = runs.runners.where(project.id)
+    choice.account = await account_service.pick(s, provider, agent, None, model=model, fresh=True, where=where)
+    if choice.account is None:
+        choice.problem = (
+            await account_service.shut_out(s, provider, agent)
+            or await account_service.not_signed_in(s, provider, agent, where)
+            or f"There is no subscription for {provider}. Add one, or choose a provider the project has a subscription for."
+        )
+    return choice
 
 
 class DocsWatcher:
@@ -233,18 +268,10 @@ class DocsWatcher:
 
         async def ask(system: str, prompt: str) -> str:
             agent = await docs_service.ensure_agent(s, site)
-            provider = site.translate_provider or agent.provider or project.idea_provider or DEFAULT_PROVIDER
-            model = site.translate_model
-            if not model:
-                try:
-                    catalog = await account_service.catalog(s, await self._runs.runner.providers())
-                except Exception:
-                    catalog = []
-                model = questions.default_model(provider, catalog)
-            where = self._runs.runners.where(project.id)
-            account = await account_service.pick(s, provider, agent, None, model=model, fresh=True, where=where)
+            choice = await translation_choice(s, self._runs, project, site, agent)
+            account, provider, model = choice.account, choice.provider, choice.model
             if account is None:
-                raise RuntimeError(await account_service.shut_out(s, provider, agent) or await account_service.not_signed_in(s, provider, agent, where) or "no subscription")
+                raise RuntimeError(choice.problem)
             credentials = settings_service.credentials(await settings_service.get_all(s), account=account_service.fields(account))
             account_key, agent_id = account.key, agent.id
             await s.commit()
