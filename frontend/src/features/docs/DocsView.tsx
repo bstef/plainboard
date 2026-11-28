@@ -24,6 +24,7 @@ import type { DocPageItem, DocSite } from "../../api/types";
 import { Button, ChatPanelToggle, EmptyState, ErrorText, Field, IconButton, Input, Modal, Spinner, Textarea } from "../../components/ui";
 import { formatBytes, timeAgo } from "../../lib/format";
 import { useStored } from "../../lib/hooks";
+import { thumbSrc } from "../../lib/media";
 import { useShell } from "../layout/shell-context";
 import { DocMarkdown } from "./DocMarkdown";
 import { languageLabel, PageEditor } from "./PageEditor";
@@ -672,7 +673,7 @@ function FilesTab({ site }: { site: DocSite }) {
               return (
                 <li key={f.id} className="group/file flex flex-col overflow-hidden rounded-sm ring-1 ring-line ring-inset">
                   <a href={`/api/attachments/${f.id}`} target="_blank" rel="noreferrer" className="flex aspect-[4/3] items-center justify-center bg-sunk">
-                    {image ? <img src={`/api/attachments/${f.id}`} alt={f.filename} loading="lazy" className="size-full object-cover" /> : <FileText className="size-8 text-fg-3" />}
+                    {image ? <img src={thumbSrc(f.id, 400)} alt={f.filename} loading="lazy" decoding="async" className="size-full object-cover" /> : <FileText className="size-8 text-fg-3" />}
                   </a>
                   <div className="flex items-center gap-1 px-2 py-1.5">
                     <span className="min-w-0 flex-1">
